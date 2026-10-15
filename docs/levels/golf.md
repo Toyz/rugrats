@@ -1074,7 +1074,7 @@ once (0x80018824 = `li a0, N`, restored to `move a0, a1` at 3000);
 
 ## For the port
 
-Order (port code is crates/rugrats/src/game.rs and friends):
+Order (port code is crates/rugrats/src/world/game/ and levels/golf.rs):
 
 1. Data: the nine holes' tables (par, character, cine, start), the hole
    index maps, templates 724 and 789 found by the class-0 constructor,

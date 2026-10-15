@@ -339,7 +339,7 @@ as the first argument; 28-31 follow from it) (guess: left over).
 
 ### Against the port
 
-- The pause's Save Game and Load Game (crates/rugrats/src/main.rs,
+- The pause's Save Game and Load Game (crates/rugrats/src/world/game/pause.rs and app/play.rs,
   `game.save`, `game.load`) write the last-used record (word 3) and load
   it at once, with none of these pages.
 - `Save::put_record` (card.rs) copies the state as it is: it does not put

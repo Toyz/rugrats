@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-62 entries: audio 8, bug 2, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 29, render 11, save 3, test 9, tooling 15, ui 9, video 8.
+63 entries: audio 8, bug 2, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 29, render 11, save 3, test 9, tooling 15, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -74,3 +74,4 @@ The [reference](docs/README.md) says what is true now.
 | 60 | [Title: the Audio menu](worklog/0060-title-the-audio-menu.md) | 2026-10-15 | ui |
 | 61 | [Save and load pages, pause and title](worklog/0061-save-and-load-pages-pause-and-title.md) | 2026-10-15 | save |
 | 62 | [Mini-golf for one to four players](worklog/0062-mini-golf-for-one-to-four-players.md) | 2026-10-15 | play |
+| 63 | [The port restructured into idiomatic Rust](worklog/0063-the-port-restructured-into-idiomatic-rust.md) | 2026-10-15 | design |

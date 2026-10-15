@@ -643,7 +643,7 @@ ambience call). Frame numbers are vertical blanks.
 
 ## For the port
 
-Order (port code: crates/rugrats/src/front.rs has the backdrop, the
+Order (port code: crates/rugrats/src/ui/front.rs has the backdrop, the
 cubes and the sign; hud.rs the sprites; text.rs the items; progress.rs
 the piece and bar rules):
 

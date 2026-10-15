@@ -479,7 +479,7 @@ falls (5). The boss only throws him back.
 | HINT11 | 682 | after cine 13 (arg 5) | Lobsters; unopened cans tame them, opened cans make Tommy cry; # picks up, @ throws; get to the soapy area |
 | HINT12 | 683 | after cine 86 (arg 6) | Get past the boss lobster and his bullies to throw the switch; a can stuns the boss |
 
-The port's card table (crates/rugrats/src/front.rs card_after) already
+The port's card table (crates/rugrats/src/ui/front.rs card_after) already
 has 2, 8, 9, 13 and 86.
 
 ## Per-frame ambience (0x80080330)
@@ -524,8 +524,8 @@ does reach the level in these runs (Triangle threw pies).
 
 ## For the port
 
-Order (the existing port code is crates/rugrats/src/game.rs, level2.rs,
-npc.rs):
+Order (the existing port code is crates/rugrats/src/world/game/,
+levels/grandpas_teeth.rs, actors/npc.rs):
 
 1. Data: already read: LP kinds 1, 2, 6 (room flags 2, 32, 128 in
    `Game::room_change`), templates, posts with flags. Add: kind 6 bytes

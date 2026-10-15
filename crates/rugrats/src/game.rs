@@ -518,6 +518,16 @@ impl Game {
         self.room = None;
         self.eye = self.eye_goal();
         rrt::tracing::info!("level {}: cine {n} finished", self.level);
+        // The ending cinematics (0x8007737c): back to the hub with the
+        // level recorded won or lost; Reptar Dance ends the game.
+        match ENDINGS.iter().find(|e| e.0 == n) {
+            Some(&(_, won)) => {
+                self.won = Some(won);
+                self.exit = Some((HUB, None));
+            }
+            None if n == REPTAR_DANCE => self.quit = true,
+            None => {}
+        }
         if let Some(mut l) = self.level2.take() {
             l.cine_finished(self, n);
             self.level2 = Some(l);
@@ -764,6 +774,32 @@ fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate::player::B
 }
 
 /// A level's start cinematic (0x80074958).
+/// The cinematics that end a level (0x8007737c, table 0x8001532c), and
+/// whether it was won: 5 (level 2), 14 (3), 19 (9), 20 and 21 (13), 24
+/// (18), 26 (17), 35 (8), 40 (5), 47 (6), 48 (4), 50 (21), 62 (11), 64
+/// (20), 68 (12), 72 (15), 78 (10).
+const ENDINGS: [(usize, bool); 17] = [
+    (5, true),
+    (14, true),
+    (19, true),
+    (20, false),
+    (21, true),
+    (24, true),
+    (26, true),
+    (35, true),
+    (40, true),
+    (47, true),
+    (48, true),
+    (50, true),
+    (62, true),
+    (64, true),
+    (68, true),
+    (72, true),
+    (78, true),
+];
+/// Cine 85: the end of the game (exit code -1).
+const REPTAR_DANCE: usize = 85;
+
 pub fn start_cine(level: usize) -> Option<usize> {
     Some(match level {
         1 => 7,

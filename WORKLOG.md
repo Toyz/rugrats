@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-54 entries: audio 7, bug 2, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 25, render 10, save 2, test 9, tooling 15, ui 8, video 8.
+55 entries: audio 8, bug 2, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 25, render 10, save 2, test 9, tooling 15, ui 8, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -66,3 +66,4 @@ The [reference](docs/README.md) says what is true now.
 | 52 | [Level 16, training, playable](worklog/0052-level-16-training-playable.md) | 2026-10-15 | play |
 | 53 | [Speech: XA lines, talkers, ambience](worklog/0053-speech-xa-lines-talkers-ambience.md) | 2026-10-15 | audio |
 | 54 | [Level 1: the hub's doors, signs and Spike](worklog/0054-level-1-the-hub-s-doors-signs-and-spike.md) | 2026-10-15 | play |
+| 55 | [Speech: the NPC lines](worklog/0055-speech-the-npc-lines.md) | 2026-10-15 | audio |

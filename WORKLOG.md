@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-19 entries: audio 2, bug 1, build 3, content 1, decomp 12, design 1, disc 1, engine 7, format 9, input 3, play 1, render 9, save 1, test 8, tooling 11, ui 2, video 4.
+20 entries: audio 2, bug 1, build 3, content 1, decomp 12, design 1, disc 1, engine 7, format 9, input 4, play 2, render 9, save 1, test 8, tooling 11, ui 3, video 4.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -31,3 +31,4 @@ The [reference](docs/README.md) says what is true now.
 | 17 | [Memory cards as folders, the save file byte for byte](worklog/0017-memory-cards-as-folders-the-save-file-byte-for-byte.md) | 2026-10-14 | save, decomp, tooling, test |
 | 18 | [The title screen begins: text, the backdrop, and main's chooser](worklog/0018-the-title-screen-begins-text-the-backdrop-and-main-s-chooser.md) | 2026-10-14 | ui, render, tooling, test |
 | 19 | [The title's sign and buttons, from the original's cameras](worklog/0019-the-title-s-sign-and-buttons-from-the-original-s-cameras.md) | 2026-10-14 | ui, render, decomp, test |
+| 20 | [The title menu answers the pad, and the attract cycle runs](worklog/0020-the-title-menu-answers-the-pad-and-the-attract-cycle-runs.md) | 2026-10-14 | ui, input, play |

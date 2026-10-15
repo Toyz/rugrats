@@ -15,7 +15,7 @@ use rrt::audio::Output;
 use rrt::gpu::Target;
 use rrt::prelude::*;
 use rugrats::cine::Cine;
-use rugrats::front::Title;
+use rugrats::front::{Outcome, Title};
 use rugrats::stage::Stage;
 use rugrats::disc::GameDisc;
 use rugrats::input::{self, Pads, Query};
@@ -37,12 +37,18 @@ enum Boot {
     /// The title menu (0x8003eb28), which main's chooser (0x80030158)
     /// runs after the logos.
     Title { title: Box<Title> },
+    /// A demo movie (3, 4 or 5: DEMO01-03.STR), which the chooser plays
+    /// after an idle title (0x8008b100, 0x8008b14c, 0x8008b198).
+    Demo { movie: Box<Movie> },
     /// The opening cinematic, cine 0 on database 22 (`Opening Cine Init`,
     /// 0x8008f078), which the chooser plays when the title is left idle.
     Opening { cine: Box<Cine> },
     /// Where the port ends for now.
     FrontEnd,
 }
+
+/// rand's first state (0x800c3f94 in the executable).
+const RNG_SEED: u32 = 0x02dc_f1a5;
 
 /// The opening cinematic: its number and its database.
 const OPENING: usize = 0;
@@ -56,6 +62,8 @@ struct Rugrats {
     soundtrack: Arc<Mutex<Soundtrack>>,
     /// Kept so the sound plays; None headless or with no device.
     _audio: Option<Output>,
+    /// The game's rand (0x8002fb7c), its state at 0x800c3f94.
+    rng: u32,
     /// What draws a 3D screen, made for its stage's generation, and the
     /// 4:3 picture it draws into.
     world: Option<(Renderer, Target, u64)>,
@@ -76,6 +84,7 @@ impl Rugrats {
             soundtrack,
             _audio: audio,
             world: None,
+            rng: RNG_SEED,
         })
     }
 
@@ -85,6 +94,26 @@ impl Rugrats {
             Err(e) => {
                 rrt::tracing::error!("the opening: {e}");
                 self.front_end()
+            }
+        }
+    }
+
+    /// rand (0x8002fb7c): bits 16-23 of the next state.
+    fn rand(&mut self) -> u32 {
+        self.rng = self.rng.wrapping_mul(214_013).wrapping_add(2_531_011);
+        (self.rng >> 16) & 255
+    }
+
+    /// The chooser's demo: one of the three, at random. The original's
+    /// babies also draw on rand each frame, which the port does not yet,
+    /// so the pick can differ from the original's.
+    fn demo(&mut self, now: u64) -> Boot {
+        let n = 3 + (self.rand() % 3) as usize;
+        match Movie::open(&self.disc, n, true, now, &self.soundtrack) {
+            Ok(movie) => Boot::Demo { movie: Box::new(movie) },
+            Err(e) => {
+                rrt::tracing::error!("demo {n}: {e}");
+                self.opening(now)
             }
         }
     }
@@ -145,6 +174,20 @@ impl Game for Rugrats {
                     self.boot = if next < 3 { self.logo(next, now) } else { self.title(now) };
                 }
             }
+            Boot::Demo { movie } => {
+                let skip = now.is_multiple_of(2) && {
+                    self.pads.update([Some(&t.pad), None]);
+                    self.pads.find(Query::Pressed).is_some()
+                };
+                let playing = movie.tick(now, skip, &self.disc.mdec);
+                self.screen = movie.picture.clone();
+                if !playing {
+                    if let Ok(mut s) = self.soundtrack.lock() {
+                        *s = Soundtrack::default();
+                    }
+                    self.boot = self.opening(now);
+                }
+            }
             Boot::Opening { cine } => {
                 // play_cine samples the pads once a frame, after drawing it.
                 if cine.tick(now) {
@@ -154,11 +197,23 @@ impl Game for Rugrats {
                             *s = Soundtrack::default();
                         }
                         self.world = None;
-                        self.boot = self.front_end();
+                        self.boot = self.title(now);
                     }
                 }
             }
-            Boot::Title { title } => title.tick(now),
+            Boot::Title { title } => {
+                if title.frame_due(now) {
+                    // The menu samples the pads at the end of each frame.
+                    self.pads.update([Some(&t.pad), None]);
+                    let outcome = title.frame(&self.pads);
+                    for s in &title.sounds {
+                        rrt::tracing::debug!("title: sound {s}");
+                    }
+                    if outcome == Some(Outcome::Idle) {
+                        self.boot = self.demo(now);
+                    }
+                }
+            }
             Boot::FrontEnd => {}
         }
     }

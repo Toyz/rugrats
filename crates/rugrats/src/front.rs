@@ -233,8 +233,47 @@ impl Button {
     }
 }
 
+/// What the title menu ends with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// Triangle, or 30 seconds untouched: back to main's chooser (-1).
+    Idle,
+}
+
+/// What a chosen item leads to, once its items have slid away.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// The Start Game menu (0x8003cf80).
+    StartGame,
+    /// The memory card menu (0x800398bc(8, 1, 0, 0)).
+    LoadGame,
+    /// The audio settings (0x80041970).
+    Audio,
+}
+
+/// The idle countdown (0x8003d884: 300 x its argument, 30), and what a
+/// frame takes off it (5 a vertical blank, 0x800c3f1c).
+const COUNTDOWN: i32 = 300 * 30;
+const FRAME_TIME: i32 = 10;
+
+/// Sounds the menu plays (0x8006f26c), by the game's numbers.
+pub mod sound {
+    pub const LEAVE: u8 = 1;
+    pub const PICK: u8 = 2;
+    pub const DOWN: u8 = 3;
+    pub const UP: u8 = 4;
+    pub const SHOULDERS: u8 = 5;
+}
+
 /// The title menu as it stands (0x8003d884).
 pub struct Title {
+    /// The items sliding away before an action.
+    pub leaving: Option<Action>,
+    strings: [String; 3],
+    /// Frames until the menu gives up (0x8003d884's s2).
+    pub countdown: i32,
+    /// Sounds asked for this frame, for the sound side.
+    pub sounds: Vec<u8>,
     /// CANCEL's and ACCEPT's cubes (0x800c4b14, 0x800c4b18), their labels.
     pub buttons: [Button; 2],
     labels: [Text; 2],
@@ -281,7 +320,7 @@ impl Title {
         let trig = crate::gte::Trig::load(disc)?;
         let projection = trig.geom_screen(FOV).ok_or("no projection")? as f32;
         let strings = ITEM_STRINGS.map(|a| disc.exe_string_at(a).unwrap_or_default());
-        let items = menu_items(&fonts, strings);
+        let items = menu_items(&fonts, strings.clone());
         let mut stage = crate::stage::Stage::new(vram, Vec::new());
         stage.camera = crate::stage::view(CAMERA.into(), rrt::glam::Mat3::IDENTITY, projection);
         let button_model = models.get(BUTTON_MODEL).ok_or("no button model in DB00")?.clone();
@@ -302,6 +341,10 @@ impl Title {
         let button = |x: i32, target: i16| Button { pos: [x, -400, 1298], angles: [0; 3], targets: [target, 0, 0], speed: 128 };
         let buttons = [button(-600, 2048), button(600, 1024)];
         let mut title = Title {
+            leaving: None,
+            strings,
+            countdown: COUNTDOWN,
+            sounds: Vec::new(),
             buttons,
             labels,
             button_model,
@@ -315,20 +358,93 @@ impl Title {
             frames: 0,
             started: now,
         };
-        title.draw();
+        title.draw(true);
         Ok(title)
     }
 
-    /// Advances to tick `now`: a frame every other tick.
-    pub fn tick(&mut self, now: u64) {
-        if (now - self.started) % 2 != 0 {
-            return;
+    /// Whether tick `now` starts one of the menu's frames (every other).
+    pub fn frame_due(&self, now: u64) -> bool {
+        (now - self.started).is_multiple_of(2)
+    }
+
+    /// One frame of the menu (0x8003d884's loop), the pads as sampled at
+    /// the end of the last.
+    pub fn frame(&mut self, pads: &crate::input::Pads) -> Option<Outcome> {
+        use crate::input::*;
+        self.sounds.clear();
+        if let Some(action) = self.leaving {
+            // The items slide away (0x80035a54), drawn by the menu's draw.
+            self.menu_frame();
+            if self.items.iter().any(|t| t.flags & text::SLIDE_Y != 0) {
+                return None;
+            }
+            self.leaving = None;
+            rrt::tracing::info!("title: {action:?} is not ported yet");
+            // As if it came back with nothing: the menu again (0x8003d5a0).
+            self.items = menu_items(&self.fonts, self.strings.clone());
+            self.countdown = COUNTDOWN;
+            self.draw(true);
+            return None;
         }
-        // A fade every 30 frames (0x8003da00), stepped by the menu's draw.
+        // A fade every 30 frames.
         if self.frames % 30 == 0 {
             self.backdrop.fading = true;
         }
         self.frames += 1;
+        let sliding = self.items.iter().any(|t| t.flags & text::SLIDE_Y != 0);
+        let pressed = |b: usize| pads.pressed(0, b);
+        if pressed(START) && !sliding {
+            self.leave(Action::StartGame);
+            return None;
+        }
+        if pressed(DOWN) || pressed(SELECT) {
+            self.sounds.push(sound::DOWN);
+            self.chosen = (self.chosen + 1) % 3;
+            self.countdown = COUNTDOWN;
+        }
+        if pressed(UP) {
+            self.sounds.push(sound::UP);
+            self.chosen = (self.chosen + 2) % 3;
+            self.countdown = COUNTDOWN;
+        }
+        if pressed(CROSS) && !sliding {
+            let shoulders = [L1, R1, L2, R2].iter().all(|&b| pads.held(0, b));
+            self.sounds.push(if shoulders { sound::SHOULDERS } else { sound::PICK });
+            if self.chosen > 0 {
+                self.sounds.push(sound::PICK);
+            }
+            self.leave([Action::StartGame, Action::LoadGame, Action::Audio][self.chosen]);
+            return None;
+        }
+        self.menu_frame();
+        self.countdown -= FRAME_TIME;
+        if pressed(TRIANGLE) || self.countdown < 0 {
+            self.sounds.push(sound::LEAVE);
+            return Some(Outcome::Idle);
+        }
+        None
+    }
+
+    /// Slide the items away (0x80035a54(items, 3, 150)): down to 150 at 8
+    /// a frame, the second and third waiting 5 and 10 frames first.
+    fn leave(&mut self, action: Action) {
+        for (k, t) in self.items.iter_mut().enumerate() {
+            t.target.1 = 150;
+            t.rest.1 = 150;
+            t.speed.1 = 8;
+            t.count.1 = t.y - 150;
+            t.flags |= text::SLIDE_Y;
+            if k > 0 {
+                t.wait = 5 * k as i16;
+                t.flags |= text::WAIT;
+            }
+        }
+        self.leaving = Some(action);
+        self.menu_frame();
+    }
+
+    /// The menu's draw (0x80035ab8) and what runs with it each frame.
+    fn menu_frame(&mut self) {
         if self.backdrop.fading {
             self.backdrop.fading = self.backdrop.step();
         }
@@ -341,10 +457,12 @@ impl Title {
         for b in &mut self.buttons {
             b.step();
         }
-        self.draw();
+        // CANCEL and ACCEPT are drawn by the menu's loop, not while the
+        // items slide away.
+        self.draw(self.leaving.is_none());
     }
 
-    fn draw(&mut self) {
+    fn draw(&mut self, labels: bool) {
         self.stage.under.clear();
         self.backdrop.triangles(&mut self.stage.under);
         self.stage.moving.clear();
@@ -352,6 +470,9 @@ impl Title {
         self.stage.overlay.clear();
         menu_triangles(&self.fonts, &self.items, self.chosen, &mut self.stage.overlay);
         trademark(&mut self.stage.overlay);
+        if !labels {
+            return;
+        }
         for t in &self.labels {
             let mut shadow = t.clone();
             shadow.rgb = [1, 1, 1];

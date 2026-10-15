@@ -12,8 +12,11 @@ fn main() -> Result<(), String> {
     let out = a.next().unwrap_or("stage.png".into());
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let mut title = rugrats::front::Title::open(&disc, 0)?;
+    let pads = rugrats::input::Pads::default();
     for t in 0..ticks {
-        title.tick(t);
+        if title.frame_due(t) {
+            title.frame(&pads);
+        }
     }
     let stage = &title.stage;
     let gpu = Gpu::headless().map_err(|e| e.to_string())?;

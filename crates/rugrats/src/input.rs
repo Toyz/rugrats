@@ -7,7 +7,16 @@ use rrt::input::Pad as HostPad;
 /// The pad's button bits in the PlayStation's order (bit 0 Select .. bit 15
 /// Square): the order the game's histories are kept in.
 pub const BUTTONS: usize = 16;
+pub const SELECT: usize = 0;
+pub const START: usize = 3;
+pub const UP: usize = 4;
+pub const DOWN: usize = 6;
+pub const L2: usize = 8;
+pub const R2: usize = 9;
+pub const L1: usize = 10;
+pub const R1: usize = 11;
 pub const TRIANGLE: usize = 12;
+pub const CROSS: usize = 14;
 
 #[derive(Clone, Debug, Default)]
 pub struct Pad {
@@ -50,6 +59,11 @@ impl Pads {
     /// reads the first port's Triangle at 0x800cda4c).
     pub fn pressed(&self, port: usize, button: usize) -> bool {
         self.port[port].history[button] & 3 == 1
+    }
+
+    /// Whether `button` of `port` is down this sample.
+    pub fn held(&self, port: usize, button: usize) -> bool {
+        self.port[port].history[button] & 1 != 0
     }
 
     /// The first button (1-based, as the game counts) of a port matching

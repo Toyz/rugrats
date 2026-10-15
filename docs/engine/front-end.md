@@ -63,6 +63,18 @@ and the level returns to full. Both start on pattern (2, 0) at 0x80.
 drawn white, the chosen one yellow (0x05ffff), each over a black shadow 2
 down and right.
 
+## In the port
+
+`rugrats::front::Title` runs the loop a frame at a time, sampling the pads
+at each frame's end as the original does. It has the moves, the
+shoulder-button sound, the items sliding away before an action (down to
+150 at 8 a frame, the second and third waiting 5 and 10 frames), and the
+countdown. The actions (the Start Game menu, Load Game, Audio) are not
+ported yet: the port logs them and brings the items back, as if the
+action had returned nothing. Sounds are recorded by number, not played.
+Idle or Triangle ends the title, and the program runs the chooser's cycle:
+a demo movie, the opening, the title again.
+
 ## The sign, the buttons, the cameras
 
 The front end's camera (0x800e24c0, reset by 0x80040194): field of view

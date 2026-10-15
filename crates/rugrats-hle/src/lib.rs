@@ -32,6 +32,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use rrt::disc::Image;
+use rrt::emu::Load as _;
 use rrt::emu::psx::{R3000, bios};
 use rrt::emu::{BusExt, Cpu, HookResult, Machine, PsxExe, Stop};
 

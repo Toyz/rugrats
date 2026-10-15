@@ -18,6 +18,8 @@ const HIDDEN: [u16; 17] = [127, 1776, 608, 609, 514, 56, 57, 58, 59, 55, 5555, 3
 const SPIKE: u16 = 14;
 const HOME: [i32; 3] = [47762, 727, 32948];
 const WAKE: i64 = 30000;
+/// Lying down (0x80083f6c: animation 26).
+const ASLEEP: i16 = 26;
 const LEASH: i64 = 12000;
 const REACH: i64 = 1024;
 /// The toys he fetches (templates 678-680) and the lines: the throw
@@ -82,6 +84,7 @@ impl Level1 {
             n.place(HOME, &g.col);
             n.mode = Mode::Idle;
             n.attacks = false;
+            n.hold = Some(ASLEEP);
         }
         let barks = disc.exe_bytes(BARKS, 22).unwrap_or(&[]).chunks_exact(2).map(|w| u16::from_le_bytes([w[0], w[1]])).collect();
         let s = |n: u32| crate::front::string(disc, n);
@@ -101,10 +104,12 @@ impl Level1 {
             }
             self.spike = Spike::Asleep;
             g.npcs[k].mode = Mode::Idle;
+            g.npcs[k].hold = Some(ASLEEP);
             return;
         }
         if self.spike == Spike::Asleep {
             self.spike = Spike::Following;
+            g.npcs[k].hold = None;
         }
         // A toy thrown (0x80060b44): 191 or 192; a following Spike runs
         // after it.

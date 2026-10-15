@@ -130,6 +130,8 @@ pub struct Npc {
     /// How near a post counts as reached (+0x690: 1024; level 13's
     /// Angelica 1536).
     pub post_reach: i32,
+    /// An animation a level holds it in (Spike asleep).
+    pub hold: Option<i16>,
 }
 
 /// What a step of the NPCs asks of the level.
@@ -368,7 +370,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                 n.mode = if left <= 0 { *then } else { Mode::Hit { left: left - DT, then } };
             }
         }
-        let a = if n.speed > 0 { crate::player::anim::RUN } else { crate::player::anim::IDLE };
+        let a = n.hold.unwrap_or(if n.speed > 0 { crate::player::anim::RUN } else { crate::player::anim::IDLE });
         n.animator.set(a, w.anims);
         n.animator.step(w.anims);
     }

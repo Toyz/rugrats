@@ -690,6 +690,7 @@ impl Game {
                 bite_wait: 900,
                 run_speed: None,
                 post_reach: crate::npc::REACH,
+                hold: None,
             };
             // On the floor under it (0x80081bac asks 0x8002b240), the root
             // the hierarchy's offset above the feet.

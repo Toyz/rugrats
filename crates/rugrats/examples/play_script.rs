@@ -62,6 +62,24 @@ fn main() -> Result<(), String> {
         game.player.target = h;
         game.set_camera_yaw(h as f32);
     }
+    if std::env::var_os("LISTTHINGS").is_some() {
+        for (k, t) in game.things.iter().enumerate() {
+            println!("thing {k}: template {} at {:?}", t.template, t.pos);
+        }
+    }
+    // THINGS=k:x,y,z;k:x,y,z: things moved before the run.
+    if let Ok(v) = std::env::var("THINGS") {
+        for part in v.split(';') {
+            if let Some((k, at)) = part.split_once(':') {
+                let p: Vec<f32> = at.split(',').filter_map(|s| s.parse().ok()).collect();
+                if let (Ok(k), 3) = (k.parse::<usize>(), p.len()) {
+                    if let Some(t) = game.things.get_mut(k) {
+                        t.pos = rrt::glam::Vec3::new(p[0], p[1], p[2]);
+                    }
+                }
+            }
+        }
+    }
     if let Some(h) = std::env::var("HEALTH").ok().and_then(|s| s.parse().ok()) {
         game.player.health = h;
     }
@@ -186,6 +204,11 @@ fn main() -> Result<(), String> {
                     .map_err(|e| e.to_string())?;
             }
             frame += 1;
+        }
+    }
+    if std::env::var_os("LISTTHINGS").is_some() {
+        for (k, t) in game.things.iter().enumerate() {
+            println!("end thing {k}: {:?} at {:?}", t.state, t.pos);
         }
     }
     Ok(())

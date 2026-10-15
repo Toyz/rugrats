@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod mesh;
+pub mod models;
 pub mod renderer;
 pub mod rooms;
 

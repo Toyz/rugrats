@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-10 entries: audio 2, bug 1, build 3, content 1, decomp 5, design 1, disc 1, engine 4, format 5, input 1, render 2, test 3, tooling 8, video 4.
+11 entries: audio 2, bug 1, build 3, content 1, decomp 6, design 1, disc 1, engine 4, format 6, input 1, render 3, test 3, tooling 8, video 4.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -22,3 +22,4 @@ The [reference](docs/README.md) says what is true now.
 | 8 | [LEVELnn.BIN read the way the room loader reads it](worklog/0008-levelnn-bin-read-the-way-the-room-loader-reads-it.md) | 2026-10-14 | format, decomp, tooling |
 | 9 | [The oracle plays the opening cinematic: a rewound CD FIFO and a lost load delay](worklog/0009-the-oracle-plays-the-opening-cinematic-a-rewound-cd-fifo.md) | 2026-10-14 | bug, tooling, engine, render |
 | 10 | [Rooms drawn natively: blob meshes, the texture table, room centres, rugrats-viewer](worklog/0010-rooms-drawn-natively-blob-meshes-the-texture-table-room.md) | 2026-10-14 | format, render, decomp, tooling, build |
+| 11 | [Models: the MOD format, all 6286 parsed, drawn in the viewer](worklog/0011-models-the-mod-format-all-6286-parsed-drawn-in-the-viewer.md) | 2026-10-14 | format, render, decomp |

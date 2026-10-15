@@ -1,13 +1,14 @@
 //! rugrats-viewer: fly around a database's rooms.
 //!
 //! ```text
-//! rugrats-viewer DB [--cue DISC.cue] [--at X,Y,Z] [--look YAW,PITCH] [--shot OUT.png]
+//! rugrats-viewer DB [--cue DISC.cue] [--at X,Y,Z] [--look YAW,PITCH] [--shot OUT.png] [--models]
 //! ```
 //!
 //! DB is 0-31. Keys: W A S D move, R F up and down, arrows turn, Shift
 //! faster, P logs where the camera is; on a pad the left stick moves, the
 //! right stick turns, R1 is faster, R2 and L2 up and down. `--shot` renders
-//! one frame offscreen and writes it as PNG.
+//! one frame offscreen and writes it as PNG. `--models` lays every model of
+//! the database out in rows on the first room's floor.
 
 #![forbid(unsafe_code)]
 
@@ -22,9 +23,12 @@ use rrt::winit::keyboard::{KeyCode, PhysicalKey};
 use rugrats::disc::GameDisc;
 use rugrats_render::{Renderer, Vram, Vtx};
 
-/// The database's three files: LEVEL, then its texture image in VRAM.
+/// The database's files: models, rooms, its texture image; and the
+/// characters' texture image every database shares.
+const MOD: usize = 242;
 const LEVEL: usize = 434;
 const A_RAW: usize = 499;
+const CHARACTR_RAW: usize = 498;
 
 struct Camera {
     pos: Vec3,
@@ -51,14 +55,30 @@ struct Scene {
 }
 
 impl Scene {
-    fn load(disc: &GameDisc, db: usize) -> Result<Scene, String> {
+    fn load(disc: &GameDisc, db: usize, models: bool) -> Result<Scene, String> {
         let level = rugrats_data::level::parse(&disc.file(LEVEL + db)?).map_err(|e| e.to_string())?;
         let raw = disc.file(A_RAW + db)?;
         let mut vram = Vram::new();
         let words: Vec<u16> = raw.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
         // load_rooms (0x8002a208) uploads it to (0, 256), 576 x 256.
         vram.load(0, 256, 576, 256, &words);
-        let triangles = rugrats_render::rooms::level_triangles(&level);
+        // main loads it at boot (0x800186d8) to (576, 256), 384 x 256.
+        let chars = disc.file(CHARACTR_RAW)?;
+        let words: Vec<u16> = chars.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
+        vram.load(576, 256, 384, 256, &words);
+        let mut triangles = Vec::new();
+        if models {
+            // Every model and nothing else, in rows of 16, 600 apart, from
+            // the origin.
+            let all = rugrats_data::model::parse_file(&disc.file(MOD + db)?).map_err(|e| e.to_string())?;
+            for (k, m) in all.iter().enumerate() {
+                let Some(m) = m else { continue };
+                let at = Vec3::new((k % 16) as f32 * 600.0, 0.0, (k / 16) as f32 * 600.0);
+                rugrats_render::models::model_triangles(m, glam::Mat3::IDENTITY, at, &mut triangles);
+            }
+        } else {
+            triangles = rugrats_render::rooms::level_triangles(&level);
+        }
         // Start in the first room, low, at one end.
         let start = level.rooms.first().map_or(Vec3::ZERO, |r| {
             let (lo, hi) = r.bounds();
@@ -182,12 +202,14 @@ impl Game for Viewer {
 fn run() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let (mut db, mut cue, mut at, mut look, mut out) = (22usize, None::<PathBuf>, None, None, None::<PathBuf>);
+    let mut models = false;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--cue" => cue = args.next().map(PathBuf::from),
             "--at" => at = args.next().and_then(|s| parse_list(&s)),
             "--look" => look = args.next().and_then(|s| parse_list(&s)),
             "--shot" => out = args.next().map(PathBuf::from),
+            "--models" => models = true,
             n if !n.starts_with('-') => db = n.parse().map_err(|_| format!("{n}: not a database number"))?,
             _ => return Err("usage: rugrats-viewer DB [--cue DISC.cue] [--at X,Y,Z] [--look YAW,PITCH] [--shot OUT.png]".into()),
         }
@@ -196,7 +218,7 @@ fn run() -> Result<(), String> {
         Some(c) => c,
         None => rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?,
     };
-    let scene = Scene::load(&GameDisc::open(&cue)?, db)?;
+    let scene = Scene::load(&GameDisc::open(&cue)?, db, models)?;
     let mut camera = Camera { pos: scene.start, yaw: 0.0, pitch: 0.0 };
     if let Some(p) = at.filter(|p| p.len() == 3) {
         camera.pos = Vec3::new(p[0], p[1], p[2]);

@@ -85,6 +85,9 @@ impl Level7 {
                 if sound != 0 {
                     g.effects.push((sound, crate::sound::EFFECTS_VOLUME));
                 }
+                if t == 931 {
+                    g.speech.push(1183);
+                }
                 g.effects.push((if g.rand.next() & 1 == 0 { 91 } else { 92 }, crate::sound::EFFECTS_VOLUME));
             }
         }

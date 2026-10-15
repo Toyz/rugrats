@@ -55,8 +55,21 @@ fn main() -> Result<(), String> {
         game.player.target = h;
         game.set_camera_yaw(h as f32);
     }
+    if let Some(sp) = &game.sprites {
+        for n in [258u32, 259, 260, 291, 292] {
+            println!("sprite {n}: {:?}", sp.texture(n).map(|t| (t.uv, t.clut, t.tpage)));
+        }
+    }
+    {
+        let w = |x: usize, y: usize| game.stage.vram.words[y * 1024 + x];
+        let nz = (8..32).flat_map(|v| (32..64).map(move |u| (u, v))).filter(|&(u, v)| w(768 + u / 4, 256 + v) != 0).count();
+        println!("sprite 258 texel words nonzero: {nz} of 768; clut row: {:x?}", (0..16).map(|k| w(768 + k, 453)).collect::<Vec<_>>());
+    }
+    if let Some(h) = std::env::var("HEALTH").ok().and_then(|s| s.parse().ok()) {
+        game.player.health = h;
+    }
     let gpu = Gpu::headless().map_err(|e| e.to_string())?;
-    let (w, h) = (512, 240);
+    let (w, h) = (640, 480);
     let target = Target::new(&gpu.device, w, h);
     let mut pads = Pads::default();
     let mut frame = 0usize;
@@ -98,7 +111,17 @@ fn main() -> Result<(), String> {
                     game.player.track()
                 );
             }
+            if std::env::var_os("OVERLAY").is_some() {
+                println!("{frame}: overlay {} vertices, first {:?}", game.stage.overlay.len(), game.stage.overlay.first().map(|v| v.pos));
+            }
             if frame.is_multiple_of(every) {
+                if std::env::var_os("BIGMETER").is_some() {
+                    if let Some(sp) = &game.sprites {
+                        let f: f32 = std::env::var("BIGF").ok().and_then(|s| s.parse().ok()).unwrap_or(480.0);
+                        sp.draw(258, (192, 76), 32.0, 24.0, 768.0, 0.0, f, &mut game.stage.overlay);
+                        sp.draw(258, (0, 0), 32.0, 24.0, 768.0, 0.0, f, &mut game.stage.overlay);
+                    }
+                }
                 let stage = &game.stage;
                 let mut r = Renderer::new(&gpu.device, &gpu.queue, Target::FORMAT, &stage.vram, &stage.fixed);
                 r.clear = stage.clear;

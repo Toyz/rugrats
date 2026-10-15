@@ -373,7 +373,6 @@ impl Level2 {
             shadow.triangles(&g.fonts, overlay);
             t.triangles(&g.fonts, overlay);
         };
-        text(format!("{}", g.player.health), -230, -100);
         if self.phase == 3 {
             text(format!("{}", (self.timer + 299) / 300), -12, -100);
             if let Some(k) = find(g, GOOSE) {

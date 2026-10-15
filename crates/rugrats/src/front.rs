@@ -726,11 +726,6 @@ impl Card {
         for t in &self.texts {
             t.triangles(&self.fonts, &mut self.stage.overlay);
         }
-        // The card runs the 320-wide display: its drawing is centred on
-        // 160 and the screen stretches it to the full width.
-        for v in self.stage.under.iter_mut().chain(self.stage.overlay.iter_mut()) {
-            v.pos[0] = (v.pos[0] - 256.0) * (512.0 / 320.0) + 256.0;
-        }
     }
 }
 

@@ -102,7 +102,7 @@ fn main() -> Result<(), String> {
     }
     let stage = &game.stage;
     let gpu = Gpu::headless().map_err(|e| e.to_string())?;
-    let (w, h) = (512, 240);
+    let (w, h) = (640, 480);
     let target = Target::new(&gpu.device, w, h);
     let mut r = Renderer::new(&gpu.device, &gpu.queue, Target::FORMAT, &stage.vram, &stage.fixed);
     r.clear = stage.clear;

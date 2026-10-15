@@ -59,6 +59,10 @@ pub struct Game {
     /// Level 2's own play, and how a level ended (0x80076d6c's won).
     pub level2: Option<crate::level2::Level2>,
     pub won: Option<bool>,
+    /// The HUD's sprites, and the health meter's time left and last value.
+    pub sprites: Option<crate::hud::Sprites>,
+    meter_shown: i32,
+    meter_health: i32,
     /// The placed objects' collision boxes in the world.
     pub boxes: Vec<crate::player::Box3>,
     /// The placed characters other than the player.
@@ -334,6 +338,9 @@ impl Game {
             checkpoint: None,
             level2: None,
             won: None,
+            sprites: crate::hud::Sprites::load(disc, level).ok(),
+            meter_shown: 0,
+            meter_health: 255,
             boxes,
             posts,
             npc_events: Vec::new(),
@@ -661,6 +668,11 @@ impl Game {
             l.frame(self, pads);
             self.level2 = Some(l);
         }
+        self.meter_shown = (self.meter_shown - crate::player::DT).max(0);
+        if self.player.health != self.meter_health {
+            self.meter_health = self.player.health;
+            self.meter_shown = crate::hud::METER_TIME;
+        }
         self.room_change();
         let goal = self.clear_eye(self.eye_goal());
         self.eye += (goal - self.eye) / 8.0;
@@ -695,6 +707,12 @@ impl Game {
         let mut overlay = Vec::new();
         if let Some(l) = &self.level2 {
             l.draw(self, &mut moving, &mut overlay);
+        }
+        // The health meter (levels 2-6, 9, 12, 14, 16: 0x8008c094's switch).
+        if self.meter_shown > 0 && matches!(self.level, 2..=6 | 9 | 12 | 14 | 16) {
+            if let Some(s) = &self.sprites {
+                crate::hud::meter(s, self.player.health, 255, self.focal, &mut overlay);
+            }
         }
         self.stage.set_moving(moving);
         self.stage.overlay = overlay;

@@ -5,6 +5,7 @@ pub mod animator;
 pub mod progress;
 pub mod npc;
 pub mod level2;
+pub mod hud;
 pub mod card;
 pub mod cine;
 pub mod collide;

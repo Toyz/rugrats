@@ -24,6 +24,7 @@ pub mod gpu;
 pub mod hw;
 pub mod mdec;
 pub mod printf;
+pub mod sio;
 pub mod state;
 
 use std::cell::{Cell, RefCell};
@@ -73,6 +74,9 @@ struct Shared {
     /// is started.
     pad_buffers: Option<(u32, u32)>,
     pad_started: bool,
+    /// The BIOS's interrupt queues (SysEnqIntRP): (priority, entry), each
+    /// entry { next, func2, func1 }.
+    int_queue: Vec<(u32, u32)>,
 }
 
 /// PlayStation pad bits, as the pad sends them (1 = pressed here; the
@@ -160,6 +164,28 @@ impl Hle {
         // B0:5C _card_status(slot), B0:5D _card_wait(slot): ready.
         b.insert(0xb0, 0x5c, |_| HookResult::Return(1));
         b.insert(0xb0, 0x5d, |_| HookResult::Return(1));
+        // C0:02 SysEnqIntRP(priority, entry), C0:03 SysDeqIntRP: the
+        // BIOS's interrupt queues, which `Hle::deliver` runs (libpad's
+        // direct driver queues its vertical-blank handler there).
+        {
+            let sh = shared.clone();
+            b.insert(0xc0, 0x02, move |c| {
+                let e = (c.arg32(0), c.arg32(1));
+                let mut sh = sh.borrow_mut();
+                tracing::debug!("SysEnqIntRP({}, {:#x})", e.0, e.1);
+                if !sh.int_queue.contains(&e) {
+                    sh.int_queue.push(e);
+                    sh.int_queue.sort_by_key(|&(p, _)| p);
+                }
+                HookResult::Return(0)
+            });
+            let sh = shared.clone();
+            b.insert(0xc0, 0x03, move |c| {
+                let e = (c.arg32(0), c.arg32(1));
+                sh.borrow_mut().int_queue.retain(|&q| q != e);
+                HookResult::Return(0)
+            });
+        }
         // B0:12 InitPAD(buf1, size1, buf2, size2), B0:13 StartPAD, B0:14
         // StopPAD: the BIOS's pad driver fills the buffers at each vertical
         // blank; `Hle::vblank` does.
@@ -294,6 +320,8 @@ impl Hle {
             let sh = self.shared.borrow();
             (sh.pad_buffers, sh.pad_started)
         };
+        // libpad's direct driver reads the pad through SIO0.
+        self.m.bus.hw.sio.buttons = self.pad;
         if let (Some((one, two)), true) = (buffers, started) {
             // Port 1 a digital pad (0x41), buttons active low; port 2 empty.
             let b = !self.pad;
@@ -319,6 +347,19 @@ impl Hle {
             if !self.irq_enabled.get() {
                 self.held[1] += 1;
                 return Ok(());
+            }
+            // The BIOS runs its queues first: each entry's func1, and its
+            // func2 with what func1 returned when that is not 0.
+            let queue = self.shared.borrow().int_queue.clone();
+            for (_, entry) in queue {
+                let (func2, func1) = (self.m.bus.ram_u32(entry + 4), self.m.bus.ram_u32(entry + 8));
+                if func1 == 0 {
+                    continue;
+                }
+                let v = self.call_nested(func1, &[])?;
+                if v != 0 && func2 != 0 {
+                    self.call_nested(func2, &[v])?;
+                }
             }
             if self.m.bus.read_u16(addr::INTR_READY).unwrap_or(0) == 0 {
                 self.held[2] += 1;

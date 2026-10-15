@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-15 entries: audio 2, bug 1, build 3, content 1, decomp 10, design 1, disc 1, engine 6, format 9, input 2, play 1, render 7, test 5, tooling 8, video 4.
+16 entries: audio 2, bug 1, build 3, content 1, decomp 10, design 1, disc 1, engine 7, format 9, input 3, play 1, render 7, test 5, tooling 9, video 4.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -27,3 +27,4 @@ The [reference](docs/README.md) says what is true now.
 | 13 | [Animation: quaternion keys by channel, pinned to the original's matrix](worklog/0013-animation-quaternion-keys-by-channel-pinned-to-the-original.md) | 2026-10-14 | format, render, decomp, test |
 | 14 | [The opening cinematic's frame matches the oracle's: camera, props, characters](worklog/0014-the-opening-cinematic-s-frame-matches-the-oracle-s-camera.md) | 2026-10-14 | format, render, decomp, engine |
 | 15 | [The port plays the opening cinematic](worklog/0015-the-port-plays-the-opening-cinematic.md) | 2026-10-14 | engine, render, play, decomp, test, input |
+| 16 | [The oracle takes input: SIO0 and the BIOS interrupt queues](worklog/0016-the-oracle-takes-input-sio0-and-the-bios-interrupt-queues.md) | 2026-10-14 | tooling, input, engine |

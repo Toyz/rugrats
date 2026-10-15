@@ -8,6 +8,7 @@
 use crate::cdrom::Cdrom;
 use crate::gpu::Gpu;
 use crate::mdec::Mdec;
+use crate::sio::{self, Sio};
 use crate::state::{Reader, Result, Writer};
 
 pub const SPU_RAM: usize = 512 * 1024;
@@ -26,6 +27,7 @@ pub struct Hw {
     /// The drive's interrupt line as last seen: IRQ 2 is its rising edge.
     cd_line: bool,
     pub mdec: Mdec,
+    pub sio: Sio,
     /// A DMA 1 (MDEC out) started before its words were there: where and
     /// how many still to move.
     mdec_out: Option<(u32, u32)>,
@@ -53,6 +55,7 @@ impl Default for Hw {
             cd: Cdrom::default(),
             cd_line: false,
             mdec: Mdec::default(),
+            sio: Sio::default(),
             mdec_out: None,
             now: 0,
             dma: [[0; 3]; 7],
@@ -104,6 +107,7 @@ impl Hw {
         w.bytes(&self.spu_ram);
         w.u32(self.spu_addr as u32);
         w.u64(self.now);
+        self.sio.save(w);
     }
 
     pub fn load(&mut self, r: &mut Reader) -> Result<()> {
@@ -130,6 +134,7 @@ impl Hw {
         self.spu_ram = r.bytes()?;
         self.spu_addr = r.u32()? as usize;
         self.now = r.u64()?;
+        self.sio.load(r)?;
         Ok(())
     }
 
@@ -139,6 +144,7 @@ impl Hw {
         self.now = now;
         self.cd.tick(now);
         self.cd_edge();
+        self.sio_ack();
         for ch in 0..7 {
             if self.dma_due[ch].is_some_and(|t| t <= now) {
                 self.dma_due[ch] = None;
@@ -149,6 +155,12 @@ impl Hw {
             }
         }
         self.update_dicr();
+    }
+
+    fn sio_ack(&mut self) {
+        if self.sio.land() {
+            self.i_stat |= sio::IRQ_PAD;
+        }
     }
 
     fn cd_edge(&mut self) {
@@ -298,7 +310,10 @@ impl Hw {
             return self.read(phys & !3, 4) >> (8 * (phys & 3));
         }
         match phys {
-            0x1f80_1070 => self.i_stat,
+            0x1f80_1070 => {
+                self.sio_ack();
+                self.i_stat
+            }
             0x1f80_1074 => self.i_mask,
             0x1f80_1080..0x1f80_10f0 => {
                 let ch = ((phys - 0x1f80_1080) / 16) as usize;
@@ -320,6 +335,7 @@ impl Hw {
                 }
                 v
             }
+            0x1f80_1040..0x1f80_1050 => self.sio.read(phys),
             0x1f80_1810 => self.gpu.read(),
             0x1f80_1814 => self.gpu.status(),
             0x1f80_1820 => self.mdec.read(),
@@ -387,6 +403,7 @@ impl Hw {
                 self.cd.tick(self.now);
                 self.cd_edge();
             }
+            0x1f80_1040..0x1f80_1050 => self.sio.write(phys, value),
             0x1f80_1810 => self.gpu.gp0(value),
             0x1f80_1814 => self.gpu.gp1(value),
             0x1f80_1820 => {

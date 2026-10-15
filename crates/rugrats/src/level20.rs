@@ -264,7 +264,17 @@ impl crate::game::Script for Level20 {
         // Angelica: after the box; her lunge knocks it from the holder,
         // and a box on the floor is lost when she lunges.
         if let Some(a) = find(g, ANGELICA) {
-            let p = g.player.pos;
+            // She follows the box itself (mode 4 with the box as the
+            // target), in hand, flying or on the floor.
+            let item = self.rules.item;
+            let p = g
+                .things
+                .iter()
+                .find(|t| t.template == item)
+                .map_or(g.player.pos, |t| [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32]);
+            if matches!(g.npcs[a].mode, Mode::Follow(_)) {
+                g.npcs[a].mode = Mode::Follow(Target::Point(p));
+            }
             let q = g.npcs[a].pos;
             let d2 = (q[0] - p[0]) as i64 * (q[0] - p[0]) as i64 + (q[2] - p[2]) as i64 * (q[2] - p[2]) as i64;
             self.lunge = (self.lunge - 1).max(0);

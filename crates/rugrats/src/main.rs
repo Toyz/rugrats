@@ -45,6 +45,9 @@ enum Boot {
     /// The opening cinematic, cine 0 on database 22 (`Opening Cine Init`,
     /// 0x8008f078), which the chooser plays when the title is left idle.
     Opening { cine: Box<Cine> },
+    /// A cinematic between levels: a level's start (0x80074958) or a
+    /// door's (0x8004f78c), then level `then`.
+    Scene { cine: Box<Cine>, then: usize },
     /// A level in play.
     Game { game: Box<Level> },
     /// Where the port ends for now.
@@ -66,6 +69,8 @@ struct Rugrats {
     /// The song set loaded (the menu's, a level's).
     songs: Option<sound::Loaded>,
     effect_table: Vec<[u8; 3]>,
+    /// Levels whose start cinematic has played (state +0x30's bits).
+    seen: std::collections::HashSet<usize>,
     /// Kept so the sound plays; None headless or with no device.
     _audio: Option<Output>,
     /// The game's rand, which the babies and the chooser share.
@@ -93,6 +98,7 @@ impl Rugrats {
             spu,
             songs: None,
             effect_table,
+            seen: Default::default(),
             _audio: audio,
             world: None,
             rand: Default::default(),
@@ -166,6 +172,30 @@ impl Rugrats {
     }
 
     /// Game mode `mode`: for now its database of the same number.
+    /// Level `level`, its start cinematic first unless already seen.
+    fn enter(&mut self, level: usize, now: u64) -> Boot {
+        let cine = rugrats::game::start_cine(level).filter(|_| !(self.seen.contains(&level) && matches!(level, 1 | 2)));
+        self.seen.insert(level);
+        match cine {
+            Some(n) => self.scene(n, level, level, now),
+            None => self.game(level, now),
+        }
+    }
+
+    /// Cinematic `n` on database `db`, then level `then`.
+    fn scene(&mut self, n: usize, db: usize, then: usize, now: u64) -> Boot {
+        match Cine::open(&self.disc, n, db, now, &self.soundtrack) {
+            Ok(cine) => {
+                self.world = None;
+                Boot::Scene { cine: Box::new(cine), then }
+            }
+            Err(e) => {
+                rrt::tracing::error!("cine {n}: {e}");
+                self.game(then, now)
+            }
+        }
+    }
+
     fn game(&mut self, mode: usize, _now: u64) -> Boot {
         match Level::open(&self.disc, mode) {
             Ok(game) => {
@@ -239,6 +269,18 @@ impl Game for Rugrats {
                     self.boot = self.opening(now);
                 }
             }
+            Boot::Scene { cine, then } => {
+                if cine.tick(now) {
+                    self.pads.update([Some(&t.pad), None]);
+                    if self.pads.pressed(0, input::TRIANGLE) || cine.over() {
+                        if let Ok(mut s) = self.soundtrack.lock() {
+                            *s = Soundtrack::default();
+                        }
+                        let then = *then;
+                        self.boot = self.game(then, now);
+                    }
+                }
+            }
             Boot::Opening { cine } => {
                 // play_cine samples the pads once a frame, after drawing it.
                 if cine.tick(now) {
@@ -265,7 +307,7 @@ impl Game for Rugrats {
                     if let Some(Outcome::Play(mode)) = outcome {
                         self.stop_song();
                         rrt::tracing::info!("title: game mode {mode}");
-                        self.boot = self.game(mode as usize, now);
+                        self.boot = self.enter(mode as usize, now);
                     } else if outcome == Some(Outcome::Idle) {
                         self.stop_song();
                         self.boot = self.demo(now);
@@ -276,8 +318,15 @@ impl Game for Rugrats {
                 if now.is_multiple_of(2) {
                     self.pads.update([Some(&t.pad), None]);
                     game.frame(&self.pads);
-                    if let Some(level) = game.exit {
-                        self.boot = self.game(level, now);
+                    if let Some((level, cine)) = game.exit {
+                        let here = game.level;
+                        self.boot = match cine {
+                            Some(n) => {
+                                self.seen.insert(level);
+                                self.scene(n, here, level, now)
+                            }
+                            None => self.enter(level, now),
+                        };
                     }
                 }
             }
@@ -288,6 +337,7 @@ impl Game for Rugrats {
     fn draw(&mut self, d: &mut Draw<'_>) {
         let stage: &Stage = match &self.boot {
             Boot::Opening { cine } => &cine.stage,
+            Boot::Scene { cine, .. } => &cine.stage,
             Boot::Title { title } => &title.stage,
             Boot::Game { game } => &game.stage,
             _ => {

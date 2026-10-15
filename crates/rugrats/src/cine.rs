@@ -197,12 +197,28 @@ pub struct Stream {
 /// +16, not +12); without, the XA filter is file 1 channel 1.
 const XA_FILE: u8 = 1;
 const XA_CHANNEL: u8 = 1;
+/// The cinematics' stream table (0x800b4290): u8 cine, s8 channel (-1
+/// none), u16 file.
+const STREAMS: u32 = 0x800b_4290;
+/// Cinematics in the table (play_cine refuses 93 and up).
+pub const CINES: usize = 93;
 
 impl Stream {
-    /// Cinematic `n`'s stream (file `n`, as 0x80019da4 finds it): only
-    /// the opening's (no channel) is read so far.
+    /// Cinematic `n`'s stream, as 0x80019da4 starts it. Without a channel
+    /// it is file `n`, its XA file 1 channel 1 and its data sectors whole.
+    /// With one it is the table's file from 2 sectors a channel in, its XA
+    /// that channel, and its data sectors those whose first word is the
+    /// channel, the frame from +4 (0x80019c88).
     pub fn read(disc: &GameDisc, n: usize) -> Result<Stream, String> {
-        let start = disc.file_lba(n)?;
+        if n >= CINES {
+            return Err(format!("Invalid cine number {n}"));
+        }
+        let entry = disc.exe_bytes(STREAMS + 4 * n as u32, 4)?;
+        let channel = (entry[1] != 0xff).then_some(entry[1]);
+        let (start, xa_channel) = match channel {
+            Some(c) => (disc.file_lba(u16::from_le_bytes([entry[2], entry[3]]) as usize)? + 2 * c as u32, c),
+            None => (disc.file_lba(n)?, XA_CHANNEL),
+        };
         let mut frames = Vec::new();
         // The drive drops audio sectors the decoder is too busy for, so the
         // opening's repeated sectors play once.
@@ -212,10 +228,10 @@ impl Stream {
             let s = disc.sector(lba)?;
             let raw = &s.raw[..];
             let at = u64::from(lba - start);
-            let (file, channel, sub) = (raw[16], raw[17], raw[18]);
+            let (file, chan, sub) = (raw[16], raw[17], raw[18]);
             // XA audio: Form 2, audio, real time; the filter picks one.
             if sub & 0x64 == 0x64 {
-                if (file, channel) == (XA_FILE, XA_CHANNEL) {
+                if (file, chan) == (XA_FILE, xa_channel) {
                     xa.sector(at, xa::Coding(raw[19]), &raw[24..24 + xa::SECTOR_AUDIO]);
                 }
                 continue;
@@ -223,7 +239,15 @@ impl Stream {
             if sub & 0x08 == 0 {
                 continue;
             }
-            let d = &raw[24..24 + 2048];
+            let d = match channel {
+                Some(c) => {
+                    if u32::from_le_bytes(raw[24..28].try_into().unwrap()) != c as u32 {
+                        continue;
+                    }
+                    &raw[28..24 + 2048]
+                }
+                None => &raw[24..24 + 2048],
+            };
             if total.is_none() {
                 let h = cine::header(d).ok_or(format!("cine {n}: no stream header"))?;
                 total = Some(h.frames as usize);
@@ -231,7 +255,7 @@ impl Stream {
             }
             let Some(f) = cine::frame(d) else { break };
             frames.push(((at + 1) * TICKS_PER_SECOND / SECTORS_PER_SECOND + 1, f));
-            if Some(frames.len()) == total {
+            if Some(frames.len()) == total || lba - start > 200_000 {
                 break;
             }
         }

@@ -48,8 +48,9 @@ pub struct Game {
     yaw: f32,
     /// The rooms and objects at rest, drawn under the player.
     scenery: Vec<rugrats_render::Vtx>,
-    /// Where the level ends: a level to go to (the exit code, 0x800c4918).
-    pub exit: Option<usize>,
+    /// Where the level ends: a level to go to (the exit code, 0x800c4918)
+    /// and a cinematic to play first.
+    pub exit: Option<(usize, Option<usize>)>,
     /// The placed objects' collision boxes in the world.
     pub boxes: Vec<crate::player::Box3>,
     /// The placed characters other than the player.
@@ -161,12 +162,12 @@ impl Game {
             let near = self.set.placements.iter().filter(|d| d.kind == 1 && d.level > 0).min_by_key(|d| (d.pos[0] - p[0]).pow(2) as i64 + (d.pos[2] - p[2]).pow(2) as i64);
             if let Some(d) = near.filter(|d| (d.pos[0] - p[0]).abs() < USE_REACH && (d.pos[2] - p[2]).abs() < USE_REACH && (d.pos[1] - p[1]).abs() < USE_REACH_Y) {
                 rrt::tracing::info!("level {}: a door to level {} (cine {})", self.level, d.level, d.cine);
-                self.exit = Some(d.level as usize);
+                self.exit = Some((d.level as usize, (d.cine > 0).then_some(d.cine as usize)));
             }
         }
         // Select: the restart menu (0x80043d58); for now, back to the hub.
         if pads.pressed(0, input::SELECT) {
-            self.exit = Some(if self.level == HUB { HUB } else { HUB });
+            self.exit = Some((HUB, None));
         }
         // The camera buttons turn it by an eighth (L2, R2: 341 a press).
         if pads.pressed(0, input::L2) {
@@ -245,4 +246,28 @@ fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate::player::B
         }
     }
     out
+}
+
+/// A level's start cinematic (0x80074958).
+pub fn start_cine(level: usize) -> Option<usize> {
+    Some(match level {
+        1 => 7,
+        2 => 1,
+        3 => 2,
+        4 => 28,
+        5 => 37,
+        6 => 45,
+        7 => 79,
+        9 => 17,
+        10 => 44,
+        11 => 52,
+        12 => 66,
+        13 => 6,
+        15 => 73,
+        17 => 12,
+        18 => 25,
+        20 => 63,
+        21 => 49,
+        _ => return None,
+    })
 }

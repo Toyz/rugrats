@@ -4,7 +4,6 @@ title: The oracle takes input: SIO0 and the BIOS interrupt queues
 date: 2026-10-14
 area: tooling, input, engine
 files: crates/rugrats-hle/src/sio.rs, crates/rugrats-hle/src/hw.rs, crates/rugrats-hle/src/lib.rs, docs/engine/input.md
-resolves: 15
 ---
 
 # 16. The oracle takes input: SIO0 and the BIOS interrupt queues

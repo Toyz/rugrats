@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-38 entries: audio 6, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 11, render 10, save 2, test 9, tooling 15, ui 8, video 8.
+39 entries: audio 6, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 12, render 10, save 2, test 9, tooling 15, ui 8, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -50,3 +50,4 @@ The [reference](docs/README.md) says what is true now.
 | 36 | [The puzzle board and the result screens](worklog/0036-the-puzzle-board-and-the-result-screens.md) | 2026-10-15 | ui |
 | 37 | [Level 4 playable, spawn groups, movers, loading screens](worklog/0037-level-4-playable-spawn-groups-movers-loading-screens.md) | 2026-10-15 | play |
 | 38 | [Level 5 playable: the remote, the robots, the float](worklog/0038-level-5-playable-the-remote-the-robots-the-float.md) | 2026-10-15 | play |
+| 39 | [Level 6 playable, and climbing](worklog/0039-level-6-playable-and-climbing.md) | 2026-10-15 | play |

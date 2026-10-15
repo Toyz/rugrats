@@ -1191,6 +1191,9 @@ impl Game {
                 });
                 if let Some(n) = hit {
                     self.struck.push((n, k, t.damage));
+                    let c = self.npcs[n].character;
+                    let r = self.rand.next() & 1;
+                    self.speech.extend(hit_line(c, self.level, r));
                     v[0] = 0;
                     v[2] = 0;
                 }
@@ -1692,6 +1695,19 @@ fn hazards(set: &Set, apart: &[bool]) -> Vec<(crate::player::Box3, i32)> {
         out.extend(world_boxes(m, rot, pos).into_iter().map(|b| (b, damage)));
     }
     out
+}
+
+/// What a character says when a thrown thing hits it (0x800511a8): Angelica
+/// (3) 556 or 557, char 10 1065, char 11 1076 or 1079, Chuckie (2) 185 in
+/// level 2.
+pub fn hit_line(character: usize, level: usize, r: u32) -> Option<u16> {
+    match character {
+        3 => Some(if r != 0 { 556 } else { 557 }),
+        10 => Some(1065),
+        11 => Some(if r != 0 { 1076 } else { 1079 }),
+        2 if level == 2 => Some(185),
+        _ => None,
+    }
 }
 
 /// The placements with a speech line (LP +0x4c; template 613 says 194,

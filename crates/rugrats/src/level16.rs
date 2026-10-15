@@ -135,6 +135,8 @@ impl Level16 {
         for _ in 0..hits {
             let Some(k) = find(g, ANGELICA) else { break };
             g.effects.push((44, crate::sound::EFFECTS_VOLUME));
+            let r = g.rand.next() & 1;
+            g.speech.extend(crate::game::hit_line(3, 16, r));
             let n = &mut g.npcs[k];
             n.health = (n.health - PIE_DAMAGE).max(0);
             if n.health == 0 {

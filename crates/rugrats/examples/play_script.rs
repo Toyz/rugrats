@@ -78,6 +78,9 @@ fn main() -> Result<(), String> {
             if let Some(d) = game.script.as_ref().map(|s| s.describe()).filter(|d| !d.is_empty() && std::env::var_os("DESCRIBE").is_some()) {
                 println!("{frame}: {d}");
             }
+            if std::env::var_os("GOODIES").is_some() && frame == 0 {
+                println!("goodies {:?}", game.goodies.iter().map(|g| (g.kind, g.pos, g.taken)).collect::<Vec<_>>());
+            }
             if std::env::var_os("MOVERS").is_some() && frame % 30 == 0 {
                 println!("{frame}: movers {:?}", game.movers.iter().map(|m| (m.id, m.pos)).collect::<Vec<_>>());
             }

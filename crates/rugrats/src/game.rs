@@ -442,7 +442,7 @@ impl Game {
                 && set
                     .templates
                     .get(p.template as usize)
-                    .is_some_and(|t| t.pickable() && t.hierarchy().is_none() && set.models.find(t.shape as u32) != 0)
+                    .is_some_and(|t| t.pickable() && t.hierarchy().is_none() && set.models.has(t.shape as u32))
         };
         let things: Vec<Thing> = (0..set.placements.len())
             .filter(|&k| pickable(k))
@@ -467,7 +467,7 @@ impl Game {
         // with 0x80048a44: object class 11), the kind template +0x26.
         let collectible = |k: usize| {
             let p = &set.placements[k];
-            p.kind == 1 && !character(k) && set.templates.get(p.template as usize).is_some_and(|t| t.raw[4] == 12 && set.models.find(t.shape as u32) != 0)
+            p.kind == 1 && !character(k) && set.templates.get(p.template as usize).is_some_and(|t| t.raw[4] == 12 && set.models.get(t.shape as u32).is_some())
         };
         // Bars are numbered in the order they are made (0x800c4ba8); a bar
         // found before stays found (+0x48).
@@ -519,7 +519,7 @@ impl Game {
             let p = &set.placements[k];
             p.kind == 1
                 && !character(k)
-                && set.templates.get(p.template as usize).is_some_and(|t| t.raw[4] == 11 && set.models.find(t.shape as u32) != 0)
+                && set.templates.get(p.template as usize).is_some_and(|t| t.raw[4] == 11 && set.models.has(t.shape as u32))
         };
         let movers: Vec<Mover> = (0..set.placements.len())
             .filter(|&k| mover(k))
@@ -672,6 +672,7 @@ impl Game {
             6 => Some(Box::new(crate::level6::Level6::start(&mut g, disc)?)),
             9 => Some(Box::new(crate::level9::Level9::start(&mut g, disc)?)),
             10 => Some(Box::new(crate::level10::Level10::start(&mut g, disc)?)),
+            11 => Some(Box::new(crate::level11::Level11::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
         };
@@ -1375,7 +1376,7 @@ fn hazards(set: &Set, apart: &[bool]) -> Vec<(crate::player::Box3, i32)> {
         if place.kind != 1 || apart[k] || damage == 0 || t.hierarchy().is_some() {
             continue;
         }
-        let Some(m) = set.models.get(t.shape as u32).filter(|_| set.models.find(t.shape as u32) != 0) else { continue };
+        let Some(m) = set.models.get(t.shape as u32).filter(|_| set.models.has(t.shape as u32)) else { continue };
         let rot = rugrats_render::models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
         let pos = Vec3::new(place.pos[0] as f32, place.pos[1] as f32, place.pos[2] as f32);
         out.extend(world_boxes(m, rot, pos).into_iter().map(|b| (b, damage)));

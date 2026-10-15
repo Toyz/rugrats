@@ -103,6 +103,9 @@ pub struct Player {
     pub hold: Option<i16>,
     /// Jump ignored (golf, 0x8005d11c).
     pub no_jump: bool,
+    /// The moving jump's lift and factor (0x80060f1c case 25: -1000 and
+    /// 40; Spike in level 11 -1700 and 20).
+    pub moving_jump: (i32, i32),
     /// Floating (state 21, 0x8005db28): the depth anchor (+0x65c) and the
     /// bob's phase (+0x660).
     pub float: Option<(i32, i32)>,
@@ -143,6 +146,7 @@ impl Player {
             action: None,
             hold: None,
             no_jump: false,
+            moving_jump: (-1000, 40),
             float: None,
             carrying: false,
             jump_lock: 0,
@@ -243,8 +247,9 @@ impl Player {
             if pressed(input::CROSS) && !acting && self.jump_lock == 0 && !self.no_jump && !self.frozen {
                 // The launch (0x80060f1c): up 1000, and along the facing
                 // 40 a unit of speed when running, else 12.
-                let along = if self.speed > WALK { 40 } else { 12 } * self.speed;
-                self.v = [s * along >> 12, -1000, c * along >> 12];
+                let (up, factor) = if self.speed > WALK { self.moving_jump } else { (-1000, 12) };
+                let along = factor * self.speed;
+                self.v = [s * along >> 12, up, c * along >> 12];
                 self.state = State::Jump;
                 // The take-off's sound (0x800562bc: effect 6).
                 self.effects.push(TAKE_OFF);

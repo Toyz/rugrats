@@ -209,6 +209,12 @@ impl Models {
         found
     }
 
+    /// Whether the table names model `id` (offset 0 is a real model too).
+    pub fn has(&self, id: u32) -> bool {
+        let n = self.table.len().saturating_sub(1);
+        self.table[..n].iter().any(|&e| e != u32::MAX && e >> 21 == id)
+    }
+
     /// The model stored at `offset` from the table's end.
     pub fn at_offset(&self, offset: u32) -> Option<&Model> {
         self.by_offset.get(&offset)

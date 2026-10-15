@@ -143,6 +143,21 @@ const CHARACTR_RAW: usize = 498;
 
 /// The strings of the title menu's items.
 const ITEM_STRINGS: [u32; 3] = [0x800b_b6c0, 0x800b_b51c, 0x800b_b694];
+/// The Start Game menu's (0x8003cc9c): "Main Game", "Activities",
+/// "Training".
+const START_STRINGS: [u32; 3] = [0x800b_b6b4, 0x800b_b6b8, 0x800b_b6bc];
+
+/// The game modes the Start Game menu returns.
+pub const MAIN_GAME: u8 = 1;
+pub const TRAINING: u8 = 16;
+
+/// Which list the title shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Menu {
+    Main,
+    /// 0x8003cf80.
+    StartGame,
+}
 
 /// Database 0's models (file 242 + 0) and the sign among them.
 const DB00_MOD: usize = 242;
@@ -457,6 +472,9 @@ impl Baby {
 pub enum Outcome {
     /// Triangle, or 30 seconds untouched: back to main's chooser (-1).
     Idle,
+    /// A game mode chosen (stored to 0x800c5678): 1 the main game, 16
+    /// training.
+    Play(u8),
 }
 
 /// What a chosen item leads to, once its items have slid away.
@@ -494,6 +512,10 @@ pub struct Title {
     /// The items sliding away before an action.
     pub leaving: Option<Action>,
     strings: [String; 3],
+    start_strings: [String; 3],
+    pub menu: Menu,
+    /// What the Start Game menu's items sliding away end with.
+    start_leaving: Option<Option<u8>>,
     /// Frames until the menu gives up (0x8003d884's s2).
     pub countdown: i32,
     /// Sounds asked for this frame, for the sound side.
@@ -547,6 +569,7 @@ impl Title {
         let trig = crate::gte::Trig::load(disc)?;
         let projection = trig.geom_screen(FOV).ok_or("no projection")? as f32;
         let strings = ITEM_STRINGS.map(|a| disc.exe_string_at(a).unwrap_or_default());
+        let start_strings = START_STRINGS.map(|a| disc.exe_string_at(a).unwrap_or_default());
         let items = menu_items(&fonts, strings.clone());
         let mut stage = crate::stage::Stage::new(vram, Vec::new());
         stage.camera = crate::stage::view(CAMERA.into(), rrt::glam::Mat3::IDENTITY, projection);
@@ -577,6 +600,9 @@ impl Title {
             models,
             leaving: None,
             strings,
+            start_strings,
+            menu: Menu::Main,
+            start_leaving: None,
             countdown: COUNTDOWN,
             sounds: Vec::new(),
             buttons,
@@ -613,12 +639,23 @@ impl Title {
                 return None;
             }
             self.leaving = None;
+            if action == Action::StartGame {
+                // 0x8003cf80 sets up its own three items (0x8003cc9c).
+                self.menu = Menu::StartGame;
+                self.items = menu_items(&self.fonts, self.start_strings.clone());
+                self.chosen = 0;
+                self.draw(true);
+                return None;
+            }
             rrt::tracing::info!("title: {action:?} is not ported yet");
             // As if it came back with nothing: the menu again (0x8003d5a0).
             self.items = menu_items(&self.fonts, self.strings.clone());
             self.countdown = COUNTDOWN;
             self.draw(true);
             return None;
+        }
+        if self.menu == Menu::StartGame {
+            return self.start_frame(pads, rng);
         }
         // A fade every 30 frames.
         if self.frames % 30 == 0 {
@@ -664,9 +701,86 @@ impl Title {
         None
     }
 
+    /// One frame of the Start Game menu (0x8003cf80's loop). Its buttons:
+    /// Down or Select and Up move; Start plays the main game at once;
+    /// Triangle goes back; Cross picks (with the four shoulders held, the
+    /// main game goes through the level chooser 0x8003bea0).
+    fn start_frame(&mut self, pads: &crate::input::Pads, rng: &mut crate::rand::Rand) -> Option<Outcome> {
+        use crate::input::*;
+        if let Some(end) = self.start_leaving {
+            self.menu_frame(rng);
+            if self.items.iter().any(|t| t.flags & text::SLIDE_Y != 0) {
+                return None;
+            }
+            self.start_leaving = None;
+            return match end {
+                Some(mode) => Some(Outcome::Play(mode)),
+                None => {
+                    // Back to the title's menu (0x8003d5a0).
+                    self.menu = Menu::Main;
+                    self.items = menu_items(&self.fonts, self.strings.clone());
+                    self.chosen = 0;
+                    self.countdown = COUNTDOWN;
+                    self.draw(true);
+                    None
+                }
+            };
+        }
+        if self.frames % 30 == 0 {
+            self.backdrop.fading = true;
+        }
+        self.frames += 1;
+        let pressed = |b: usize| pads.pressed(0, b);
+        let sliding = self.items.iter().any(|t| t.flags & text::SLIDE_Y != 0);
+        if pressed(DOWN) || pressed(SELECT) {
+            self.sounds.push(sound::DOWN);
+            self.chosen = (self.chosen + 1) % 3;
+        }
+        if pressed(UP) {
+            self.sounds.push(sound::UP);
+            self.chosen = (self.chosen + 2) % 3;
+        }
+        let end = if pressed(START) {
+            Some(Some(MAIN_GAME))
+        } else if pressed(TRIANGLE) && !sliding {
+            self.sounds.push(sound::LEAVE);
+            Some(None)
+        } else if pressed(CROSS) && !sliding {
+            let shoulders = [L1, R1, L2, R2].iter().all(|&b| pads.held(0, b));
+            self.sounds.push(if shoulders { sound::SHOULDERS } else { sound::PICK });
+            match self.chosen {
+                0 => Some(Some(MAIN_GAME)),
+                2 => Some(Some(TRAINING)),
+                _ => {
+                    rrt::tracing::info!("title: Activities is not ported yet");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(end) = end {
+            self.start_leaving = Some(end);
+            if end.is_some() {
+                for b in &mut self.babies {
+                    b.state = 8;
+                }
+            }
+            self.slide_away();
+        }
+        self.menu_frame(rng);
+        None
+    }
+
     /// Slide the items away (0x80035a54(items, 3, 150)): down to 150 at 8
     /// a frame, the second and third waiting 5 and 10 frames first.
     fn leave(&mut self, action: Action, rng: &mut crate::rand::Rand) {
+        self.slide_away();
+        self.leaving = Some(action);
+        self.menu_frame(rng);
+    }
+
+    fn slide_away(&mut self) {
         for (k, t) in self.items.iter_mut().enumerate() {
             t.target.1 = 150;
             t.rest.1 = 150;
@@ -678,8 +792,6 @@ impl Title {
                 t.flags |= text::WAIT;
             }
         }
-        self.leaving = Some(action);
-        self.menu_frame(rng);
     }
 
     /// The menu's draw (0x80035ab8) and what runs with it each frame.

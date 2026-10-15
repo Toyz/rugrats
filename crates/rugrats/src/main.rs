@@ -245,7 +245,11 @@ impl Game for Rugrats {
                             spu.effect(&self.effect_table, s as usize, sound::EFFECTS_VOLUME);
                         }
                     }
-                    if outcome == Some(Outcome::Idle) {
+                    if let Some(Outcome::Play(mode)) = outcome {
+                        self.stop_song();
+                        rrt::tracing::info!("title: game mode {mode}");
+                        self.boot = self.front_end();
+                    } else if outcome == Some(Outcome::Idle) {
                         self.stop_song();
                         self.boot = self.demo(now);
                     }

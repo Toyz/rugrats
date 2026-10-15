@@ -166,10 +166,12 @@ pub struct Game {
     pub goodies: Vec<Goodie>,
     pub bars: u32,
     bar_shown: i32,
-    /// Bars found this frame (0x80094a58), and a save asked for.
+    /// Bars found this frame (0x80094a58).
     pub found: Vec<usize>,
-    pub save: bool,
-    pub load: bool,
+    /// The game state as main has it (for a save), and a record the
+    /// pause's Load Game read (0x80070970).
+    pub state_block: [u8; crate::card::STATE_SIZE],
+    pub loaded: Option<Box<[u8; crate::card::STATE_SIZE]>>,
     carried: Option<usize>,
     grip: Vec3,
     /// Objects hidden by id (0x80078bc4) and the placements always drawn
@@ -967,7 +969,7 @@ impl Game {
             song: None,
             effects: Vec::new(),
             paused: false,
-            pause: Pause::load(disc)?,
+            pause: Pause::load(disc, level)?,
             fonts: crate::text::Fonts::load(disc)?,
             quit: false,
             ending: false,
@@ -976,8 +978,8 @@ impl Game {
             bars: progress.bars_available(),
             bar_shown: 0,
             found: Vec::new(),
-            save: false,
-            load: false,
+            state_block: [0; crate::card::STATE_SIZE],
+            loaded: None,
             carried: None,
             grip: Vec3::ZERO,
             hidden: Default::default(),
@@ -1889,11 +1891,13 @@ impl Game {
         }
         if self.paused {
             self.effects.clear();
-            match self.pause.frame(pads) {
+            match self.pause.frame(pads, &self.state_block) {
                 Some(PauseEnd::Continue) => self.paused = false,
                 Some(PauseEnd::QuitGame) => self.quit = true,
-                Some(PauseEnd::Save) => self.save = true,
-                Some(PauseEnd::Load) => self.load = true,
+                Some(PauseEnd::Loaded(state)) => {
+                    self.paused = false;
+                    self.loaded = Some(state);
+                }
                 // Quit Level: to Pickles' Home, or the front end from the
                 // hub and training (0x800398bc).
                 Some(PauseEnd::QuitLevel) => {
@@ -2254,13 +2258,17 @@ impl Game {
         if self.paused {
             self.pause.triangles(&self.fonts, &mut self.stage.overlay);
             // The counters (0x8003e05c): pieces earned with model 292 at
-            // (-192, 76), bars available with 291 at (192, 76).
-            if let Some(sp) = &self.sprites {
+            // (-192, 76), bars available with 291 at (192, 76); on the
+            // pause page only (0x80090174).
+            let page = self.pause.card.is_none();
+            if let (Some(sp), true) = (&self.sprites, page) {
                 sp.draw(PIECE_ICON, (-192, 76), 26.0, 32.0, crate::hud::METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
                 sp.draw(BAR_ICON, (192, 76), 26.0, 32.0, crate::hud::METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
             }
-            shadowed(&self.fonts, -160, 70, format!("{}", self.pieces), &mut self.stage.overlay);
-            shadowed(&self.fonts, 150, 70, format!("{}", self.bars), &mut self.stage.overlay);
+            if page {
+                shadowed(&self.fonts, -160, 70, format!("{}", self.pieces), &mut self.stage.overlay);
+                shadowed(&self.fonts, 150, 70, format!("{}", self.bars), &mut self.stage.overlay);
+            }
         } else {
             // The level timer: "%ld" seconds at the top by the clock
             // (model 375).
@@ -2500,13 +2508,11 @@ fn world_boxes(m: &rugrats_data::model::Model, rot: Mat3, pos: Vec3) -> Vec<crat
 }
 
 /// How the pause menu ends.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PauseEnd {
     Continue,
-    /// Save Game (state 3, 0x80070d80): the menu stays.
-    Save,
-    /// Load Game (state 9): a confirmed load returns 1, to the hub.
-    Load,
+    /// Load Game confirmed (state 15): the pause returns 1, to the hub.
+    Loaded(Box<[u8; crate::card::STATE_SIZE]>),
     QuitGame,
     QuitLevel,
 }
@@ -2522,18 +2528,33 @@ struct Pause {
     /// Asking about item 3 or 5: Yes (true) or No.
     confirm: Option<(usize, bool)>,
     sounds: Vec<u8>,
+    /// The card pages (Save Game?, Load Game?), their strings, the
+    /// footer's texts, the card's art, the hub's spot of this level.
+    card: Option<crate::card_menu::CardMenu>,
+    card_strings: crate::card_menu::Strings,
+    press: String,
+    labels: [String; 2],
+    art: crate::card::Art,
+    spot: [i32; 3],
+    /// Frames since the pause opened (the cursor's blink).
+    frames: u32,
 }
 
 /// Where the items sit (0x80035fec), from the screen's centre.
 const PAUSE_AT: [(i16, i16); 5] = [(-185, -30), (-145, -10), (-60, -30), (30, -10), (80, -30)];
-/// The menu's sounds: move 124 and 125, pick 126.
-const MOVE: u8 = 124;
-const MOVE_BACK: u8 = 125;
-const PICK: u8 = 126;
+/// The menu's sounds (0x800398bc): Left/Up and Triangle 124,
+/// Right/Down 125, Cross 126.
+const MOVE: u8 = crate::card_menu::BACK;
+const MOVE_ON: u8 = crate::card_menu::ON;
+const PICK: u8 = crate::card_menu::PICK;
 
 impl Pause {
-    fn load(disc: &GameDisc) -> Result<Pause, String> {
+    fn load(disc: &GameDisc, level: usize) -> Result<Pause, String> {
         let s = |n: u32| crate::front::string(disc, n);
+        // The hub's spot for this level (0x800b8718), written into a save.
+        let b = disc.exe_bytes(0x800b_8718 + 16 * level as u32, 12)?;
+        let spot = [0, 4, 8].map(|k| i32::from_le_bytes(b[k..k + 4].try_into().unwrap()));
+        let spot = if spot == [0; 3] { [5775, 779, 19403] } else { spot };
         Ok(Pause {
             strings: [s(1), s(2), s(3), s(4), s(5), s(6)],
             yes: disc.exe_string_at_addr(0x800c_48f0)?,
@@ -2541,22 +2562,51 @@ impl Pause {
             cursor: 1,
             confirm: None,
             sounds: Vec::new(),
+            card: None,
+            card_strings: crate::card_menu::Strings::load(disc),
+            press: crate::front::string(disc, crate::screens::PRESS),
+            labels: [disc.exe_string_at(0x800b_b504).unwrap_or_default(), disc.exe_string_at(0x800b_b508).unwrap_or_default()],
+            art: disc.card.clone(),
+            spot,
+            frames: 0,
         })
     }
 
     fn open(&mut self) {
         self.cursor = 1;
         self.confirm = None;
+        self.card = None;
+        self.frames = 0;
     }
 
-    fn frame(&mut self, pads: &Pads) -> Option<PauseEnd> {
+    fn frame(&mut self, pads: &Pads, state: &[u8; crate::card::STATE_SIZE]) -> Option<PauseEnd> {
+        self.frames += 1;
+        if let Some(card) = &mut self.card {
+            let out = card.frame(pads);
+            self.sounds.extend(card.sounds.drain(..));
+            match out {
+                Some(crate::card_menu::Outcome::Back(item)) => {
+                    self.card = None;
+                    self.cursor = item;
+                }
+                Some(crate::card_menu::Outcome::Close) => return Some(PauseEnd::Continue),
+                Some(crate::card_menu::Outcome::Loaded(b)) => return Some(PauseEnd::Loaded(b)),
+                None => {}
+            }
+            return None;
+        }
         let pressed = |b: usize| pads.pressed(0, b);
         if let Some((item, yes)) = &mut self.confirm {
-            if pressed(input::LEFT) || pressed(input::RIGHT) {
-                *yes = !*yes;
+            if pressed(input::LEFT) && !*yes {
+                *yes = true;
                 self.sounds.push(MOVE);
             }
+            if pressed(input::RIGHT) && *yes {
+                *yes = false;
+                self.sounds.push(MOVE_ON);
+            }
             if pressed(input::TRIANGLE) {
+                self.sounds.push(MOVE);
                 self.confirm = None;
                 return None;
             }
@@ -2572,17 +2622,24 @@ impl Pause {
         }
         if pressed(input::LEFT) && self.cursor > 2 {
             self.cursor -= 2;
-            self.sounds.push(MOVE_BACK);
+            self.sounds.push(MOVE);
         }
         if pressed(input::RIGHT) && self.cursor < 4 {
             self.cursor += 2;
-            self.sounds.push(MOVE);
+            self.sounds.push(MOVE_ON);
         }
-        if pressed(input::UP) || pressed(input::DOWN) {
-            self.cursor = if self.cursor % 2 == 1 { (self.cursor + 1).min(4) } else { self.cursor - 1 };
+        if pressed(input::UP) && self.cursor % 2 == 0 {
+            self.cursor -= 1;
             self.sounds.push(MOVE);
+        } else if pressed(input::DOWN) && self.cursor % 2 == 1 && self.cursor < 5 {
+            self.cursor += 1;
+            self.sounds.push(MOVE_ON);
         }
-        if pressed(input::TRIANGLE) || pressed(input::START) {
+        if pressed(input::START) {
+            return Some(PauseEnd::Continue);
+        }
+        if pressed(input::TRIANGLE) {
+            self.sounds.push(MOVE);
             return Some(PauseEnd::Continue);
         }
         if pressed(input::CROSS) {
@@ -2590,8 +2647,8 @@ impl Pause {
             match self.cursor {
                 1 => return Some(PauseEnd::Continue),
                 3 | 5 => self.confirm = Some((self.cursor, false)),
-                2 => return Some(PauseEnd::Save),
-                _ => return Some(PauseEnd::Load),
+                // Save Game? (state 3) or Load Game? (9): the card pages.
+                c => self.card = Some(crate::card_menu::CardMenu::open(c == 2, false, self.art.clone(), *state, self.spot)),
             }
         }
         None
@@ -2599,9 +2656,16 @@ impl Pause {
 
     fn triangles(&self, fonts: &crate::text::Fonts, out: &mut Vec<rugrats_render::Vtx>) {
         use crate::text::Text;
-        // The heading in font 1, the items in font 0 (0x80035fec).
+        if let Some(card) = &self.card {
+            card.triangles(&self.card_strings, fonts, &self.press, &self.labels, out);
+            return;
+        }
+        // The heading in font 1 and pink, the items in font 0 and light
+        // blue, the cursor's blinking (0x80035fec, 0x800391d4).
+        let cursor = crate::card_menu::cursor_colour(self.frames);
         let mut item = |s: &str, x: i16, y: i16, lit: bool, centre: bool| {
-            let mut t = Text { font: if centre { 1 } else { 0 }, spacing: 1, string: s.to_string(), x, y, rgb: if lit { [255, 255, 5] } else { [255, 255, 255] }, ..Default::default() };
+            let rgb = if centre { crate::card_menu::HEADING } else if lit { cursor } else { crate::card_menu::ITEM };
+            let mut t = Text { font: if centre { 1 } else { 0 }, spacing: 1, string: s.to_string(), x, y, rgb, ..Default::default() };
             if centre {
                 fonts.centre(&mut t, true, false);
             }

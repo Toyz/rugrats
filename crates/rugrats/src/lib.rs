@@ -27,6 +27,7 @@ pub mod golf;
 pub mod screens;
 pub mod hud;
 pub mod card;
+pub mod card_menu;
 pub mod cine;
 pub mod collide;
 pub mod disc;

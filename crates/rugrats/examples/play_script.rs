@@ -162,6 +162,9 @@ fn main() -> Result<(), String> {
             if !game.speech.is_empty() {
                 println!("{frame}: speech {:?}", game.speech);
             }
+            if let Some(b) = game.loaded.take() {
+                println!("{frame}: loaded a record, level {}", u32::from_le_bytes(b[0..4].try_into().unwrap()));
+            }
             if let Some(e) = game.exit.take() {
                 println!("{frame}: exit to {e:?}");
             }

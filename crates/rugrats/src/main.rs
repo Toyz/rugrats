@@ -582,6 +582,7 @@ impl Game for Rugrats {
             Boot::Game { game } => {
                 if now.is_multiple_of(2) {
                     self.pads.update([Some(&t.pad), None]);
+                    game.state_block = self.progress.block;
                     game.frame(&self.pads);
                     if let Ok(mut spu) = self.spu.lock() {
                         for &(e, v) in &game.effects {
@@ -609,27 +610,17 @@ impl Game for Rugrats {
                         }
                     }
                     game.bars = self.progress.bars_available();
-                    if std::mem::take(&mut game.load) {
-                        let cards = rugrats::card::Cards::default();
-                        let state = cards.load(0, &self.disc.card).and_then(|s| s.record((s.words[3] as usize).max(1)));
-                        if let Some(block) = state {
-                            self.progress = rugrats::progress::Progress { block };
-                            self.stop_song();
-                            self.level = None;
-                            self.boot = self.game(rugrats::game::HUB, now);
-                            return;
-                        }
-                        rrt::tracing::info!("load: no saved game on the card in slot 1");
-                    }
-                    if std::mem::take(&mut game.save) {
-                        let cards = rugrats::card::Cards::default();
-                        let mut save = cards.load(0, &self.disc.card).unwrap_or_default();
-                        let k = (save.words[3] as usize).clamp(1, rugrats::card::RECORDS - 1);
-                        save.put_record(k, &self.progress.block);
-                        match cards.store(0, &self.disc.card, &save) {
-                            Ok(()) => rrt::tracing::info!("saved to GAME {k} on the card in slot 1"),
-                            Err(e) => rrt::tracing::error!("save: {e}"),
-                        }
+                    // Load Game from the pause (0x80070970): the record's state,
+                    // then Pickles' Home at the saved level's spot (exit 1,
+                    // 0x80018230, 0x80070cc8).
+                    if let Some(block) = game.loaded.take() {
+                        self.progress.block = *block;
+                        let saved = self.progress.level();
+                        self.stop_song();
+                        self.level = Some(saved);
+                        let page = screens::message::loading(&self.disc, rugrats::game::HUB, false, true);
+                        self.boot = self.screen(vec![page], 1, Then::Level(rugrats::game::HUB), None, now);
+                        return;
                     }
                     if let Some(song) = game.song.take().and_then(|n| self.songs.as_ref().and_then(|l| l.songs.get(n)))
                     {

@@ -31,7 +31,7 @@ const CAMERA_Y: f32 = 30.0;
 /// The front end's field of view (0x80040194: 512).
 const FOV: i32 = 512;
 /// The PRESS X TO CONTINUE line (string 67) and its cube (0x80035798).
-const PRESS: u32 = 67;
+pub const PRESS: u32 = 67;
 const BUTTON_MODEL: u32 = 334;
 const DB00_MOD: usize = 242;
 /// The second camera the cubes are seen by (0x80040010).

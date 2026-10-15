@@ -133,7 +133,8 @@ impl crate::game::Script for Level12 {
             }
         });
         for k in back {
-            g.effects.push((143, crate::sound::EFFECTS_VOLUME));
+            // Mode 10's end (0x80084380): speech 143 or 21.
+            g.speech.push(if g.rand.next() & 1 == 0 { 143 } else { 21 });
             if let Some(i) = crate::game::spawn(&mut g.spots, SPOTS, &mut g.rand) {
                 g.spots[i].used = false;
                 let at = g.spots[i].pos;

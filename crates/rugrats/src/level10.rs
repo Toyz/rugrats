@@ -34,6 +34,18 @@ struct Baby {
 pub struct Level10 {
     pub phase: u8,
     babies: Vec<Baby>,
+    /// The running babies' line countdown (0x800c4ce4).
+    talk_wait: i32,
+}
+
+/// What a running baby says (0x80084084 mode 6, level 10): Tommy
+/// 0x800b9704, Phil 0x800b9710, Lil 0x800b971c.
+fn running_lines(id: u16) -> &'static [u16] {
+    match id {
+        1492 => &[178, 180, 181, 166, 170, 171],
+        608 => &[189, 190, 192, 166, 170, 171],
+        _ => &[197, 198, 166, 170, 171],
+    }
 }
 
 fn find(g: &Game, id: u16) -> Option<usize> {
@@ -49,7 +61,7 @@ impl Level10 {
         if let Some(p) = g.posts.get_mut(HOME_POST - 1) {
             p.flags |= crate::npc::post::GOAL;
         }
-        let mut l = Level10 { phase: 1, babies: BABIES.iter().map(|b| Baby { id: b.0, spot: None, caught: false }).collect() };
+        let mut l = Level10 { phase: 1, babies: BABIES.iter().map(|b| Baby { id: b.0, spot: None, caught: false }).collect(), talk_wait: 0 };
         for i in 0..l.babies.len() {
             l.hide(g, i);
         }
@@ -129,7 +141,20 @@ impl crate::game::Script for Level10 {
                     }
                     let first = g.npcs[k].first_post;
                     g.npcs[k].mode = Mode::Posts { prev: 0, cur: first };
-                    g.effects.push((158, crate::sound::EFFECTS_VOLUME));
+                    // Chuckie says 0x800b9728[(rand & 255) mod 3].
+                    g.speech.push([158, 160, 165][(g.rand.next() & 255) as usize % 3]);
+                }
+            }
+        }
+        // Each running baby counts the shared countdown down and says a
+        // line at 0.
+        for b in &self.babies {
+            if find(g, b.id).is_some_and(|k| matches!(g.npcs[k].mode, Mode::Posts { .. })) {
+                self.talk_wait -= crate::player::DT;
+                if self.talk_wait <= 0 {
+                    let lines = running_lines(b.id);
+                    g.speech.push(lines[(g.rand.next() & 255) as usize % lines.len()]);
+                    self.talk_wait = ((g.rand.next() & 255) * 16) as i32;
                 }
             }
         }

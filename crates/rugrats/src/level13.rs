@@ -18,6 +18,9 @@ const UPPER_FLOOR: i32 = -5120;
 const COOKIE: u16 = 863;
 const CINE_LOST: usize = 20;
 
+/// 0x800b96d0.
+const WAIT_LINES: [u16; 8] = [608, 609, 610, 643, 645, 646, 664, 723];
+
 pub struct Level13 {
     cookies: u32,
     total: u32,
@@ -50,6 +53,14 @@ impl Level13 {
 impl crate::game::Script for Level13 {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
+            // Angelica waiting at a post taunts (0x80083e2c: 0x800b96d0,
+            // rand & 7), and again going on when Tommy comes near
+            // (0x80084084 mode 7: 611 or 612).
+            match e {
+                Event::Waits(_) => g.speech.push(WAIT_LINES[(g.rand.next() & 7) as usize]),
+                Event::Resumes(_) => g.speech.push(if g.rand.next() & 1 == 0 { 611 } else { 612 }),
+                _ => {}
+            }
             // GoalPost's level 13 case (0x80077070): speech 723, cine 20.
             if let Event::Goal(k) = e {
                 if g.npcs[k].id == ANGELICA && !self.raced {

@@ -153,6 +153,10 @@ impl Level16 {
 impl crate::game::Script for Level16 {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
+            // Angelica waiting at a post (0x80083e2c, level 16: 0x800b96e4).
+            if let Event::Waits(_) = e {
+                g.speech.push([643, 646, 582][(g.rand.next() & 255) as usize % 3]);
+            }
             if let Event::Bite { by, target: Target::Player, amount } = e {
                 if amount > 0 {
                     g.player.health = (g.player.health - amount).max(0);

@@ -143,6 +143,10 @@ pub enum Event {
     Goal(usize),
     /// Mode 3's swat (0x80084084): the player thrown along `heading`.
     Swat { by: usize, heading: i32 },
+    /// Mode 7 entered at a post (0x80083e2c), and left because the player
+    /// came near (0x80083efc).
+    Waits(usize),
+    Resumes(usize),
 }
 
 fn wrap(a: i32) -> i32 {
@@ -265,6 +269,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                     }
                     let next = n.next_post(&post, prev, rand);
                     n.mode = if post.flags & post::WAIT != 0 {
+                        events.push(Event::Waits(k));
                         Mode::Wait { prev: cur, cur: next, left: n.wait * DT / 2 }
                     } else {
                         Mode::Posts { prev: cur, cur: next }
@@ -279,6 +284,9 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                 n.speed = 0;
                 let near = n.dist(w.player) < n.range;
                 if left <= 0 || near {
+                    if near {
+                        events.push(Event::Resumes(k));
+                    }
                     n.mode = Mode::Posts { prev, cur };
                 } else {
                     n.mode = Mode::Wait { prev, cur, left: left - DT };

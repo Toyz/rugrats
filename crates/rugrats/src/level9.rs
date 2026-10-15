@@ -89,6 +89,8 @@ impl Level9 {
         n.health = (n.health - amount).max(0);
         if !l14 {
             g.effects.push((19, crate::sound::EFFECTS_VOLUME));
+            // His line (0x800833a4 / 0x800834b0 in level 9: 0x800b96c8).
+            g.speech.push([153, 187, 146][(g.rand.next() & 255) as usize % 3]);
         }
         if n.health == 0 {
             self.die(g, k);

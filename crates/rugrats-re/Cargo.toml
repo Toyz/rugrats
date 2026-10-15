@@ -1,0 +1,12 @@
+[package]
+name = "rugrats-re"
+version = "0.1.0"
+description = "The reverse engineering toolbox for Rugrats: Search for Reptar: disc listing and extraction, executable inspection, disassembly, and the docs index."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rrt = { workspace = true, features = ["disc"] }
+rugrats-psx.workspace = true
+rugrats-data.workspace = true

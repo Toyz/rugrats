@@ -1,0 +1,8 @@
+# The game disc. `original/` holds the 7z archive as it came, `work/` is
+# everything extracted from it. None of it belongs in the repository.
+/original
+/work
+
+# Build output and scratch.
+/target
+/.claude/worktrees/

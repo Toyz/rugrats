@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-57 entries: audio 8, bug 2, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 27, render 10, save 2, test 9, tooling 15, ui 8, video 8.
+58 entries: audio 8, bug 2, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 27, render 11, save 2, test 9, tooling 15, ui 8, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -69,3 +69,4 @@ The [reference](docs/README.md) says what is true now.
 | 55 | [Speech: the NPC lines](worklog/0055-speech-the-npc-lines.md) | 2026-10-15 | audio |
 | 56 | [Doors: hinged and sliding](worklog/0056-doors-hinged-and-sliding.md) | 2026-10-15 | play |
 | 57 | [Doors: class 8 swinging](worklog/0057-doors-class-8-swinging.md) | 2026-10-15 | play |
+| 58 | [Effect meshes: the beam and the light](worklog/0058-effect-meshes-the-beam-and-the-light.md) | 2026-10-15 | render |

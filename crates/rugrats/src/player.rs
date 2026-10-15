@@ -410,7 +410,7 @@ const STEP_DOWN: i32 = 384;
 const STEP_UP: i32 = 384;
 /// The body's radius and height for the object test.
 pub const RADIUS: i32 = 160;
-const HEIGHT: i32 = 600;
+pub const HEIGHT: i32 = 600;
 
 /// An object's collision box: its model box (`lo`, `hi`) in the object's
 /// space, the object's rotation and position, and the world heights it

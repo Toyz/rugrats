@@ -152,6 +152,11 @@ pub struct Game {
     eye_up: f32,
     behind: f32,
     post_camera: Option<usize>,
+    /// Objects that hurt on touch (not pickable, not characters, +0x6d
+    /// over 0: Damage(player, 0, +0x6d), 0x8005e1f4), and the time until
+    /// the next hurt.
+    hazards: Vec<(crate::player::Box3, i32)>,
+    hurt_wait: i32,
 }
 
 /// A collectible (0x80048a44, touched by 0x800514b0).
@@ -442,7 +447,10 @@ impl Game {
             eye_up: default_eye_up(level),
             behind: if level == 7 { 6400.0 } else { BEHIND },
             post_camera: None,
+            hazards: Vec::new(),
+            hurt_wait: 0,
         };
+        g.hazards = hazards(&g.set, &g.apart);
         g.script = match level {
             2 => Some(Box::new(crate::level2::Level2::start(&mut g, disc)?)),
             3 => Some(Box::new(crate::level3::Level3::start(&mut g, disc)?)),
@@ -669,8 +677,6 @@ impl Game {
         }
     }
 
-    /// A cinematic asked for has played (CineFinish, 0x800783d8): the
-    /// room's song again, and the level's own reaction.
     /// ForceCry (0x8007fd0c): the player cries (0x8007f920), then a try
     /// is gone.
     pub fn cry(&mut self) {
@@ -709,6 +715,8 @@ impl Game {
         }
     }
 
+    /// A cinematic asked for has played (CineFinish, 0x800783d8): the
+    /// endings, and the level's own reaction.
     pub fn cine_finished(&mut self, n: usize) {
         self.room = None;
         self.eye = self.eye_goal();
@@ -903,6 +911,23 @@ impl Game {
         };
         self.npc_events = crate::npc::step(&mut self.npcs, &world, &mut self.rand);
         self.with_script(|s, g| s.frame(g, pads));
+        // Hazards (0x8005e1f4): touching one costs its +0x6d; the next
+        // only after a second (guess).
+        self.hurt_wait = (self.hurt_wait - crate::player::DT).max(0);
+        if self.hurt_wait == 0 && self.crying == 0 {
+            let p = self.player.pos;
+            let (feet, head) = (p[1] - self.player.feet(), p[1] - self.player.feet() - crate::player::HEIGHT);
+            let hurt = self
+                .hazards
+                .iter()
+                .filter(|(b, _)| b.covers(p, crate::player::RADIUS + 40) && b.min_y <= feet + 40 && b.max_y >= head)
+                .map(|&(_, d)| d)
+                .max();
+            if let Some(d) = hurt {
+                self.player.health = (self.player.health - d).max(0);
+                self.hurt_wait = 300;
+            }
+        }
         // Damage (0x80077864): health at 0 is a cry.
         if self.player.health <= 0 {
             self.cry();
@@ -983,6 +1008,23 @@ impl Game {
 /// The world boxes of the placed models (the player's placement left out):
 /// each model box with the placement's rotation and position, and the
 /// heights its corners span.
+/// The boxes of the objects that hurt on touch, with their +0x6d.
+fn hazards(set: &Set, apart: &[bool]) -> Vec<(crate::player::Box3, i32)> {
+    let mut out = Vec::new();
+    for (k, place) in set.placements.iter().enumerate() {
+        let Some(t) = set.templates.get(place.template as usize) else { continue };
+        let damage = t.raw[0x32] as i32;
+        if place.kind != 1 || apart[k] || damage == 0 || t.hierarchy().is_some() {
+            continue;
+        }
+        let Some(m) = set.models.get(t.shape as u32).filter(|_| set.models.find(t.shape as u32) != 0) else { continue };
+        let rot = rugrats_render::models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
+        let pos = Vec3::new(place.pos[0] as f32, place.pos[1] as f32, place.pos[2] as f32);
+        out.extend(world_boxes(m, rot, pos).into_iter().map(|b| (b, damage)));
+    }
+    out
+}
+
 fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate::player::Box3> {
     let mut out = Vec::new();
     for (k, place) in set.placements.iter().enumerate() {
@@ -1001,7 +1043,6 @@ fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate::player::B
     out
 }
 
-/// A level's start cinematic (0x80074958).
 /// The cinematics that end a level (0x8007737c, table 0x8001532c), and
 /// whether it was won: 5 (level 2), 14 (3), 19 (9), 20 and 21 (13), 24
 /// (18), 26 (17), 35 (8), 40 (5), 47 (6), 48 (4), 50 (21), 62 (11), 64
@@ -1032,6 +1073,7 @@ const CRY_TIME: i32 = 2100;
 /// Cine 85: the end of the game (exit code -1).
 const REPTAR_DANCE: usize = 85;
 
+/// A level's start cinematic (0x80074958).
 pub fn start_cine(level: usize) -> Option<usize> {
     Some(match level {
         1 => 7,

@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-34 entries: audio 6, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 8, render 10, save 2, test 9, tooling 15, ui 7, video 8.
+35 entries: audio 6, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 9, render 10, save 2, test 9, tooling 15, ui 7, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -46,3 +46,4 @@ The [reference](docs/README.md) says what is true now.
 | 32 | [Level 2 playable: geese, the Spike chase, the shuffleboard, the win](worklog/0032-level-2-playable-geese-the-spike-chase-the-shuffleboard-the.md) | 2026-10-15 | play |
 | 33 | [The HUD: health meter and gauges as sprites](worklog/0033-the-hud-health-meter-and-gauges-as-sprites.md) | 2026-10-15 | render |
 | 34 | [Finishing levels, the cry, and level 3 playable](worklog/0034-finishing-levels-the-cry-and-level-3-playable.md) | 2026-10-15 | play |
+| 35 | [Mini golf, room cameras, hazards and the level timer](worklog/0035-mini-golf-room-cameras-hazards-and-the-level-timer.md) | 2026-10-15 | play |

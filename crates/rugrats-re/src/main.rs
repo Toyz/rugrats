@@ -2,14 +2,21 @@
 
 #![forbid(unsafe_code)]
 
+mod bios;
 mod docs;
 
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use rugrats_psx::Exe;
-use rugrats_psx::mips;
-use rrt::disc::{Image, TrackKind};
+use rrt::dis::analysis::{self, Image, find_gp};
+use rrt::dis::exe::PsxExe;
+use rrt::dis::listing::Listing;
+use rrt::dis::mips::Mips;
+use rrt::dis::pseudo::Pseudo;
+use rrt::dis::{Endian, Symbols};
+use rrt::disc::{self, TrackKind};
 
 const USAGE: &str = "usage: rugrats-re <command> ...
 
@@ -27,20 +34,26 @@ const USAGE: &str = "usage: rugrats-re <command> ...
   disasm FILE [--from ADDR] [--to ADDR] [--count N] [--gp ADDR]
                             disassemble a PS-X EXE (or a raw image with --base ADDR),
                             with function labels, BIOS calls, and the strings the code points at
-  disasm FILE --func ADDR   one whole function
+  disasm FILE --func ADDR|NAME
+                            one whole function
   funcs FILE                functions found by recursive descent: size, calls, callers, flags
                             (i indirect calls, u unresolved jr, ! hit invalid, t tail calls)
   calls FILE [ADDR|NAME] [--depth N]
                             the call tree under a function (default the entry)
   callers FILE ADDR|NAME [--depth N]
                             the tree of callers above a function, through interface slots too
-  xrefs FILE ADDR           calls, jumps, data references and pointers to an address
+  xrefs FILE ADDR|NAME      calls, jumps, data references and pointers to an address
   slots FILE                interface slots: fixed words holding function addresses, and their jalr uses
   pseudo FILE ADDR|NAME     C-like pseudo-code for a function (a reading aid)
+  pseudo FILE --all [--dump]
+                            check that every function decompiles; --dump prints them all
   strings FILE              strings the code references, with the functions that use them
-
-Names in symbols/<stem>.txt (`0xADDRESS name` per line) override the found ones.
   docs index|check          the reference index under docs/
+
+The analysis, listings and pseudo-code are rrt-dis's. Names come from
+symbols/<stem>.txt (rrt-dis's symbol file: `0xADDRESS name [func|data|label]
+[size=N] # (sure|likely|guess) note`, and `@data START END` for data inside the
+code); functions it leaves unnamed are bios_NAME for a BIOS stub, else fn_ADDRESS.
 
 FILE may be `disc:PATH` to read straight off the CD. The disc is the one .cue
 under work/disc unless --cue is given.";
@@ -88,12 +101,12 @@ fn parse_num(text: &str) -> Result<u32> {
     }
 }
 
-fn open_disc(cue: &Option<String>) -> Result<Image> {
+fn open_disc(cue: &Option<String>) -> Result<disc::Image> {
     let path = match cue {
         Some(p) => PathBuf::from(p),
-        None => Image::find(&root().join("work/disc")).map_err(|e| e.to_string())?,
+        None => disc::Image::find(&root().join("work/disc")).map_err(|e| e.to_string())?,
     };
-    Image::open(&path).map_err(|e| e.to_string())
+    disc::Image::open(&path).map_err(|e| e.to_string())
 }
 
 fn read_input(file: &str, cue: &Option<String>) -> Result<Vec<u8>> {
@@ -402,10 +415,11 @@ fn vab_cmd(args: &mut Args) -> Result<()> {
 
 fn exe_info(args: &mut Args, cue: &Option<String>) -> Result<()> {
     let file = args.items.get(1).ok_or("exe info FILE")?;
-    let exe = Exe::parse(&read_input(file, cue)?).map_err(|e| e.to_string())?;
+    let exe = PsxExe::parse(&read_input(file, cue)?)?;
+    let t_size = exe.image.len() as u32;
     println!("pc0     0x{:08x}", exe.pc0);
     println!("gp0     0x{:08x}", exe.gp0);
-    println!("text    0x{:08x} .. 0x{:08x} ({} bytes)", exe.t_addr, exe.t_addr + exe.t_size, exe.t_size);
+    println!("text    0x{:08x} .. 0x{:08x} ({t_size} bytes)", exe.t_addr, exe.t_addr + t_size);
     println!("data    0x{:08x} ({} bytes)", exe.d_addr, exe.d_size);
     println!("bss     0x{:08x} .. 0x{:08x} ({} bytes)", exe.b_addr, exe.b_addr + exe.b_size, exe.b_size);
     println!("stack   0x{:08x} + 0x{:x}", exe.s_addr, exe.s_size);
@@ -413,44 +427,35 @@ fn exe_info(args: &mut Args, cue: &Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// `@data 0xSTART 0xEND` lines in `symbols/<stem>.txt`: data inside the code.
-fn load_data_ranges(file: &str) -> Vec<std::ops::Range<u32>> {
+/// The symbol file `symbols/<stem>.txt`, empty when there is none.
+fn load_symbols(file: &str) -> Result<Symbols> {
     let stem = file.trim_start_matches("disc:").rsplit(['/', '\\']).next().unwrap_or(file);
     let stem = stem.split('.').next().unwrap_or(stem).to_lowercase();
     let path = root().join("symbols").join(format!("{stem}.txt"));
-    let text = std::fs::read_to_string(path).unwrap_or_default();
-    text.lines()
-        .filter_map(|l| {
-            let mut w = l.split('#').next()?.split_whitespace();
-            (w.next()? == "@data").then_some(())?;
-            Some(parse_num(w.next()?).ok()?..parse_num(w.next()?).ok()?)
-        })
-        .collect()
+    let Ok(text) = std::fs::read_to_string(&path) else { return Ok(Symbols::new()) };
+    Symbols::parse(&text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// Names from `symbols/<stem>.txt`: one `0xADDRESS name` per line, `#` comments.
-fn load_symbols(file: &str) -> std::collections::BTreeMap<u32, String> {
-    let stem = file.trim_start_matches("disc:").rsplit(['/', '\\']).next().unwrap_or(file);
-    let stem = stem.split('.').next().unwrap_or(stem).to_lowercase();
-    let path = root().join("symbols").join(format!("{stem}.txt"));
-    let mut out = std::collections::BTreeMap::new();
-    for line in std::fs::read_to_string(path).unwrap_or_default().lines() {
-        let line = line.split('#').next().unwrap_or("").trim();
-        let mut words = line.split_whitespace();
-        if let (Some(a), Some(n)) = (words.next(), words.next())
-            && let Ok(a) = parse_num(a)
-        {
-            out.insert(a, n.to_string());
-        }
+/// Writes a command's output, ending quietly when the reader has gone
+/// (`| head`).
+fn emit(text: &str) -> Result<()> {
+    match std::io::stdout().lock().write_all(text.as_bytes()) {
+        Err(e) if e.kind() != std::io::ErrorKind::BrokenPipe => Err(e.to_string()),
+        _ => Ok(()),
     }
-    out
 }
 
+/// The R3000A, which the analysis borrows for the life of the command.
+static MIPS: Mips = Mips::r3000();
+
+/// An executable analysed by rrt-dis. Its listing names what the symbol
+/// file names, then BIOS stubs as `bios_NAME` and other functions as
+/// `fn_XXXXXXXX`, so every command and the pseudo-code agree.
 struct Program {
-    exe: Option<Exe>,
-    names: std::collections::BTreeMap<u32, String>,
-    a: rugrats_psx::program::Program<'static>,
-    refs: std::collections::BTreeMap<u32, std::collections::BTreeSet<u32>>,
+    entry: u32,
+    names: &'static Symbols,
+    a: &'static analysis::Program<'static, Mips>,
+    listing: Listing<'static, 'static, Mips>,
 }
 
 impl Program {
@@ -459,59 +464,59 @@ impl Program {
         let gp_arg = args.take("--gp").map(|s| parse_num(&s)).transpose()?;
         let file = args.items.first().ok_or("FILE")?.clone();
         let bytes = read_input(&file, cue)?;
-        let (exe, base, image) = match base {
-            Some(b) => (None, b, bytes),
+        let (base, image, entry, exe_gp) = match base {
+            Some(b) => (b, bytes, b, None),
             None => {
-                let exe = Exe::parse(&bytes).map_err(|e| e.to_string())?;
-                let (b, i) = (exe.t_addr, exe.image.clone());
-                (Some(exe), b, i)
+                let exe = PsxExe::parse(&bytes)?;
+                (exe.t_addr, exe.image, exe.pc0, (exe.gp0 != 0).then_some(exe.gp0))
             }
         };
-        // The analysis borrows the image for the life of the command.
-        let image: &'static [u8] = Box::leak(image.into_boxed_slice());
-        let mem = rugrats_psx::Memory { base, bytes: image };
-        let entry = exe.as_ref().map_or(base, |e| e.pc0);
-        let gp = gp_arg.or_else(|| rugrats_psx::analysis::find_gp(&mem, entry));
-        let symbols = load_symbols(&file);
-        let data = load_data_ranges(&file);
-        let a = rugrats_psx::program::Program::analyze_with_data(mem, entry, gp, data);
-        let refs = rugrats_psx::analysis::data_refs(&mem, gp);
-        let mut names = std::collections::BTreeMap::new();
+        // The analysis, its listing and the names live as long as the
+        // command.
+        let image = Image { base, bytes: Box::leak(image.into_boxed_slice()) };
+        let gp = gp_arg.or(exe_gp).or_else(|| find_gp(&MIPS, image, entry));
+        let mut names = load_symbols(&file)?;
+        let a: &'static _ = Box::leak(Box::new(analysis::Program::analyze(&MIPS, image, entry, gp, &names)));
         for &f in a.funcs.keys() {
-            let name = rugrats_psx::analysis::bios_stub(&mem, f)
-                .and_then(rugrats_psx::analysis::bios_name)
-                .map_or_else(|| format!("fn_{f:08x}"), |n| format!("bios_{n}"));
-            names.insert(f, name);
-        }
-        for jt in a.jump_tables.values() {
-            for &t in &jt.targets {
-                names.entry(t).or_insert_with(|| format!("case_{t:08x}"));
+            if names.at(f).is_some() {
+                continue;
             }
+            let name = match bios::stub(image, f).and_then(bios::name) {
+                Some(n) if names.get(&format!("bios_{n}")).is_none() => format!("bios_{n}"),
+                _ => format!("fn_{f:08x}"),
+            };
+            names.insert(name, f);
         }
-        names.extend(symbols);
-        Ok(Program { exe, names, a, refs })
+        let names: &'static Symbols = Box::leak(Box::new(names));
+        Ok(Program { entry, names, a, listing: Listing::new(a, names) })
     }
 
-    fn mem(&self) -> rugrats_psx::Memory<'static> {
-        self.a.mem
+    fn image(&self) -> Image<'static> {
+        self.a.image
     }
 
     fn name(&self, addr: u32) -> String {
-        self.names.get(&addr).cloned().unwrap_or_else(|| format!("0x{addr:08x}"))
+        self.listing.name(addr)
     }
 
-    /// A short note for an address the code refers to: a string or a name.
-    fn note(&self, addr: u32) -> Option<String> {
-        if let Some(n) = self.names.get(&addr) {
-            return Some(n.clone());
+    /// An address given as a name or a number.
+    fn resolve(&self, text: &str) -> Result<u32> {
+        self.names.addr(text).map_or_else(|| parse_num(text), Ok)
+    }
+
+    /// The function starting at, or holding, an address given as a name or
+    /// a number.
+    fn func(&self, text: &str) -> Result<u32> {
+        let addr = self.resolve(text)?;
+        match self.a.funcs.get(&addr).or_else(|| self.a.func_of(addr)) {
+            Some(f) => Ok(f.start),
+            None => Err(format!("no function at 0x{addr:08x}")),
         }
-        if let Some(s) = self.mem().cstr(addr).filter(|s| s.len() >= 3) {
-            return Some(format!("{:?}", if s.len() > 60 { &s[..60] } else { s }));
-        }
-        // Inside a named object: name+offset.
-        let (&at, n) = self.names.range(..addr).next_back()?;
-        (addr - at < 0x100 && !n.starts_with("fn_") && !n.starts_with("case_"))
-            .then(|| format!("{n}+0x{:x}", addr - at))
+    }
+
+    /// The name of the function holding `site`, else the site.
+    fn func_name(&self, site: u32) -> String {
+        self.a.func_of(site).map_or_else(|| format!("{site:08x}"), |f| self.name(f.start))
     }
 }
 
@@ -519,113 +524,64 @@ fn disasm(args: &mut Args, cue: &Option<String>) -> Result<()> {
     let from = args.take("--from").map(|s| parse_num(&s)).transpose()?;
     let to = args.take("--to").map(|s| parse_num(&s)).transpose()?;
     let count = args.take("--count").map(|s| parse_num(&s)).transpose()?;
-    let func = args.take("--func").map(|s| parse_num(&s)).transpose()?;
+    let func = args.take("--func");
     let p = Program::load(args, cue)?;
-    let mem = p.mem();
-    let (start, end) = match func {
-        Some(f) => {
-            let f = p.a.funcs.get(&f).ok_or(format!("no function starts at 0x{f:08x}"))?;
-            (f.start, f.end)
-        }
+    let image = p.image();
+    let text = match func {
+        Some(f) => p.listing.function(p.func(&f)?).unwrap_or_default(),
         None => {
-            let start = from.unwrap_or(mem.base) & !3;
+            let start = from.unwrap_or(image.base) & !3;
             let end = match (to, count) {
                 (Some(t), _) => t,
-                (None, Some(n)) => start + n * 4,
-                (None, None) => mem.end(),
+                (None, Some(n)) => start.saturating_add(n.saturating_mul(4)),
+                (None, None) => image.end(),
             };
-            (start, end)
+            p.listing.range(start, end.min(image.end()))
         }
     };
-    let end = end.min(mem.end());
-    // Reference sites -> the address they form.
-    let mut site_note = std::collections::BTreeMap::new();
-    // Every address the code forms gets a note, so nobody has to add a
-    // `lui` and an `addiu` by hand.
-    for (&target, sites) in &p.refs {
-        let n = p.note(target).unwrap_or_else(|| format!("0x{target:08x}"));
-        for &s in sites {
-            site_note.insert(s, n.clone());
-        }
-    }
-    let label = |a: u32| p.names.get(&a).cloned();
-    let out = std::io::stdout();
-    let mut out = std::io::BufWriter::new(out.lock());
-    let mut pc = start;
-    while pc < end {
-        if let Some(f) = p.a.funcs.get(&pc) {
-            let callers = p.a.callers.get(&pc).map_or(0, |c| c.len());
-            let _ = writeln!(
-                out,
-                "\n{}:  # {pc:08x}..{:08x}, {} insns, {callers} callers, found by {}",
-                p.name(pc),
-                f.end,
-                f.insns,
-                f.how
-            );
-        } else if let Some(n) = p.names.get(&pc) {
-            let _ = writeln!(out, "{n}:");
-        }
-        let word = mem.u32(pc).unwrap();
-        let insn = mips::decode(word);
-        let text = insn.render(pc, &label);
-        let mark = if p.a.owner.contains_key(&pc) { ' ' } else { '?' };
-        match site_note.get(&pc) {
-            Some(n) => {
-                let _ = writeln!(out, "{pc:08x}:{mark}{word:08x}  {text:<40} # {n}");
-            }
-            None => {
-                let _ = writeln!(out, "{pc:08x}:{mark}{word:08x}  {text}");
-            }
-        }
-        if let Some(jt) = p.a.jump_tables.get(&pc.wrapping_sub(4)) {
-            let _ = writeln!(out, "          # jump table 0x{:08x}, {} cases", jt.table, jt.targets.len());
-        }
-        pc += 4;
-    }
-    Ok(())
+    emit(&text)
 }
 
 fn funcs(args: &mut Args, cue: &Option<String>) -> Result<()> {
     let p = Program::load(args, cue)?;
-    let mut by_kind = std::collections::BTreeMap::new();
-    for f in p.a.funcs.values() {
-        *by_kind.entry(f.how).or_insert(0) += 1;
+    let a = p.a;
+    let mut by: BTreeMap<String, usize> = BTreeMap::new();
+    for f in a.funcs.values() {
+        *by.entry(format!("{:?}", f.found).to_lowercase()).or_default() += 1;
     }
-    if let Some(exe) = &p.exe {
-        println!("entry 0x{:08x}", exe.pc0);
-    }
-    println!("gp {}", p.a.gp.map_or("unknown".into(), |g| format!("0x{g:08x}")));
-    println!(
-        "{} functions {by_kind:?}, code ends 0x{:08x}, {} jump tables, {} unowned code words",
-        p.a.funcs.len(),
-        p.a.code_end,
-        p.a.jump_tables.len(),
-        p.a.unowned_words()
+    let by: Vec<String> = by.iter().map(|(k, n)| format!("{k} {n}")).collect();
+    let regions: Vec<String> = a.code.iter().map(|(s, e)| format!("0x{s:08x}..0x{e:08x}")).collect();
+    let resolved = a.indirect.values().filter(|s| a.slots.get(s).is_some_and(|t| t.len() == 1)).count();
+    let unresolved: u32 = a.funcs.values().map(|f| f.unresolved_jumps).sum();
+    let mut out = String::new();
+    let _ = writeln!(out, "entry        0x{:08x}", p.entry);
+    let _ = writeln!(out, "gp           {}", a.gp.map_or("unknown".into(), |g| format!("0x{g:08x}")));
+    let _ = writeln!(out, "code         {}, {} words unowned", regions.join(" "), a.unowned_words());
+    let _ = writeln!(out, "functions    {} ({})", a.funcs.len(), by.join(", "));
+    let _ = writeln!(out, "jump tables  {}", a.jump_tables.len());
+    let _ = writeln!(
+        out,
+        "slots        {} hold functions; {} jalr sites load from one, {resolved} resolved to one callee",
+        a.slots.len(),
+        a.indirect.len()
     );
-    let resolved = p.a.indirect.values().filter(|s| p.a.slots.get(s).is_some_and(|t| t.len() == 1)).count();
-    println!(
-        "{} interface slots hold functions; {} jalr sites load from a fixed slot, {resolved} resolved to one callee",
-        p.a.slots.len(),
-        p.a.indirect.len()
-    );
-    println!("{:>8} {:>6} {:>5} {:>5} {:>4}  name", "start", "bytes", "calls", "calrs", "flags");
-    for f in p.a.funcs.values() {
-        let callers = p.a.callers.get(&f.start).map_or(0, |c| c.len());
+    let _ = writeln!(out, "unresolved   {unresolved} jumps");
+    let _ = writeln!(out, "{:>8} {:>6} {:>5} {:>5} {:>4}  name", "start", "bytes", "calls", "calrs", "flags");
+    for f in a.funcs.values() {
+        let callers = a.callers.get(&f.start).map_or(0, |c| c.len());
         let mut flags = String::new();
-        if f.indirect_calls > 0 {
-            flags.push('i');
+        for (on, c) in [
+            (f.indirect_calls > 0, 'i'),
+            (f.unresolved_jumps > 0, 'u'),
+            (f.hit_invalid, '!'),
+            (!f.tail_calls.is_empty(), 't'),
+        ] {
+            if on {
+                flags.push(c);
+            }
         }
-        if f.unresolved_jumps > 0 {
-            flags.push('u');
-        }
-        if f.hit_invalid {
-            flags.push('!');
-        }
-        if !f.tail_calls.is_empty() {
-            flags.push('t');
-        }
-        println!(
+        let _ = writeln!(
+            out,
             "{:08x} {:>6} {:>5} {:>5} {:>4}  {}",
             f.start,
             f.end - f.start,
@@ -635,21 +591,18 @@ fn funcs(args: &mut Args, cue: &Option<String>) -> Result<()> {
             p.name(f.start)
         );
     }
-    Ok(())
+    emit(&out)
 }
 
 fn strings(args: &mut Args, cue: &Option<String>) -> Result<()> {
     let p = Program::load(args, cue)?;
-    for (&target, sites) in &p.refs {
-        if let Some(s) = p.mem().cstr(target).filter(|s| s.len() >= 3) {
-            let users: std::collections::BTreeSet<String> = sites
-                .iter()
-                .map(|&site| p.a.func_of(site).map_or(format!("{site:08x}"), |f| p.name(f.start)))
-                .collect();
-            println!("{target:08x} {:<50} {}", format!("{s:?}"), users.into_iter().collect::<Vec<_>>().join(" "));
-        }
+    let mut out = String::new();
+    for (target, (s, sites)) in p.a.strings(3) {
+        let users: BTreeSet<String> = sites.iter().map(|&site| p.func_name(site)).collect();
+        let users: Vec<String> = users.into_iter().collect();
+        let _ = writeln!(out, "{target:08x} {:<50} {}", format!("{s:?}"), users.join(" "));
     }
-    Ok(())
+    emit(&out)
 }
 
 /// The call tree under a function, each callee once.
@@ -658,15 +611,14 @@ fn calls(args: &mut Args, cue: &Option<String>) -> Result<()> {
     let root_arg = args.items.get(1).cloned();
     let p = Program::load(args, cue)?;
     let root = match root_arg {
-        Some(r) => parse_num(&r)
-            .or_else(|_| p.names.iter().find(|(_, n)| **n == r).map(|(&a, _)| a).ok_or(format!("no symbol {r}")))?,
-        None => p.exe.as_ref().map_or(p.mem().base, |e| e.pc0),
+        Some(r) => p.resolve(&r)?,
+        None => p.entry,
     };
-    let mut seen = std::collections::BTreeSet::new();
-    fn go(p: &Program, f: u32, d: u32, max: u32, seen: &mut std::collections::BTreeSet<u32>) {
+    fn go(p: &Program, out: &mut String, f: u32, d: u32, max: u32, seen: &mut BTreeSet<u32>) {
         let Some(func) = p.a.funcs.get(&f) else { return };
         let again = !seen.insert(f);
-        println!(
+        let _ = writeln!(
+            out,
             "{}{} 0x{f:08x}{}{}",
             "  ".repeat(d as usize),
             p.name(f),
@@ -677,35 +629,30 @@ fn calls(args: &mut Args, cue: &Option<String>) -> Result<()> {
             return;
         }
         for &c in func.calls.iter().chain(func.tail_calls.iter()) {
-            go(p, c, d + 1, max, seen);
+            go(p, out, c, d + 1, max, seen);
         }
     }
-    go(&p, root, 0, depth, &mut seen);
-    Ok(())
+    let mut out = String::new();
+    go(&p, &mut out, root, 0, depth, &mut BTreeSet::new());
+    emit(&out)
 }
 
-/// Dumps one of the game's table-driven state machines (ticked by
-/// 0x8006bb18): its states, each state's enter, update and exit function
-/// lists, and its event transitions.
+/// Interface slots: fixed words holding function addresses, the functions
+/// stored in each, and how many `jalr` sites call through it.
 fn slots(args: &mut Args, cue: &Option<String>) -> Result<()> {
     let p = Program::load(args, cue)?;
-    let mut uses: std::collections::BTreeMap<u32, u32> = Default::default();
+    let mut uses: BTreeMap<u32, u32> = BTreeMap::new();
     for &slot in p.a.indirect.values() {
         *uses.entry(slot).or_default() += 1;
     }
-    let all: std::collections::BTreeSet<u32> = p.a.slots.keys().chain(uses.keys()).copied().collect();
+    let all: BTreeSet<u32> = p.a.slots.keys().chain(uses.keys()).copied().collect();
+    let mut out = String::new();
     for slot in all {
         let fns =
-            p.a.slots
-                .get(&slot)
-                .map_or(String::from("-"), |t| t.iter().map(|&f| p.name(f)).collect::<Vec<_>>().join(" "));
-        println!(
-            "{slot:08x} {:>4} calls  {} {fns}",
-            uses.get(&slot).copied().unwrap_or(0),
-            p.note(slot).unwrap_or_default()
-        );
+            p.a.slots.get(&slot).map_or("-".into(), |t| t.iter().map(|&f| p.name(f)).collect::<Vec<_>>().join(" "));
+        let _ = writeln!(out, "{slot:08x} {:>4} calls  {} {fns}", uses.get(&slot).copied().unwrap_or(0), p.name(slot));
     }
-    Ok(())
+    emit(&out)
 }
 
 /// The tree of callers above a function: who calls it, who calls them.
@@ -714,113 +661,96 @@ fn callers(args: &mut Args, cue: &Option<String>) -> Result<()> {
     let depth = args.take("--depth").map(|s| parse_num(&s)).transpose()?.unwrap_or(4);
     let target = args.items.get(1).cloned().ok_or("callers FILE ADDR|NAME")?;
     let p = Program::load(args, cue)?;
-    let root = parse_num(&target).or_else(|_| {
-        p.names.iter().find(|(_, n)| **n == target).map(|(&a, _)| a).ok_or(format!("no symbol {target}"))
-    })?;
-    // Slots a function is stored in, and the jalr sites that call through them.
-    let mut via_slot: std::collections::BTreeMap<u32, Vec<u32>> = Default::default();
+    let root = p.resolve(&target)?;
+    // The jalr sites calling through a slot that may hold each function;
+    // rrt-dis's callers have those whose slot only ever holds one.
+    let mut via_slot: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
     for (&site, slot) in &p.a.indirect {
-        if let Some(fs) = p.a.slots.get(slot) {
-            for &f in fs {
-                via_slot.entry(f).or_default().push(site);
-            }
+        for &f in p.a.slots.get(slot).into_iter().flatten() {
+            via_slot.entry(f).or_default().push(site);
         }
     }
-    let mut seen = std::collections::BTreeSet::new();
-    fn go(
-        p: &Program,
-        via: &std::collections::BTreeMap<u32, Vec<u32>>,
-        f: u32,
-        d: u32,
-        max: u32,
-        seen: &mut std::collections::BTreeSet<u32>,
-    ) {
+    type Via = BTreeMap<u32, Vec<u32>>;
+    fn go(p: &Program, via: &Via, out: &mut String, f: u32, d: u32, max: u32, seen: &mut BTreeSet<u32>) {
         let again = !seen.insert(f);
-        println!("{}{} 0x{f:08x}{}", "  ".repeat(d as usize), p.name(f), if again { " ..." } else { "" });
+        let _ = writeln!(out, "{}{} 0x{f:08x}{}", "  ".repeat(d as usize), p.name(f), if again { " ..." } else { "" });
         if again || d >= max {
             return;
         }
-        let mut up: std::collections::BTreeSet<u32> = Default::default();
-        for &site in p.a.callers.get(&f).into_iter().flatten().chain(via.get(&f).into_iter().flatten()) {
-            if let Some(c) = p.a.func_of(site) {
-                up.insert(c.start);
-            }
-        }
+        let sites = p.a.callers.get(&f).into_iter().flatten().chain(via.get(&f).into_iter().flatten());
+        let up: BTreeSet<u32> = sites.filter_map(|&site| p.a.func_of(site)).map(|c| c.start).collect();
         for c in up {
-            go(p, via, c, d + 1, max, seen);
+            go(p, via, out, c, d + 1, max, seen);
         }
     }
-    go(&p, &via_slot, root, 0, depth, &mut seen);
-    Ok(())
+    let mut out = String::new();
+    go(&p, &via_slot, &mut out, root, 0, depth, &mut BTreeSet::new());
+    emit(&out)
 }
 
-/// C-like pseudo-code for a function; with `--all` a check that every
-/// function decompiles, and with `--all --dump` every function's text.
+/// C-like pseudo-code for a function (rrt-dis's decompiler); with `--all` a
+/// check that every function decompiles, and with `--all --dump` every
+/// function's text.
 fn pseudo(args: &mut Args, cue: &Option<String>) -> Result<()> {
     let dump = args.take_flag("--dump");
     let target = args.items.get(1).cloned().ok_or("pseudo FILE ADDR|NAME|--all [--dump]")?;
     let p = Program::load(args, cue)?;
-    let names = |a: u32| -> Option<String> {
-        if let Some(n) = p.names.get(&a) {
-            return Some(n.clone());
-        }
-        p.mem().cstr(a).filter(|s| s.len() >= 3).map(|s| format!("{:?}", if s.len() > 40 { &s[..40] } else { s }))
-    };
-    if target == "--all" {
-        let (mut ok, mut bad) = (0, 0);
-        for &f in p.a.funcs.keys() {
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                rugrats_psx::decomp::decompile(&p.a, f, &names)
-            })) {
-                Ok(Some(t)) if !t.contains('\0') => {
-                    ok += 1;
-                    if dump {
-                        print!("{t}");
-                    }
-                }
-                Ok(_) => {
-                    bad += 1;
-                    println!("{f:08x}: unresolved mark in output");
-                }
-                Err(_) => {
-                    bad += 1;
-                    println!("{f:08x}: panicked");
+    let pseudo = Pseudo::new(&p.listing);
+    if target != "--all" {
+        return emit(&pseudo.function(p.func(&target)?).unwrap_or_default());
+    }
+    let (mut ok, mut bad) = (0, 0);
+    let mut out = String::new();
+    for &f in p.a.funcs.keys() {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| pseudo.function(f))) {
+            Ok(Some(t)) => {
+                ok += 1;
+                if dump {
+                    out.push_str(&t);
                 }
             }
+            Ok(None) => {
+                bad += 1;
+                let _ = writeln!(out, "{f:08x}: no blocks");
+            }
+            Err(_) => {
+                bad += 1;
+                let _ = writeln!(out, "{f:08x}: panicked");
+            }
         }
-        println!("{ok} functions decompiled, {bad} failed");
-        return Ok(());
     }
-    let addr = parse_num(&target).or_else(|_| {
-        p.names.iter().find(|(_, n)| **n == target).map(|(&a, _)| a).ok_or(format!("no symbol {target}"))
-    })?;
-    let text = rugrats_psx::decomp::decompile(&p.a, addr, &names).ok_or(format!("no function at 0x{addr:08x}"))?;
-    print!("{text}");
-    Ok(())
+    let _ = writeln!(out, "{ok} functions decompiled, {bad} failed");
+    emit(&out)
 }
 
-/// Everything that refers to an address: calls, jumps, data references.
+/// Everything that refers to an address: calls, jumps, data references
+/// (rrt-dis's `Ref`s), calls through a slot holding it, and words holding it.
 fn xrefs(args: &mut Args, cue: &Option<String>) -> Result<()> {
-    let target = parse_num(args.items.get(1).ok_or("xrefs FILE ADDR")?)?;
+    let target = args.items.get(1).cloned().ok_or("xrefs FILE ADDR")?;
     let p = Program::load(args, cue)?;
-    let at = |site: u32| p.a.func_of(site).map_or(String::from("?"), |f| p.name(f.start));
-    for &site in p.a.callers.get(&target).into_iter().flatten() {
-        println!("{site:08x} call/jump   in {}", at(site));
+    let target = p.resolve(&target)?;
+    let image = p.image();
+    let mut sites: BTreeMap<u32, String> = BTreeMap::new();
+    for &(site, how) in p.a.refs.get(&target).into_iter().flatten() {
+        sites.insert(site, format!("{how:?}").to_lowercase());
     }
-    for &site in p.refs.get(&target).into_iter().flatten() {
-        let insn = mips::decode(p.mem().u32(site).unwrap());
-        println!("{site:08x} {:<10}  in {}", insn.mnemonic(), at(site));
+    for &site in p.a.callers.get(&target).into_iter().flatten() {
+        sites.entry(site).or_insert_with(|| "slot call".into());
+    }
+    let mut out = String::new();
+    for (site, how) in sites {
+        let mnemonic = image.word(site, Endian::Little).map_or("", |w| MIPS.decode_word(w, site).mnemonic);
+        let _ = writeln!(out, "{site:08x} {how:<9} {mnemonic:<6}  in {}", p.func_name(site));
     }
     // Words in the image holding the address.
-    let mem = p.mem();
-    let mut a = mem.base;
-    while a + 4 <= mem.end() {
-        if mem.u32(a) == Some(target) {
-            println!("{a:08x} pointer");
+    let mut a = image.base;
+    while a + 4 <= image.end() {
+        if image.word(a, Endian::Little) == Some(target) {
+            let _ = writeln!(out, "{a:08x} pointer");
         }
         a += 4;
     }
-    Ok(())
+    emit(&out)
 }
 
 /// The executable's file table against the ISO directory: each entry's file,
@@ -828,11 +758,11 @@ fn xrefs(args: &mut Args, cue: &Option<String>) -> Result<()> {
 fn files_cmd(cue: &Option<String>) -> Result<()> {
     let disc = open_disc(cue)?;
     let iso = disc.iso().map_err(|e| e.to_string())?;
-    let exe = Exe::parse(&iso.read(&iso.find("/SLUS_006.50").map_err(|e| e.to_string())?).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    let exe =
+        PsxExe::parse(&iso.read(&iso.find("/SLUS_006.50").map_err(|e| e.to_string())?).map_err(|e| e.to_string())?)?;
     let table = rugrats_data::files::table(&exe.image, exe.t_addr).ok_or("the file table is not in the image")?;
-    let all: Vec<_> = iso.walk().map_err(|e| e.to_string())?.into_iter().filter(|e| !e.is_dir).collect();
-    let mut reached = std::collections::BTreeSet::new();
+    let all: Vec<_> = iso.walk().map_err(|e| e.to_string())?.iter().filter(|e| !e.is_dir).collect();
+    let mut reached = BTreeSet::new();
     println!("{:>4} {:>7} {:>9}  path", "file", "lba", "size");
     for (i, e) in table.iter().enumerate() {
         if !e.is_used() {
@@ -902,5 +832,21 @@ fn main() {
     if let Err(e) = result {
         eprintln!("{e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The symbol file is rrt-dis's: it parses, writes back byte for byte,
+    /// and keeps the rodata between the asm and the C out of the code.
+    #[test]
+    fn the_symbol_file_is_rrt_dis_format() {
+        let text = include_str!("../../../symbols/slus_006.txt");
+        let symbols = Symbols::parse(text).unwrap();
+        assert_eq!(symbols.to_text(), text);
+        assert_eq!(symbols.data_ranges(), &[(0x8001_2760, 0x8001_7c0c)]);
+        assert_eq!(symbols.addr("main"), Some(0x8001_85f8));
     }
 }

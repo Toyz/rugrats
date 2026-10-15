@@ -21,11 +21,10 @@ BIOS is needed.
 
 | path | what |
 | --- | --- |
-| `crates/rugrats-psx` | the PS-X EXE format, an R3000A + GTE disassembler, static analysis |
 | `crates/rugrats-data` | readers for the game's data: the file table, BS stills, the MDEC's decoding, TIM, VAB |
 | `crates/rugrats` | the port: the game's systems in Rust (`lib`), and the program on retro_rt's loop |
 | `crates/rugrats-hle` | the oracle: the original run in rrt-emu with the console's I/O modelled; tests only, never the program |
-| `crates/rugrats-re` | the reverse engineering command line |
+| `crates/rugrats-re` | the reverse engineering command line: the disc, the formats, and the executable through retro_rt's disassembler and decompiler (`rrt-dis`) |
 | `docs/` | the [reference](docs/README.md): what is true about the disc, formats and engine |
 | `docs/cut/` | cut, missing and unreachable content, one page each |
 | `WORKLOG.md` | the [worklog](WORKLOG.md): how each fact was found |

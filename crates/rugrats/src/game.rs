@@ -528,6 +528,20 @@ impl Game {
                 boxes.extend(world_boxes(m, t.rot, t.pos));
             }
         }
+        // The other characters stand in the way: a box of their radius
+        // (object +0x86 is 0x2000 / 8 for a baby, guessed at 200) from the
+        // feet up.
+        for n in &self.npcs {
+            let feet = n.pos.y - n.hierarchy.parts.first().map_or(0, |r| r.offset[1]) as f32;
+            boxes.push(crate::player::Box3 {
+                lo: [-200, 0, -200],
+                hi: [200, 0, 200],
+                rot: Mat3::IDENTITY,
+                pos: n.pos,
+                min_y: (feet - 700.0) as i32,
+                max_y: feet as i32,
+            });
+        }
         self.player.frame(pads, self.yaw.round() as i32, &self.col, &boxes, &self.anims, &self.trig);
         self.carry(pads);
         self.fly();

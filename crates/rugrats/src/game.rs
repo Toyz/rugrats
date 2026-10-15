@@ -724,7 +724,7 @@ impl Game {
             let p = &set.placements[k];
             p.kind == 1
                 && !character(k)
-                && !matches!(p.template, 843 | 770)
+                && p.template != 843
                 && set.templates.get(p.template as usize).is_some_and(|t| matches!(t.raw[4], 3 | 4 | 8) && set.models.has(t.shape as u32))
         };
         let doors: Vec<Door> = (0..set.placements.len())
@@ -752,7 +752,9 @@ impl Game {
                     sound: t.raw[0x24],
                     open: false,
                     moving: false,
-                    swing: (t.raw[4] == 8).then(|| Swing {
+                    // Class 8, and class 3 with flag 0x40000000 (golf's
+                    // 770): automatic.
+                    swing: (t.raw[4] == 8 || (t.raw[4] == 3 && t.flags & 0x4000_0000 != 0)).then(|| Swing {
                         ease: h(0x18),
                         waits: if t.flags & 0x1000_0000 != 0 { 16 } else { 0 } | if t.flags & 0x2000_0000 != 0 { 8 } else { 0 },
                         wait: 0,
@@ -953,8 +955,8 @@ impl Game {
         }
     }
 
-    /// Whether a door at offset `offset` would cut through the player or
-    /// an NPC (0x8006baa8, the box against their bodies).
+    /// Whether a door at offset `offset` would cut through the player, an
+    /// NPC or a pickable (0x8006baa8, the box against their bodies).
     fn door_blocked(&self, k: usize, offset: [i32; 3]) -> bool {
         let d = &self.doors[k];
         if self.set.templates.get(d.template as usize).is_some_and(|t| t.flags & 8 != 0) {
@@ -970,6 +972,11 @@ impl Game {
             || self.npcs.iter().filter(|n| !n.hidden).any(|n| {
                 let f = n.pos[1] - n.feet();
                 body(n.pos, 200, f, f - 600)
+            })
+            // Pickables lying in the way (+0x00 0x10000).
+            || self.things.iter().filter(|t| t.state == ThingState::Rest && !t.hidden).any(|t| {
+                let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
+                body(at, 100, at[1], at[1] - 200)
             })
     }
 
@@ -990,9 +997,11 @@ impl Game {
                 continue;
             }
             // The wait at an end (+0xd2, 136 a think).
+            let hinged = self.doors[k].hinged;
             if let Some(s) = &mut self.doors[k].swing {
                 if s.wait > 0 {
-                    s.wait = (s.wait - 136).max(0);
+                    // Hinged waits count 136 a think, sliding ones 1.
+                    s.wait = (s.wait - if hinged { 136 } else { 1 }).max(0);
                     continue;
                 }
             }
@@ -1043,6 +1052,15 @@ impl Game {
             }
             let d = &mut self.doors[k];
             d.offset = next;
+            // Template 770: sound 136 at +0xaa 900 going shut, 135 at 1600
+            // going open.
+            if d.template == 770 {
+                if d.open && next[1] == 900 {
+                    self.effects.push((136, crate::sound::EFFECTS_VOLUME));
+                } else if !d.open && next[1] == 1600 {
+                    self.effects.push((135, crate::sound::EFFECTS_VOLUME));
+                }
+            }
             if stop {
                 // A hinged close ends with sound 54 (not 1216, 672).
                 if d.hinged && d.open && !matches!(d.template, 1216 | 672) {
@@ -1050,10 +1068,16 @@ impl Game {
                 }
                 d.open = !d.open;
                 if let Some(s) = &mut d.swing {
-                    // Back the other way; wait at an end its flags name.
-                    d.target = if d.target == d.open_end { d.shut } else { d.open_end };
-                    if (s.waits & 8 != 0 && d.open) || (s.waits & 16 != 0 && !d.open) {
-                        s.wait = 4096;
+                    // Back the other way; wait at an end its flags name
+                    // (class 8: 4096 at 136 a think; sliding: 15 thinks,
+                    // 8 after going shut, 16 after going open).
+                    if d.hinged {
+                        d.target = if d.target == d.open_end { d.shut } else { d.open_end };
+                        if (s.waits & 8 != 0 && d.open) || (s.waits & 16 != 0 && !d.open) {
+                            s.wait = 4096;
+                        }
+                    } else if (s.waits & 8 != 0 && !d.open) || (s.waits & 16 != 0 && d.open) {
+                        s.wait = 15;
                     }
                 } else {
                     d.moving = false;

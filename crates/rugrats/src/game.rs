@@ -50,6 +50,7 @@ fn player_character(level: usize) -> usize {
     match level {
         4 | 11 => 6,
         5 => 3,
+        7 => 9,
         6 | 10 => 2,
         17 => 5,
         _ => TOMMY,
@@ -148,6 +149,8 @@ pub struct Game {
     pub fonts: crate::text::Fonts,
     /// Quit to the front end (the exit code -1).
     pub quit: bool,
+    /// The game's end: the progress cleared, the credits, the hub.
+    pub ending: bool,
     /// The objects that can be picked up, the one carried, and its grip
     /// (+0x1f8: in the player's frame from hand slot 15).
     pub things: Vec<Thing>,
@@ -175,6 +178,8 @@ pub struct Game {
     unusable: std::collections::HashSet<usize>,
     /// The moving platforms (template class 11).
     pub movers: Vec<Mover>,
+    /// The breakables (template class 14: level 7's buildings).
+    pub breakables: Vec<Breakable>,
     /// Thrown objects that struck a character this frame (0x80086ef0):
     /// (character, thing, the thing's +0x6d).
     pub struck: Vec<(usize, usize, i32)>,
@@ -291,6 +296,18 @@ impl Mover {
             self.delta[i] = d;
         }
     }
+}
+
+/// A breakable (class 14, 0x8004d7c4): touched, its model becomes shape +
+/// 1 and its template t + 1 (the rubble, which with template flag 8 no
+/// longer blocks); template 1240 is removed.
+pub struct Breakable {
+    pub template: u16,
+    pub shape: u32,
+    pub pos: Vec3,
+    pub rot: Mat3,
+    pub broken: bool,
+    pub gone: bool,
 }
 
 /// A collectible (0x80048a44, touched by 0x800514b0).
@@ -577,7 +594,27 @@ impl Game {
                 }
             })
             .collect();
-        let apart: Vec<bool> = (0..set.placements.len()).map(|k| character(k) || pickable(k) || collectible(k) || mover(k)).collect();
+        // Breakables: template class 14 (0x80049c50, think 0x8004d7c4).
+        let breakable = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1 && !character(k) && set.templates.get(p.template as usize).is_some_and(|t| t.raw[4] == 14)
+        };
+        let breakables: Vec<Breakable> = (0..set.placements.len())
+            .filter(|&k| breakable(k))
+            .map(|k| {
+                let p = &set.placements[k];
+                Breakable {
+                    template: p.template as u16,
+                    shape: set.templates[p.template as usize].shape as u32,
+                    pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
+                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    broken: false,
+                    gone: false,
+                }
+            })
+            .collect();
+        let apart: Vec<bool> =
+            (0..set.placements.len()).map(|k| character(k) || pickable(k) || collectible(k) || mover(k) || breakable(k)).collect();
         let scenery = set.objects_except(&Frame::default(), |k| apart[k]);
         let mut npcs = Vec::new();
         for (k, p) in set.placements.iter().enumerate() {
@@ -667,6 +704,7 @@ impl Game {
             pause: Pause::load(disc)?,
             fonts: crate::text::Fonts::load(disc)?,
             quit: false,
+            ending: false,
             things,
             goodies,
             bars: progress.bars_available(),
@@ -683,6 +721,7 @@ impl Game {
             collected: Vec::new(),
             struck: Vec::new(),
             movers,
+            breakables,
             fixed: None,
             eye_up: default_eye_up(level),
             behind: if level == 7 { 6400.0 } else { BEHIND },
@@ -720,6 +759,7 @@ impl Game {
             21 => Some(Box::new(crate::level20::Level20::start21(&mut g, disc)?)),
             17 => Some(Box::new(crate::level17::Level17::start(&mut g, disc)?)),
             18 => Some(Box::new(crate::level18::Level18::start(&mut g, disc)?)),
+            7 => Some(Box::new(crate::level7::Level7::start(&mut g, disc)?)),
             11 => Some(Box::new(crate::level11::Level11::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
@@ -768,13 +808,14 @@ impl Game {
                 3 => self.post_camera = Some(r.camera_post as usize),
                 1 | 6..=13 => {
                     self.post_camera = None;
-                    self.eye_up = match r.camera {
+                    // Level 7 keeps -1000 for every switch (0x80029288).
+                    self.eye_up = if self.level == 7 { default_eye_up(7) } else { match r.camera {
                         6 => 200.0,
                         7 | 11 => 500.0,
                         8 => 1600.0,
                         9 => 2000.0,
                         _ => default_eye_up(self.level),
-                    };
+                    } };
                 }
                 _ => {}
             }
@@ -1118,7 +1159,8 @@ impl Game {
                 self.won = Some(won);
                 self.exit = Some((HUB, None));
             }
-            None if n == REPTAR_DANCE => self.quit = true,
+            // The end (0x8007737c case 84): exit -1, the credits.
+            None if n == REPTAR_DANCE => self.ending = true,
             None => {}
         }
         self.with_script(|s, g| s.cine_finished(g, n));
@@ -1223,6 +1265,16 @@ impl Game {
             }
         }
         let mut boxes = self.boxes.clone();
+        for b in self.breakables.iter().filter(|b| !b.gone) {
+            let template = if b.broken { b.template as usize + 1 } else { b.template as usize };
+            let flag8 = self.set.templates.get(template).is_some_and(|t| t.flags & 8 != 0);
+            let shape = if b.broken { b.shape + 1 } else { b.shape };
+            if !flag8 {
+                if let Some(model) = self.set.models.get(shape) {
+                    boxes.extend(world_boxes(model, b.rot, b.pos));
+                }
+            }
+        }
         for m in &self.movers {
             if let Some(model) = self.set.models.get(m.shape) {
                 boxes.extend(world_boxes(model, m.rot, m.world()));
@@ -1401,6 +1453,12 @@ impl Game {
         for m in &self.movers {
             if let Some(model) = self.set.models.get(m.shape) {
                 rugrats_render::models::model_triangles(model, m.rot, m.world(), &mut moving);
+            }
+        }
+        for b in self.breakables.iter().filter(|b| !b.gone) {
+            let shape = if b.broken { b.shape + 1 } else { b.shape };
+            if let Some(model) = self.set.models.get(shape) {
+                rugrats_render::models::model_triangles(model, b.rot, b.pos, &mut moving);
             }
         }
         // Level 15's balloons (kinds 6-11) are sprites its script draws.

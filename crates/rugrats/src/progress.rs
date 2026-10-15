@@ -150,6 +150,20 @@ impl Progress {
         self.set_u32(0x38, done);
     }
 
+    /// The end of the game (0x80018264): +0x22, +0x23, +0x30..+0x46 and
+    /// both bar arrays cleared; then +0x30 = 4 (no Reptar Puzzle again).
+    pub fn clear_for_ending(&mut self) {
+        self.block[0x22] = 0;
+        self.block[0x23] = 0;
+        for b in &mut self.block[0x30..0x48] {
+            *b = 0;
+        }
+        for b in &mut self.block[0x48..0x148] {
+            *b = 0;
+        }
+        self.set_u32(0x30, 4);
+    }
+
     /// The flags at +0x30.
     pub fn flags(&self) -> u32 {
         self.u32(0x30)

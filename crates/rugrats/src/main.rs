@@ -73,6 +73,9 @@ enum Boot {
     Card { card: Box<rugrats::front::Card>, n: usize, then: Then },
     /// A level in play.
     Game { game: Box<Level> },
+    /// The credits after Reptar Dance (movie 6, CREDITS.STR, any button
+    /// skips), then the hub.
+    Credits { movie: Box<Movie> },
     /// The screens between and inside levels (the piece, the board, the
     /// bars): the level frozen, not drawn.
     Screen { screen: Box<Screen>, then: Then },
@@ -89,6 +92,9 @@ fn piece_pages(disc: &GameDisc, progress: &rugrats::progress::Progress, level: u
         vec![screens::message::piece(disc), Page::Board]
     }
 }
+
+/// The credits movie (movie_play(6, 1) in 0x8008b1e4).
+const CREDITS: usize = 6;
 
 /// The opening cinematic: its number and its database.
 const OPENING: usize = 0;
@@ -216,6 +222,10 @@ impl Rugrats {
     /// "Reptar Puzzle" once (+0x30 bit 4), giving the first piece; level
     /// 2's until its checkpoint (bit 2).
     fn enter(&mut self, level: usize, now: u64) -> Boot {
+        // Level 7's EpisodeStart (0x8007b748): the final level reached.
+        if level == 7 {
+            self.progress.set_flags(self.progress.flags() | 512);
+        }
         // Cine 73's start (0x800731ec): Mirrorland entered, +0x30 bit 16.
         if level == 15 {
             self.progress.set_flags(self.progress.flags() | 16);
@@ -401,6 +411,20 @@ impl Game for Rugrats {
                     self.boot = if next < 3 { self.logo(next, now) } else { self.title(now) };
                 }
             }
+            Boot::Credits { movie } => {
+                let skip = now.is_multiple_of(2) && {
+                    self.pads.update([Some(&t.pad), None]);
+                    self.pads.find(Query::Pressed).is_some()
+                };
+                let playing = movie.tick(now, skip, &self.disc.mdec);
+                self.screen = movie.picture.clone();
+                if !playing {
+                    if let Ok(mut s) = self.soundtrack.lock() {
+                        *s = Soundtrack::default();
+                    }
+                    self.boot = self.game(rugrats::game::HUB, now);
+                }
+            }
             Boot::Demo { movie } => {
                 let skip = now.is_multiple_of(2) && {
                     self.pads.update([Some(&t.pad), None]);
@@ -575,6 +599,22 @@ impl Game for Rugrats {
                         if let Ok(mut spu) = self.spu.lock() {
                             spu.play(song, 0, sound::MUSIC_VOLUME);
                         }
+                    }
+                    if game.ending {
+                        // The end (0x8007737c case 84, the teardown): the
+                        // progress cleared, the credits, then the hub at
+                        // level 7's spot.
+                        self.progress.clear_for_ending();
+                        self.level = Some(7);
+                        self.stop_song();
+                        self.boot = match Movie::open(&self.disc, CREDITS, true, now, &self.soundtrack) {
+                            Ok(movie) => Boot::Credits { movie: Box::new(movie) },
+                            Err(e) => {
+                                rrt::tracing::error!("credits: {e}");
+                                self.game(rugrats::game::HUB, now)
+                            }
+                        };
+                        return;
                     }
                     if game.quit {
                         // "Returning to / Main Menus / Loading" (0x8003e05c).

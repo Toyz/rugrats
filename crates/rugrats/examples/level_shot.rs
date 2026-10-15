@@ -39,6 +39,21 @@ fn main() -> Result<(), String> {
         .map(|p| (p.template, p.pos))
         .collect();
     println!("{} pickables: {:?}", picks.len(), &picks[..picks.len().min(12)]);
+    let mut kinds = std::collections::BTreeMap::new();
+    for g in &g2.goodies {
+        *kinds.entry(g.kind).or_insert(0) += 1;
+    }
+    println!("goodies by kind: {kinds:?}");
+    let bar_templates: Vec<_> = g2.set.templates.iter().enumerate().filter(|(_, t)| u16::from_le_bytes([t.raw[0x26], t.raw[0x27]]) == 3).map(|(k, t)| (k, t.raw[4], t.shape)).take(10).collect();
+    println!("bar templates (index, class, shape): {bar_templates:?}");
+    let mut kinds_lp = std::collections::BTreeMap::new();
+    for p in &g2.set.placements {
+        *kinds_lp.entry(p.kind).or_insert(0) += 1;
+    }
+    println!("LP kinds: {kinds_lp:?}");
+    for p in g2.set.placements.iter().filter(|p| bar_templates.iter().any(|b| b.0 == p.template as usize)).take(3) {
+        println!("  bar placement {p:?}");
+    }
     let game = g2;
     println!("{} boxes", game.boxes.len());
     for n in &game.npcs {

@@ -72,9 +72,43 @@ pub struct Game {
     /// The objects that can be picked up, the one carried, and its grip
     /// (+0x1f8: in the player's frame from hand slot 15).
     pub things: Vec<Thing>,
+    /// Bars, cookies and the levels' other collectibles; the bars taken
+    /// here (0x80094a58) and how long the counter shows.
+    pub goodies: Vec<Goodie>,
+    pub bars: u32,
+    bar_shown: i32,
     carried: Option<usize>,
     grip: Vec3,
 }
+
+/// A collectible (0x80048a44, touched by 0x800514b0).
+pub struct Goodie {
+    pub shape: u32,
+    pub kind: u16,
+    pub pos: Vec3,
+    pub rot: Mat3,
+    pub taken: bool,
+}
+
+/// Collectible kinds and their sounds (0x800514b0).
+pub mod goodie {
+    pub const BAR: u16 = 3;
+    pub const COOKIE: u16 = 4;
+    pub fn sound(kind: u16) -> u8 {
+        match kind {
+            1 => 30,
+            2 | 15 | 17 => 31,
+            3 => 28,
+            4 | 14 => 29,
+            6..=11 => 113,
+            _ => 30,
+        }
+    }
+}
+
+/// How long the bar counter shows after a bar (dt units; the health
+/// meter's 1500).
+const COUNTER_TIME: i32 = 1500;
 
 /// A model that can be picked up (object flag 0x10000).
 pub struct Thing {
@@ -177,7 +211,28 @@ impl Game {
                 }
             })
             .collect();
-        let scenery = set.objects_except(&Frame::default(), |k| character(k) || pickable(k));
+        // Collectibles: template class 12 (0x80049af4, which makes them
+        // with 0x80048a44: object class 11), the kind template +0x26.
+        let collectible = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1 && !character(k) && set.templates.get(p.template as usize).is_some_and(|t| t.raw[4] == 12 && set.models.find(t.shape as u32) != 0)
+        };
+        let goodies: Vec<Goodie> = (0..set.placements.len())
+            .filter(|&k| collectible(k))
+            .map(|k| {
+                let p = &set.placements[k];
+                let t = &set.templates[p.template as usize];
+                Goodie {
+                    shape: t.shape as u32,
+                    kind: u16::from_le_bytes([t.raw[0x26], t.raw[0x27]]),
+                    pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
+                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    taken: false,
+                }
+            })
+            .collect();
+        let pickable = |k: usize| pickable(k) && !collectible(k);
+        let scenery = set.objects_except(&Frame::default(), |k| character(k) || pickable(k) || collectible(k));
         let mut npcs = Vec::new();
         for (k, p) in set.placements.iter().enumerate() {
             if !character(k) || Some(k) == player_place {
@@ -203,7 +258,7 @@ impl Game {
         }
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let yaw = heading as f32;
-        let boxes = object_boxes(&set, |k| character(k) || pickable(k));
+        let boxes = object_boxes(&set, |k| character(k) || pickable(k) || collectible(k));
         let mut g = Game {
             level,
             set,
@@ -227,6 +282,9 @@ impl Game {
             fonts: crate::text::Fonts::load(disc)?,
             quit: false,
             things,
+            goodies,
+            bars: 0,
+            bar_shown: 0,
             carried: None,
             grip: Vec3::ZERO,
         };
@@ -317,6 +375,24 @@ impl Game {
         self.carried = Some(k);
         self.player.carrying = true;
         self.player.act(crate::player::anim::PICK_UP, &self.anims);
+    }
+
+    /// Touching collectibles (0x800514b0): taken, with their kind's sound.
+    fn touch(&mut self) {
+        self.bar_shown = (self.bar_shown - crate::player::DT).max(0);
+        let me = Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32);
+        for g in self.goodies.iter_mut().filter(|g| !g.taken) {
+            let r = self.set.models.get(g.shape).map_or(256.0, |m| m.radius as f32) + crate::player::RADIUS as f32;
+            let d = g.pos - me;
+            if Vec3::new(d.x, 0.0, d.z).length() < r && d.y.abs() < 1200.0 {
+                g.taken = true;
+                self.effects.push((goodie::sound(g.kind), crate::sound::EFFECTS_VOLUME));
+                if g.kind == goodie::BAR {
+                    self.bars += 1;
+                    self.bar_shown = COUNTER_TIME;
+                }
+            }
+        }
     }
 
     /// Flights (0x80087c5c): gravity 13, pos += (v dt + a dt^2 / 2) >> 6,
@@ -419,6 +495,7 @@ impl Game {
         self.player.frame(pads, self.yaw.round() as i32, &self.col, &boxes, &self.anims, &self.trig);
         self.carry(pads);
         self.fly();
+        self.touch();
         let d = (self.eye - Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32))
             .length();
         let volume = (crate::sound::EFFECTS_VOLUME as f32 * (1.0 - d / 16384.0).max(0.0)) as i32;
@@ -485,6 +562,11 @@ impl Game {
                 rugrats_render::models::model_triangles(m, t.rot, t.pos, &mut moving);
             }
         }
+        for g in self.goodies.iter().filter(|g| !g.taken) {
+            if let Some(m) = self.set.models.get(g.shape) {
+                rugrats_render::models::model_triangles(m, g.rot, g.pos, &mut moving);
+            }
+        }
         for n in &self.npcs {
             let locals = n.animator.locals(&n.hierarchy, &self.anims);
             rugrats_render::models::posed_triangles(&n.hierarchy, &self.set.models, &locals, n.rot, n.pos, &mut moving);
@@ -493,6 +575,15 @@ impl Game {
         self.stage.overlay.clear();
         if self.paused {
             self.pause.triangles(&self.fonts, &mut self.stage.overlay);
+        } else if self.bar_shown > 0 {
+            // The bar counter (0x80090004): "%d" at (-150, -80).
+            let t = crate::text::Text { font: 1, spacing: 1, rgb: [255, 255, 255], x: -150, y: -80, string: format!("{}", self.bars), ..Default::default() };
+            let mut shadow = t.clone();
+            shadow.rgb = [1, 1, 1];
+            shadow.x += 2;
+            shadow.y += 2;
+            shadow.triangles(&self.fonts, &mut self.stage.overlay);
+            t.triangles(&self.fonts, &mut self.stage.overlay);
         }
         let f = (self.target() - self.eye).normalize_or(Vec3::Z);
         let x = Vec3::Y.cross(f).normalize_or(Vec3::X);

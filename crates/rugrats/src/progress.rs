@@ -4,7 +4,9 @@
 //! ```text
 //! +0x00  s32 the level        +0x04 s32 the level before
 //! +0x08  s32 the character    +0x0c s32 music volume, +0x10 effects
-//! +0x22  u8  main levels completed
+//! +0x21  u8  activity play      +0x22 u8 main levels completed
+//! +0x30  u32 flags: 1 use the respawn, 2 checkpoint, 16 Mirrorland
+//!            done, 512 the final level reached
 //! +0x34  u32 a bit a level played      +0x38 completed
 //! +0x40  u32 a bit a level whose piece was given
 //! +0x44  u16 pieces earned, a bit each  +0x46 placed
@@ -13,6 +15,18 @@
 //! ```
 
 use crate::card::STATE_SIZE;
+use crate::rand::Rand;
+
+/// What finishing a level brought (0x80076d6c).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Finish {
+    /// Bonus bars given ("Great Job! You have earned n Reptar bars!").
+    pub bars: u32,
+    /// A puzzle piece given: the puzzle screen shows.
+    pub piece: bool,
+    /// The level that starts next (SwitchEpisode), instead of the exit's.
+    pub next: Option<usize>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Progress {
@@ -71,21 +85,161 @@ impl Progress {
         }
     }
 
-    /// Level `level` finished (0x80076d6c): played (+0x34), and won
-    /// (+0x38; levels 2-6 and 8-12 count to +0x22).
-    pub fn finish(&mut self, level: usize, won: bool) {
-        if level >= 32 {
-            return;
+    /// Level `level` finished (0x80076d6c): played (+0x34), and when won
+    /// the bonus bars, the level's puzzle piece, and the first completion
+    /// (+0x38; levels 2-6 and 8-12 count to +0x22, the 2nd, 3rd, 5th and
+    /// 7th leading to a bonus level). Nothing is kept in activity play.
+    pub fn finish(&mut self, level: usize, won: bool, rand: &mut Rand) -> Finish {
+        let mut f = Finish::default();
+        if level >= 32 || self.activity() {
+            return f;
         }
         let played = self.u32(0x34) | 1 << level;
         self.set_u32(0x34, played);
-        if won && self.u32(0x38) >> level & 1 == 0 {
-            let done = self.u32(0x38) | 1 << level;
-            self.set_u32(0x38, done);
+        if !won {
+            return f;
+        }
+        // Bonus bars (0x80094b10): bits 31 down. The fourth bar some
+        // levels give for a perfect run (0x80076ba8 and friends) is not
+        // kept yet.
+        let bars = match level {
+            13 | 18 if self.won(level) => 0,
+            13 | 14 => 2,
+            17 | 18 | 20 | 21 => 3,
+            _ => 0,
+        };
+        if bars > 0 {
+            let w = (0..bars).fold(self.u32(0x48 + 4 * level), |w, k| w | 1 << (31 - k));
+            self.set_u32(0x48 + 4 * level, w);
+            f.bars = bars;
+        }
+        let mut all_placed = false;
+        if self.pieces() < 12 {
+            f.piece = self.give_piece(level, rand);
+            all_placed = self.placed() == 12;
+        }
+        if all_placed && self.flags() & 512 == 0 {
+            self.complete(level);
+            f.next = Some(7);
+        } else if !self.won(level) {
+            self.complete(level);
             if matches!(level, 2..=6 | 8..=12) {
-                self.block[0x22] = self.block[0x22].saturating_add(1);
+                self.block[0x22] = self.block[0x22].wrapping_add(1);
+                let next = match self.block[0x22] {
+                    2 => Some(20),
+                    3 => Some(15),
+                    5 => Some(21),
+                    7 => Some(17),
+                    _ => None,
+                };
+                if next.is_some() {
+                    self.set_u32(0x30, self.flags() & !3);
+                    f.next = next;
+                }
             }
         }
+        if level == 15 {
+            self.set_u32(0x30, self.flags() | 16);
+            f.next = Some(1);
+        }
+        f
+    }
+
+    fn complete(&mut self, level: usize) {
+        let done = self.u32(0x38) | 1 << level;
+        self.set_u32(0x38, done);
+    }
+
+    /// The flags at +0x30.
+    pub fn flags(&self) -> u32 {
+        self.u32(0x30)
+    }
+
+    /// Activity play (+0x21): one level from the Activities menu.
+    pub fn activity(&self) -> bool {
+        self.block[0x21] != 0
+    }
+
+    pub fn set_activity(&mut self, on: bool) {
+        self.block[0x21] = on as u8;
+    }
+
+    /// Pieces placed on the board (0x80091d28).
+    pub fn placed(&self) -> u32 {
+        (u16::from_le_bytes([self.block[0x46], self.block[0x47]]).count_ones()).min(12)
+    }
+
+    /// Piece `n` placed (0x80092754).
+    pub fn place(&mut self, n: usize) {
+        let w = u16::from_le_bytes([self.block[0x46], self.block[0x47]]) | 1 << n;
+        self.block[0x46..0x48].copy_from_slice(&w.to_le_bytes());
+    }
+
+    /// Every earned piece on the board (the port's stand-in for the
+    /// puzzle screen).
+    pub fn place_earned(&mut self) {
+        let earned = [self.block[0x44], self.block[0x45]];
+        self.block[0x46..0x48].copy_from_slice(&earned);
+    }
+
+    /// Whether piece `n` is earned (0x80091ca8).
+    pub fn earned(&self, n: usize) -> bool {
+        u16::from_le_bytes([self.block[0x44], self.block[0x45]]) >> n & 1 != 0
+    }
+
+    /// A random piece not yet earned (0x80091d50: rand % 12 until free,
+    /// any with the final level reached).
+    fn award_piece(&mut self, rand: &mut Rand) -> usize {
+        loop {
+            let n = (rand.next() % 12) as usize;
+            if !self.earned(n) || self.flags() & 512 != 0 {
+                let w = u16::from_le_bytes([self.block[0x44], self.block[0x45]]) | 1 << n;
+                self.block[0x44..0x46].copy_from_slice(&w.to_le_bytes());
+                return n;
+            }
+        }
+    }
+
+    /// 15 unspent bars buy a piece (0x80094924, 0x80091c14: the first
+    /// found bars from level 1 up are marked spent).
+    pub fn buy_piece(&mut self, rand: &mut Rand) -> bool {
+        if self.pieces() >= 12 || self.bars_available() < 15 {
+            return false;
+        }
+        let mut left = 15;
+        'spend: for level in 1..32 {
+            for n in 0..32 {
+                let found = self.u32(0x48 + 4 * level) >> n & 1 != 0;
+                let spent = self.u32(0xc8 + 4 * level) >> n & 1 != 0;
+                if found && !spent {
+                    let w = self.u32(0xc8 + 4 * level) | 1 << n;
+                    self.set_u32(0xc8 + 4 * level, w);
+                    left -= 1;
+                    if left == 0 {
+                        break 'spend;
+                    }
+                }
+            }
+        }
+        self.award_piece(rand);
+        true
+    }
+
+    /// The pieces a finished level gives (0x80094bfc): one bought with
+    /// bars, and the level's own (levels 1-6, 8-12 and 15, 0x800919b4)
+    /// once (+0x40). Whether the puzzle screen shows.
+    pub fn give_piece(&mut self, level: usize, rand: &mut Rand) -> bool {
+        if self.pieces() >= 12 {
+            return false;
+        }
+        let mut given = self.buy_piece(rand);
+        if matches!(level, 1..=6 | 8..=12 | 15) && self.u32(0x40) >> level & 1 == 0 {
+            let w = self.u32(0x40) | 1 << level;
+            self.set_u32(0x40, w);
+            self.award_piece(rand);
+            given = true;
+        }
+        given
     }
 
     /// Whether level `level` was won (+0x38).

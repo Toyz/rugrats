@@ -379,6 +379,9 @@ impl Game for Rugrats {
                     } else if let Some(Outcome::Play(mode)) = outcome {
                         if mode == rugrats::front::MAIN_GAME {
                             self.progress = Default::default();
+                        } else if mode != rugrats::front::TRAINING {
+                            self.progress = Default::default();
+                            self.progress.set_activity(true);
                         }
                         self.stop_song();
                         rrt::tracing::info!("title: game mode {mode}");
@@ -399,7 +402,12 @@ impl Game for Rugrats {
                         }
                     }
                     for &n in &game.found {
+                        // 0x80094a58: each bar may buy a piece.
                         self.progress.find_bar(game.level, n);
+                        if self.progress.buy_piece(&mut self.rand) {
+                            rrt::tracing::info!("15 bars bought a puzzle piece");
+                            self.progress.place_earned();
+                        }
                     }
                     if std::mem::take(&mut game.load) {
                         let cards = rugrats::card::Cards::default();
@@ -433,9 +441,25 @@ impl Game for Rugrats {
                         self.level = None;
                         self.stop_song();
                         self.boot = self.title(now);
-                    } else if let Some((level, cine)) = game.exit {
+                    } else if let Some((mut level, mut cine)) = game.exit {
+                        if self.progress.activity() {
+                            // "Returning to the Activities Menu".
+                            self.level = None;
+                            self.stop_song();
+                            self.boot = self.title(now);
+                            return;
+                        }
                         if let Some(won) = game.won {
-                            self.progress.finish(game.level, won);
+                            let f = self.progress.finish(game.level, won, &mut self.rand);
+                            rrt::tracing::info!("level {} finished: {f:?}", game.level);
+                            if f.piece {
+                                // The puzzle board (0x8009480c) is not ported:
+                                // the pieces go straight onto it.
+                                self.progress.place_earned();
+                            }
+                            if let Some(next) = f.next {
+                                (level, cine) = (next, None);
+                            }
                         }
                         let here = game.level;
                         self.boot = match cine {

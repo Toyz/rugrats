@@ -1,4 +1,5 @@
-//! The opening's actor and pose ids, with the frames they appear in.
+//! The opening's actor and pose ids, with the frames they appear in, and
+//! the length of its sound.
 
 use std::collections::BTreeMap;
 
@@ -23,5 +24,6 @@ fn main() -> Result<(), String> {
     }
     println!("actors (id: first, last, count): {actors:?}");
     println!("poses: {poses:?}");
+    println!("sound: {:.1} s", s.sound.len() as f64 / 44100.0);
     Ok(())
 }

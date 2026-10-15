@@ -146,3 +146,13 @@ fn level_16_toss_is_won() {
     });
     assert!(ended.is_some_and(|f| f < 1000), "won at {ended:?}");
 }
+
+/// Every reachable level opens and plays a few seconds of running about.
+#[test]
+fn every_level_runs() {
+    let Some(disc) = disc() else { return };
+    for level in [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 15, 16, 17, 18, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31] {
+        let mut g = open(&disc, level);
+        run(&mut g, &[(&[], 5), (&[input::UP], 60), (&[input::CROSS], 1), (&[input::LEFT], 40), (&[], 100)], |_, _| {});
+    }
+}

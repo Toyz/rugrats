@@ -58,6 +58,8 @@ pub mod anim {
     pub const LAND: i16 = 4;
     pub const FALL: i16 = 15;
     pub const JUMP_MOVING: i16 = 28;
+    /// Climbing (state 6's animation).
+    pub const CLIMB: i16 = 5;
     /// The cry (0x8007f920: 0x800572a8(player, 16, 2560)).
     pub const CRY: i16 = 16;
 }
@@ -263,8 +265,24 @@ impl Player {
         // began when the point is not in the open.
         let probe = [self.pos[0], self.pos[1] - self.feet - 1, self.pos[2]];
         let q = collide::query(col, probe);
+        // Climbing (state 6, 0x8005f310): walking into a ledge or a
+        // climbable object up to 1033 above the feet (521 carrying,
+        // 0x80056e44, 0x80058da4) brings the player onto it.
+        let walking = matches!(self.state, State::Walk | State::Run) && self.speed > 0 && !acting;
+        let reach = if self.carrying { CLIMB_CARRYING } else { CLIMB };
+        let mut climb_to: Option<i32> = None;
         if q.kind != 0 && q.tile.is_none() || q.kind == 2 {
             self.pos = start;
+        } else if q.kind != 0 && walking && {
+            let feet_y = start[1] - self.feet;
+            let up = collide::query(col, [self.pos[0], feet_y - reach, self.pos[2]]);
+            let ok = up.kind == 0 && up.floor < feet_y - STEP_UP && up.floor >= feet_y - reach;
+            if ok {
+                climb_to = Some(up.floor);
+            }
+            ok
+        } {
+            // Onto the ledge.
         } else if q.kind != 0 {
             // Into a wall or a step too high: back across, keep the height.
             let back = collide::query(col, [start[0], probe[1], start[2]]);
@@ -292,9 +310,19 @@ impl Player {
                     self.floor = top;
                 }
             } else if b.max_y > head && b.depth(self.pos, RADIUS) > b.depth(start, RADIUS) {
-                self.pos[0] = start[0];
-                self.pos[2] = start[2];
+                if b.climb && walking && top >= start_feet - reach {
+                    climb_to = Some(climb_to.map_or(top, |c: i32| c.min(top)));
+                } else {
+                    self.pos[0] = start[0];
+                    self.pos[2] = start[2];
+                }
             }
+        }
+        if let Some(top) = climb_to {
+            self.pos[1] = top + self.feet;
+            self.floor = top;
+            self.state = State::Stand;
+            self.act(anim::CLIMB, anims);
         }
         let feet_y = self.pos[1] - self.feet;
         if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
@@ -471,6 +499,10 @@ const STEP_UP: i32 = 384;
 /// The body's radius and height for the object test.
 pub const RADIUS: i32 = 160;
 pub const HEIGHT: i32 = 600;
+/// The highest ledge a climb takes (0x80056e44: under 1034; under 522
+/// while carrying).
+const CLIMB: i32 = 1033;
+const CLIMB_CARRYING: i32 = 521;
 
 /// An object's collision box: its model box (`lo`, `hi`) in the object's
 /// space, the object's rotation and position, and the world heights it
@@ -483,6 +515,8 @@ pub struct Box3 {
     pub pos: Vec3,
     pub min_y: i32,
     pub max_y: i32,
+    /// Its template has flag 64: it can be climbed onto (0x80058da4).
+    pub climb: bool,
 }
 
 impl Box3 {

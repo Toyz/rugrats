@@ -50,6 +50,7 @@ fn player_character(level: usize) -> usize {
     match level {
         4 | 11 => 6,
         5 => 3,
+        6 | 10 => 2,
         _ => TOMMY,
     }
 }
@@ -664,6 +665,7 @@ impl Game {
             3 => Some(Box::new(crate::level3::Level3::start(&mut g, disc)?)),
             4 => Some(Box::new(crate::level4::Level4::start(&mut g, disc)?)),
             5 => Some(Box::new(crate::level5::Level5::start(&mut g, disc)?)),
+            6 => Some(Box::new(crate::level6::Level6::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
         };
@@ -1106,9 +1108,13 @@ impl Game {
                 boxes.extend(world_boxes(model, m.rot, m.world()));
             }
         }
-        for t in self.things.iter().filter(|t| t.state == ThingState::Rest) {
+        for t in self.things.iter().filter(|t| t.state == ThingState::Rest && !t.hidden) {
             if let Some(m) = self.set.models.get(t.shape) {
-                boxes.extend(world_boxes(m, t.rot, t.pos));
+                let climb = self.set.templates.get(t.template as usize).is_some_and(|tp| tp.flags & 64 != 0);
+                boxes.extend(world_boxes(m, t.rot, t.pos).into_iter().map(|mut b| {
+                    b.climb = climb;
+                    b
+                }));
             }
         }
         // The other characters stand in the way: a box of their radius
@@ -1123,6 +1129,7 @@ impl Game {
                 pos: Vec3::new(n.pos[0] as f32, n.pos[1] as f32, n.pos[2] as f32),
                 min_y: (feet - 700.0) as i32,
                 max_y: feet as i32,
+                climb: false,
             });
         }
         self.player.frame(pads, self.yaw.round() as i32, &self.col, &boxes, &self.anims, &self.trig);
@@ -1387,7 +1394,11 @@ fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate::player::B
         let Some(m) = set.models.get(t.shape as u32) else { continue };
         let rot = rugrats_render::models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
         let pos = Vec3::new(place.pos[0] as f32, place.pos[1] as f32, place.pos[2] as f32);
-        out.extend(world_boxes(m, rot, pos));
+        let climb = t.flags & 64 != 0;
+        out.extend(world_boxes(m, rot, pos).into_iter().map(|mut b| {
+            b.climb = climb;
+            b
+        }));
     }
     out
 }
@@ -1479,6 +1490,7 @@ fn world_boxes(m: &rugrats_data::model::Model, rot: Mat3, pos: Vec3) -> Vec<crat
             pos,
             min_y: a as i32,
             max_y: b as i32,
+            climb: false,
         });
     }
     out

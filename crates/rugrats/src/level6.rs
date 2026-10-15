@@ -1,0 +1,204 @@
+//! Level 6, Toy Palace (docs/engine/level-06.md): Chuckie walks the dark
+//! toy store, frightened by scary toys, bitten by clowns and guards, hurt
+//! by bursts and breaking toys. Room 11's cine 46 hands over to Tommy, who
+//! stacks Reptar boxes to climb to the switch; its cine 47 wins.
+
+use crate::animator::Animator;
+use crate::disc::GameDisc;
+use crate::game::Game;
+use crate::input::Pads;
+use crate::npc::{Event, Mode, Target};
+use rugrats_data::hierarchy::Hierarchy;
+
+/// Ids: Tommy, Chuckie, the guards and the clowns.
+const TOMMY: u16 = 1492;
+const CHUCKIE: u16 = 1776;
+/// Guards (EpisodeStart 0x800794a0): (id, range, bite, time between
+/// bites in dt as seen).
+const GUARDS: [(u16, i32, i32, i32); 5] = [(46, 5000, 15, 180), (506, 15000, 6, 80), (920, 7000, 8, 230), (921, 7000, 8, 230), (922, 7000, 8, 230)];
+const GUARD_REACH: i32 = 1024;
+/// Where cine 45 leaves Chuckie.
+const START: [i32; 3] = [-4154, -1378, 9795];
+const START_HEADING: i32 = 3134;
+/// Scary toys (template flag 0x200000): template and damage.
+const SCARY: [(u32, i32); 6] = [(1227, 5), (1028, 5), (1029, 5), (1030, 5), (1031, 5), (1155, 2)];
+/// Timed bursts (class 10, 0x8004e0f4): template, period (frames), reach.
+const BURSTS: [(u32, i32, i64); 2] = [(969, 50, 3072), (982, 25, 2048)];
+const BURST_HURT: i32 = 18;
+/// Breakable toys (template 1102, flag 1024): sound 173, thrown up 2000,
+/// 5.
+const BREAKABLE: u32 = 1102;
+const ROOM_PHASE2: usize = 2;
+const CINE_SWAP: usize = 46;
+const TOMMY_AFTER: [i32; 3] = [40738, -1267, 8097];
+const CHUCKIE_AFTER: [i32; 3] = [39612, -1378, 7197];
+
+struct Scary {
+    pos: [i32; 3],
+    radius: i64,
+    damage: i32,
+}
+
+pub struct Level6 {
+    pub phase: u8,
+    scary: Vec<Scary>,
+    scared: bool,
+    bursts: Vec<([i32; 3], i32, i64)>,
+    clock: i32,
+    breakables: Vec<usize>,
+    tommy: (Hierarchy, Animator),
+    chuckie: (Hierarchy, Animator),
+}
+
+fn find(g: &Game, id: u16) -> Option<usize> {
+    g.npcs.iter().position(|n| n.id == id)
+}
+
+impl Level6 {
+    /// EpisodeStart (0x800794a0) after cine 45 (whose end hides Tommy).
+    pub fn start(g: &mut Game, disc: &GameDisc) -> Result<Level6, String> {
+        g.hide(TOMMY, true);
+        g.player.pos = START;
+        g.player.heading = START_HEADING;
+        g.player.target = START_HEADING;
+        g.set_camera_yaw(START_HEADING as f32);
+        g.checkpoint = Some((START, START_HEADING));
+        for (id, range, bite, wait) in GUARDS {
+            if let Some(k) = find(g, id) {
+                let n = &mut g.npcs[k];
+                n.mode = Mode::Guard;
+                n.range = range;
+                n.damage = bite;
+                n.bite_wait = wait;
+                n.reach = GUARD_REACH;
+            }
+        }
+        let template = |t: u32| g.set.templates.get(t as usize);
+        let mut scary = Vec::new();
+        let mut bursts = Vec::new();
+        let mut breakables = Vec::new();
+        for (k, p) in g.set.placements.iter().enumerate().filter(|(_, p)| p.kind == 1) {
+            if let Some(&(_, damage)) = SCARY.iter().find(|s| s.0 == p.template) {
+                let radius = template(p.template).map_or(3000, |t| u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i64);
+                scary.push(Scary { pos: p.pos, radius, damage });
+            }
+            if let Some(&(_, period, reach)) = BURSTS.iter().find(|b| b.0 == p.template) {
+                bursts.push((p.pos, period, reach));
+            }
+            if p.template == BREAKABLE {
+                breakables.push(k);
+            }
+        }
+        let body = |c: usize| -> Result<(Hierarchy, Animator), String> {
+            let h = g.set.hierarchies.get(c).cloned().flatten().ok_or(format!("no hierarchy {c}"))?;
+            Ok((h, Animator::load(disc, c as u16)?))
+        };
+        let (tommy, chuckie) = (body(1)?, body(2)?);
+        Ok(Level6 { phase: 1, scary, scared: false, bursts, clock: 0, breakables, tommy, chuckie })
+    }
+
+    /// Cine 46's end (0x8007b670, 0x800585b0): the player becomes Tommy at
+    /// Tommy's place; Chuckie stays as a character watching him.
+    fn swap(&mut self, g: &mut Game) {
+        let Some(k) = find(g, TOMMY) else { return };
+        // Where cine 46 leaves them (oracle): Tommy in room 9, Chuckie by
+        // him.
+        let (here, heading) = (CHUCKIE_AFTER, g.player.heading);
+        let there = TOMMY_AFTER;
+        let (h, a) = self.tommy.clone();
+        g.player.set_body(h, a, crate::player::TURN, &g.anims);
+        g.player.pos = there;
+        g.character = 1;
+        let n = &mut g.npcs[k];
+        n.id = CHUCKIE;
+        n.character = 2;
+        n.hierarchy = self.chuckie.0.clone();
+        n.animator = self.chuckie.1.clone();
+        n.pos = here;
+        n.heading = heading;
+        n.hidden = false;
+        n.mode = Mode::Idle;
+        g.tries = 3;
+        self.phase = 3;
+        g.checkpoint = Some((there, g.player.heading));
+        g.song = Some(1);
+        g.set_camera_yaw(g.player.heading as f32);
+    }
+}
+
+impl crate::game::Script for Level6 {
+    fn frame(&mut self, g: &mut Game, _pads: &Pads) {
+        for e in std::mem::take(&mut g.npc_events) {
+            if let Event::Bite { target: Target::Player, amount, .. } = e {
+                if amount > 0 {
+                    g.player.health = (g.player.health - amount).max(0);
+                }
+            }
+        }
+        let p = g.player.pos;
+        let d2 = |a: [i32; 3]| {
+            let d = [(a[0] - p[0]) as i64, (a[1] - p[1]) as i64, (a[2] - p[2]) as i64];
+            d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+        };
+        // Scary toys (0x80059570): once per approach; leaving clears it
+        // (0x800596b0).
+        match self.scary.iter().find(|s| d2(s.pos) < s.radius * s.radius) {
+            Some(s) if !self.scared => {
+                self.scared = true;
+                g.player.health = (g.player.health - s.damage).max(0);
+                g.effects.push((72, crate::sound::EFFECTS_VOLUME));
+            }
+            Some(_) => {}
+            None => self.scared = false,
+        }
+        // Timed bursts: every period, 18 within reach (3D).
+        self.clock += 1;
+        for &(at, period, reach) in &self.bursts {
+            if self.clock % period == 0 && d2(at) <= reach * reach {
+                g.player.health = (g.player.health - BURST_HURT).max(0);
+                g.effects.push((79, crate::sound::EFFECTS_VOLUME));
+            }
+        }
+        // Breaking toys (0x8005ac98): standing on one breaks it.
+        let feet = p[1] - g.player.feet();
+        let on_ground = matches!(g.player.state, crate::player::State::Stand | crate::player::State::Walk | crate::player::State::Run);
+        if on_ground {
+            let under = self.breakables.iter().position(|&k| {
+                let q = g.set.placements[k];
+                let (dx, dz) = ((q.pos[0] - p[0]).abs(), (q.pos[2] - p[2]).abs());
+                dx < 900 && dz < 900 && feet < q.pos[1] - 700
+            });
+            if let Some(i) = under {
+                let k = self.breakables.remove(i);
+                g.hide_placement(k, true);
+                g.effects.push((173, crate::sound::EFFECTS_VOLUME));
+                let h = g.player.heading;
+                g.player.launch(h, -2000, 0, &g.trig);
+                g.player.health = (g.player.health - 5).max(0);
+            }
+        }
+    }
+
+    fn room(&mut self, g: &mut Game, room: usize) {
+        if room == ROOM_PHASE2 {
+            if self.phase < 3 {
+                self.phase = 2;
+            }
+            g.checkpoint = Some((g.player.pos, g.player.heading));
+        }
+    }
+
+    fn cine_finished(&mut self, g: &mut Game, n: usize) {
+        if n == CINE_SWAP && self.phase < 3 {
+            self.swap(g);
+        }
+    }
+
+    fn phase(&self) -> u8 {
+        self.phase
+    }
+
+    fn describe(&self) -> String {
+        format!("phase {} scared {}", self.phase, self.scared)
+    }
+}

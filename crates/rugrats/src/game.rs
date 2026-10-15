@@ -122,7 +122,7 @@ impl Game {
             let Some(h) = set.templates.get(p.template as usize).and_then(|t| t.hierarchy()) else { continue };
             let Some(Some(hierarchy)) = set.hierarchies.get(h).cloned() else { continue };
             let mut animator = crate::animator::Animator::load(disc, h as u16)?;
-            animator.set(crate::player::anim::STAND, &anims);
+            animator.set(crate::player::anim::IDLE, &anims);
             let rot = rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose();
             rrt::tracing::debug!("npc {} hierarchy {h}: track {:?}, {} parts", p.id, animator.track(), hierarchy.parts.len());
             // On the floor under it (0x80081bac asks 0x8002b240), the root

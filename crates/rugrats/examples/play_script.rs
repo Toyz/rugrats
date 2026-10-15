@@ -39,7 +39,7 @@ fn main() -> Result<(), String> {
     let every: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(10);
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let mut game = rugrats::game::Game::open(&disc, db)?;
-    for a in [1i16, 2, 3, 4, 15, 28] {
+    for a in [1i16, 2, 3, 4, 15, 17, 28] {
         let id = game.player.anm(a);
         let frames = id.map(|i| game.anims.frames_of(i).len());
         println!("state {a}: anm {id:?}, {frames:?} frames");

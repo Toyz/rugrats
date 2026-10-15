@@ -43,6 +43,9 @@ const LIFT: i32 = -5;
 
 /// Animation states (0x800572a8's argument) the port uses.
 pub mod anim {
+    /// Standing plays the idle (+0xe7, which init sets to 17:
+    /// 0x80057244(player, 17, 0)); walking state 1's animation.
+    pub const IDLE: i16 = 17;
     pub const STAND: i16 = 1;
     pub const RUN: i16 = 2;
     pub const JUMP: i16 = 3;
@@ -103,7 +106,7 @@ impl Player {
             p.floor = q.floor;
             p.pos[1] = q.floor + feet;
         }
-        p.animator.set(anim::STAND, anims);
+        p.animator.set(anim::IDLE, anims);
         Ok(p)
     }
 
@@ -236,7 +239,7 @@ impl Player {
             };
         }
         let a = match self.state {
-            State::Stand => anim::STAND,
+            State::Stand => anim::IDLE,
             State::Walk => anim::STAND,
             State::Run => anim::RUN,
             State::Jump => if self.speed > 0 { anim::JUMP_MOVING } else { anim::JUMP },

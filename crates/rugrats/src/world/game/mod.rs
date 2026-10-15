@@ -1,0 +1,1352 @@
+//! Playing a level (the runner 0x80017c0c, its frame 0x80018c38): the
+//! database's rooms and objects on a stage, the collision under them, the
+//! player, and the follow camera.
+
+use rrt::glam::{Mat3, Vec3};
+
+use rugrats_data::anim::Anims;
+
+use rugrats_data::cine::Frame;
+
+use rugrats_data::col::Col;
+
+use crate::actors::player::Player;
+
+use crate::disc::GameDisc;
+
+use crate::gte::Trig;
+
+use crate::input::{self, Pads};
+
+use crate::media::cine::Set;
+
+use crate::stage::Stage;
+
+mod boxes;
+mod camera;
+mod doors;
+mod goodies;
+mod movers;
+mod pause;
+mod rooms;
+mod story;
+mod things;
+mod toys;
+
+use boxes::*;
+use camera::*;
+pub use doors::Door;
+use doors::*;
+pub use goodies::{Goodie, goodie, spawn};
+pub use movers::Mover;
+pub use pause::PauseEnd;
+use pause::*;
+use rooms::*;
+use story::*;
+pub use story::{hit_line, start_cine};
+use things::*;
+pub use things::{Breakable, Thing, ThingState};
+pub use toys::{Spinner, Walker};
+
+const COL: usize = 466;
+
+const ANM: usize = 274;
+
+const FRM: usize = 306;
+
+const ROT: usize = 338;
+
+/// Level starts (0x80017c0c): s32 x, y, z at 0x800b2940 + 16 level, u16
+/// angles at 0x800b2b40 + 8 level, the first the heading.
+const STARTS: u32 = 0x800b_2940;
+
+const START_ANGLES: u32 = 0x800b_2b40;
+
+/// The camera's field of view in play (0x800290a4: 612).
+const FOV: i32 = 612;
+
+/// The default character: Tommy (0x800c5680 = 1), whose hierarchy is the
+/// database's number 1 (0x800450ac).
+const TOMMY: usize = 1;
+
+/// The playable character by level (0x80018598): Spike in levels 4 and
+/// 11, else Tommy.
+fn player_character(level: usize) -> usize {
+    match level {
+        4 | 11 => 6,
+        5 => 3,
+        7 => 9,
+        6 | 10 => 2,
+        17 => 5,
+        _ => TOMMY,
+    }
+}
+
+/// A level's own play (its EpisodeStart callback and the level cases of
+/// the event handlers).
+pub trait Script {
+    /// One frame, after the player and the NPCs moved.
+    fn frame(&mut self, g: &mut Game, pads: &Pads);
+    /// A cinematic it or a room asked for has played (CineFinish).
+    fn cine_finished(&mut self, _g: &mut Game, _n: usize) {}
+    /// After a cry (ForceCry's level case); false leaves it to the
+    /// default respawn.
+    fn cry(&mut self, _g: &mut Game) -> bool {
+        false
+    }
+    /// Whether ForceCry plays the cry first (some levels' cases skip it).
+    fn cry_animation(&self) -> bool {
+        true
+    }
+    /// A room's Gameplay script (room flag 64, 0x80077ee4).
+    fn gameplay(&mut self, _g: &mut Game, _n: u8) {}
+    /// The player entered room `room` (the level's case of 0x8007f498).
+    fn room(&mut self, _g: &mut Game, _room: usize) {}
+    /// The level's own models and HUD.
+    fn draw(&self, _g: &Game, _moving: &mut Vec<rugrats_render::Vtx>, _overlay: &mut Vec<rugrats_render::Vtx>) {}
+    /// The level timer ran out (TimerExpired's level callback).
+    fn timer_expired(&mut self, _g: &mut Game) {}
+    /// The phase, for tools.
+    fn phase(&self) -> u8 {
+        0
+    }
+    /// Jumps to phase `phase` as the level would set it up (for tools).
+    fn skip_to(&mut self, _g: &mut Game, _phase: u8) {}
+    /// The level's own state in words, for tools.
+    fn describe(&self) -> String {
+        String::new()
+    }
+    /// Activity golf: player `player` (0-3) takes the turn as `character`
+    /// (0x80096a30 step 6).
+    fn activity_turn(&mut self, _g: &mut Game, _player: usize, _character: usize) {}
+    /// What the level's ambience reads (crate::audio::ambience): level 2 and 3
+    /// +0x30 bit 8, level 9 the deaths to go, level 11 the ring step,
+    /// level 12 the refrigerator opened, golf 15 in the stroke.
+    fn cue(&self) -> i32 {
+        0
+    }
+}
+
+pub struct Game {
+    pub level: usize,
+    pub set: Set,
+    pub col: Col,
+    pub anims: Anims,
+    pub player: Player,
+    pub stage: Stage,
+    pub trig: Trig,
+    focal: f32,
+    /// The camera's eye and its heading (4096 a turn).
+    pub eye: Vec3,
+    pub yaw: f32,
+    /// The rooms and objects at rest, drawn under the player.
+    scenery: Vec<rugrats_render::Vtx>,
+    /// Where the level ends: a level to go to (the exit code, 0x800c4918)
+    /// and a cinematic to play first.
+    pub exit: Option<(usize, Option<usize>)>,
+    /// A cinematic the level asks for (PostCine), played with the level
+    /// waiting.
+    pub cine: Option<usize>,
+    /// The last checkpoint reached (position, heading).
+    pub checkpoint: Option<([i32; 3], i32)>,
+    /// Tries left (state +0x23, from 0x800b2920[level] at the start), and
+    /// the cry's time left (0x8007f920: up to 2100 dt).
+    pub tries: i32,
+    crying: i32,
+    /// The level's own play, and how a level ended (0x80076d6c's won).
+    pub script: Option<Box<dyn Script>>,
+    pub won: Option<bool>,
+    /// The HUD's sprites, and the health meter's time left and last value.
+    pub sprites: Option<crate::ui::hud::Sprites>,
+    meter_shown: i32,
+    meter_health: i32,
+    /// The placed objects' collision boxes in the world.
+    pub boxes: Vec<crate::actors::player::Box3>,
+    /// The placed characters other than the player.
+    pub npcs: Vec<Npc>,
+    /// The posts (LP kind 2), what the NPCs asked for this frame, and the
+    /// level's rand.
+    pub posts: Vec<crate::actors::npc::Post>,
+    pub npc_events: Vec<crate::actors::npc::Event>,
+    pub rand: crate::rand::Rand,
+    /// The room the player is in, and a song the room asked for
+    /// (RoomChange, 0x80077a54: room flag 128, song at +0x64 less one).
+    room: Option<usize>,
+    pub song: Option<usize>,
+    /// Sound effects asked for this frame, with their volume (0x8006f644:
+    /// the effects setting, less with distance from the camera).
+    pub effects: Vec<(u8, i32)>,
+    /// Paused (Start, 0x80018c38 step 13): the world holds still and the
+    /// pause menu runs (0x8003e05c).
+    pub paused: bool,
+    pause: Pause,
+    pub fonts: crate::ui::text::Fonts,
+    /// Quit to the front end (the exit code -1).
+    pub quit: bool,
+    /// The game's end: the progress cleared, the credits, the hub.
+    pub ending: bool,
+    /// The objects that can be picked up, the one carried, and its grip
+    /// (+0x1f8: in the player's frame from hand slot 15).
+    pub things: Vec<Thing>,
+    /// Bars, cookies and the levels' other collectibles; the bars
+    /// available (0x800c4194: found less spent, kept in step here)
+    /// here (0x80094a58) and how long the counter shows.
+    pub goodies: Vec<Goodie>,
+    pub bars: u32,
+    bar_shown: i32,
+    /// Bars found this frame (0x80094a58).
+    pub found: Vec<usize>,
+    /// The game state as main has it (for a save), and a record the
+    /// pause's Load Game read (0x80070970).
+    pub state_block: [u8; crate::save::card::STATE_SIZE],
+    pub loaded: Option<Box<[u8; crate::save::card::STATE_SIZE]>>,
+    carried: Option<usize>,
+    grip: Vec3,
+    /// Objects hidden by id (0x80078bc4) and the placements always drawn
+    /// apart (characters, pickables, collectibles).
+    hidden: std::collections::HashSet<u16>,
+    apart: Vec<bool>,
+    /// Placements hidden one by one (hide_placement).
+    hidden_places: std::collections::HashSet<usize>,
+    /// Collectibles taken this frame: (kind, +0x6d).
+    pub collected: Vec<(u16, i32)>,
+    /// Placements whose use was taken away (+0x54 = 0).
+    unusable: std::collections::HashSet<usize>,
+    /// The moving platforms (template class 11).
+    pub movers: Vec<Mover>,
+    /// The breakables (template class 14: level 7's buildings).
+    pub breakables: Vec<Breakable>,
+    /// The hinged and sliding doors (classes 4 and 3).
+    pub doors: Vec<Door>,
+    /// Spinning toys (class 2) and post walkers (class 15).
+    pub spinners: Vec<Spinner>,
+    pub walkers: Vec<Walker>,
+    /// Thrown objects that struck a character this frame (0x80086ef0):
+    /// (character, thing, the thing's +0x6d).
+    pub struck: Vec<(usize, usize, i32)>,
+    /// A fixed camera (eye, look-at) a level sets (0x800291f8 kind 4).
+    pub fixed: Option<(Vec3, Vec3)>,
+    /// The follow camera's height (0x800c3f5c) and distance (0x800c4a4c),
+    /// and the post a room's fixed camera stands at (kind 3, 0x800259a0).
+    eye_up: f32,
+    behind: f32,
+    post_camera: Option<usize>,
+    /// Objects that hurt on touch (not pickable, not characters, +0x6d
+    /// over 0: Damage(player, 0, +0x6d), 0x8005e1f4), and the time until
+    /// the next hurt.
+    hazards: Vec<(crate::actors::player::Box3, i32)>,
+    hurt_wait: i32,
+    /// The level timer (0x800c4430, dt left), set by a level.
+    pub timer: Option<i32>,
+    /// The level a finish is recorded for (golf records level 8).
+    pub record: usize,
+    /// The puzzle board asked for (its object's use, 0x8004d3f0).
+    pub board: bool,
+    /// The last frame's camera: eye and world-to-camera rows; frames run.
+    pub view: (Vec3, Mat3),
+    pub frames: u32,
+    /// The playable character (state +0x08).
+    pub character: usize,
+    /// The spawn spots (LP kind 7).
+    pub spots: Vec<rugrats_data::placement::Spot>,
+    /// A hint card the level asks for (0x80044434).
+    pub card: Option<usize>,
+    /// Throws aim at characters (level 9's case of 0x80061c98).
+    pub aim: bool,
+    /// A bonus level's fourth bar was earned (0x80076ba8 and friends).
+    pub fourth_bar: bool,
+    /// Activity play (+0x21).
+    pub activity: bool,
+    /// The progress flags (+0x30) when the level opened: bit 16
+    /// (Mirrorland entered) opens the hub's doors to 3, 4 and 6 and the
+    /// mirror.
+    pub flags: u32,
+    /// Screens a level asks for (the golf box), shown with the level
+    /// frozen.
+    pub pages: Vec<crate::ui::screens::Page>,
+    /// The training messages (levels 1 and 16).
+    pub training: crate::ui::tips::Training,
+    /// Speech lines asked for this frame (0x8008da4c), and the level's
+    /// lines.
+    pub speech: Vec<u16>,
+    pub lines: crate::audio::speech::Speech,
+    /// Placements that speak when the player comes near (LP +0x4c, the
+    /// trigger list 0x80072d38): placement, line, radius, inside.
+    talkers: Vec<(usize, u16, i32, bool)>,
+    /// The ambience countdown (0x800c4cc0), its first-line flag
+    /// (0x800c4cc4) and its line tables.
+    pub ambience: i32,
+    pub ambience_first: bool,
+    ambience_lines: std::rc::Rc<crate::audio::ambience::Tables>,
+    /// Level 5's camera hold while floating (0x800c4a50) and its shaft
+    /// camera (kind 3 walking, rooms 15 and 40).
+    cam_hold: bool,
+    shaft: bool,
+    /// Damage events are dropped (level 1, 0x800780d8).
+    pub no_damage: bool,
+    /// The levels won (+0x38), for the hub's signs, and the pieces earned
+    /// (0x80094b8c) for the pause.
+    pub won_levels: u32,
+    pub pieces: u32,
+    /// Activity golf: the strokes of the hole just holed.
+    pub strokes: Option<u32>,
+}
+
+/// The HUD's bar and clock icons (sprites; their sizes are guesses).
+const BAR_ICON: u32 = 291;
+
+const PIECE_ICON: u32 = 292;
+
+const CLOCK_ICON: u32 = 375;
+
+/// Text in font 1 with its shadow 2 down and right (0x80090004).
+pub fn shadowed(fonts: &crate::ui::text::Fonts, x: i16, y: i16, string: String, out: &mut Vec<rugrats_render::Vtx>) {
+    let t = crate::ui::text::Text { font: 1, spacing: 1, rgb: [255, 255, 255], x, y, string, ..Default::default() };
+    let mut shadow = t.clone();
+    shadow.rgb = [1, 1, 1];
+    shadow.x += 2;
+    shadow.y += 2;
+    shadow.triangles(fonts, out);
+    t.triangles(fonts, out);
+}
+
+pub use crate::actors::npc::Npc;
+
+/// The hub mirror (templates 836, 881) and the locked door's card.
+const MIRROR_A: u32 = 836;
+
+const MIRROR_B: u32 = 881;
+
+const LOCKED_CARD: usize = 712;
+
+/// The puzzle board's object (template 581, model 905; use callback 1,
+/// 0x8004d3f0).
+const BOARD_OBJECT: u32 = 581;
+
+/// How near (in x and z, and in y) the player must stand to use a door.
+const USE_REACH: i32 = 1500;
+
+const USE_REACH_Y: i32 = 1500;
+
+/// The hub, Pickles' home.
+pub const HUB: usize = 1;
+
+/// The pie (template 564) and training's box (1016) for the messages.
+const PIE: u16 = 564;
+
+const HIGH_BOX: u16 = 1016;
+
+/// Using these shows message 34 (training's hub door objects) or 33 (the
+/// hub's locked doors) (0x8004d49c).
+const EPISODE_OBJECTS: [u32; 2] = [111, 441];
+
+const LOCKED_OBJECTS: [u32; 3] = [117, 715, 720];
+
+impl Game {
+    pub fn open(disc: &GameDisc, level: usize) -> Result<Game, String> {
+        Game::open_from(disc, level, None, &crate::save::progress::Progress::default())
+    }
+
+    /// Level `level`, come to from level `from`: back in the hub the
+    /// player stands at 0x800b8718[from] (16 bytes: x, y, z), as level 1's
+    /// EpisodeStart callback (0x80078e7c) puts it, unless from training.
+    pub fn open_from(
+        disc: &GameDisc,
+        level: usize,
+        from: Option<usize>,
+        progress: &crate::save::progress::Progress,
+    ) -> Result<Game, String> {
+        let who = player_character(level);
+        // Level 12's Tommy is hierarchy 44 (0x8005981c).
+        let body = if level == 12 { 44 } else { who };
+        let set = Set::load(disc, level)?;
+        let col = Col::parse(&disc.file(COL + level)?)?;
+        let anims = Anims::parse(&disc.file(ANM + level)?, &disc.file(FRM + level)?, &disc.file(ROT + level)?)
+            .map_err(|e| e.to_string())?;
+        let trig = Trig::load(disc)?;
+        let start = disc.exe_bytes(STARTS + 16 * level as u32, 12)?;
+        let start = [0, 4, 8].map(|k| i32::from_le_bytes(start[k..k + 4].try_into().unwrap()));
+        let angles = disc.exe_bytes(START_ANGLES + 8 * level as u32, 2)?;
+        let heading = u16::from_le_bytes([angles[0], angles[1]]) as i32 & 4095;
+        // The placements loader (0x800454dc) moves the player onto the LP
+        // record whose template is the character's hierarchy, turned by
+        // its quaternion (0x8001f684, 0x80059a88).
+        let mine = |p: &&rugrats_data::placement::Placement| {
+            p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy() == Some(body))
+        };
+        let (start, heading) = match set.placements.iter().find(mine) {
+            Some(p) => {
+                let [_, y, _, w] = p.rotation.map(|v| v as f64);
+                let yaw = (2.0 * y.atan2(w) / std::f64::consts::TAU * 4096.0).round() as i32;
+                (p.pos, yaw.rem_euclid(4096))
+            }
+            None => (start, heading),
+        };
+        let start = match from.filter(|&f| level == HUB && f != HUB && f != 16) {
+            Some(f) => {
+                let b = disc.exe_bytes(0x800b_8718 + 16 * f as u32, 12)?;
+                let spot = [0, 4, 8].map(|k| i32::from_le_bytes(b[k..k + 4].try_into().unwrap()));
+                if spot == [0; 3] { start } else { spot }
+            }
+            None => start,
+        };
+        rrt::tracing::info!("level {level}: the player starts at {start:?}, heading {heading}");
+        let hierarchy = set.hierarchies.get(body).cloned().flatten().ok_or("no hierarchy for the player")?;
+        let mut player = Player::new(disc, hierarchy.clone(), start, heading, &col, &anims)?;
+        if who != TOMMY {
+            // Another body (0x80059328): Spike turns slowly (0x80062eac).
+            let a = crate::actors::animator::Animator::load(disc, who as u16)?;
+            let turn =
+                if matches!(who, 6 | 21) { crate::actors::player::SLOW_TURN } else { crate::actors::player::TURN };
+            player.set_body(hierarchy, a, turn, &anims);
+            player.pos = start;
+        }
+        let mut stage = Stage::new(set.vram.clone(), set.rooms.clone());
+        stage.clear = [0, 0, 0];
+        // The placed characters move on their own; the rest stands.
+        let player_place = set.placements.iter().position(|p| mine(&p));
+        let character = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy().is_some())
+        };
+        // Pickable models move: drawn and collided each frame.
+        let pickable = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1
+                && set
+                    .templates
+                    .get(p.template as usize)
+                    .is_some_and(|t| t.pickable() && t.hierarchy().is_none() && set.models.has(t.shape as u32))
+        };
+        let things: Vec<Thing> = (0..set.placements.len())
+            .filter(|&k| pickable(k))
+            .map(|k| {
+                let p = &set.placements[k];
+                let t = &set.templates[p.template as usize];
+                Thing {
+                    placement: k,
+                    template: p.template as u16,
+                    id: p.id,
+                    damage: t.raw[0x32] as i32,
+                    hidden: false,
+                    keep: t.raw[4] == 13,
+                    shape: t.shape as u32,
+                    pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
+                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    state: ThingState::Rest,
+                }
+            })
+            .collect();
+        // Collectibles: template class 12 (0x80049af4, which makes them
+        // with 0x80048a44: object class 11), the kind template +0x26.
+        let collectible = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1
+                && !character(k)
+                && set
+                    .templates
+                    .get(p.template as usize)
+                    .is_some_and(|t| t.raw[4] == 12 && set.models.get(t.shape as u32).is_some())
+        };
+        // Bars are numbered in the order they are made (0x800c4ba8); a bar
+        // found before stays found (+0x48).
+        let mut bar = 0usize;
+        // The spawn spots (kind 7); level 4's loader moves entries 1 and 5
+        // (0x80045e08).
+        let mut spots: Vec<rugrats_data::placement::Spot> =
+            set.placements.iter().filter_map(rugrats_data::placement::Spot::of).collect();
+        if level == 4 {
+            if let Some(s) = spots.get_mut(1) {
+                s.pos[1] = 900;
+            }
+            if let Some(s) = spots.get_mut(5) {
+                s.pos[1] = 825;
+            }
+        }
+        let mut rand = crate::rand::Rand::default();
+        // Collectibles: LP +0x46 copies each (0x80049af4), placed at their
+        // spawn group's spots when they have one (0x80045f34).
+        let mut goodies: Vec<Goodie> = Vec::new();
+        for k in (0..set.placements.len()).filter(|&k| collectible(k)) {
+            let p = &set.placements[k];
+            let t = &set.templates[p.template as usize];
+            let kind = u16::from_le_bytes([t.raw[0x26], t.raw[0x27]]);
+            for _ in 0..p.copies.max(1) {
+                let number = if kind == goodie::BAR {
+                    bar += 1;
+                    bar - 1
+                } else {
+                    0
+                };
+                // No copies: the one object stays where it is placed. Many
+                // copies not placed at load (+0x4a 0) wait for the level
+                // (level 15's balloons).
+                let group = p.group.filter(|_| p.copies > 0);
+                let held = !p.placed_at_load && p.copies > 1;
+                let at = group.and_then(|g| spawn(&mut spots, g as usize, &mut rand)).map_or(p.pos, |i| spots[i].pos);
+                goodies.push(Goodie {
+                    number,
+                    template: p.template as u16,
+                    group: p.spawn_group,
+                    taken: held || kind == goodie::BAR && progress.bar_found(level, number),
+                    shape: t.shape as u32,
+                    kind,
+                    value: t.raw[0x32] as i32,
+                    pos: Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32),
+                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                });
+            }
+        }
+        let pickable = |k: usize| pickable(k) && !collectible(k);
+        // Movers: template class 11 (0x80049ab0, 0x80048804).
+        let mover = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1
+                && !character(k)
+                && set
+                    .templates
+                    .get(p.template as usize)
+                    .is_some_and(|t| t.raw[4] == 11 && set.models.has(t.shape as u32))
+        };
+        let movers: Vec<Mover> = (0..set.placements.len())
+            .filter(|&k| mover(k))
+            .map(|k| {
+                let p = &set.placements[k];
+                let t = &set.templates[p.template as usize];
+                let h = |at: usize| i16::from_le_bytes([t.raw[at], t.raw[at + 1]]) as i32;
+                Mover {
+                    id: p.id,
+                    shape: t.shape as u32,
+                    start: p.pos,
+                    pos: p.pos,
+                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    step: [h(0x18), h(0x1a), h(0x1c)],
+                    range: [h(0x1e), h(0x20), h(0x22)],
+                    gone: [0; 3],
+                    out: [true; 3],
+                    back_and_forth: t.flags & 0x1000_0000 != 0,
+                    delta: [0; 3],
+                    radius: u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32,
+                    armed: false,
+                    ridden_only: t.flags & 0x4000_0000 != 0,
+                }
+            })
+            .collect();
+        // Breakables: template class 14 (0x80049c50, think 0x8004d7c4).
+        let breakable = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1 && !character(k) && set.templates.get(p.template as usize).is_some_and(|t| t.raw[4] == 14)
+        };
+        let breakables: Vec<Breakable> = (0..set.placements.len())
+            .filter(|&k| breakable(k))
+            .map(|k| {
+                let p = &set.placements[k];
+                Breakable {
+                    template: p.template as u16,
+                    shape: set.templates[p.template as usize].shape as u32,
+                    pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
+                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    broken: false,
+                    gone: false,
+                }
+            })
+            .collect();
+        // Doors: template class 3 and 4 (not level 5's 843 or golf's
+        // automatic 770).
+        let door = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1
+                && !character(k)
+                && p.template != 843
+                && set
+                    .templates
+                    .get(p.template as usize)
+                    .is_some_and(|t| matches!(t.raw[4], 3 | 4 | 8) && set.models.has(t.shape as u32))
+        };
+        let doors: Vec<Door> = (0..set.placements.len())
+            .filter(|&k| door(k))
+            .map(|k| {
+                let p = &set.placements[k];
+                let t = &set.templates[p.template as usize];
+                let h = |at: usize| i16::from_le_bytes([t.raw[at], t.raw[at + 1]]) as i32;
+                let [_, qy, _, qw] = p.rotation.map(|v| v as f64);
+                let heading = ((2.0 * qy.atan2(qw) / std::f64::consts::TAU * 4096.0).round() as i32).rem_euclid(4096);
+                Door {
+                    placement: k,
+                    template: p.template as u16,
+                    shape: t.shape as u32,
+                    hinged: t.raw[4] != 3,
+                    start: p.pos,
+                    placed: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    heading,
+                    offset: [0; 3],
+                    speed: [h(0x18), h(0x1a), h(0x1c)],
+                    shut: h(0x1e),
+                    open_end: h(0x20),
+                    target: if t.raw[4] == 8 { h(0x20) } else { 0 },
+                    either: h(0x26) != 0,
+                    sound: t.raw[0x24],
+                    open: false,
+                    moving: false,
+                    // Class 8, and class 3 with flag 0x40000000 (golf's
+                    // 770): automatic.
+                    swing: (t.raw[4] == 8 || (t.raw[4] == 3 && t.flags & 0x4000_0000 != 0)).then(|| Swing {
+                        ease: h(0x18),
+                        waits: if t.flags & 0x1000_0000 != 0 { 16 } else { 0 }
+                            | if t.flags & 0x2000_0000 != 0 { 8 } else { 0 },
+                        wait: 0,
+                        radius: u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32,
+                        damage: t.raw[0x32] as i32,
+                        hurt: 0,
+                    }),
+                }
+            })
+            .collect();
+        let class_of = |k: usize, c: u8| {
+            let p = &set.placements[k];
+            p.kind == 1
+                && !character(k)
+                && !pickable(k)
+                && set
+                    .templates
+                    .get(p.template as usize)
+                    .is_some_and(|t| t.raw[4] == c && set.models.has(t.shape as u32))
+        };
+        let radius_of = |t: &rugrats_data::placement::Template| u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32;
+        let spinners: Vec<Spinner> = (0..set.placements.len())
+            .filter(|&k| class_of(k, 2))
+            .map(|k| {
+                let p = &set.placements[k];
+                let t = &set.templates[p.template as usize];
+                let h = |at: usize| i16::from_le_bytes([t.raw[at], t.raw[at + 1]]) as i32;
+                Spinner {
+                    placement: k,
+                    shape: t.shape as u32,
+                    pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
+                    placed: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    speed: [h(0x18), h(0x1a), h(0x1c)],
+                    angle: [0; 3],
+                    radius: radius_of(t),
+                }
+            })
+            .collect();
+        let walkers: Vec<Walker> = (0..set.placements.len())
+            .filter(|&k| class_of(k, 15))
+            .map(|k| {
+                let p = &set.placements[k];
+                let t = &set.templates[p.template as usize];
+                let [_, qy, _, qw] = p.rotation.map(|v| v as f64);
+                let heading = ((2.0 * qy.atan2(qw) / std::f64::consts::TAU * 4096.0).round() as i32).rem_euclid(4096);
+                Walker {
+                    placement: k,
+                    template: p.template as u16,
+                    shape: t.shape as u32,
+                    pos: p.pos,
+                    heading,
+                    speed: p.spawn_group as i32 / 300,
+                    reach: p.word_4a as i32,
+                    post: p.copies as u8,
+                    prev: 0,
+                    radius: radius_of(t),
+                    stopped: false,
+                }
+            })
+            .collect();
+        let spun = |k: usize| class_of(k, 2) || class_of(k, 15);
+        let apart: Vec<bool> = (0..set.placements.len())
+            .map(|k| character(k) || pickable(k) || collectible(k) || mover(k) || breakable(k) || door(k) || spun(k))
+            .collect();
+        let scenery = set.objects_except(&Frame::default(), |k| apart[k]);
+        let mut npcs = Vec::new();
+        for (k, p) in set.placements.iter().enumerate() {
+            if !character(k) || Some(k) == player_place {
+                continue;
+            }
+            let Some(h) = set.templates.get(p.template as usize).and_then(|t| t.hierarchy()) else { continue };
+            // Level 12's Spike is hierarchy 45 (0x80048284).
+            let h = if level == 12 && h == 6 { 45 } else { h };
+            let Some(Some(hierarchy)) = set.hierarchies.get(h).cloned() else { continue };
+            let mut animator = crate::actors::animator::Animator::load(disc, h as u16)?;
+            animator.set(crate::actors::player::anim::IDLE, &anims);
+            // Template +0x18 health, +0x1a range, +0x1c wait, +0x1e speed
+            // index, +0x32 damage (0x80081bac).
+            let t = &set.templates[p.template as usize];
+            let h16 = |at: usize| u16::from_le_bytes([t.raw[at], t.raw[at + 1]]) as i32;
+            let [_, qy, _, qw] = p.rotation.map(|v| v as f64);
+            let heading = ((2.0 * qy.atan2(qw) / std::f64::consts::TAU * 4096.0).round() as i32).rem_euclid(4096);
+            let mut n = Npc {
+                id: p.id,
+                character: h,
+                hierarchy,
+                animator,
+                pos: p.pos,
+                heading,
+                speed: 0,
+                speed_index: (h16(0x1e) as usize).min(5),
+                range: h16(0x1a),
+                wait: h16(0x1c),
+                damage: t.raw[0x32] as i32,
+                health: h16(0x18),
+                max_health: h16(0x18),
+                mode: crate::actors::npc::Mode::Idle,
+                home: p.pos,
+                hidden: false,
+                attacks: false,
+                cooldown: 0,
+                first_post: p.post,
+                loops: (p.level as i32, p.level as i32),
+                size: 0,
+                reach: 600,
+                bite_wait: 900,
+                run_speed: None,
+                post_reach: crate::actors::npc::REACH,
+                hold: None,
+            };
+            // On the floor under it (0x80081bac asks 0x8002b240), the root
+            // the hierarchy's offset above the feet.
+            n.size = n.hierarchy.half_size();
+            n.place(p.pos, &col);
+            npcs.push(n);
+        }
+        let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
+        let yaw = heading as f32;
+        let boxes = object_boxes(&set, |k| apart[k]);
+        let posts = crate::actors::npc::posts(&set.placements);
+        let mut g = Game {
+            level,
+            set,
+            col,
+            anims,
+            player,
+            stage,
+            trig,
+            focal,
+            eye: Vec3::ZERO,
+            yaw,
+            scenery,
+            exit: None,
+            cine: None,
+            checkpoint: None,
+            tries: disc.exe_bytes(TRIES + level as u32, 1).map_or(3, |b| b[0] as i8 as i32),
+            crying: 0,
+            script: None,
+            won: None,
+            sprites: crate::ui::hud::Sprites::load(disc, level).ok(),
+            meter_shown: 0,
+            meter_health: 255,
+            boxes,
+            posts,
+            npc_events: Vec::new(),
+            rand,
+            npcs,
+            room: None,
+            song: None,
+            effects: Vec::new(),
+            paused: false,
+            pause: Pause::load(disc, level)?,
+            fonts: crate::ui::text::Fonts::load(disc)?,
+            quit: false,
+            ending: false,
+            things,
+            goodies,
+            bars: progress.bars_available(),
+            bar_shown: 0,
+            found: Vec::new(),
+            state_block: [0; crate::save::card::STATE_SIZE],
+            loaded: None,
+            carried: None,
+            grip: Vec3::ZERO,
+            hidden: Default::default(),
+            apart,
+            unusable: Default::default(),
+            hidden_places: Default::default(),
+            collected: Vec::new(),
+            struck: Vec::new(),
+            movers,
+            breakables,
+            doors,
+            spinners,
+            walkers,
+            fixed: None,
+            eye_up: default_eye_up(level),
+            behind: if level == 7 { 6400.0 } else { BEHIND },
+            post_camera: None,
+            hazards: Vec::new(),
+            hurt_wait: 0,
+            timer: None,
+            record: level,
+            board: false,
+            view: (Vec3::ZERO, Mat3::IDENTITY),
+            frames: 0,
+            pages: Vec::new(),
+            character: who,
+            spots,
+            card: None,
+            aim: false,
+            fourth_bar: false,
+            activity: progress.activity(),
+            flags: progress.flags(),
+            training: crate::ui::tips::Training::load(disc, level),
+            speech: Vec::new(),
+            lines: crate::audio::speech::Speech::load(disc, level),
+            talkers: Vec::new(),
+            ambience: crate::audio::ambience::setup(level).0,
+            ambience_first: crate::audio::ambience::setup(level).1,
+            ambience_lines: std::rc::Rc::new(crate::audio::ambience::Tables::load(disc)),
+            // Damage is dropped in levels 1, 11, 17 and 23-31 (0x800780d8).
+            no_damage: matches!(level, 1 | 11 | 17 | 23..=31),
+            cam_hold: false,
+            shaft: false,
+            won_levels: (0..32).filter(|&l| progress.won(l)).fold(0, |a, l| a | 1 << l),
+            pieces: progress.pieces(),
+            strokes: None,
+        };
+        g.talkers = talkers(&g.set, level);
+        g.player.falls_hurt = !g.no_damage;
+        // Spinners still hurt on touch where they stand (their +0x6d).
+        let hazard_skip: Vec<bool> =
+            (0..g.apart.len()).map(|k| g.apart[k] && !g.spinners.iter().any(|s| s.placement == k)).collect();
+        g.hazards = hazards(&g.set, &hazard_skip);
+        g.script = crate::levels::script(level, &mut g, disc)?;
+        g.eye = g.eye_goal();
+        g.draw();
+        Ok(g)
+    }
+
+    /// Hides or shows placement `k` of the scenery (a level's own doors).
+    pub fn hide_placement(&mut self, k: usize, hidden: bool) {
+        let changed = if hidden { self.hidden_places.insert(k) } else { self.hidden_places.remove(&k) };
+        if changed {
+            let skip = |j: usize| {
+                self.apart[j] || self.hidden.contains(&self.set.placements[j].id) || self.hidden_places.contains(&j)
+            };
+            self.scenery = self.set.objects_except(&Frame::default(), skip);
+            self.boxes = object_boxes(&self.set, skip);
+        }
+    }
+
+    /// Runs `f` on the level's script, if any.
+    pub fn with_script<R: Default>(&mut self, f: impl FnOnce(&mut dyn Script, &mut Game) -> R) -> R {
+        let Some(mut s) = self.script.take() else { return R::default() };
+        let r = f(s.as_mut(), self);
+        self.script = Some(s);
+        r
+    }
+
+    /// Hides or shows the objects with registry id `id` (0x80078bc4):
+    /// characters, pickables and the scenery.
+    pub fn hide(&mut self, id: u16, hidden: bool) {
+        for n in self.npcs.iter_mut().filter(|n| n.id == id) {
+            n.hidden = hidden;
+        }
+        for t in self.things.iter_mut().filter(|t| t.id == id) {
+            t.hidden = hidden;
+        }
+        let changed = if hidden { self.hidden.insert(id) } else { self.hidden.remove(&id) };
+        if changed {
+            let skip = |k: usize| {
+                self.apart[k] || self.hidden.contains(&self.set.placements[k].id) || self.hidden_places.contains(&k)
+            };
+            self.scenery = self.set.objects_except(&Frame::default(), skip);
+            self.boxes = object_boxes(&self.set, skip);
+        }
+    }
+
+    /// A world point in the camera's frame (x right, y down, z ahead).
+    pub fn to_view(&self, p: Vec3) -> Vec3 {
+        self.view.1 * (p - self.view.0)
+    }
+
+    /// Whether id `id` is hidden.
+    pub fn is_hidden(&self, id: u16) -> bool {
+        self.hidden.contains(&id)
+    }
+
+    /// The room the player is in.
+    pub fn current_room(&self) -> Option<usize> {
+        self.room
+    }
+
+    /// Takes the use away from the objects with id `id` (+0x54 = 0).
+    pub fn disable_use(&mut self, id: u16) {
+        for (k, p) in self.set.placements.iter().enumerate() {
+            if p.kind == 1 && p.id == id {
+                self.unusable.insert(k);
+            }
+        }
+    }
+
+    /// One frame of the level (0x80018c38): the player, then the camera,
+    /// then the draw.
+    pub fn frame(&mut self, pads: &Pads) {
+        self.frames = self.frames.wrapping_add(1);
+        self.effects.clear();
+        self.speech.clear();
+        if !self.paused && pads.pressed(0, input::START) {
+            self.paused = true;
+            self.pause.open();
+            self.effects.clear();
+            self.draw();
+            return;
+        }
+        if self.paused {
+            self.effects.clear();
+            match self.pause.frame(pads, &self.state_block) {
+                Some(PauseEnd::Continue) => self.paused = false,
+                Some(PauseEnd::QuitGame) => self.quit = true,
+                Some(PauseEnd::Loaded(state)) => {
+                    self.paused = false;
+                    self.loaded = Some(state);
+                }
+                // Quit Level: to Pickles' Home, or the front end from the
+                // hub and training (0x800398bc).
+                Some(PauseEnd::QuitLevel) => {
+                    if matches!(self.level, HUB | 16) {
+                        self.quit = true;
+                    } else {
+                        self.exit = Some((HUB, None));
+                    }
+                }
+                None => {}
+            }
+            self.effects.extend(self.pause.sounds.drain(..).map(|s| (s, crate::audio::sound::EFFECTS_VOLUME)));
+            self.draw();
+            return;
+        }
+        if self.crying > 0 {
+            // The cry runs on its own (0x8007f920's loop): the world waits.
+            self.crying -= crate::actors::player::DT;
+            self.player.animator.step(&self.anims);
+            if self.crying <= 0 || !self.player.animator.playing(crate::actors::player::anim::CRY) {
+                self.crying = 0;
+                self.cried();
+            }
+            self.draw();
+            return;
+        }
+        // A training message (0x80097584): no player or world update, the
+        // level timer stopped; the camera and drawing go on.
+        // The ambience runs even while a message holds the world.
+        let cue = self.script.as_ref().map_or(0, |s| s.cue());
+        let lines = self.ambience_lines.clone();
+        crate::audio::ambience::frame(self, &lines, cue);
+        let mut closed = Vec::new();
+        if self.training.frame(pads, &mut closed) {
+            self.effects.extend(closed.into_iter().map(|e| (e, crate::audio::sound::EFFECTS_VOLUME)));
+            self.draw();
+            return;
+        }
+        // Movers step (0x8004ee00), carrying a player who stands on one.
+        let standing_on = self.mover_under_player();
+        let me = self.player.pos;
+        for (k, m) in self.movers.iter_mut().enumerate() {
+            m.step(me, standing_on == Some(k));
+        }
+        if let Some(k) = standing_on {
+            let d = self.movers[k].delta;
+            for i in 0..3 {
+                self.player.pos[i] += d[i];
+            }
+        }
+        let mut boxes = self.boxes.clone();
+        for b in self.breakables.iter().filter(|b| !b.gone) {
+            let template = if b.broken { b.template as usize + 1 } else { b.template as usize };
+            let flag8 = self.set.templates.get(template).is_some_and(|t| t.flags & 8 != 0);
+            let shape = if b.broken { b.shape + 1 } else { b.shape };
+            if !flag8 {
+                if let Some(model) = self.set.models.get(shape) {
+                    boxes.extend(world_boxes(model, b.rot, b.pos));
+                }
+            }
+        }
+        for m in &self.movers {
+            if let Some(model) = self.set.models.get(m.shape) {
+                boxes.extend(world_boxes(model, m.rot, m.world()));
+            }
+        }
+        self.toy_thinks();
+        for s in &self.spinners {
+            if let Some(model) = self.set.models.get(s.shape) {
+                boxes.extend(world_boxes(model, s.rot(&self.trig), s.pos));
+            }
+        }
+        for w in &self.walkers {
+            if let Some(model) = self.set.models.get(w.shape) {
+                boxes.extend(world_boxes(model, w.rot(&self.trig), w.world()));
+            }
+        }
+        // Doors are solid where they are drawn (0x80069c40).
+        self.door_thinks();
+        for d in &self.doors {
+            if let Some(model) = self.set.models.get(d.shape) {
+                let (rot, pos) = d.pose(d.offset, &self.trig);
+                boxes.extend(world_boxes(model, rot, pos));
+            }
+        }
+        for t in self.things.iter().filter(|t| t.state == ThingState::Rest && !t.hidden) {
+            if let Some(m) = self.set.models.get(t.shape) {
+                let climb = self.set.templates.get(t.template as usize).is_some_and(|tp| tp.flags & 64 != 0);
+                boxes.extend(world_boxes(m, t.rot, t.pos).into_iter().map(|mut b| {
+                    b.climb = climb;
+                    b
+                }));
+            }
+        }
+        // The other characters stand in the way: a box of their radius
+        // (object +0x86 is 0x2000 / 8 for a baby, guessed at 200) from the
+        // feet up.
+        for n in self.npcs.iter().filter(|n| !n.hidden && !matches!(n.mode, crate::actors::npc::Mode::Ride { .. })) {
+            let feet = (n.pos[1] - n.feet()) as f32;
+            boxes.push(crate::actors::player::Box3 {
+                lo: [-200, 0, -200],
+                hi: [200, 0, 200],
+                rot: Mat3::IDENTITY,
+                pos: Vec3::new(n.pos[0] as f32, n.pos[1] as f32, n.pos[2] as f32),
+                min_y: (feet - 700.0) as i32,
+                max_y: feet as i32,
+                climb: false,
+                character: true,
+            });
+        }
+        self.player.frame(pads, self.yaw.round() as i32, &self.col, &boxes, &self.anims, &self.trig);
+        for n in std::mem::take(&mut self.player.hints) {
+            // The slip's start (state 3, 0x8005b3c4): speech 212 in level 16.
+            if n == 32 && self.level == 16 {
+                self.speech.push(212);
+            }
+            self.training.show(n as usize);
+        }
+        self.carry(pads);
+        self.fly();
+        self.touch();
+        let d = (self.eye - Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32))
+            .length();
+        let volume = (crate::audio::sound::EFFECTS_VOLUME as f32 * (1.0 - d / 16384.0).max(0.0)) as i32;
+        self.effects.extend(closed.into_iter().map(|e| (e, crate::audio::sound::EFFECTS_VOLUME)));
+        self.effects.extend(self.player.effects.iter().map(|&e| (e, volume)));
+        // Using an object (the stand handler's ACTION, Triangle, on the
+        // touched object): a door (use 0x8004f78c, LP +0x42) goes to its
+        // level; one with only a cinematic (0x8004f83c, LP +0x44, made by
+        // 0x8004691c: 16 is played as 14, template 567 is 8) plays it.
+        let used_door =
+            pads.pressed(0, input::TRIANGLE) && !self.player.carrying && self.carried.is_none() && self.use_door();
+        if pads.pressed(0, input::TRIANGLE) && !self.player.carrying && self.carried.is_none() && !used_door {
+            let p = self.player.pos;
+            // Messages 34 and 33 (0x8004d49c); in training these objects
+            // do nothing else.
+            let hint = self.set.placements.iter().find(|d| {
+                d.kind == 1
+                    && !self.hidden.contains(&d.id)
+                    && (EPISODE_OBJECTS.contains(&d.template) || LOCKED_OBJECTS.contains(&d.template))
+                    && (d.pos[0] - p[0]).abs() < USE_REACH
+                    && (d.pos[2] - p[2]).abs() < USE_REACH
+                    && self.use_dy(d, p[1]) < USE_REACH_Y
+            });
+            if let Some(d) = hint {
+                self.training.show(if EPISODE_OBJECTS.contains(&d.template) { 34 } else { 33 });
+            }
+            let training_object =
+                |d: &rugrats_data::placement::Placement| self.level == 16 && EPISODE_OBJECTS.contains(&d.template);
+            let mirror = |d: &rugrats_data::placement::Placement| matches!(d.template, MIRROR_A | MIRROR_B);
+            let flag16 = self.flags & 16 != 0;
+            let cine_of = |d: &rugrats_data::placement::Placement| match (d.cine, d.template) {
+                (16, _) => 14,
+                (0, 567) => 8,
+                (c, _) => c as usize,
+            };
+            let near = self
+                .set
+                .placements
+                .iter()
+                .enumerate()
+                // A door object that can be picked up (the hub's doors to
+                // 4, 5, 6, 11, 13) works where it lies.
+                .map(|(k, d)| {
+                    let thing = self.things.iter().find(|t| t.placement == k);
+                    let mut d = *d;
+                    if let Some(t) = thing {
+                        d.pos = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
+                    }
+                    (k, d, thing.map(|t| t.state == ThingState::Rest && !t.hidden))
+                })
+                .filter(|(k, d, thing)| {
+                    d.kind == 1
+                        && (!self.apart[*k] || *thing == Some(true))
+                        && !training_object(d)
+                        && (d.level > 0 || cine_of(d) > 0 || d.template == BOARD_OBJECT || mirror(d))
+                        && (!mirror(d) || flag16)
+                        && !self.unusable.contains(k)
+                        && !self.hidden.contains(&d.id)
+                })
+                .map(|(_, d, _)| d)
+                .min_by_key(|d| (d.pos[0] - p[0]).pow(2) as i64 + (d.pos[2] - p[2]).pow(2) as i64);
+            if let Some(d) = near.filter(|d| {
+                (d.pos[0] - p[0]).abs() < USE_REACH
+                    && (d.pos[2] - p[2]).abs() < USE_REACH
+                    && self.use_dy(d, p[1]) < USE_REACH_Y
+            }) {
+                if d.template == BOARD_OBJECT && self.flags & 512 != 0 {
+                    // 0x8004d3f0: once Reptar 2010 has begun (+0x30 bit
+                    // 512), the board goes back to it.
+                    self.exit = Some((7, None));
+                } else if d.template == BOARD_OBJECT {
+                    self.board = true;
+                } else if mirror(&d) {
+                    // The mirror (0x800478bc): Mirrorland, with bit 16.
+                    self.exit = Some((15, (d.cine > 0).then_some(d.cine as usize)));
+                } else if d.level > 0 && matches!(d.level, 3 | 4 | 6) && !flag16 {
+                    // 0x8004f78c: "you'll need more puzzle pieces" (HINT41).
+                    self.card = Some(LOCKED_CARD);
+                } else if d.level > 0 {
+                    rrt::tracing::info!("level {}: a door to level {} (cine {})", self.level, d.level, d.cine);
+                    self.exit = Some((d.level as usize, (d.cine > 0).then_some(d.cine as usize)));
+                } else {
+                    rrt::tracing::info!("level {}: object {} plays cine {}", self.level, d.id, cine_of(&d));
+                    self.cine = Some(cine_of(&d));
+                }
+            }
+        }
+        // Select: the restart menu (0x80043d58), outside activity play.
+        if pads.pressed(0, input::SELECT) && !self.activity {
+            self.pages.push(crate::ui::screens::Page::Restart);
+        }
+        // The camera buttons turn it by an eighth (L2, R2: 341 a press).
+        if pads.pressed(0, input::L2) {
+            self.yaw -= 341.0;
+        }
+        if pads.pressed(0, input::R2) {
+            self.yaw += 341.0;
+        }
+        // R1: the camera back behind the player (0x80026ddc); ignored
+        // while level 5's float holds it.
+        if pads.pressed(0, input::R1) && !self.cam_hold {
+            self.yaw = self.player.heading as f32;
+        }
+        // Follow: swing behind the player as it runs, ease 1/8 a frame.
+        if self.player.speed > 0 {
+            let d = ((self.player.heading as f32 - self.yaw + 2048.0).rem_euclid(4096.0)) - 2048.0;
+            self.yaw += d / 16.0;
+        }
+        self.yaw = self.yaw.rem_euclid(4096.0);
+        let world = crate::actors::npc::World {
+            player: self.player.pos,
+            player_heading: self.player.heading,
+            col: &self.col,
+            posts: &self.posts,
+            trig: &self.trig,
+            anims: &self.anims,
+            walls: &boxes,
+        };
+        self.npc_events = crate::actors::npc::step(&mut self.npcs, &world, &mut self.rand);
+        self.with_script(|s, g| s.frame(g, pads));
+        // Hazards (0x8005e1f4, the walk and run states): walking into one
+        // costs its +0x6d; the next only after 300 dt (guess).
+        self.hurt_wait = (self.hurt_wait - crate::actors::player::DT).max(0);
+        let walking =
+            matches!(self.player.state, crate::actors::player::State::Walk | crate::actors::player::State::Run);
+        if self.hurt_wait == 0 && self.crying == 0 && walking && !self.player.frozen && !self.no_damage {
+            let p = self.player.pos;
+            let (feet, head) = (p[1] - self.player.feet(), p[1] - self.player.feet() - crate::actors::player::HEIGHT);
+            let hurt = self
+                .hazards
+                .iter()
+                .filter(|(b, _)| {
+                    b.covers(p, crate::actors::player::RADIUS + 40) && b.min_y <= feet + 40 && b.max_y >= head
+                })
+                .map(|&(_, d)| d)
+                .max();
+            if let Some(d) = hurt {
+                self.player.health = (self.player.health - d).max(0);
+                self.hurt_wait = 300;
+            }
+        }
+        // The level timer (0x8007f5a8): at 0, sound 117 and TimerExpired.
+        if let Some(t) = self.timer {
+            let t = t - crate::actors::player::DT;
+            if t <= 0 {
+                self.timer = None;
+                self.effects.push((117, crate::audio::sound::EFFECTS_VOLUME));
+                self.with_script(|s, g| s.timer_expired(g));
+            } else {
+                self.timer = Some(t);
+            }
+        }
+        // Damage (0x80077864): health at 0 is a cry.
+        if self.player.health <= 0 {
+            self.cry();
+        }
+        self.meter_shown = (self.meter_shown - crate::actors::player::DT).max(0);
+        if self.player.health != self.meter_health {
+            self.meter_health = self.player.health;
+            self.meter_shown = crate::ui::hud::METER_TIME;
+        }
+        self.room_change();
+        self.talk();
+        // Level 5: a held camera stays put; the shaft camera stands 5800
+        // along z and AIM_UP + height up (0x80025c64 kind 12).
+        if self.shaft {
+            let t = self.target();
+            self.eye = t + Vec3::new(0.0, -self.eye_up, 5800.0);
+        } else if !self.cam_hold {
+            let goal = self.clear_eye(self.eye_goal());
+            self.eye += (goal - self.eye) / 8.0;
+        }
+        self.draw();
+    }
+
+    fn draw(&mut self) {
+        let mut moving = self.scenery.clone();
+        self.player.triangles(&self.set.models, &self.anims, &self.trig, &mut moving);
+        // The carried object rides hand 15 (0x8005ff88 mode 1).
+        if let Some(k) = self.carried {
+            let parts = self.player.parts(&self.anims, &self.trig);
+            let rot = self.player.rotation(&self.trig);
+            if let Some(hand) = self.player.slot_part(HAND).and_then(|i| parts.get(i)) {
+                self.things[k].pos = hand.1 + rot * self.grip;
+                self.things[k].rot = rot;
+            }
+        }
+        for t in self.things.iter().filter(|t| !t.hidden) {
+            if let Some(m) = self.set.models.get(t.shape) {
+                rugrats_render::models::model_triangles(m, t.rot, t.pos, &mut moving);
+            }
+        }
+        for m in &self.movers {
+            if let Some(model) = self.set.models.get(m.shape) {
+                rugrats_render::models::model_triangles(model, m.rot, m.world(), &mut moving);
+            }
+        }
+        for d in &self.doors {
+            if let Some(model) = self.set.models.get(d.shape) {
+                let (rot, pos) = d.pose(d.offset, &self.trig);
+                rugrats_render::models::model_triangles(model, rot, pos, &mut moving);
+            }
+        }
+        for s in self.spinners.iter().filter(|s| !self.hidden.contains(&self.set.placements[s.placement].id)) {
+            if let Some(model) = self.set.models.get(s.shape) {
+                rugrats_render::models::model_triangles(model, s.rot(&self.trig), s.pos, &mut moving);
+            }
+        }
+        for w in self.walkers.iter().filter(|w| !self.hidden.contains(&self.set.placements[w.placement].id)) {
+            if let Some(model) = self.set.models.get(w.shape) {
+                rugrats_render::models::model_triangles(model, w.rot(&self.trig), w.world(), &mut moving);
+            }
+        }
+        for b in self.breakables.iter().filter(|b| !b.gone) {
+            let shape = if b.broken { b.shape + 1 } else { b.shape };
+            if let Some(model) = self.set.models.get(shape) {
+                rugrats_render::models::model_triangles(model, b.rot, b.pos, &mut moving);
+            }
+        }
+        // Level 15's balloons (kinds 6-11) are sprites its script draws.
+        let sprites_only = |g: &&Goodie| self.level == 15 && (6..=11).contains(&g.kind);
+        for g in self.goodies.iter().filter(|g| !g.taken).filter(|g| !sprites_only(g)) {
+            if let Some(m) = self.set.models.get(g.shape) {
+                rugrats_render::models::model_triangles(m, g.rot, g.pos, &mut moving);
+            }
+        }
+        for n in &self.npcs {
+            crate::actors::npc::triangles(n, &self.set.models, &self.anims, &self.trig, &mut moving);
+        }
+        let mut overlay = Vec::new();
+        if let Some(s) = &self.script {
+            s.draw(self, &mut moving, &mut overlay);
+        }
+        // The health meter (levels 2-6, 9, 12, 14, 16: 0x8008c094's switch).
+        if self.meter_shown > 0 && matches!(self.level, 2..=6 | 9 | 12 | 14 | 16) {
+            if let Some(s) = &self.sprites {
+                crate::ui::hud::meter(s, self.player.health, 255, self.focal, &mut overlay);
+            }
+        }
+        self.stage.set_moving(moving);
+        self.stage.overlay = overlay;
+        if self.paused {
+            self.pause.triangles(&self.fonts, &mut self.stage.overlay);
+            // The counters (0x8003e05c): pieces earned with model 292 at
+            // (-192, 76), bars available with 291 at (192, 76); on the
+            // pause page only (0x80090174).
+            let page = self.pause.card.is_none();
+            if let (Some(sp), true) = (&self.sprites, page) {
+                sp.draw(
+                    PIECE_ICON,
+                    (-192, 76),
+                    26.0,
+                    32.0,
+                    crate::ui::hud::METER_DEPTH,
+                    0.0,
+                    self.focal,
+                    &mut self.stage.overlay,
+                );
+                sp.draw(
+                    BAR_ICON,
+                    (192, 76),
+                    26.0,
+                    32.0,
+                    crate::ui::hud::METER_DEPTH,
+                    0.0,
+                    self.focal,
+                    &mut self.stage.overlay,
+                );
+            }
+            if page {
+                shadowed(&self.fonts, -160, 70, format!("{}", self.pieces), &mut self.stage.overlay);
+                shadowed(&self.fonts, 150, 70, format!("{}", self.bars), &mut self.stage.overlay);
+            }
+        } else {
+            // The level timer: "%ld" seconds at the top by the clock
+            // (model 375).
+            if let Some(t) = self.timer {
+                if let Some(sp) = &self.sprites {
+                    sp.draw(
+                        CLOCK_ICON,
+                        (-40, -96),
+                        24.0,
+                        24.0,
+                        crate::ui::hud::METER_DEPTH,
+                        0.0,
+                        self.focal,
+                        &mut self.stage.overlay,
+                    );
+                }
+                shadowed(&self.fonts, -12, -100, format!("{}", t / 300), &mut self.stage.overlay);
+            }
+            if self.bar_shown > 0 {
+                // The bar counter (0x80090004): model 291 at (-192, -76)
+                // and the bars available at (-150, -80); bottom left in
+                // levels 17-18, bottom right in golf.
+                let (icon, text) = match self.level {
+                    17 | 18 => ((-192, 76), (-150, 80)),
+                    23..=31 => ((192, 76), (145, 70)),
+                    _ => ((-192, -76), (-150, -80)),
+                };
+                if let Some(sp) = &self.sprites {
+                    sp.draw(
+                        BAR_ICON,
+                        icon,
+                        26.0,
+                        32.0,
+                        crate::ui::hud::METER_DEPTH,
+                        0.0,
+                        self.focal,
+                        &mut self.stage.overlay,
+                    );
+                }
+                shadowed(&self.fonts, text.0, text.1, format!("{}", self.bars), &mut self.stage.overlay);
+            }
+            // The training message, after the HUD (0x80097564).
+            self.training.draw(&self.fonts, &mut self.stage.overlay);
+        }
+        let post = self
+            .post_camera
+            .and_then(|k| self.posts.get(k.wrapping_sub(1)))
+            .map(|p| (Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32), self.target()));
+        let (eye, target) = self.fixed.or(post).unwrap_or((self.eye, self.target()));
+        let f = (target - eye).normalize_or(Vec3::Z);
+        let x = Vec3::Y.cross(f).normalize_or(Vec3::X);
+        let y = f.cross(x);
+        // World to camera: rows x (right), y (down), z (ahead).
+        let rows = Mat3::from_cols(x, y, f).transpose();
+        self.view = (eye, rows);
+        self.stage.camera = crate::stage::view(eye, rows, self.focal);
+    }
+}

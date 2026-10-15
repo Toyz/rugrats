@@ -18,6 +18,9 @@ pub struct Display {
     /// 240 or 480.
     pub height: u16,
     pub enabled: bool,
+    /// 24-bit colour (GP1 0x08 bit 4): three bytes a pixel, as the movies
+    /// are shown.
+    pub rgb24: bool,
 }
 
 pub struct Gpu {
@@ -53,7 +56,7 @@ impl Default for Gpu {
             texpage: 0,
             area: (0, 0, 1023, 511),
             offset: (0, 0),
-            display: Display { x: 0, y: 0, width: 320, height: 240, enabled: false },
+            display: Display { x: 0, y: 0, width: 320, height: 240, enabled: false, rgb24: false },
             drawn: 0,
             field: false,
             busy: 0,
@@ -119,6 +122,7 @@ impl Gpu {
             w.u16(v);
         }
         w.bool(d.enabled);
+        w.bool(d.rgb24);
         w.u64(self.drawn);
         w.bool(self.field);
         w.u32(self.busy);
@@ -136,7 +140,8 @@ impl Gpu {
         }
         self.area = (a[0], a[1], a[2], a[3]);
         self.offset = (a[4], a[5]);
-        self.display = Display { x: r.u16()?, y: r.u16()?, width: r.u16()?, height: r.u16()?, enabled: r.bool()? };
+        self.display =
+            Display { x: r.u16()?, y: r.u16()?, width: r.u16()?, height: r.u16()?, enabled: r.bool()?, rgb24: r.bool()? };
         self.drawn = r.u64()?;
         self.field = r.bool()?;
         self.busy = r.u32()?;
@@ -197,6 +202,7 @@ impl Gpu {
                     _ => 640,
                 };
                 self.display.height = if v & 4 != 0 { 480 } else { 240 };
+                self.display.rgb24 = v & 0x10 != 0;
             }
             _ => {}
         }
@@ -516,6 +522,19 @@ impl Gpu {
         let d = self.display;
         let (w, h) = (d.width as usize, d.height as usize);
         let mut out = Vec::with_capacity(w * h * 4);
+        if d.rgb24 {
+            for y in 0..h {
+                let row = (d.y as usize + y) % VRAM_H * VRAM_W;
+                let byte = |b: usize| {
+                    let half = self.vram[row + (d.x as usize + b / 2) % VRAM_W];
+                    (half >> (8 * (b % 2))) as u8
+                };
+                for x in 0..w {
+                    out.extend([byte(3 * x), byte(3 * x + 1), byte(3 * x + 2), 255]);
+                }
+            }
+            return (w, h, out);
+        }
         for y in 0..h {
             for x in 0..w {
                 let p = self.vram[((d.y as usize + y) % VRAM_H) * VRAM_W + (d.x as usize + x) % VRAM_W];

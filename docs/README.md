@@ -26,6 +26,7 @@ The containers and record layouts.
 | --- | --- | --- | --- |
 | [BS still pictures](formats/bs.md) | partial | US | US /DATA/MENU/TIMS/LEGAL512.BS, US /DATA/MENU/TIMS/THQ512.BS, US /DATA/MENU/TIMS/NICK512.BS, US /DATA/MENU/TIMS/NSPAC512.BS, US /DATA/MENU/TIMS/E3SCR512.BS, US SLUS_006.50:0x80030010, US SLUS_006.50:0x800c1f20 |
 | [The file table in the executable](formats/file-table.md) | partial | US | US SLUS_006.50:0x800b2c40, US SLUS_006.50:0x80019794, US SLUS_006.50:0x80019a04 |
+| [STR movies](formats/str.md) | partial | US | US /DATA/OPEN/THQ_LOGO.STR, US /DATA/OPEN/NICKLOGO.STR, US /DATA/OPEN/LOGOXA.STR, US /DATA/OPEN/DEMO01.STR, US /DATA/OPEN/DEMO02.STR, US /DATA/OPEN/DEMO03.STR, US /DATA/OPEN/CREDITS.STR, US SLUS_006.50:0x800bae4c |
 
 ## Engine
 
@@ -34,6 +35,7 @@ How the game works, subsystem by subsystem.
 | Page | Status | Discs | Covers |
 | --- | --- | --- | --- |
 | [Boot, main and the start-up calls](engine/boot.md) | partial | US | US SLUS_006.50:0x800977e8, US SLUS_006.50:0x800185f8, US SLUS_006.50:0x800193fc, US SLUS_006.50:0x80019630 |
+| [The input module](engine/input.md) | partial | US | US SLUS_006.50:0x8001acc0, US SLUS_006.50:0x8001baf8, US SLUS_006.50:0x8001b028, US SLUS_006.50:0x800cda18 |
 | [The PsyQ libraries in the executable](engine/libraries.md) | partial | US | US SLUS_006.50:0x800977e8..0x800b2794 |
 
 ## Cut and missing content
@@ -42,6 +44,7 @@ Content the game names, references or half-carries but does not ship whole, one 
 
 | Page | Status | Discs | Covers |
 | --- | --- | --- | --- |
+| [The B movies](cut/b-movies.md) | guess | US | US /DATA/OPEN/THQLOGOB.STR, US /DATA/OPEN/NICLOGOB.STR, US /DATA/OPEN/LOGOXAB.STR, US /DATA/OPEN/DEMO01B.STR, US /DATA/OPEN/DEMO02B.STR, US /DATA/OPEN/DEMO03B.STR, US /DATA/OPEN/CREDITSB.STR |
 | [Cinematic entries no table row names](cut/cinematic-entries.md) | partial | US | US /DATA/CINEMAT |
 | [Database 19, on the disc but out of the table](cut/db19.md) | partial | US | US /DATA/DB19, US SLUS_006.50:0x800b2c40 |
 | [Database 22's animation files](cut/db22-animation.md) | partial | US | US /DATA/DB22/DB22FRM.BIN, US /DATA/DB22/DB22ROT.BIN |

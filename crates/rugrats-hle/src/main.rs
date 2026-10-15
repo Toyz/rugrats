@@ -3,7 +3,9 @@
 //! ```text
 //! rugrats-hle [FRAMES] [--shots DIR] [--every N] [--cue FILE]
 //!             [--real-cd]              loads through libcd and the drive, not the shortcut
+//!             [--press F:BUTTON[+BUTTON][:LEN],...]   hold buttons from frame F (4 frames by default)
 //!             [--peek ADDR:LEN,...]    memory after the run, as words
+//!             [--count ADDR,...]       calls of each function, per frame
 //! ```
 //!
 //! Writes the displayed picture every N frames, and all of VRAM at the end,
@@ -40,13 +42,26 @@ fn main() {
     let (mut frames, mut shots, mut every) = (120u64, PathBuf::from("work/hle"), 30u64);
     let mut cue: Option<PathBuf> = None;
     let mut fast_load = true;
+    // (first frame, buttons, frames held)
+    let mut presses: Vec<(u64, u16, u64)> = Vec::new();
     let mut peeks: Vec<(u32, u32)> = Vec::new();
+    let mut counts: Vec<u32> = Vec::new();
     while let Some(a) = args.next() {
         match a.as_str() {
             "--shots" => shots = args.next().map(PathBuf::from).unwrap_or(shots),
             "--every" => every = args.next().and_then(|s| s.parse().ok()).unwrap_or(every),
             "--cue" => cue = args.next().map(PathBuf::from),
             "--real-cd" => fast_load = false,
+            "--press" => {
+                for p in args.next().unwrap_or_default().split(',') {
+                    let f: Vec<&str> = p.split(':').collect();
+                    let frame = f.first().and_then(|s| s.parse().ok()).unwrap_or(0);
+                    let buttons = f.get(1).map_or(0, |n| n.split('+').filter_map(rugrats_hle::button::by_name).fold(0, |a, b| a | b));
+                    let len = f.get(2).and_then(|s| s.parse().ok()).unwrap_or(4);
+                    presses.push((frame, buttons, len));
+                }
+            }
+            "--count" => counts.extend(args.next().unwrap_or_default().split(',').map(parse_num)),
             "--peek" => {
                 for p in args.next().unwrap_or_default().split(',') {
                     if let Some((a, n)) = p.split_once(':') {
@@ -61,11 +76,28 @@ fn main() {
     let disc = Rc::new(rrt::disc::Image::open(&cue).expect("open the disc"));
     let mut hle = rugrats_hle::Hle::new(disc, fast_load).expect("load the game");
     std::fs::create_dir_all(&shots).ok();
+    // --count: calls of each function, logged per frame when they change.
+    let tallies: Vec<std::rc::Rc<std::cell::Cell<u64>>> = counts.iter().map(|_| Default::default()).collect();
+    for (&f, t) in counts.iter().zip(&tallies) {
+        let t = t.clone();
+        hle.m.hook(f, move |_| {
+            t.set(t.get() + 1);
+            rrt::emu::HookResult::Continue
+        });
+    }
+    let mut last: Vec<u64> = vec![0; counts.len()];
     let started = std::time::Instant::now();
     for f in 1..=frames {
+        hle.pad = presses.iter().filter(|(at, _, len)| (*at..at + len).contains(&f)).fold(0, |a, p| a | p.1);
         if let Err(e) = hle.run_frame() {
             tracing::error!("frame {f}: {e}");
             break;
+        }
+        for (k, t) in tallies.iter().enumerate() {
+            if t.get() != last[k] {
+                println!("frame {f}: {:08x} called {} times", counts[k], t.get() - last[k]);
+                last[k] = t.get();
+            }
         }
         if every > 0 && f % every == 0 {
             let (w, h, rgba) = hle.screen();

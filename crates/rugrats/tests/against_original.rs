@@ -60,3 +60,50 @@ fn the_legal_screen_matches_the_original() {
     }
     assert!(matched, "the original never showed a 512 x 240 picture");
 }
+
+/// Every logo-movie frame the original handed the MDEC (oracle dumps after
+/// the legal screen, `RUGRATS_MDEC_DUMP`) is one the port decodes, word
+/// for word, and the port decodes every frame of the three logos.
+#[test]
+fn the_logo_movies_decode_as_the_original_decodes_them() {
+    let Some(cue) = cue() else {
+        eprintln!("skipped: no disc");
+        return;
+    };
+    let dumps = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/oracle/mdec");
+    let Ok(listing) = std::fs::read_dir(&dumps) else {
+        eprintln!("skipped: no oracle dumps");
+        return;
+    };
+    let disc = GameDisc::open(&cue).unwrap();
+    let mut ours = std::collections::HashSet::new();
+    for n in 0..3 {
+        let e = disc.movies[n];
+        let mut frames = rugrats_data::movie::Frames::default();
+        let (mut lba, mut got) = (e.lba, 0);
+        while got < e.frames {
+            let s = disc.sector(lba).unwrap();
+            lba += 1;
+            let Some(f) = rugrats_data::movie::chunk(&s.raw[..]).and_then(|c| frames.push(c)) else { continue };
+            got += 1;
+            match rugrats_data::bs::rle(&f.bs) {
+                Ok(rle) => {
+                    ours.insert(rle);
+                }
+                Err(err) => panic!("movie {n} frame {}: {err}", f.number),
+            }
+        }
+    }
+    let mut checked = 0;
+    for entry in listing.flatten() {
+        let dump = std::fs::read(entry.path()).unwrap();
+        // 0x38xxxxxx is a still (15-bit); movies decode at 24 bits.
+        if dump[3] != 0x32 {
+            continue;
+        }
+        let theirs: Vec<u16> = dump[4..].chunks(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
+        assert!(ours.contains(&theirs), "{} is no frame the port decodes", entry.path().display());
+        checked += 1;
+    }
+    eprintln!("{checked} movie frames match");
+}

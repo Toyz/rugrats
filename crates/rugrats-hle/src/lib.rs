@@ -67,10 +67,55 @@ const FRAME_STEPS: u64 = 600_000;
 struct Shared {
     /// Frames a VSync call asked to wait.
     vsync: Option<u32>,
+    /// The BIOS pad driver's two receive buffers (InitPAD), and whether it
+    /// is started.
+    pad_buffers: Option<(u32, u32)>,
+    pad_started: bool,
+}
+
+/// PlayStation pad bits, as the pad sends them (1 = pressed here; the
+/// buffer holds them inverted).
+pub mod button {
+    pub const SELECT: u16 = 1 << 0;
+    pub const START: u16 = 1 << 3;
+    pub const UP: u16 = 1 << 4;
+    pub const RIGHT: u16 = 1 << 5;
+    pub const DOWN: u16 = 1 << 6;
+    pub const LEFT: u16 = 1 << 7;
+    pub const L2: u16 = 1 << 8;
+    pub const R2: u16 = 1 << 9;
+    pub const L1: u16 = 1 << 10;
+    pub const R1: u16 = 1 << 11;
+    pub const TRIANGLE: u16 = 1 << 12;
+    pub const CIRCLE: u16 = 1 << 13;
+    pub const CROSS: u16 = 1 << 14;
+    pub const SQUARE: u16 = 1 << 15;
+
+    pub fn by_name(name: &str) -> Option<u16> {
+        Some(match name.to_ascii_lowercase().as_str() {
+            "select" => SELECT,
+            "start" => START,
+            "up" => UP,
+            "right" => RIGHT,
+            "down" => DOWN,
+            "left" => LEFT,
+            "l2" => L2,
+            "r2" => R2,
+            "l1" => L1,
+            "r1" => R1,
+            "triangle" => TRIANGLE,
+            "circle" => CIRCLE,
+            "cross" => CROSS,
+            "square" => SQUARE,
+            _ => return None,
+        })
+    }
 }
 
 pub struct Hle {
     pub m: Machine<R3000, PsxBus>,
+    /// Port 1's buttons (`button` bits, 1 = held), sent at each vertical blank.
+    pub pad: u16,
     pub frame: u64,
     /// Instructions run in total, nested calls included.
     pub steps: u64,
@@ -99,6 +144,7 @@ impl Hle {
         let exe = PsxExe::parse(&bytes).map_err(|e| e.to_string())?;
         let table = rugrats_data::files::table(&exe.image, exe.t_addr).ok_or("no file table in the executable")?;
 
+        let shared: Rc<RefCell<Shared>> = Default::default();
         let mut m = Machine::new(R3000::new(), PsxBus::default());
         let b = bios::install(&mut m);
         // A0:71 _96_init (the BIOS's CD reset): nothing to reset here.
@@ -112,6 +158,26 @@ impl Hle {
         // B0:5C _card_status(slot), B0:5D _card_wait(slot): ready.
         b.insert(0xb0, 0x5c, |_| HookResult::Return(1));
         b.insert(0xb0, 0x5d, |_| HookResult::Return(1));
+        // B0:12 InitPAD(buf1, size1, buf2, size2), B0:13 StartPAD, B0:14
+        // StopPAD: the BIOS's pad driver fills the buffers at each vertical
+        // blank; `Hle::vblank` does.
+        {
+            let sh = shared.clone();
+            b.insert(0xb0, 0x12, move |c| {
+                sh.borrow_mut().pad_buffers = Some((c.arg32(0), c.arg32(2)));
+                HookResult::Return(1)
+            });
+            let sh = shared.clone();
+            b.insert(0xb0, 0x13, move |_| {
+                sh.borrow_mut().pad_started = true;
+                HookResult::Return(1)
+            });
+            let sh = shared.clone();
+            b.insert(0xb0, 0x14, move |_| {
+                sh.borrow_mut().pad_started = false;
+                HookResult::Return(1)
+            });
+        }
         m.ext.insert(b);
         let irq_enabled = bios::critical_sections(&mut m);
         exe.load(&mut m.bus)?;
@@ -120,7 +186,6 @@ impl Hle {
         m.cpu.r[29] = 0x801f_fff0;
         m.return_to = MAIN_RETURN;
 
-        let shared: Rc<RefCell<Shared>> = Default::default();
         let reads: Rc<RefCell<Vec<(u32, u32)>>> = Default::default();
 
         // VSync(mode): mode < 0 the counter, 1 the time since the last, else
@@ -177,7 +242,7 @@ impl Hle {
             HookResult::Return(text.len() as u64)
         });
 
-        Ok(Hle { m, frame: 0, steps: 0, last_vblank: 0, shared, irq_enabled, reads, dispatched: 0, held: [0; 3] })
+        Ok(Hle { m, pad: 0, frame: 0, steps: 0, last_vblank: 0, shared, irq_enabled, reads, dispatched: 0, held: [0; 3] })
     }
 
     /// Runs to the end of the next frame: the next VSync wait, or a frame's
@@ -214,6 +279,16 @@ impl Hle {
     fn vblank(&mut self) -> Result<(), Stop> {
         self.last_vblank = self.steps;
         self.frame += 1;
+        let (buffers, started) = {
+            let sh = self.shared.borrow();
+            (sh.pad_buffers, sh.pad_started)
+        };
+        if let (Some((one, two)), true) = (buffers, started) {
+            // Port 1 a digital pad (0x41), buttons active low; port 2 empty.
+            let b = !self.pad;
+            self.m.bus.load_ram(one, &[0x00, 0x41, b as u8, (b >> 8) as u8]);
+            self.m.bus.load_ram(two, &[0xff, 0xff, 0xff, 0xff]);
+        }
         self.m.bus.hw.i_stat |= hw::IRQ_VBLANK;
         self.deliver()
     }

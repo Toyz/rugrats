@@ -6,8 +6,12 @@
 //!   u16  words      run-length data in 32-bit words, once decoded
 //!   u16  0x3800     (with `words`, the MDEC decode command)
 //!   u16  q_scale
-//!   u16  version    2 (3 has differential DC; not on the disc's stills but E3SCR512)
-//! bitstream: 16-bit little-endian words, read most significant bit first
+//!   u16  version    2, or 3: the DC as MPEG-1 codes it, a size code and a
+//!                   difference from the last block's of the same kind (Cr,
+//!                   Cb, luma), in steps of 4
+//! (a movie frame is the same, after the STR sector headers)
+//! bitstream: 16-bit little-endian words, read most significant bit first;
+//!   in version 2 a DC of 0x1ff ends it
 //!   per block (Cr, Cb, Y0..Y3 per macroblock, macroblocks down each
 //!   16-pixel column, columns left to right):
 //!     dc:10          signed
@@ -201,11 +205,52 @@ fn ac(bits: &mut Bits) -> Result<Option<(u16, i32)>, BsError> {
     Err(BsError(format!("no AC code matches at bit {}", bits.at)))
 }
 
+/// MPEG-1's DC size codes (tables B.12 luma, B.13 chroma): (code, length).
+const DC_LUMA: [(u16, u8); 9] =
+    [(0b100, 3), (0b00, 2), (0b01, 2), (0b101, 3), (0b110, 3), (0b1110, 4), (0b11110, 5), (0b111110, 6), (0b1111110, 7)];
+const DC_CHROMA: [(u16, u8); 9] = [
+    (0b00, 2),
+    (0b01, 2),
+    (0b10, 2),
+    (0b110, 3),
+    (0b1110, 4),
+    (0b11110, 5),
+    (0b111110, 6),
+    (0b1111110, 7),
+    (0b11111110, 8),
+];
+
+/// Version 3's DC: a size code, then that many bits of difference from the
+/// previous block's DC of the same kind, in steps of 4.
+fn dc_v3(bits: &mut Bits, chroma: bool, prev: &mut i32) -> Option<u16> {
+    let table = if chroma { &DC_CHROMA } else { &DC_LUMA };
+    let mut code = 0u16;
+    let mut len = 0u8;
+    let size = loop {
+        code = code << 1 | bits.bit()? as u16;
+        len += 1;
+        if let Some(size) = table.iter().position(|&(c, l)| l == len && c == code) {
+            break size as u32;
+        }
+        if len > 8 {
+            return None;
+        }
+    };
+    let diff = if size == 0 {
+        0
+    } else {
+        let v = bits.take(size)? as i32;
+        if v & (1 << (size - 1)) == 0 { v - (1 << size) + 1 } else { v }
+    };
+    *prev += diff * 4;
+    Some((*prev as u16) & 0x3ff)
+}
+
 /// The run-length halfwords libpress's DecDCTvlc hands the MDEC: `words`
 /// 32-bit words, padded with end-of-block codes.
 pub fn rle(bytes: &[u8]) -> Result<Vec<u16>, BsError> {
     let h = header(bytes)?;
-    if h.version != 2 {
+    if h.version != 2 && h.version != 3 {
         return Err(BsError(format!("version {} is not decoded", h.version)));
     }
     let want = h.words as usize * 2;
@@ -214,8 +259,25 @@ pub fn rle(bytes: &[u8]) -> Result<Vec<u16>, BsError> {
     let total_bits = (bytes.len() - 8) * 8;
     // The stream's tail holds less than a block; what is left of the
     // output is end-of-block padding.
+    // Version 3 keeps one running DC each for Cr, Cb and luma.
+    let mut prev = [0i32; 3];
+    let mut n = 0usize;
     'blocks: while out.len() < want && bits.at + 10 <= total_bits {
-        let mut block = vec![h.q_scale << 10 | bits.take(10).unwrap() as u16];
+        let dc = if h.version == 3 {
+            let kind = (n % 6).min(2);
+            match dc_v3(&mut bits, kind < 2, &mut prev[kind]) {
+                Some(dc) => dc,
+                None => break 'blocks,
+            }
+        } else {
+            // A DC of 0x1ff ends a version-2 frame (NICKLOGO.STR's do).
+            match bits.take(10).unwrap() as u16 {
+                0x1ff => break 'blocks,
+                dc => dc,
+            }
+        };
+        n += 1;
+        let mut block = vec![h.q_scale << 10 | dc];
         loop {
             match ac(&mut bits) {
                 Ok(Some((run, level))) => block.push(run << 10 | (level as u16 & 0x3ff)),

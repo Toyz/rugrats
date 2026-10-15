@@ -242,7 +242,7 @@ impl Rugrats {
         // The "already earned" notes (0x80017c0c): coming from another
         // level into one whose piece was given, or into Cookie Race or Egg
         // Hunt with their bars won.
-        let mut notes = Vec::new();
+        let mut notes = vec![screens::message::loading(&self.disc, level, self.progress.activity(), false)];
         if level != 1 && self.level != Some(level) && self.progress.piece_given(level) {
             notes.push(screens::message::had_piece(&self.disc));
         }

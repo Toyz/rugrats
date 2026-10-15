@@ -35,6 +35,10 @@ fn main() -> Result<(), String> {
     let pages = match std::env::var("BARS").ok().and_then(|v| v.parse().ok()) {
         Some(n) => vec![message::bars(&disc, n, 7)],
         None if std::env::var_os("RESTART").is_some() => vec![Page::Restart],
+        None if std::env::var("LOADING").is_ok() => {
+            let l = std::env::var("LOADING").unwrap().parse().unwrap_or(2);
+            vec![message::loading(&disc, l, false, false)]
+        }
         None => vec![message::piece(&disc), Page::Board],
     };
     let level = rugrats::game::Game::open(&disc, 2)?;

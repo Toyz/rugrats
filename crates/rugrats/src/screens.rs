@@ -18,6 +18,7 @@ use crate::text::{Fonts, Text};
 pub const YELLOW: [u8; 3] = [0xec, 0xcd, 0x13];
 pub const PINK: [u8; 3] = [0xc6, 0x17, 0x5d];
 pub const WHITE: [u8; 3] = [0xff, 0xff, 0xff];
+pub const LIGHT_BLUE: [u8; 3] = [0x6a, 0xb9, 0xe4];
 const SHADOW: [u8; 3] = [1, 1, 1];
 
 /// The burst (BURST2.CMD, file 240) and the front-end camera flying to it
@@ -72,6 +73,9 @@ const SLOT: [(i16, i16); 12] = [
     (-1, 46),
     (48, 46),
 ];
+/// Frames the loading screen holds once the burst arrives (two in the
+/// original, then the load; the port's load is quick).
+const LOADING_HOLD: u32 = 12;
 /// The bar icon (sprite 291, the level's own).
 const BAR_ICON: u32 = 291;
 /// Strings: "Select Piece" (94), "Place Piece" (95), "Terrific!" (96),
@@ -94,6 +98,9 @@ pub enum Page {
     Board,
     /// Select's "Restart Level?" (0x80043d58): Yes? or No?.
     Restart,
+    /// The loading screen (0x8003eefc): lines (string, colour, font, y),
+    /// held a moment once the burst arrives.
+    Loading(Vec<(String, [u8; 3], u8, i16)>),
 }
 
 /// The messages (0x800930c8 and its siblings), by kind.
@@ -117,6 +124,50 @@ pub mod message {
     /// "You did it! / You've found all the / Reptar Puzzle Pieces!"
     pub fn all(disc: &GameDisc) -> Page {
         Page::Message { lines: lines(disc, [228, 230, 231], [YELLOW, PINK, PINK]), bars: None, blink: false }
+    }
+
+    /// The loading screen's lines for `level` (0x8003b168, switch
+    /// 0x800133f0).
+    pub fn loading(disc: &GameDisc, level: usize, activity: bool, home_seen: bool) -> Page {
+        let s = |n: u32| crate::front::string(disc, n);
+        let name = |l: usize| {
+            let n = disc.exe_bytes(0x800b_7d60 + 2 * l as u32, 2).map_or(236, |b| i16::from_le_bytes([b[0], b[1]]) as u32);
+            s(n)
+        };
+        let loading = s(24);
+        let hole = |l: usize| [25, 28, 24, 29, 23, 30, 26, 31, 27].iter().position(|&x| x == l).unwrap_or(0) as u32;
+        let (lines, fonts, ys): (Vec<String>, Vec<u8>, Vec<i16>) = match level {
+            1 if !home_seen => (vec![s(183), s(182), loading], vec![1, 0, 0], vec![-35, -55, -5]),
+            1 => (vec![s(151), s(73), loading], vec![1, 0, 0], vec![-35, -55, -5]),
+            4 => (vec![s(188), s(189), loading], vec![1, 1, 0], vec![-60, -30, 0]),
+            5 => (vec![s(190), s(191), loading], vec![1, 1, 0], vec![-60, -30, 0]),
+            9 => (vec![s(192), s(141), loading], vec![1, 1, 0], vec![-65, -35, -5]),
+            14 => (vec![s(193), s(141), loading], vec![1, 1, 0], vec![-65, -35, -5]),
+            13 | 18 if activity => (vec![s(187), name(level), loading], vec![0, 1, 0], vec![-60, -40, -10]),
+            17 if activity => (vec![s(187), name(level), loading], vec![0, 1, 0], vec![-55, -35, -10]),
+            15 | 17 | 20 | 21 => {
+                let p = Page::Loading(vec![
+                    (s(184), YELLOW, 0, -55),
+                    (name(level), PINK, 1, -35),
+                    (loading, LIGHT_BLUE, 0, -10),
+                ]);
+                return p;
+            }
+            23..=31 if activity => (vec![s(233), s(173), loading], vec![1, 1, 0], vec![-65, -35, -5]),
+            23..=31 => (vec![s(158), s(173 + hole(level)), loading], vec![1, 1, 0], vec![-65, -35, -5]),
+            2 | 3 | 6..=8 | 10..=13 | 16 | 18 => (vec![name(level), loading], vec![1, 0], vec![-50, -20]),
+            _ => (vec![s(236), s(234), loading], vec![1, 1, 0], vec![-65, -35, -5]),
+        };
+        let last = lines.len() - 1;
+        Page::Loading(
+            lines
+                .into_iter()
+                .zip(fonts)
+                .zip(ys)
+                .enumerate()
+                .map(|(k, ((l, f), y))| (l, if k == last { LIGHT_BLUE } else { PINK }, f, y))
+                .collect(),
+        )
     }
 
     /// "You have already / earned the puzzle / piece in this level."
@@ -201,6 +252,7 @@ pub struct Screen {
     pub restart: bool,
     cursor: u8,
     restart_text: [String; 3],
+    held: u32,
     pub sounds: Vec<u8>,
 }
 
@@ -265,6 +317,7 @@ impl Screen {
             all_placed: false,
             restart: false,
             cursor: 2,
+            held: 0,
             restart_text: [229, 11, 12].map(|n| crate::front::string(disc, n)),
             sounds: Vec::new(),
         };
@@ -306,6 +359,22 @@ impl Screen {
         let done = match page {
             Page::Message { .. } => self.message_frame(pads),
             Page::Restart => self.restart_frame(pads),
+            Page::Loading(_) => {
+                // Flies in, holds (two frames, and the port's load), ends
+                // without flying out.
+                if self.fly == Fly::In {
+                    self.z += FLY;
+                    if self.z >= NEAR - 1 {
+                        self.z = NEAR;
+                        self.fly = Fly::Hold;
+                        self.held = 0;
+                    }
+                    false
+                } else {
+                    self.held += 1;
+                    self.held > LOADING_HOLD
+                }
+            }
             Page::Board => {
                 if self.board.is_none() {
                     self.z = NEAR;
@@ -536,6 +605,16 @@ impl Screen {
         let page = self.pages.first().cloned();
         match (&page, &self.board) {
             (Some(Page::Board), Some(b)) => self.draw_board(b, &mut overlay),
+            (Some(Page::Loading(lines)), _) => {
+                if let Some(m) = &self.burst {
+                    rugrats_render::models::model_triangles(m, Mat3::IDENTITY, Vec3::ZERO, &mut moving);
+                }
+                if self.fly == Fly::Hold {
+                    for (l, c, f, y) in lines {
+                        self.text(l, None, *y, *f, *c, &mut overlay);
+                    }
+                }
+            }
             (Some(Page::Restart), _) => {
                 if let Some(m) = &self.burst {
                     rugrats_render::models::model_triangles(m, Mat3::IDENTITY, Vec3::ZERO, &mut moving);

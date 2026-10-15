@@ -107,7 +107,25 @@ pub struct Golf {
     cup: [i32; 3],
     ball_thing: Option<usize>,
     strings: [String; 5],
+    /// The holing-out line tables (0x8007a9d8), by address.
+    lines: Vec<(u32, Vec<u16>)>,
 }
+
+/// The holing-out tables: over par by character, the last try, the
+/// last hole, under par by character.
+const LINE_TABLES: [(u32, usize); 11] = [
+    (0x800b_9250, 8),
+    (0x800b_9260, 7),
+    (0x800b_9270, 10),
+    (0x800b_9298, 7),
+    (0x800b_9284, 9),
+    (0x800b_92d8, 2),
+    (0x800b_92d0, 3),
+    (0x800b_92a8, 5),
+    (0x800b_92b4, 4),
+    (0x800b_92bc, 3),
+    (0x800b_92c4, 5),
+];
 
 /// trunc(a / b) toward zero.
 fn tdiv(a: i64, b: i64) -> i32 {
@@ -145,7 +163,14 @@ impl Golf {
         }
         let string = |n: u32| crate::front::string(disc, n);
         let strings = [string(PAR_TEXT), string(SWING_TEXT), string(OVER_PAR), string(TRY_AGAIN), string(PRESS)];
-        let mut golf = Golf { hole, strokes: 0, stage: Stage::Free, ball, roll: None, lipped: false, cup, ball_thing, strings };
+        let lines = LINE_TABLES
+            .iter()
+            .map(|&(at, n)| {
+                let b = disc.exe_bytes(at, 2 * n).unwrap_or(&[]);
+                (at, b.chunks_exact(2).map(|w| u16::from_le_bytes([w[0], w[1]])).collect())
+            })
+            .collect();
+        let mut golf = Golf { hole, strokes: 0, stage: Stage::Free, ball, roll: None, lipped: false, cup, ball_thing, strings, lines };
         golf.settle(g);
         Ok(golf)
     }
@@ -281,9 +306,75 @@ impl Golf {
         false
     }
 
+    fn line(&self, at: u32, k: u32) -> u16 {
+        self.lines.iter().find(|t| t.0 == at).and_then(|t| t.1.get(k as usize)).copied().unwrap_or(0)
+    }
+
+    /// The baby's lines on holing out (0x8007a9d8): over par, under par,
+    /// the last hole. Only the first free one is heard.
+    fn say(&self, g: &mut Game) {
+        let (s, par) = (self.strokes, PAR[self.hole]);
+        let mut r = || g.rand.next() & 255;
+        let mut lines = Vec::new();
+        if s > par {
+            match g.character {
+                1 => {
+                    if s == par + 2 {
+                        lines.push(72);
+                    }
+                    lines.push(self.line(0x800b_9250, r() & 7));
+                }
+                2 => {
+                    lines.extend((s == par + 1).then_some(336).or((s == par + 2).then_some(337)));
+                    lines.push(self.line(0x800b_9260, r() % 7));
+                }
+                3 => {
+                    lines.extend((s == par + 1).then_some(587).or((s == par + 2).then_some(588)));
+                    lines.push(self.line(0x800b_9270, r() % 10));
+                }
+                4 => {
+                    if s == par + 2 {
+                        lines.push(938);
+                    }
+                    lines.push(self.line(0x800b_9298, r() % 7));
+                }
+                5 => {
+                    lines.extend((s == par + 1).then_some(809).or((s == par + 2).then_some(810)));
+                    lines.push(self.line(0x800b_9284, r() % 9));
+                }
+                _ => {}
+            }
+            if g.tries == 1 {
+                lines.push(self.line(0x800b_92d8, r() & 1));
+            }
+        } else if self.hole == 8 {
+            lines.push(self.line(0x800b_92d0, r() % 3));
+        } else {
+            let line = match g.character {
+                1 => (s == 1).then_some(70),
+                2 => Some(if s + 1 == par { 338 } else { self.line(0x800b_92a8, r() % 5) }),
+                3 => Some(match s {
+                    1 => 586,
+                    _ if s + 1 == par => 589,
+                    _ => self.line(0x800b_92b4, r() & 3),
+                }),
+                5 => Some(match s {
+                    1 => 812,
+                    _ if s + 1 == par => 811,
+                    _ => self.line(0x800b_92bc, r() % 3),
+                }),
+                4 => Some(if s + 1 == par { 939 } else { self.line(0x800b_92c4, r() % 5) }),
+                _ => None,
+            };
+            lines.extend(line);
+        }
+        g.speech.extend(lines);
+    }
+
     /// Holing out (0x8007a9d8).
     fn holed(&mut self, g: &mut Game) {
         g.fixed = None;
+        self.say(g);
         if self.strokes > PAR[self.hole] {
             // Over par: the box (0x80043968), then a cry and the hole
             // again.

@@ -132,7 +132,7 @@ impl Level16 {
         let targets: Vec<usize> = find(g, ANGELICA).into_iter().collect();
         let hits = roll_pies(g, &mut toss.pies, &targets);
         // A hit (0x8007eafc): 50 off; at 0 her health back and won.
-        for _ in 0..hits {
+        for _ in hits {
             let Some(k) = find(g, ANGELICA) else { break };
             g.effects.push((44, crate::sound::EFFECTS_VOLUME));
             let r = g.rand.next() & 1;

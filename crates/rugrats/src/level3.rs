@@ -88,9 +88,9 @@ impl Pie {
 
 /// Pies roll on the floor below the counter (gravity 1, flags
 /// 0x0a070400) until a wall, a hit on one of `targets` (NPC indices) or
-/// the range. Returns the hits.
-pub fn roll_pies(g: &Game, pies: &mut Vec<Pie>, targets: &[usize]) -> u32 {
-    let mut hits = 0;
+/// the range. Returns the characters hit.
+pub fn roll_pies(g: &Game, pies: &mut Vec<Pie>, targets: &[usize]) -> Vec<usize> {
+    let mut hits = Vec::new();
     pies.retain_mut(|p| {
         // In quarter steps, so a fast pie cannot pass through.
         for _ in 0..4 {
@@ -105,14 +105,14 @@ pub fn roll_pies(g: &Game, pies: &mut Vec<Pie>, targets: &[usize]) -> u32 {
             if q.kind == 0 {
                 p.pos[1] = (p.pos[1] + 30).min(q.floor);
             }
-            let hit = targets.iter().any(|&k| {
+            let hit = targets.iter().copied().find(|&k| {
                 let n = &g.npcs[k];
                 let (dx, dz) = ((n.pos[0] - p.pos[0]) as i64, (n.pos[2] - p.pos[2]) as i64);
                 let reach = (n.size.max(PIE_REACH) + PIE_RADIUS) as i64;
                 dx * dx + dz * dz < reach * reach
             });
-            if hit {
-                hits += 1;
+            if let Some(k) = hit {
+                hits.push(k);
                 return false;
             }
         }
@@ -291,7 +291,11 @@ impl Level3 {
         let hits = roll_pies(g, &mut toss.pies, &targets);
         // A hit (0x800511a8, 0x8007e308): both lose 50, the one hit
         // flinches; at 0 the toss is won.
-        for _ in 0..hits {
+        for hit in hits {
+            // The one hit says so (0x800511a8: Larry 1065, Steve 1076 /
+            // 1079).
+            let r = g.rand.next() & 1;
+            g.speech.extend(crate::game::hit_line(g.npcs[hit].character, 3, r));
             let mut left = TOSS_HEALTH;
             for id in [LARRY, STEVE] {
                 if let Some(k) = find(g, id) {

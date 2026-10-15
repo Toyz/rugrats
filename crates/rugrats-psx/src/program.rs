@@ -63,6 +63,9 @@ pub struct Program<'a> {
     pub slots: BTreeMap<u32, BTreeSet<u32>>,
     /// `jalr` sites whose register was loaded from a fixed slot: site -> slot.
     pub indirect: BTreeMap<u32, u32>,
+    /// Known data inside the image (a `.rodata` placed before the code):
+    /// no heuristic start is believed there.
+    pub data: Vec<std::ops::Range<u32>>,
 }
 
 fn opens_frame(i: &Insn) -> bool {
@@ -76,6 +79,16 @@ fn plausible_start(i: &Insn) -> bool {
 
 impl<'a> Program<'a> {
     pub fn analyze(mem: Memory<'a>, entry: u32, gp: Option<u32>) -> Program<'a> {
+        Program::analyze_with_data(mem, entry, gp, Vec::new())
+    }
+
+    /// As `analyze`, with ranges of the image known to be data.
+    pub fn analyze_with_data(
+        mem: Memory<'a>,
+        entry: u32,
+        gp: Option<u32>,
+        data: Vec<std::ops::Range<u32>>,
+    ) -> Program<'a> {
         let seeds = find_functions(&mem, entry);
         let mut p = Program {
             mem,
@@ -88,6 +101,7 @@ impl<'a> Program<'a> {
             reach: BTreeMap::new(),
             slots: BTreeMap::new(),
             indirect: BTreeMap::new(),
+            data,
         };
         // Call targets, BIOS stubs and the entry are certain. Walking them
         // first fixes where the code ends; the heuristic seeds are only
@@ -132,7 +146,7 @@ impl<'a> Program<'a> {
                 if how != "entry" && p.owner.contains_key(&start) {
                     continue;
                 }
-                if start >= p.code_end && how != "call" {
+                if (start >= p.code_end && how != "call") || p.in_data(start) {
                     continue;
                 }
                 p.walk(start, how);
@@ -425,9 +439,11 @@ impl<'a> Program<'a> {
         });
         let limit = bound.unwrap_or(256).min(1024);
         let mut targets = Vec::new();
+        // Targets lie in the same function as the dispatch, so near it. The
+        // table may sit before the code (Rugrats' .rodata) or after (hwtr's).
         for n in 0..limit {
             let Some(t) = self.mem.u32(table.wrapping_add(n * 4)) else { break };
-            if t & 3 != 0 || !self.mem.contains(t) || t >= table {
+            if t & 3 != 0 || !self.mem.contains(t) || t.abs_diff(site) > 0x10000 {
                 break;
             }
             targets.push(t);
@@ -441,7 +457,7 @@ impl<'a> Program<'a> {
         let mut out = Vec::new();
         let mut pc = self.mem.base;
         while pc < self.code_end {
-            if self.owner.contains_key(&pc) {
+            if self.owner.contains_key(&pc) || self.in_data(pc) {
                 pc += 4;
                 continue;
             }
@@ -479,6 +495,10 @@ impl<'a> Program<'a> {
         out
     }
 
+    fn in_data(&self, addr: u32) -> bool {
+        self.data.iter().any(|r| r.contains(&addr))
+    }
+
     /// The function that owns `addr`.
     pub fn func_of(&self, addr: u32) -> Option<&Func> {
         self.owner.get(&addr).and_then(|s| self.funcs.get(s))
@@ -489,7 +509,7 @@ impl<'a> Program<'a> {
         let mut n = 0;
         let mut pc = self.mem.base;
         while pc < self.code_end {
-            if !self.owner.contains_key(&pc) && self.mem.u32(pc) != Some(0) {
+            if !self.owner.contains_key(&pc) && !self.in_data(pc) && self.mem.u32(pc) != Some(0) {
                 n += 1;
             }
             pc += 4;

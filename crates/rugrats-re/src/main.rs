@@ -456,7 +456,14 @@ impl Program {
         let mem = rugrats_psx::Memory { base, bytes: image };
         let entry = exe.as_ref().map_or(base, |e| e.pc0);
         let gp = gp_arg.or_else(|| rugrats_psx::analysis::find_gp(&mem, entry));
-        let a = rugrats_psx::program::Program::analyze(mem, entry, gp);
+        // `rodata_start`/`rodata_end` in the symbols mark data inside the code.
+        let symbols = load_symbols(&file);
+        let at = |n: &str| symbols.iter().find(|(_, v)| v.as_str() == n).map(|(&a, _)| a);
+        let data = match (at("rodata_start"), at("rodata_end")) {
+            (Some(s), Some(e)) => vec![s..e],
+            _ => Vec::new(),
+        };
+        let a = rugrats_psx::program::Program::analyze_with_data(mem, entry, gp, data);
         let refs = rugrats_psx::analysis::data_refs(&mem, gp);
         let mut names = std::collections::BTreeMap::new();
         for &f in a.funcs.keys() {
@@ -470,7 +477,7 @@ impl Program {
                 names.entry(t).or_insert_with(|| format!("case_{t:08x}"));
             }
         }
-        names.extend(load_symbols(&file));
+        names.extend(symbols);
         Ok(Program { exe, names, a, refs })
     }
 

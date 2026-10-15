@@ -1,0 +1,12 @@
+# Names for SLUS_006.50 (image 0x80010000, $gp 0x800c3e80).
+# One `0xADDRESS name` per line. Read by rugrats-re disasm/funcs/strings.
+# Confidence is in the comment: (sure) traced, (likely) from strings or shape.
+
+# Layout of the image
+0x80012760 rodata_start            # (sure) strings and jump tables; hand-written asm before it
+0x80017c0c rodata_end              # (sure) first compiled function follows "<NULL>"
+
+# Files (see docs/formats/file-table.md)
+0x800b2c40 file_table              # (sure) {u32 lba; u32 size}[714]
+0x80019794 read_file               # (sure) read_file(index, dest, len); indexes file_table
+0x80019a04 file_size               # (sure) file_table[index].size

@@ -119,12 +119,6 @@ pub fn menu_items(fonts: &Fonts, strings: [String; 3]) -> Vec<Text> {
         .collect()
 }
 
-/// The names of the records in the save on the card in slot 1 (None for
-/// an empty one).
-fn load_records(art: &crate::card::Art) -> Vec<Option<String>> {
-    let save = crate::card::Cards::default().load(0, art);
-    (1..16).map(|k| save.as_ref().and_then(|s| s.record(k)).map(|_| format!("GAME {k}"))).collect()
-}
 
 /// The Activities menu's items: font 1, sliding up into two columns.
 pub fn activity_items(fonts: &Fonts, strings: &[String; 4]) -> Vec<Text> {
@@ -527,15 +521,15 @@ impl Baby {
 }
 
 /// What the title menu ends with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// Triangle, or 30 seconds untouched: back to main's chooser (-1).
     Idle,
     /// A game mode chosen (stored to 0x800c5678): 1 the main game, 16
     /// training.
     Play(u8),
-    /// Load Game (0x800398bc(8, 1, 0, 0)): a record of the card's save.
-    Load(usize),
+    /// Load Game (0x800398bc(8, 1, 0, 0)): the state a record held.
+    Load(Box<[u8; crate::card::STATE_SIZE]>),
 }
 
 /// What a chosen item leads to, once its items have slid away.
@@ -576,10 +570,6 @@ pub struct Title {
     start_strings: [String; 3],
     activity_strings: [String; 4],
     pub menu: Menu,
-    /// The card's records' names (None empty), for the Load Game screen.
-    records: Vec<Option<String>>,
-    load_heading: String,
-    empty: String,
     card_art: crate::card::Art,
     /// What the Start Game menu's items sliding away end with.
     start_leaving: Option<Option<u8>>,
@@ -607,6 +597,10 @@ pub struct Title {
     audio: Option<crate::audio_menu::AudioMenu>,
     pub song_volume: Option<i32>,
     audio_strings: [String; 5],
+    /// The card pages (Load Game), their strings, PRESS X's text.
+    card: Option<crate::card_menu::CardMenu>,
+    card_strings: crate::card_menu::Strings,
+    press: String,
 }
 
 fn words(bytes: &[u8]) -> Vec<u16> {
@@ -792,9 +786,6 @@ impl Title {
             start_strings,
             activity_strings,
             menu: Menu::Main,
-            records: Vec::new(),
-            load_heading: string(disc, 13),
-            empty: disc.exe_string_at_addr(0x800c_4378)?,
             card_art: disc.card.clone(),
             start_leaving: None,
             countdown: COUNTDOWN,
@@ -815,6 +806,9 @@ impl Title {
             audio: None,
             song_volume: None,
             audio_strings: crate::audio_menu::AudioMenu::strings(disc),
+            card: None,
+            card_strings: crate::card_menu::Strings::load(disc),
+            press: string(disc, crate::screens::PRESS),
         };
         title.draw(true);
         Ok(title)
@@ -854,7 +848,7 @@ impl Title {
             }
             if action == Action::LoadGame {
                 self.menu = Menu::Load;
-                self.records = load_records(&self.card_art);
+                self.card = Some(crate::card_menu::CardMenu::open(false, true, self.card_art.clone(), [0; crate::card::STATE_SIZE], [0; 3]));
                 self.chosen = 0;
                 self.items.clear();
                 self.draw_load();
@@ -1049,44 +1043,25 @@ impl Title {
         None
     }
 
-    /// One frame of the Load Game screen: Down and Up within a column of
-    /// five, Left and Right across; Cross loads a saved record, Triangle
-    /// goes back.
+    /// One frame of Load Game (0x800398bc(8, 1, 0, 0)): the card pages;
+    /// their Cross and Triangle returns end it with 0, back to the menu.
     fn load_frame(&mut self, pads: &crate::input::Pads, rng: &mut crate::rand::Rand) -> Option<Outcome> {
-        use crate::input::*;
-        let pressed = |b: usize| pads.pressed(0, b);
-        let (col, row) = (self.chosen / 5, self.chosen % 5);
-        if pressed(DOWN) {
-            self.chosen = col * 5 + (row + 1) % 5;
-            self.sounds.push(sound::DOWN);
-        }
-        if pressed(UP) {
-            self.chosen = col * 5 + (row + 4) % 5;
-            self.sounds.push(sound::UP);
-        }
-        if pressed(RIGHT) {
-            self.chosen = (col + 1) % 3 * 5 + row;
-            self.sounds.push(sound::DOWN);
-        }
-        if pressed(LEFT) {
-            self.chosen = (col + 2) % 3 * 5 + row;
-            self.sounds.push(sound::UP);
-        }
-        if pressed(TRIANGLE) {
-            self.sounds.push(sound::LEAVE);
-            self.menu = Menu::Main;
-            self.items = menu_items(&self.fonts, self.strings.clone());
-            self.chosen = 1;
-            self.countdown = COUNTDOWN;
-            self.draw(true);
-            return None;
-        }
-        if pressed(CROSS) {
-            if self.records.get(self.chosen).is_some_and(|r| r.is_some()) {
-                self.sounds.push(sound::PICK);
-                return Some(Outcome::Load(self.chosen + 1));
+        let _ = rng;
+        let Some(card) = &mut self.card else { return None };
+        let out = card.frame(pads);
+        self.sounds.extend(card.sounds.drain(..));
+        match out {
+            Some(crate::card_menu::Outcome::Loaded(state)) => return Some(Outcome::Load(state)),
+            Some(_) => {
+                self.card = None;
+                self.menu = Menu::Main;
+                self.items = menu_items(&self.fonts, self.strings.clone());
+                self.chosen = 1;
+                self.countdown = COUNTDOWN;
+                self.draw(true);
+                return None;
             }
-            self.sounds.push(sound::LEAVE);
+            None => {}
         }
         self.frames += 1;
         if self.frames % 30 == 0 {
@@ -1095,7 +1070,6 @@ impl Title {
         if self.backdrop.fading {
             self.backdrop.fading = self.backdrop.step();
         }
-        let _ = rng;
         self.draw_load();
         None
     }
@@ -1105,35 +1079,9 @@ impl Title {
         self.backdrop.triangles(&mut self.stage.under);
         self.stage.moving.clear();
         self.stage.overlay.clear();
-        let put = |s: &str, x: i16, y: i16, rgb: [u8; 3], centre: bool, out: &mut Vec<Vtx>| {
-            let mut t = Text { font: 1, spacing: 1, rgb, x, y, string: s.to_string(), ..Default::default() };
-            if centre {
-                self.fonts.centre(&mut t, true, false);
-            }
-            let mut shadow = t.clone();
-            shadow.rgb = [1, 1, 1];
-            shadow.x += 2;
-            shadow.y += 2;
-            shadow.triangles(&self.fonts, out);
-            t.triangles(&self.fonts, out);
-        };
-        let mut out = Vec::new();
-        put(&self.load_heading, 0, -95, [255, 80, 200], true, &mut out);
-        for k in 0..15 {
-            let (x, y) = (-191 + 155 * (k / 5) as i16, -58 + 25 * (k % 5) as i16);
-            let rgb = if k == self.chosen { [255, 255, 5] } else { [255, 255, 255] };
-            put(&format!("{}", k + 1), x, y, rgb, false, &mut out);
-            let name = self.records.get(k).cloned().flatten().unwrap_or_else(|| self.empty.clone());
-            put(&name, x + 35, y, rgb, false, &mut out);
-        }
-        self.stage.overlay = out;
-        for t in &self.labels {
-            let mut shadow = t.clone();
-            shadow.rgb = [1, 1, 1];
-            shadow.x += 2;
-            shadow.y += 2;
-            shadow.triangles(&self.fonts, &mut self.stage.overlay);
-            t.triangles(&self.fonts, &mut self.stage.overlay);
+        if let Some(card) = &self.card {
+            let labels = [self.labels[0].string.clone(), self.labels[1].string.clone()];
+            card.triangles(&self.card_strings, &self.fonts, &self.press, &labels, &mut self.stage.overlay);
         }
     }
 

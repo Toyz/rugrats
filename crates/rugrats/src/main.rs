@@ -551,18 +551,13 @@ impl Game for Rugrats {
                             spu.effect(&self.effect_table, s as usize, self.progress.audio().effects);
                         }
                     }
-                    if let Some(Outcome::Load(k)) = outcome {
-                        let cards = rugrats::card::Cards::default();
-                        let state = cards.load(0, &self.disc.card).and_then(|s| s.record(k));
-                        match state {
-                            Some(block) => {
-                                self.progress = rugrats::progress::Progress { block };
-                                self.stop_song();
-                                let level = rugrats::game::HUB;
-                                self.boot = self.enter(level, now);
-                            }
-                            None => rrt::tracing::info!("load: no saved game on the card in slot 1"),
-                        }
+                    if let Some(Outcome::Load(block)) = &outcome {
+                        // The record's state; Pickles' Home at the saved
+                        // level's spot (0x80070cc8).
+                        self.progress = rugrats::progress::Progress { block: **block };
+                        self.level = Some(self.progress.level());
+                        self.stop_song();
+                        self.boot = self.enter(rugrats::game::HUB, now);
                     } else if let Some(Outcome::Play(mode)) = outcome {
                         if mode == rugrats::front::MAIN_GAME {
                             self.progress = Default::default();

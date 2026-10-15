@@ -703,6 +703,7 @@ impl Game {
             12 => Some(Box::new(crate::level12::Level12::start(&mut g, disc)?)),
             14 => Some(Box::new(crate::level9::Level9::start14(&mut g, disc)?)),
             15 => Some(Box::new(crate::level15::Level15::start(&mut g, disc)?)),
+            20 => Some(Box::new(crate::level20::Level20::start(&mut g, disc)?)),
             11 => Some(Box::new(crate::level11::Level11::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
@@ -786,6 +787,14 @@ impl Game {
             .min_by_key(|n| (n.pos[0] - p[0]) as i64 * (n.pos[0] - p[0]) as i64 + (n.pos[2] - p[2]) as i64 * (n.pos[2] - p[2]) as i64)?;
         let d = Vec3::new((target.pos[0] - p[0]) as f32, 0.0, (target.pos[2] - p[2]) as f32).normalize_or(Vec3::Z);
         Some(Vec3::new(d.x, -300.0 / 4096.0, d.z))
+    }
+
+    /// Throws the carried thing with velocity `v` (a level's own throw).
+    pub fn throw_carried(&mut self, v: [i32; 3]) {
+        if let Some(k) = self.carried.take() {
+            self.things[k].state = ThingState::Flying(v);
+            self.player.carrying = false;
+        }
     }
 
     /// Puts thing `k` in the player's hand (0x8005ff88 mode 0 with no
@@ -913,7 +922,9 @@ impl Game {
         let rot = p.rotation(&self.trig);
         if let Some(k) = self.carried {
             let throw = pads.pressed(0, input::TRIANGLE) && !self.things[k].keep;
-            if throw || pads.pressed(0, input::CIRCLE) {
+            // GRAB never puts down in levels 5, 20 and 21 (0x8005d11c).
+            let put_down = pads.pressed(0, input::CIRCLE) && !matches!(self.level, 5 | 20 | 21);
+            if throw || put_down {
                 // Level 9 aims (0x80061c98): at the nearest visible character
                 // within 512 of the facing, the direction's y -300.
                 let aimed = if throw && self.aim { self.aim_at() } else { None };

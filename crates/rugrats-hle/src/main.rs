@@ -2,6 +2,7 @@
 //!
 //! ```text
 //! rugrats-hle [FRAMES] [--shots DIR] [--every N] [--cue FILE]
+//!             [--real-cd]              loads through libcd and the drive, not the shortcut
 //!             [--peek ADDR:LEN,...]    memory after the run, as words
 //! ```
 //!
@@ -38,12 +39,14 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let (mut frames, mut shots, mut every) = (120u64, PathBuf::from("work/hle"), 30u64);
     let mut cue: Option<PathBuf> = None;
+    let mut fast_load = true;
     let mut peeks: Vec<(u32, u32)> = Vec::new();
     while let Some(a) = args.next() {
         match a.as_str() {
             "--shots" => shots = args.next().map(PathBuf::from).unwrap_or(shots),
             "--every" => every = args.next().and_then(|s| s.parse().ok()).unwrap_or(every),
             "--cue" => cue = args.next().map(PathBuf::from),
+            "--real-cd" => fast_load = false,
             "--peek" => {
                 for p in args.next().unwrap_or_default().split(',') {
                     if let Some((a, n)) = p.split_once(':') {
@@ -56,7 +59,7 @@ fn main() {
     }
     let cue = cue.unwrap_or_else(|| rrt::disc::Image::find(std::path::Path::new("work/disc")).expect("no .cue under work/disc"));
     let disc = Rc::new(rrt::disc::Image::open(&cue).expect("open the disc"));
-    let mut hle = rugrats_hle::Hle::new(disc).expect("load the game");
+    let mut hle = rugrats_hle::Hle::new(disc, fast_load).expect("load the game");
     std::fs::create_dir_all(&shots).ok();
     let started = std::time::Instant::now();
     for f in 1..=frames {
@@ -86,6 +89,8 @@ fn main() {
         hle.m.bus.hw.i_stat,
         hle.m.bus.hw.i_mask
     );
+    let cd = &hle.m.bus.hw.cd;
+    tracing::info!("CD commands {:?}; {} XA sectors to the sound side", cd.commands, cd.xa_sectors);
     for (addr, n) in &hle.m.bus.hw.unhandled {
         tracing::info!("unmodelled I/O {addr:08x} x{n}");
     }

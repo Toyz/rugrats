@@ -5,6 +5,7 @@
 //! lands a little later, when the harness calls [`Hw::advance`], so
 //! libgpu's queue sees the interrupt it expects.
 
+use crate::cdrom::Cdrom;
 use crate::gpu::Gpu;
 use crate::mdec::Mdec;
 use crate::state::{Reader, Result, Writer};
@@ -16,10 +17,12 @@ pub const DMA_TIME: u64 = 2000;
 
 /// Interrupt request bits (I_STAT, I_MASK).
 pub const IRQ_VBLANK: u32 = 1 << 0;
+pub const IRQ_CDROM: u32 = 1 << 2;
 pub const IRQ_DMA: u32 = 1 << 3;
 
 pub struct Hw {
     pub gpu: Gpu,
+    pub cd: Cdrom,
     pub mdec: Mdec,
     /// A DMA 1 (MDEC out) started before its words were there: where and
     /// how many still to move.
@@ -45,6 +48,7 @@ impl Default for Hw {
     fn default() -> Self {
         Hw {
             gpu: Gpu::default(),
+            cd: Cdrom::default(),
             mdec: Mdec::default(),
             mdec_out: None,
             now: 0,
@@ -76,6 +80,7 @@ impl Hw {
     pub fn save(&self, w: &mut Writer) {
         w.bytes(b"hw");
         self.gpu.save(w);
+        self.cd.save(w);
         self.mdec.save(w);
         let (a, n) = self.mdec_out.unwrap_or((0, 0));
         w.u32(a);
@@ -101,6 +106,7 @@ impl Hw {
     pub fn load(&mut self, r: &mut Reader) -> Result<()> {
         r.expect(b"hw")?;
         self.gpu.load(r)?;
+        self.cd.load(r)?;
         self.mdec.load(r)?;
         let (a, n) = (r.u32()?, r.u32()?);
         self.mdec_out = (n != 0).then_some((a, n));
@@ -128,6 +134,9 @@ impl Hw {
     /// channel's DICR flag, and IRQ 3 when DICR lets it through.
     pub fn advance(&mut self, now: u64) {
         self.now = now;
+        if self.cd.tick(now) {
+            self.i_stat |= IRQ_CDROM;
+        }
         for ch in 0..7 {
             if self.dma_due[ch].is_some_and(|t| t <= now) {
                 self.dma_due[ch] = None;
@@ -151,7 +160,7 @@ impl Hw {
     }
 
     /// The earliest pending transfer completion, if any.
-    pub fn next_due(&self) -> Option<u64> {
+    pub fn next_dma_due(&self) -> Option<u64> {
         self.dma_due.iter().flatten().copied().min()
     }
 
@@ -223,6 +232,12 @@ impl Hw {
                 }
                 self.drain_mdec(ram);
             }
+            3 => {
+                for k in 0..words {
+                    let v = u32::from_le_bytes([0; 4].map(|_| self.cd.read_data()));
+                    set_word(ram, madr + 4 * k, v);
+                }
+            }
             1 => {
                 self.mdec_out = Some((madr, words));
                 self.drain_mdec(ram);
@@ -266,6 +281,11 @@ impl Hw {
     }
 
     pub fn read(&mut self, phys: u32, width: usize) -> u32 {
+        // The interrupt and DMA registers are words; a narrower access
+        // sees its part of one.
+        if (0x1f80_1070..0x1f80_1100).contains(&phys) && phys & 3 != 0 {
+            return self.read(phys & !3, 4) >> (8 * (phys & 3));
+        }
         match phys {
             0x1f80_1070 => self.i_stat,
             0x1f80_1074 => self.i_mask,
@@ -279,6 +299,15 @@ impl Hw {
             0x1f80_1100..0x1f80_1130 => {
                 // Root counters: steady within a slice, moving between them.
                 ((self.now / 8) & 0xffff) as u32
+            }
+            0x1f80_1800..0x1f80_1804 => {
+                // The data port may be read 16 or 32 bits at a time.
+                let mut v = 0u32;
+                for k in 0..width.min(4) {
+                    let reg = if phys & 3 == 2 { 2 } else { (phys & 3) + k as u32 };
+                    v |= (self.cd.read(reg & 3) as u32) << (8 * k);
+                }
+                v
             }
             0x1f80_1810 => self.gpu.read(),
             0x1f80_1814 => self.gpu.status(),
@@ -302,6 +331,18 @@ impl Hw {
     }
 
     pub fn write(&mut self, ram: &mut [u8], phys: u32, width: usize, value: u32) {
+        if (0x1f80_1070..0x1f80_1100).contains(&phys) && (phys & 3 != 0 || width < 4) {
+            let (at, shift) = (phys & !3, 8 * (phys & 3));
+            let mask = if width >= 4 { u32::MAX } else { ((1u32 << (8 * width)) - 1) << shift };
+            // A partial write to I_STAT or DICR's flags must not
+            // acknowledge the bytes it does not cover.
+            let keep = match at {
+                0x1f80_1070 => u32::MAX,
+                0x1f80_10f4 => !0x7f00_0000 & self.dicr,
+                _ => self.read(at, 4),
+            };
+            return self.write(ram, at, 4, (keep & !mask) | ((value << shift) & mask));
+        }
         match phys {
             // Writing 0 to a bit of I_STAT acknowledges it.
             0x1f80_1070 => self.i_stat &= value,
@@ -324,6 +365,18 @@ impl Hw {
             0x1f80_1100..0x1f80_1130 => {}
             // Memory control (bus delays) and RAM size: nothing to model.
             0x1f80_1000..0x1f80_1024 | 0x1f80_1060 => {}
+            0x1f80_1800..0x1f80_1804 => {
+                for k in 0..width.min(4) {
+                    let reg = (phys & 3) + k as u32;
+                    if reg < 4 {
+                        let now = self.now;
+                        self.cd.write(now, reg, (value >> (8 * k)) as u8);
+                    }
+                }
+                if self.cd.tick(self.now) {
+                    self.i_stat |= IRQ_CDROM;
+                }
+            }
             0x1f80_1810 => self.gpu.gp0(value),
             0x1f80_1814 => self.gpu.gp1(value),
             0x1f80_1820 => {

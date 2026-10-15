@@ -8,6 +8,7 @@
 //! ```text
 //! 0x8009af48  VSync(mode)                  one wait = one frame; the run stops there
 //! 0x80019794  read_file(index, dest, len)  the game's loader, served from the disc
+//!                                          (unless every read goes through the drive)
 //! 0x800b1478  printf                       logged
 //! ```
 //!
@@ -18,6 +19,7 @@
 #![forbid(unsafe_code)]
 
 pub mod bus;
+pub mod cdrom;
 pub mod gpu;
 pub mod hw;
 pub mod mdec;
@@ -43,15 +45,12 @@ pub mod addr {
     pub const INTR_DISPATCH: u32 = 0x8009_b3d4;
     /// libetc: nonzero once ResetCallback has installed the dispatcher.
     pub const INTR_READY: u32 = 0x800b_ba98;
+    /// The setjmp buffer ResetCallback gives HookEntryInt: ra, sp, fp,
+    /// s0-s7, gp. The BIOS longjmps there on an interrupt, so the handler
+    /// runs on libetc's own stack (sp is set to 0x800bcab0) and the C gp.
+    pub const INTR_JMPBUF: u32 = 0x800b_bad0;
     /// libetc's vertical blank counter.
     pub const VCOUNT: u32 = 0x800b_cb60;
-    /// libcd's calls that wait on the drive.
-    pub const CD_RESET: u32 = 0x800a_19a8;
-    pub const CD_SYNC: u32 = 0x800a_1bbc;
-    pub const CD_READY: u32 = 0x800a_1bdc;
-    pub const CD_CONTROL: u32 = 0x800a_1c24;
-    pub const CD_CONTROL_F: u32 = 0x800a_1d60;
-    pub const CD_CONTROL_B: u32 = 0x800a_1e94;
 }
 
 /// Where the main run "returns" to: never reached.
@@ -92,7 +91,9 @@ fn stop_text(pc: u32, what: impl Into<String>) -> Stop {
 
 impl Hle {
     /// Loads SLUS_006.50 from the disc and installs the hardware and hooks.
-    pub fn new(disc: Rc<Image>) -> Result<Hle, String> {
+    /// `fast_load` serves the game's `read_file` straight from the disc;
+    /// without it every load goes through libcd and the drive model.
+    pub fn new(disc: Rc<Image>, fast_load: bool) -> Result<Hle, String> {
         let iso = disc.iso().map_err(|e| e.to_string())?;
         let bytes = iso.find("/SLUS_006.50").and_then(|e| iso.read(&e)).map_err(|e| e.to_string())?;
         let exe = PsxExe::parse(&bytes).map_err(|e| e.to_string())?;
@@ -114,6 +115,7 @@ impl Hle {
         m.ext.insert(b);
         let irq_enabled = bios::critical_sections(&mut m);
         exe.load(&mut m.bus)?;
+        m.bus.hw.cd.disc = Some(disc.clone());
         m.cpu.set_pc(exe.pc0);
         m.cpu.r[29] = 0x801f_fff0;
         m.return_to = MAIN_RETURN;
@@ -147,7 +149,7 @@ impl Hle {
 
         // read_file(index, dest, len): `len` bytes of the file, 0 for an
         // unused entry. The original seeks and reads with libcd.
-        {
+        if fast_load {
             let reads = reads.clone();
             let disc = disc.clone();
             m.hook(addr::READ_FILE, move |c| {
@@ -166,20 +168,6 @@ impl Hle {
                 reads.borrow_mut().push((index, len));
                 tracing::debug!("read_file({index}) -> {dest:08x}, {len} bytes");
                 HookResult::Return(u64::from(len))
-            });
-        }
-
-        // libcd: the drive is always ready and every command completes.
-        // Data comes through read_file; streams are not modelled yet.
-        m.stub(addr::CD_RESET, 1);
-        m.stub(addr::CD_SYNC, 2);
-        m.stub(addr::CD_READY, 2);
-        for f in [addr::CD_CONTROL, addr::CD_CONTROL_F, addr::CD_CONTROL_B] {
-            m.hook(f, move |c| {
-                let (com, param) = (c.arg32(0) & 0xff, c.arg32(1));
-                let p = if param != 0 { c.bus.read_u32(param).unwrap_or(0) } else { 0 };
-                tracing::debug!("CdControl {f:08x}: com {com:#x} param {p:08x}");
-                HookResult::Return(1)
             });
         }
 
@@ -251,23 +239,38 @@ impl Hle {
                 return Ok(());
             }
             self.dispatched += 1;
-            self.call_nested(addr::INTR_DISPATCH, &[])?;
+            let buf: Vec<u32> = (0..12).map(|k| self.m.bus.ram_u32(addr::INTR_JMPBUF + 4 * k)).collect();
+            self.run_nested(addr::INTR_DISPATCH, |cpu| {
+                cpu.r[29] = buf[1];
+                cpu.r[30] = buf[2];
+                cpu.r[16..24].copy_from_slice(&buf[3..11]);
+                cpu.r[28] = buf[11];
+            })?;
             self.m.bus.hw.advance(self.steps);
         }
         Ok(())
     }
 
-    /// Calls `func` on top of the running program and puts everything back,
-    /// as an exception handler returning would. The devices keep time while
-    /// it runs (a handler may wait for a transfer), but no interrupt nests.
+    /// Calls `func(args)` on top of the running program, on a stack below
+    /// its own, and puts everything back.
     pub fn call_nested(&mut self, func: u32, args: &[u32]) -> Result<u32, Stop> {
+        let args = args.to_vec();
+        self.run_nested(func, move |cpu| {
+            cpu.r[29] = cpu.r[29].wrapping_sub(0x400) & !7;
+            for (k, &a) in args.iter().take(4).enumerate() {
+                cpu.r[4 + k] = a;
+            }
+        })
+    }
+
+    /// Runs `func` with the registers `prepare` sets, returning to the
+    /// interrupted program afterwards with every register as it was, as an
+    /// exception handler does. The devices keep time while it runs (a
+    /// handler may wait for a transfer), but no interrupt nests.
+    fn run_nested(&mut self, func: u32, prepare: impl FnOnce(&mut R3000)) -> Result<u32, Stop> {
         let cpu = self.m.cpu.clone();
         let (steps, limit, ret) = (self.m.steps, self.m.step_limit, self.m.return_to);
-        let sp = cpu.r[29].wrapping_sub(0x400) & !7;
-        self.m.cpu.r[29] = sp;
-        for (k, &a) in args.iter().take(4).enumerate() {
-            self.m.cpu.r[4 + k] = a;
-        }
+        prepare(&mut self.m.cpu);
         self.m.cpu.r[31] = NESTED_RETURN;
         self.m.cpu.set_pc(func);
         self.m.return_to = NESTED_RETURN;

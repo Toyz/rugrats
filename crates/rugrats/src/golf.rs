@@ -15,6 +15,8 @@ use crate::player::DT;
 /// Hole index (play order) to level (0x80057dcc), par (0x800b7ffc) and the
 /// baby who plays it (0x800b7ff0).
 const LEVELS: [usize; 9] = [25, 28, 24, 29, 23, 30, 26, 31, 27];
+/// Level 23's ball-reset object (0x800c4168).
+const RESET_ZONE: u32 = 1264;
 const PAR: [u32; 9] = [4, 5, 4, 5, 5, 5, 4, 5, 3];
 const BABY: [usize; 9] = [1, 2, 3, 5, 4, 1, 2, 3, 1];
 /// Where the player starts (0x8007a584).
@@ -457,6 +459,16 @@ impl crate::game::Script for Golf {
     }
 
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
+        // Level 23's callback (0x80081758): a ball at rest within x +-2000,
+        // z +-1000 of template 1264 goes to (x, 280, 2753).
+        if g.level == 23 && self.roll.is_none() {
+            if let Some(o) = g.set.placements.iter().find(|p| p.kind == 1 && p.template == RESET_ZONE).map(|p| p.pos) {
+                if (self.ball[0] - o[0]).abs() < 2000 && (self.ball[2] - o[2]).abs() < 1000 {
+                    self.ball = [self.ball[0], 280, 2753];
+                    self.settle(g);
+                }
+            }
+        }
         match self.stage {
             Stage::Free => {
                 if self.roll.is_some() {

@@ -169,11 +169,11 @@ impl Golf {
         g.record = g.level;
         // The hole's baby (0x8005928c).
         let baby = BABY[hole];
-        if baby != 1 {
-            if let Some(Some(h)) = g.set.hierarchies.get(baby).cloned() {
-                let a = Animator::load(disc, baby as u16)?;
-                g.player.set_body(h, a, TURN, &g.anims);
-            }
+        if baby != 1
+            && let Some(Some(h)) = g.set.hierarchies.get(baby).cloned()
+        {
+            let a = Animator::load(disc, baby as u16)?;
+            g.player.set_body(h, a, TURN, &g.anims);
         }
         // In activity play only holes 0 and 8 hide the others (0x80096a30).
         if !g.activity || matches!(hole, 0 | 8) {
@@ -196,16 +196,16 @@ impl Golf {
             .iter()
             .map(|&(at, n)| {
                 let b = disc.exe_bytes(at, 2 * n).unwrap_or(&[]);
-                (at, b.chunks_exact(2).map(|w| u16::from_le_bytes([w[0], w[1]])).collect())
+                (at, b.as_chunks::<2>().0.iter().map(|w| u16::from_le_bytes([w[0], w[1]])).collect())
             })
             .collect();
         let mut bodies = Vec::new();
         if g.activity {
             for c in FACES {
-                if let Some(Some(h)) = g.set.hierarchies.get(c).cloned() {
-                    if let Ok(a) = Animator::load(disc, c as u16) {
-                        bodies.push((c, h, a));
-                    }
+                if let Some(Some(h)) = g.set.hierarchies.get(c).cloned()
+                    && let Ok(a) = Animator::load(disc, c as u16)
+                {
+                    bodies.push((c, h, a));
                 }
             }
         }
@@ -262,7 +262,7 @@ impl Golf {
         let k = (power << 16) / 6000;
         let h = g.player.heading;
         let (s, c) = (g.trig.sin(h), g.trig.cos(h));
-        self.roll = Some([s * k >> 12, 0, c * k >> 12]);
+        self.roll = Some([(s * k) >> 12, 0, (c * k) >> 12]);
         self.lipped = false;
         self.strokes += 1;
         g.play(118);
@@ -277,14 +277,14 @@ impl Golf {
         // it (reflected, times 3000 / 4096).
         for k in [0, 2] {
             let mut p = self.ball;
-            p[k] += v[k] * DT >> 6;
+            p[k] += (v[k] * DT) >> 6;
             let q = collide::query(&g.col, [p[0], p[1], p[2]]);
             // Objects stop it too (0x80086340): their boxes.
             let object =
                 g.boxes.iter().any(|b| b.covers(p, RADIUS) && b.min_y < p[1] + RADIUS && b.max_y > p[1] - RADIUS);
             let wall = object || q.kind != 0 || q.tile.is_none() || q.floor < start[1] + RADIUS - 384;
             if wall {
-                v[k] = -(v[k] * BOUNCE >> 12);
+                v[k] = -((v[k] * BOUNCE) >> 12);
                 g.play(137);
             } else {
                 self.ball = p;
@@ -504,7 +504,7 @@ fn lip_out(v: [i32; 3], to_cup: [i32; 2], s: i32) -> [i32; 3] {
     let out = if d.abs() < 256 {
         cup + 2048
     } else {
-        let turn = if s >= TOP_SPEED { 0 } else { (((-d << 6) / TOP_SPEED) * s >> 6) + d };
+        let turn = if s >= TOP_SPEED { 0 } else { ((((-d << 6) / TOP_SPEED) * s) >> 6) + d };
         moving + 2 * turn
     };
     let a = out as f64 / 4096.0 * std::f64::consts::TAU;
@@ -520,13 +520,14 @@ impl Script for Golf {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         // Level 23's callback (0x80081758): a ball at rest within x +-2000,
         // z +-1000 of template 1264 goes to (x, 280, 2753).
-        if g.level == Level::FIRST_HOLE && self.roll.is_none() {
-            if let Some(o) = g.set.placements.iter().find(|p| p.kind == 1 && p.template == RESET_ZONE).map(|p| p.pos) {
-                if (self.ball[0] - o[0]).abs() < 2000 && (self.ball[2] - o[2]).abs() < 1000 {
-                    self.ball = [self.ball[0], 280, 2753];
-                    self.settle(g);
-                }
-            }
+        if g.level == Level::FIRST_HOLE
+            && self.roll.is_none()
+            && let Some(o) = g.set.placements.iter().find(|p| p.kind == 1 && p.template == RESET_ZONE).map(|p| p.pos)
+            && (self.ball[0] - o[0]).abs() < 2000
+            && (self.ball[2] - o[2]).abs() < 1000
+        {
+            self.ball = [self.ball[0], 280, 2753];
+            self.settle(g);
         }
         match self.stage {
             Stage::Free => {
@@ -676,11 +677,11 @@ impl Script for Golf {
                 t.triangles(&g.fonts, overlay);
             }
         }
-        if let Some(t) = self.ball_thing.map(|k| &g.things[k]) {
-            if let Some(m) = g.set.models.get(t.shape) {
-                let pos = Vec3::new(self.ball[0] as f32, self.ball[1] as f32, self.ball[2] as f32);
-                models::model_triangles(m, Mat3::IDENTITY, pos, moving);
-            }
+        if let Some(t) = self.ball_thing.map(|k| &g.things[k])
+            && let Some(m) = g.set.models.get(t.shape)
+        {
+            let pos = Vec3::new(self.ball[0] as f32, self.ball[1] as f32, self.ball[2] as f32);
+            models::model_triangles(m, Mat3::IDENTITY, pos, moving);
         }
         // "Par %d", "Swing ", "%d" at y -100 (0x8007a584), the walk-up
         // shows the stroke about to be played.

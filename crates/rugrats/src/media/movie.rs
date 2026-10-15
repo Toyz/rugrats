@@ -55,7 +55,7 @@ impl rrt::audio::Source for Soundtrack {
     }
 
     fn render(&mut self, out: &mut [i16]) {
-        for frame in out.chunks_exact_mut(2) {
+        for frame in out.as_chunks_mut::<2>().0 {
             let (l, r) = self.samples.get(self.pos).copied().unwrap_or((0, 0));
             self.pos += usize::from(self.pos < self.samples.len());
             frame[0] = l;

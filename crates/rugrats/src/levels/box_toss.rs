@@ -82,7 +82,13 @@ pub struct BoxToss {
 }
 
 fn table(disc: &GameDisc, at: u32, n: usize) -> Vec<u16> {
-    disc.exe_bytes(at, 2 * n).unwrap_or(&[]).chunks_exact(2).map(|w| u16::from_le_bytes([w[0], w[1]])).collect()
+    disc.exe_bytes(at, 2 * n)
+        .unwrap_or(&[])
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|w| u16::from_le_bytes([w[0], w[1]]))
+        .collect()
 }
 
 fn find(g: &Game, id: u16) -> Option<usize> {
@@ -139,10 +145,11 @@ impl BoxToss {
 
     fn round(&mut self, g: &mut Game) {
         // Level 21 hands the bottle back to Tommy's body.
-        if self.rules.back_to_tommy && self.me != 1492 {
-            if let Some(k) = find(g, 1492) {
-                self.swap(g, k);
-            }
+        if self.rules.back_to_tommy
+            && self.me != 1492
+            && let Some(k) = find(g, 1492)
+        {
+            self.swap(g, k);
         }
         self.cookies = self.rules.count;
         self.catcher = None;
@@ -269,39 +276,40 @@ impl Script for BoxToss {
         self.target = self.aim(g);
         // The throw (0x80060b44's levels 20-21 branch): a lob to the
         // target.
-        if holding && pads.pressed(0, input::TRIANGLE) {
-            if let Some(k) = self.target {
-                let (p, q) = (g.player.pos, g.npcs[k].pos);
-                let d = (((q[0] - p[0]) as f64).hypot((q[2] - p[2]) as f64)).max(1.0);
-                let frames = (d / 400.0).max(10.0);
-                let per = 64.0 / 10.0;
-                let v = [
-                    ((q[0] - p[0]) as f64 / frames * per) as i32,
-                    -(65.0 * frames) as i32,
-                    ((q[2] - p[2]) as f64 / frames * per) as i32,
-                ];
-                g.player.act(THROW, &g.anims);
-                // 0x8005d11c: speech 1159 or 1167.
-                g.speech.push(if g.rand.next() & 1 != 0 { 1159 } else { 1167 });
-                g.throw_carried(v);
-                if self.rules.throw_costs {
-                    self.cookies = (self.cookies - 1).max(0);
-                }
-                self.catcher = Some(k);
-                g.npcs[k].mode = Mode::Idle;
+        if holding
+            && pads.pressed(0, input::TRIANGLE)
+            && let Some(k) = self.target
+        {
+            let (p, q) = (g.player.pos, g.npcs[k].pos);
+            let d = (((q[0] - p[0]) as f64).hypot((q[2] - p[2]) as f64)).max(1.0);
+            let frames = (d / 400.0).max(10.0);
+            let per = 64.0 / 10.0;
+            let v = [
+                ((q[0] - p[0]) as f64 / frames * per) as i32,
+                -(65.0 * frames) as i32,
+                ((q[2] - p[2]) as f64 / frames * per) as i32,
+            ];
+            g.player.act(THROW, &g.anims);
+            // 0x8005d11c: speech 1159 or 1167.
+            g.speech.push(if g.rand.next() & 1 != 0 { 1159 } else { 1167 });
+            g.throw_carried(v);
+            if self.rules.throw_costs {
+                self.cookies = (self.cookies - 1).max(0);
             }
+            self.catcher = Some(k);
+            g.npcs[k].mode = Mode::Idle;
         }
         // The catch (0x80057518): the box within 1400 of the catcher.
-        if let Some(k) = self.catcher {
-            if let Some(b) = g.things.iter().find(|t| t.template == item) {
-                let q = g.npcs[k].pos;
-                if (b.pos.x as i32 - q[0]).abs() < CATCH && (b.pos.z as i32 - q[2]).abs() < CATCH {
-                    self.catcher = None;
-                    self.swap(g, k);
-                } else if b.state == ThingState::Rest {
-                    // A missed throw: the box on the floor.
-                    self.catcher = None;
-                }
+        if let Some(k) = self.catcher
+            && let Some(b) = g.things.iter().find(|t| t.template == item)
+        {
+            let q = g.npcs[k].pos;
+            if (b.pos.x as i32 - q[0]).abs() < CATCH && (b.pos.z as i32 - q[2]).abs() < CATCH {
+                self.catcher = None;
+                self.swap(g, k);
+            } else if b.state == ThingState::Rest {
+                // A missed throw: the box on the floor.
+                self.catcher = None;
             }
         }
         // Angelica: after the box; her lunge knocks it from the holder,

@@ -60,7 +60,9 @@ impl Mesh {
         let words = |at: u32, n: usize| -> Result<Vec<u32>, String> {
             Ok(disc
                 .exe_bytes(at, 4 * n)?
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
                 .collect())
         };
@@ -70,7 +72,9 @@ impl Mesh {
         let faces = (0..t.faces).map(|k| (flags[k], corners[k].to_le_bytes(), colours[k].to_le_bytes())).collect();
         let raw = disc.exe_bytes(t.at, 8 * t.vertices)?;
         let vertices = raw
-            .chunks_exact(8)
+            .as_chunks::<8>()
+            .0
+            .iter()
             .map(|v| {
                 let s = |i: usize| i16::from_le_bytes([v[i], v[i + 1]]) as f32;
                 Vec3::new(s(0), s(2), s(4))

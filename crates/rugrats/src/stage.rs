@@ -28,7 +28,7 @@ pub struct Stage {
 impl Stage {
     /// Replaces the moving triangles, picking out the semi-transparent.
     pub fn set_moving(&mut self, tris: Vec<Vtx>) {
-        self.semi = tris.chunks_exact(3).filter(|t| t[0].mode & Vtx::SEMI != 0).flatten().copied().collect();
+        self.semi = tris.as_chunks::<3>().0.iter().filter(|t| t[0].mode & Vtx::SEMI != 0).flatten().copied().collect();
         self.moving = tris;
     }
 

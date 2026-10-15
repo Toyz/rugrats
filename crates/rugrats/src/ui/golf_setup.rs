@@ -223,11 +223,11 @@ impl GolfSetup {
             t.triangles(fonts, overlay);
         }
         // The cursor under the face it is on.
-        if self.step == 1 {
-            if let Some(sp) = sprites {
-                let (x, y) = face_at(self.col + 3 * self.row);
-                sp.draw(CURSOR, (x + 15, y + 5), 15.5 / 1.6, 15.5, 1024.0, 0.0, 1024.0, overlay);
-            }
+        if self.step == 1
+            && let Some(sp) = sprites
+        {
+            let (x, y) = face_at(self.col + 3 * self.row);
+            sp.draw(CURSOR, (x + 15, y + 5), 15.5 / 1.6, 15.5, 1024.0, 0.0, 1024.0, overlay);
         }
     }
 }

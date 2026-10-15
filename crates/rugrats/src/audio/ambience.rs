@@ -47,7 +47,7 @@ impl Tables {
             .chain(GOLF_TABLES.iter())
             .map(|&(at, n)| {
                 let b = disc.exe_bytes(at, 2 * n).unwrap_or(&[]);
-                (at, b.chunks_exact(2).map(|w| u16::from_le_bytes([w[0], w[1]])).collect())
+                (at, b.as_chunks::<2>().0.iter().map(|w| u16::from_le_bytes([w[0], w[1]])).collect())
             })
             .collect();
         Tables { words }

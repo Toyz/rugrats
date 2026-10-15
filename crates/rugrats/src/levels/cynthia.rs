@@ -109,11 +109,11 @@ impl Cynthia {
 impl Script for Cynthia {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
-            if let Event::Bite { target: Target::Player, amount, .. } = e {
-                if amount > 0 {
-                    g.player.health = (g.player.health - amount).max(0);
-                    g.play(BITE_SOUND);
-                }
+            if let Event::Bite { target: Target::Player, amount, .. } = e
+                && amount > 0
+            {
+                g.player.health = (g.player.health - amount).max(0);
+                g.play(BITE_SOUND);
             }
         }
         // The brown water (0x8005d8e0, 0x8005eab0): from phase 2, on a
@@ -192,10 +192,10 @@ impl Script for Cynthia {
             let pos = Vec3::new(self.cynthia[0] as f32, self.cynthia[1] as f32, self.cynthia[2] as f32);
             models::model_triangles(m, Mat3::IDENTITY, pos, moving);
         }
-        if self.phase == 4 {
-            if let Some(s) = &g.sprites {
-                s.draw(PORTRAIT, (-60, -70), 32.0, 64.0, 1024.0, 0.0, g.focal(), overlay);
-            }
+        if self.phase == 4
+            && let Some(s) = &g.sprites
+        {
+            s.draw(PORTRAIT, (-60, -70), 32.0, 64.0, 1024.0, 0.0, g.focal(), overlay);
         }
     }
 

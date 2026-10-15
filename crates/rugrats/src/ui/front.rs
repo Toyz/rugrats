@@ -630,7 +630,7 @@ pub struct Title {
 }
 
 fn words(bytes: &[u8]) -> Vec<u16> {
-    bytes.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect()
+    bytes.as_chunks::<2>().0.iter().map(|h| u16::from_le_bytes([h[0], h[1]])).collect()
 }
 
 /// VRAM as the front end has it: MENU.TEX at (0, 256), the characters'
@@ -737,7 +737,7 @@ impl Card {
 
     /// One frame (every other tick); true when Cross closes it.
     pub fn frame(&mut self, pads: &Pads) -> bool {
-        if self.frames % 30 == 0 {
+        if self.frames.is_multiple_of(30) {
             self.backdrop.fading = true;
         }
         if self.backdrop.fading {
@@ -911,7 +911,7 @@ impl Title {
             return self.start_frame(pads, rng);
         }
         // A fade every 30 frames.
-        if self.frames % 30 == 0 {
+        if self.frames.is_multiple_of(30) {
             self.backdrop.fading = true;
         }
         self.frames += 1;
@@ -979,7 +979,7 @@ impl Title {
                 }
             };
         }
-        if self.frames % 30 == 0 {
+        if self.frames.is_multiple_of(30) {
             self.backdrop.fading = true;
         }
         self.frames += 1;
@@ -1094,7 +1094,7 @@ impl Title {
         let _ = rng;
         let Some(card) = &mut self.card else { return None };
         let out = card.frame(pads);
-        self.sounds.extend(card.sounds.drain(..));
+        self.sounds.append(&mut card.sounds);
         match out {
             Some(card_menu::Outcome::Loaded(state)) => return Some(Outcome::Load(state)),
             Some(_) => {
@@ -1109,7 +1109,7 @@ impl Title {
             None => {}
         }
         self.frames += 1;
-        if self.frames % 30 == 0 {
+        if self.frames.is_multiple_of(30) {
             self.backdrop.fading = true;
         }
         if self.backdrop.fading {
@@ -1139,7 +1139,7 @@ impl Title {
         let Some(menu) = &mut self.audio else { return None };
         // The backdrop's fade steps twice a frame here (0x80042294,
         // 0x800427ec).
-        if self.frames % 30 == 0 {
+        if self.frames.is_multiple_of(30) {
             self.backdrop.fading = true;
         }
         for _ in 0..2 {
@@ -1149,7 +1149,7 @@ impl Title {
         }
         self.frames += 1;
         let done = menu.frame(pads);
-        self.sounds.extend(menu.sounds.drain(..));
+        self.sounds.append(&mut menu.sounds);
         self.song_volume = menu.song_volume;
         self.settings = menu.settings;
         for b in &mut self.buttons {
@@ -1173,10 +1173,10 @@ impl Title {
     fn golf_frame(&mut self, pads: &Pads) -> Option<Outcome> {
         let Some(setup) = &mut self.golf else { return None };
         let out = setup.frame(pads);
-        self.sounds.extend(setup.sounds.drain(..));
+        self.sounds.append(&mut setup.sounds);
         self.golf_count = setup.count();
         self.frames += 1;
-        if self.frames % 30 == 0 {
+        if self.frames.is_multiple_of(30) {
             self.backdrop.fading = true;
         }
         if self.backdrop.fading {

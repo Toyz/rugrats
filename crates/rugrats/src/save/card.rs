@@ -98,11 +98,11 @@ impl Art {
         let mut f = [0u8; TITLE_SIZE];
         f[..4].copy_from_slice(&[b'S', b'C', 0x13, blocks]);
         let title = &mut f[4..68];
-        for pair in title.chunks_exact_mut(2) {
+        for pair in title.as_chunks_mut::<2>().0 {
             pair.copy_from_slice(&[0x81, 0x40]);
         }
         let text = format!("RugRats {name}");
-        for (pair, c) in title.chunks_exact_mut(2).zip(text.bytes()) {
+        for (pair, c) in title.as_chunks_mut::<2>().0.iter_mut().zip(text.bytes()) {
             pair.copy_from_slice(&self.sjis(c).to_be_bytes());
         }
         f[0x60..0x80].copy_from_slice(&self.clut);
@@ -149,7 +149,7 @@ impl Default for Save {
 impl Save {
     pub fn from_bytes(b: &[u8]) -> Option<Save> {
         let b = b.get(..SAVE_SIZE)?;
-        Some(Save { words: b.chunks_exact(4).map(|w| u32::from_le_bytes(w.try_into().unwrap())).collect() })
+        Some(Save { words: b.as_chunks::<4>().0.iter().map(|&w| u32::from_le_bytes(w)).collect() })
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {

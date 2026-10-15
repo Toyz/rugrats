@@ -124,12 +124,12 @@ impl Game {
             }
             // The wait at an end (+0xd2, 136 a think).
             let hinged = self.doors[k].hinged;
-            if let Some(s) = &mut self.doors[k].swing {
-                if s.wait > 0 {
-                    // Hinged waits count 136 a think, sliding ones 1.
-                    s.wait = (s.wait - if hinged { 136 } else { 1 }).max(0);
-                    continue;
-                }
+            if let Some(s) = &mut self.doors[k].swing
+                && s.wait > 0
+            {
+                // Hinged waits count 136 a think, sliding ones 1.
+                s.wait = (s.wait - if hinged { 136 } else { 1 }).max(0);
+                continue;
             }
             // The easing: 256 + ease x sin(how far along, half a turn).
             if let Some(s) = &self.doors[k].swing {
@@ -168,11 +168,13 @@ impl Game {
                 // Level 16: message 24. A hurting door (class 8, +0x6d)
                 // hurts every 51 VSyncs (25 frames).
                 self.training.show(24);
-                if let Some(s) = &mut self.doors[k].swing {
-                    if s.damage > 0 && s.hurt == 0 && !self.no_damage {
-                        s.hurt = 250;
-                        self.player.health = (self.player.health - s.damage).max(0);
-                    }
+                if let Some(s) = &mut self.doors[k].swing
+                    && s.damage > 0
+                    && s.hurt == 0
+                    && !self.no_damage
+                {
+                    s.hurt = 250;
+                    self.player.health = (self.player.health - s.damage).max(0);
                 }
                 continue;
             }

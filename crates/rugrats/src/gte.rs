@@ -14,7 +14,7 @@ pub struct Trig {
 impl Trig {
     pub fn load(disc: &GameDisc) -> Result<Trig, String> {
         let raw = disc.exe_bytes(TABLE, 2 * 1025)?;
-        Ok(Trig { sin: raw.chunks_exact(2).map(|h| i16::from_le_bytes([h[0], h[1]])).collect() })
+        Ok(Trig { sin: raw.as_chunks::<2>().0.iter().map(|h| i16::from_le_bytes([h[0], h[1]])).collect() })
     }
 
     /// rsin (0x8009efd8): 4096 to a turn.

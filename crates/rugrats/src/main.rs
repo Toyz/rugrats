@@ -527,12 +527,11 @@ impl Game for Rugrats {
                     // Lines from the level's set, as the board runs in it.
                     if let Then::Back(game) = then {
                         for &n in &screen.speech {
-                            if let Ok(mut s) = self.soundtrack.lock() {
-                                if !s.playing() {
-                                    if let Some(sound) = game.lines.line(&self.disc, n) {
-                                        *s = Soundtrack::new(sound);
-                                    }
-                                }
+                            if let Ok(mut s) = self.soundtrack.lock()
+                                && !s.playing()
+                                && let Some(sound) = game.lines.line(&self.disc, n)
+                            {
+                                *s = Soundtrack::new(sound);
                             }
                         }
                     }
@@ -658,12 +657,11 @@ impl Game for Rugrats {
                     // Speech (0x8008da4c): one line at a time; one asked for
                     // while another plays is dropped.
                     for &n in &game.speech {
-                        if let Ok(mut s) = self.soundtrack.lock() {
-                            if !s.playing() {
-                                if let Some(sound) = game.lines.line(&self.disc, n) {
-                                    *s = Soundtrack::new(sound);
-                                }
-                            }
+                        if let Ok(mut s) = self.soundtrack.lock()
+                            && !s.playing()
+                            && let Some(sound) = game.lines.line(&self.disc, n)
+                        {
+                            *s = Soundtrack::new(sound);
                         }
                     }
                     let mut bought = false;
@@ -689,10 +687,9 @@ impl Game for Rugrats {
                         return;
                     }
                     if let Some(song) = game.song.take().and_then(|n| self.songs.as_ref().and_then(|l| l.songs.get(n)))
+                        && let Ok(mut spu) = self.spu.lock()
                     {
-                        if let Ok(mut spu) = self.spu.lock() {
-                            spu.play(song, 0, self.progress.audio().music);
-                        }
+                        spu.play(song, 0, self.progress.audio().music);
                     }
                     if game.ending {
                         // The end (0x8007737c case 84, the teardown): the

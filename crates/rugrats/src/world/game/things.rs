@@ -257,7 +257,7 @@ impl Game {
                 self.set.models.get(t.shape).and_then(|m| m.boxes.iter().map(|b| b.1[1]).max()).unwrap_or(0) as f32;
             let before = t.pos;
             for k in [0, 2] {
-                t.pos[k] += (v[k] * dt >> 6) as f32;
+                t.pos[k] += ((v[k] * dt) >> 6) as f32;
             }
             // The wall test (0x80060810): a step into a wall or a higher
             // column is taken back, and the thing drops where it was.

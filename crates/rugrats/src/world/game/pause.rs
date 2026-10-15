@@ -92,7 +92,7 @@ impl Pause {
         self.frames += 1;
         if let Some(card) = &mut self.card {
             let out = card.frame(pads);
-            self.sounds.extend(card.sounds.drain(..));
+            self.sounds.append(&mut card.sounds);
             match out {
                 Some(Outcome::Back(item)) => {
                     self.card = None;
@@ -145,7 +145,7 @@ impl Pause {
             self.cursor += 2;
             self.sounds.push(MOVE_ON);
         }
-        if pressed(input::UP) && self.cursor % 2 == 0 {
+        if pressed(input::UP) && self.cursor.is_multiple_of(2) {
             self.cursor -= 1;
             self.sounds.push(MOVE);
         } else if pressed(input::DOWN) && self.cursor % 2 == 1 && self.cursor < 5 {

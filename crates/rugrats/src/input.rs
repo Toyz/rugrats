@@ -94,7 +94,7 @@ impl Pads {
             Query::Held => h & 1 != 0,
             Query::NotHeld => h & 1 == 0,
         };
-        self.port.iter().filter_map(|p| p.history.iter().position(|&h| hit(h)).map(|b| b + 1)).last()
+        self.port.iter().filter_map(|p| p.history.iter().position(|&h| hit(h)).map(|b| b + 1)).next_back()
     }
 }
 

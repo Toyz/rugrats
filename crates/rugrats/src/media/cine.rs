@@ -89,13 +89,14 @@ impl Set {
         // characters' image at boot (0x800186d8) to (576, 256), 384 x 256.
         for (file, x) in [(A_RAW + db, 0), (CHARACTR_RAW, 576)] {
             let raw = disc.file(file)?;
-            let words: Vec<u16> = raw.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
+            let words: Vec<u16> = raw.as_chunks::<2>().0.iter().map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
             vram.load(x, 256, if x == 0 { 576 } else { 384 }, 256, &words);
         }
         // The fonts, which boot puts at (960, 256) for good (0x8002ed80).
         let (fx, fy) = FONT_AT;
         let (fw, fh) = FONT_SIZE;
-        let font: Vec<u16> = disc.file(FONT_FILE)?.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
+        let font: Vec<u16> =
+            disc.file(FONT_FILE)?.as_chunks::<2>().0.iter().map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
         vram.load(fx, fy, fw, fh, &font);
         Ok(Set {
             vram,

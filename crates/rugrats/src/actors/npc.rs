@@ -202,8 +202,8 @@ impl Npc {
         let speed = if wrap(want - self.heading).abs() > 1024 { speed / 4 } else { speed };
         self.speed = speed;
         let start = self.pos;
-        self.pos[0] += trig.sin(self.heading) * speed * DT >> 12;
-        self.pos[2] += trig.cos(self.heading) * speed * DT >> 12;
+        self.pos[0] += (trig.sin(self.heading) * speed * DT) >> 12;
+        self.pos[2] += (trig.cos(self.heading) * speed * DT) >> 12;
         // Asked from a step above the feet, as the player's floor test.
         let q = collide::query(col, [self.pos[0], self.pos[1] - self.feet() - 384, self.pos[2]]);
         if q.kind == 2 || q.tile.is_none() {

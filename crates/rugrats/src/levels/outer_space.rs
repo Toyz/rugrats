@@ -173,7 +173,7 @@ impl OuterSpace {
             while gone < BEAM_SPEED {
                 let step = BEAM_STEP.min(BEAM_SPEED - gone);
                 gone += step;
-                let next = [b.pos[0] + (b.dir[0] * step >> 12), b.pos[1], b.pos[2] + (b.dir[1] * step >> 12)];
+                let next = [b.pos[0] + ((b.dir[0] * step) >> 12), b.pos[1], b.pos[2] + ((b.dir[1] * step) >> 12)];
                 let q = collide::query(&g.col, next);
                 if q.kind != 0 {
                     b.done = true;
@@ -210,10 +210,10 @@ impl OuterSpace {
 impl Script for OuterSpace {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
-            if let Event::Bite { target: Target::Player, amount, .. } = e {
-                if amount > 0 {
-                    g.player.health = (g.player.health - amount).max(0);
-                }
+            if let Event::Bite { target: Target::Player, amount, .. } = e
+                && amount > 0
+            {
+                g.player.health = (g.player.health - amount).max(0);
             }
         }
         // Batteries (kind 12, 0x80051c68): +30 charge, sound 69.

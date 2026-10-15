@@ -62,12 +62,13 @@ impl Script for CookieRace {
                 _ => {}
             }
             // GoalPost's level 13 case (0x80077070): speech 723, cine 20.
-            if let Event::Goal(k) = e {
-                if g.npcs[k].id == ANGELICA && !self.raced {
-                    self.raced = true;
-                    g.speech.push(723);
-                    g.cine = Some(CINE_LOST);
-                }
+            if let Event::Goal(k) = e
+                && g.npcs[k].id == ANGELICA
+                && !self.raced
+            {
+                self.raced = true;
+                g.speech.push(723);
+                g.cine = Some(CINE_LOST);
             }
         }
         for Collected { kind, .. } in std::mem::take(&mut g.collected) {

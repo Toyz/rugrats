@@ -975,10 +975,8 @@ impl Game {
             let template = if b.broken { b.template as usize + 1 } else { b.template as usize };
             let flag8 = self.set.templates.get(template).is_some_and(|t| t.flags & 8 != 0);
             let shape = if b.broken { b.shape + 1 } else { b.shape };
-            if !flag8 {
-                if let Some(model) = self.set.models.get(shape) {
-                    boxes.extend(world_boxes(model, b.rot, b.pos));
-                }
+            if !flag8 && let Some(model) = self.set.models.get(shape) {
+                boxes.extend(world_boxes(model, b.rot, b.pos));
             }
         }
         for m in &self.movers {
@@ -1276,10 +1274,11 @@ impl Game {
             s.draw(self, &mut moving, &mut overlay);
         }
         // The health meter (levels 2-6, 9, 12, 14, 16: 0x8008c094's switch).
-        if self.meter_shown > 0 && self.level.has_meter() {
-            if let Some(s) = &self.sprites {
-                hud::meter(s, self.player.health, 255, self.focal, &mut overlay);
-            }
+        if self.meter_shown > 0
+            && self.level.has_meter()
+            && let Some(s) = &self.sprites
+        {
+            hud::meter(s, self.player.health, 255, self.focal, &mut overlay);
         }
         self.stage.set_moving(moving);
         self.stage.overlay = overlay;

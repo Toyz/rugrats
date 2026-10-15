@@ -95,7 +95,7 @@ impl Game {
             let d = (want - w.heading + 2048).rem_euclid(4096) - 2048;
             w.heading = (w.heading + d.clamp(-512, 512)).rem_euclid(4096);
             let (s, c) = (self.trig.sin(w.heading), self.trig.cos(w.heading));
-            let next = [w.pos[0] + (s * w.speed >> 12), w.pos[1], w.pos[2] + (c * w.speed >> 12)];
+            let next = [w.pos[0] + ((s * w.speed) >> 12), w.pos[1], w.pos[2] + ((c * w.speed) >> 12)];
             // Blocked by the player (0x8006baa8): it waits.
             let (bx, bz) = ((next[0] - me[0]) as i64, (next[2] - me[2]) as i64);
             if bx * bx + bz * bz > 400 * 400 {

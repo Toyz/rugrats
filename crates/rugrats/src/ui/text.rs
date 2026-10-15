@@ -80,7 +80,7 @@ pub struct Fonts {
 impl Fonts {
     pub fn load(disc: &GameDisc) -> Result<Fonts, String> {
         let raw = disc.exe_bytes(GLYPHS, 4 * 3 * PER_FONT)?;
-        Ok(Fonts { glyphs: raw.chunks_exact(4).map(|g| [g[0], g[1], g[2], g[3]]).collect() })
+        Ok(Fonts { glyphs: raw.as_chunks::<4>().0.iter().map(|g| [g[0], g[1], g[2], g[3]]).collect() })
     }
 
     fn glyph(&self, font: u8, index: usize) -> [u8; 4] {

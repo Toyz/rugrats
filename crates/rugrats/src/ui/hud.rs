@@ -28,7 +28,7 @@ impl Sprites {
         let k = if db < 32 { db + 1 } else { 0 };
         let file = disc.exe_u32(TEXPOS + 4 * k as u32)? as usize;
         let raw = disc.file(file)?;
-        Ok(Sprites { textures: raw.chunks_exact(12).take(ENTRIES).map(Texture::parse).collect() })
+        Ok(Sprites { textures: raw.as_chunks::<12>().0.iter().take(ENTRIES).map(|t| Texture::parse(t)).collect() })
     }
 
     /// Sprite `n` (0x80089fa4: n mod 428; an entry with no page is none).

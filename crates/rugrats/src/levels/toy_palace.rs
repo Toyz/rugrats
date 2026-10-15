@@ -143,10 +143,10 @@ impl ToyPalace {
 impl Script for ToyPalace {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
-            if let Event::Bite { target: Target::Player, amount, .. } = e {
-                if amount > 0 {
-                    g.player.health = (g.player.health - amount).max(0);
-                }
+            if let Event::Bite { target: Target::Player, amount, .. } = e
+                && amount > 0
+            {
+                g.player.health = (g.player.health - amount).max(0);
             }
         }
         let p = g.player.pos;

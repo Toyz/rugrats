@@ -21,7 +21,7 @@ pub fn picture(bytes: &[u8], tables: &Tables) -> Result<Picture, bs::BsError> {
     let mut pic = Picture::filled(WIDTH as u32, HEIGHT as u32, [0, 0, 0, 255]);
     for (i, &p) in px.iter().enumerate() {
         let ch = |c: u16| {
-            let v = ((c as u32 & 31) * SHADE >> 7).min(31) as u8;
+            let v = (((c as u32 & 31) * SHADE) >> 7).min(31) as u8;
             v << 3 | v >> 2
         };
         pic.set((i % WIDTH) as u32, (i / WIDTH) as u32, [ch(p), ch(p >> 5), ch(p >> 10), 255]);

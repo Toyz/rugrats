@@ -79,7 +79,9 @@ impl Faces {
                 let raw = disc.file(file)?;
                 Some(
                     raw[BANK_HEADER.min(raw.len())..]
-                        .chunks_exact(2)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
                         .map(|h| u16::from_le_bytes([h[0], h[1]]))
                         .collect(),
                 )

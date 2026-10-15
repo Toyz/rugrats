@@ -776,13 +776,13 @@ impl Screen {
                 }
                 // The lowest earned, unplaced piece blinks at (0, 45)
                 // (0x80092d9c).
-                if *blink && self.frames % 30 < 15 {
-                    if let (Some(i), Some(sp)) =
+                if *blink
+                    && self.frames % 30 < 15
+                    && let (Some(i), Some(sp)) =
                         ((0..12).find(|&i| self.earned >> i & 1 != 0 && self.placed >> i & 1 == 0), &self.sprites)
-                    {
-                        sp.draw(PIECE_SHADOW + i as u32, (2, 47), 64.0, 64.0, 1024.0, 0.0, self.focal, &mut overlay);
-                        sp.draw(PIECE + i as u32, (0, 45), 64.0, 64.0, 1024.0, 0.0, self.focal, &mut overlay);
-                    }
+                {
+                    sp.draw(PIECE_SHADOW + i as u32, (2, 47), 64.0, 64.0, 1024.0, 0.0, self.focal, &mut overlay);
+                    sp.draw(PIECE + i as u32, (0, 45), 64.0, 64.0, 1024.0, 0.0, self.focal, &mut overlay);
                 }
                 self.press_cube(eye, &mut moving, &mut overlay);
             }

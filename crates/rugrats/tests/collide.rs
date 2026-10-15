@@ -51,7 +51,7 @@ fn queries_match_the_original() {
                     let floor = m.bus.read_u32(out + 4).unwrap() as i32;
                     let tile_ptr = m.bus.read_u32(out + 8).unwrap();
                     let ours = query(&col, pos);
-                    let theirs_tile = (tile_ptr != 0).then(|| tile_ptr);
+                    let theirs_tile = (tile_ptr != 0).then_some(tile_ptr);
                     // The tile as the original's pointer: the column's data
                     // start plus cells and the tile's index.
                     let our_ptr = ours.tile.map(|(c, i)| {

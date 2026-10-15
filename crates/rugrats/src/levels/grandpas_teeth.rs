@@ -105,7 +105,8 @@ impl GrandpasTeeth {
                 n.health = 255;
             }
         }
-        for id in [HIDDEN] {
+        {
+            let id = HIDDEN;
             if let Some(k) = find(g, id) {
                 g.npcs[k].hidden = true;
             }
@@ -326,17 +327,17 @@ impl GrandpasTeeth {
         if self.puck.is_none() && pads.pressed(0, input::TRIANGLE) {
             let (s, c) = (g.trig.sin(g.player.heading), g.trig.cos(g.player.heading));
             let start = [
-                g.player.pos[0] + (s * 512 >> 12),
+                g.player.pos[0] + ((s * 512) >> 12),
                 g.player.pos[1] - g.player.feet(),
-                g.player.pos[2] + (c * 512 >> 12),
+                g.player.pos[2] + ((c * 512) >> 12),
             ];
-            self.puck = Some(Puck { pos: start, v: [s * PUCK_SPEED >> 12, c * PUCK_SPEED >> 12], travelled: 0 });
+            self.puck = Some(Puck { pos: start, v: [(s * PUCK_SPEED) >> 12, (c * PUCK_SPEED) >> 12], travelled: 0 });
             g.play(36);
             g.player.act(7, &g.anims);
         }
         if let Some(p) = &mut self.puck {
-            p.pos[0] += p.v[0] * DT >> 6;
-            p.pos[2] += p.v[1] * DT >> 6;
+            p.pos[0] += (p.v[0] * DT) >> 6;
+            p.pos[2] += (p.v[1] * DT) >> 6;
             p.travelled += ((p.v[0].abs() + p.v[1].abs()) * DT) >> 6;
             // A hit on the goose or Chuckie (0x80086ef0): Damage 50.
             let hit = [GOOSE, CHUCKIE].into_iter().filter_map(|id| find(g, id)).find(|&k| {
@@ -374,11 +375,11 @@ impl GrandpasTeeth {
 
     /// The puck, the clock and the two gauges (as text for now).
     pub fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
-        if let Some(p) = &self.puck {
-            if let Some(m) = g.set.models.get(PUCK_MODEL) {
-                let pos = rrt::glam::Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32);
-                models::model_triangles(m, rrt::glam::Mat3::IDENTITY, pos, moving);
-            }
+        if let Some(p) = &self.puck
+            && let Some(m) = g.set.models.get(PUCK_MODEL)
+        {
+            let pos = rrt::glam::Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32);
+            models::model_triangles(m, rrt::glam::Mat3::IDENTITY, pos, moving);
         }
         if self.phase == 3 {
             // The two gauges (0x8008c5e0 in 0x8007c6e0): the goose's (278)

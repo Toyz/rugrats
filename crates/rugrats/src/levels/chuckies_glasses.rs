@@ -141,16 +141,16 @@ impl Script for ChuckiesGlasses {
                         n.mode == Mode::Idle && dx * dx + dz * dz < TAG_REACH * TAG_REACH
                     })
             });
-            if let Some(i) = near {
-                if let Some(k) = find(g, self.babies[i].id) {
-                    if let Some(s) = self.babies[i].spot.take() {
-                        g.spots[s].used = false;
-                    }
-                    let first = g.npcs[k].first_post;
-                    g.npcs[k].mode = Mode::Posts { prev: 0, cur: first };
-                    // Chuckie says 0x800b9728[(rand & 255) mod 3].
-                    g.speech.push([158, 160, 165][(g.rand.next() & 255) as usize % 3]);
+            if let Some(i) = near
+                && let Some(k) = find(g, self.babies[i].id)
+            {
+                if let Some(s) = self.babies[i].spot.take() {
+                    g.spots[s].used = false;
                 }
+                let first = g.npcs[k].first_post;
+                g.npcs[k].mode = Mode::Posts { prev: 0, cur: first };
+                // Chuckie says 0x800b9728[(rand & 255) mod 3].
+                g.speech.push([158, 160, 165][(g.rand.next() & 255) as usize % 3]);
             }
         }
         // Each running baby counts the shared countdown down and says a

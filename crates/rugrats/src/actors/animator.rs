@@ -63,11 +63,18 @@ impl Animator {
     pub fn load(disc: &GameDisc, character: u16) -> Result<Animator, String> {
         let (entries_at, remap_at) = tables(character);
         let s16s = |addr: u32, n: usize| -> Result<Vec<i16>, String> {
-            Ok(disc.exe_bytes(addr, 2 * n)?.chunks_exact(2).map(|h| i16::from_le_bytes([h[0], h[1]])).collect())
+            Ok(disc
+                .exe_bytes(addr, 2 * n)?
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|h| i16::from_le_bytes([h[0], h[1]]))
+                .collect())
         };
         let remap = s16s(remap_at, REMAP_COUNT)?;
         let count = remap.iter().copied().filter(|&e| (0..256).contains(&e)).max().unwrap_or(0) as usize + 1;
-        let entries = s16s(entries_at, 4 * count)?.chunks_exact(4).map(|e| [e[0], e[1], e[2], e[3]]).collect();
+        let entries =
+            s16s(entries_at, 4 * count)?.as_chunks::<4>().0.iter().map(|e| [e[0], e[1], e[2], e[3]]).collect();
         Ok(Animator { tracks: [Track::default(); 4], remap, entries })
     }
 

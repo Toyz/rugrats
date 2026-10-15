@@ -35,8 +35,8 @@ impl Pie {
         });
         let speed = if near { 225 } else { 450 } * 65536 / 6000;
         let (s, c) = (g.trig.sin(heading), g.trig.cos(heading));
-        let pos = [from[0] + (s * 512 >> 12), from[1], from[2] + (c * 512 >> 12)];
-        Pie { pos, v: [s * speed >> 12, c * speed >> 12], travelled: 0 }
+        let pos = [from[0] + ((s * 512) >> 12), from[1], from[2] + ((c * 512) >> 12)];
+        Pie { pos, v: [(s * speed) >> 12, (c * speed) >> 12], travelled: 0 }
     }
 }
 
@@ -49,7 +49,7 @@ pub fn roll_pies(g: &Game, pies: &mut Vec<Pie>, targets: &[usize]) -> Vec<usize>
         // In quarter steps, so a fast pie cannot pass through.
         for _ in 0..4 {
             for k in 0..2 {
-                p.pos[2 * k] += p.v[k] * DT >> 8;
+                p.pos[2 * k] += (p.v[k] * DT) >> 8;
             }
             p.travelled += ((p.v[0] as f64).hypot(p.v[1] as f64) as i32 * DT) >> 8;
             let q = collide::query(&g.col, [p.pos[0], p.pos[1] - 1, p.pos[2]]);

@@ -151,7 +151,7 @@ impl Envelope {
             cycles *= 4;
         }
         if exp && down {
-            step = step * self.level >> 15;
+            step = (step * self.level) >> 15;
         }
         self.wait = cycles - 1;
         self.level = (self.level + step).clamp(0, 0x7fff);
@@ -201,13 +201,13 @@ impl Voice {
             (self.pos >> 4 & 255) as u8,
         );
         self.env.step();
-        let v = s * self.env.level >> 15;
+        let v = (s * self.env.level) >> 15;
         self.pos += self.pitch.min(0x3fff) as u64;
         let n = self.sample.pcm.len() as u64;
         if self.sample.loop_start.is_none() && self.pos >> 12 >= n + 3 {
             self.env.phase = Phase::Off;
         }
-        (v * self.vol.0 >> 15, v * self.vol.1 >> 15)
+        ((v * self.vol.0) >> 15, (v * self.vol.1) >> 15)
     }
 }
 
@@ -526,7 +526,7 @@ impl Spu {
 
     /// Fills `out` with stereo frames.
     pub fn render(&mut self, out: &mut [i16]) {
-        for frame in out.chunks_exact_mut(2) {
+        for frame in out.as_chunks_mut::<2>().0 {
             self.sequence();
             let (mut l, mut r) = (frame[0] as i32, frame[1] as i32);
             for v in self.voices.iter_mut() {
@@ -539,8 +539,8 @@ impl Spu {
                 }
             }
             // The main volume libsnd sets (SsSetMVol 127: 0x3fff).
-            frame[0] = (frame[0] as i32 + ((l - frame[0] as i32) * MAIN_VOLUME >> 15)).clamp(-32768, 32767) as i16;
-            frame[1] = (frame[1] as i32 + ((r - frame[1] as i32) * MAIN_VOLUME >> 15)).clamp(-32768, 32767) as i16;
+            frame[0] = (frame[0] as i32 + (((l - frame[0] as i32) * MAIN_VOLUME) >> 15)).clamp(-32768, 32767) as i16;
+            frame[1] = (frame[1] as i32 + (((r - frame[1] as i32) * MAIN_VOLUME) >> 15)).clamp(-32768, 32767) as i16;
             self.clock += 1;
         }
     }
@@ -548,7 +548,7 @@ impl Spu {
 
 /// The effects table (0x800b84fc): program, tone, note for each of 180.
 pub fn effect_table(disc: &GameDisc) -> Result<Vec<[u8; 3]>, String> {
-    Ok(disc.exe_bytes(0x800b_84fc, 3 * 180)?.chunks_exact(3).map(|e| [e[0], e[1], e[2]]).collect())
+    Ok(disc.exe_bytes(0x800b_84fc, 3 * 180)?.as_chunks::<3>().0.iter().map(|e| [e[0], e[1], e[2]]).collect())
 }
 
 /// The settings' music and effects volumes (0x800c5684, 0x800c5688) as

@@ -123,10 +123,10 @@ impl LetThereBeLight {
 impl Script for LetThereBeLight {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
-            if let Event::Bite { target: Target::Player, amount, .. } = e {
-                if amount > 0 {
-                    g.player.health = (g.player.health - amount).max(0);
-                }
+            if let Event::Bite { target: Target::Player, amount, .. } = e
+                && amount > 0
+            {
+                g.player.health = (g.player.health - amount).max(0);
             }
         }
         // Shining (0x8005a6f4): Triangle held, 1 a frame, sound 161 on the
@@ -235,12 +235,12 @@ impl Script for LetThereBeLight {
             }
         }
         // The gauge (0x8008c7f0: 360 over 361) while the light is held.
-        if self.holding(g) {
-            if let Some(s) = &g.sprites {
-                let top = 2.0 * 54.0 * (self.max - self.charge.min(self.max)).max(0) as f32 / self.max as f32;
-                s.draw(361, GAUGE, 36.0, 54.0, 1024.0, top, g.focal(), overlay);
-                s.draw(360, GAUGE, 36.0, 64.0, 1024.0, 0.0, g.focal(), overlay);
-            }
+        if self.holding(g)
+            && let Some(s) = &g.sprites
+        {
+            let top = 2.0 * 54.0 * (self.max - self.charge.min(self.max)).max(0) as f32 / self.max as f32;
+            s.draw(361, GAUGE, 36.0, 54.0, 1024.0, top, g.focal(), overlay);
+            s.draw(360, GAUGE, 36.0, 64.0, 1024.0, 0.0, g.focal(), overlay);
         }
     }
 

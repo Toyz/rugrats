@@ -95,7 +95,9 @@ impl Hub {
         let barks = disc
             .exe_bytes(BARKS, 22)
             .unwrap_or(&[])
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|w| u16::from_le_bytes([w[0], w[1]]))
             .collect();
         let s = |n: u32| front::string(disc, n);
@@ -125,17 +127,17 @@ impl Hub {
         // A toy thrown (0x80060b44): 191 or 192; a following Spike runs
         // after it.
         let holding = g.carried().filter(|&t| TOYS.contains(&g.things[t].template));
-        if let (Some(t), None) = (self.held, holding) {
-            if matches!(g.things[t].state, ThingState::Flying(_)) {
-                g.speech.push(191 + (g.rand.next() & 1) as u16);
-                if self.spike == Spike::Following {
-                    self.spike = Spike::Fetching(t);
-                    g.npcs[k].speed_index = 4;
-                    // Mode 12 runs on to the toy (the follow stops at
-                    // range / 2).
-                    self.range = g.npcs[k].range;
-                    g.npcs[k].range = REACH as i32;
-                }
+        if let (Some(t), None) = (self.held, holding)
+            && matches!(g.things[t].state, ThingState::Flying(_))
+        {
+            g.speech.push(191 + (g.rand.next() & 1) as u16);
+            if self.spike == Spike::Following {
+                self.spike = Spike::Fetching(t);
+                g.npcs[k].speed_index = 4;
+                // Mode 12 runs on to the toy (the follow stops at
+                // range / 2).
+                self.range = g.npcs[k].range;
+                g.npcs[k].range = REACH as i32;
             }
         }
         self.held = holding;
@@ -208,7 +210,7 @@ impl Hub {
         let n = &g.npcs[k];
         let d = if ahead { 1024 } else { 0 };
         let (s, c) = (g.trig.sin(n.heading), g.trig.cos(n.heading));
-        let at = [n.pos[0] + (s * d >> 12), n.pos[1], n.pos[2] + (c * d >> 12)];
+        let at = [n.pos[0] + ((s * d) >> 12), n.pos[1], n.pos[2] + ((c * d) >> 12)];
         let q = collide::query(&g.col, [at[0], at[1] - 400, at[2]]);
         let y = if q.tile.is_some() && q.kind == 0 { q.floor } else { at[1] };
         let toy = &mut g.things[t];

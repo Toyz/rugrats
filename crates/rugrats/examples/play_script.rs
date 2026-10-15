@@ -41,7 +41,7 @@ fn main() -> Result<(), String> {
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let mut game = rugrats::world::game::Game::open(&disc, db)?;
     // BOXAT=x,z: the object boxes covering that point.
-    if let Some(v) = std::env::var("BOXAT").ok() {
+    if let Ok(v) = std::env::var("BOXAT") {
         let p: Vec<i32> = v.split(',').filter_map(|s| s.parse().ok()).collect();
         for b in game.boxes.iter().filter(|b| b.covers([p[0], 0, p[1]], 160)) {
             println!("box at {:?}: y {}..{} climb {}", b.pos, b.min_y, b.max_y, b.climb);
@@ -51,7 +51,7 @@ fn main() -> Result<(), String> {
     if let Some(n) = std::env::var("PHASE").ok().and_then(|s| s.parse().ok()) {
         game.with_script(|s, g| s.skip_to(g, n));
     }
-    if let Some(v) = std::env::var("START").ok() {
+    if let Ok(v) = std::env::var("START") {
         let p: Vec<i32> = v.split(',').filter_map(|s| s.parse().ok()).collect();
         if p.len() == 3 {
             game.player.pos = [p[0], p[1], p[2]];
@@ -72,10 +72,10 @@ fn main() -> Result<(), String> {
         for part in v.split(';') {
             if let Some((k, at)) = part.split_once(':') {
                 let p: Vec<f32> = at.split(',').filter_map(|s| s.parse().ok()).collect();
-                if let (Ok(k), 3) = (k.parse::<usize>(), p.len()) {
-                    if let Some(t) = game.things.get_mut(k) {
-                        t.pos = rrt::glam::Vec3::new(p[0], p[1], p[2]);
-                    }
+                if let (Ok(k), 3) = (k.parse::<usize>(), p.len())
+                    && let Some(t) = game.things.get_mut(k)
+                {
+                    t.pos = rrt::glam::Vec3::new(p[0], p[1], p[2]);
                 }
             }
         }
@@ -128,7 +128,7 @@ fn main() -> Result<(), String> {
                     println!("door {}", d.describe(&game.set.models, &game.trig));
                 }
             }
-            if std::env::var_os("DOORS").is_some() && frame % 10 == 0 {
+            if std::env::var_os("DOORS").is_some() && frame.is_multiple_of(10) {
                 println!(
                     "{frame}: doors {:?}",
                     game.doors
@@ -138,13 +138,13 @@ fn main() -> Result<(), String> {
                         .collect::<Vec<_>>()
                 );
             }
-            if std::env::var_os("WALKERS").is_some() && frame % 30 == 0 {
+            if std::env::var_os("WALKERS").is_some() && frame.is_multiple_of(30) {
                 println!("{frame}: walkers {:?}", game.walkers.iter().map(|w| (w.template, w.pos)).collect::<Vec<_>>());
             }
-            if std::env::var_os("MOVERS").is_some() && frame % 30 == 0 {
+            if std::env::var_os("MOVERS").is_some() && frame.is_multiple_of(30) {
                 println!("{frame}: movers {:?}", game.movers.iter().map(|m| (m.id, m.pos)).collect::<Vec<_>>());
             }
-            if frame % 30 == 0 {
+            if frame.is_multiple_of(30) {
                 {
                     let phase = game.script.as_ref().map_or(0, |l| l.phase());
                     // NPCS=id,id: the characters to show (level 2's goose and
@@ -212,12 +212,12 @@ fn main() -> Result<(), String> {
                 );
             }
             if frame.is_multiple_of(every) {
-                if std::env::var_os("BIGMETER").is_some() {
-                    if let Some(sp) = &game.sprites {
-                        let f: f32 = std::env::var("BIGF").ok().and_then(|s| s.parse().ok()).unwrap_or(480.0);
-                        sp.draw(258, (192, 76), 32.0, 24.0, 768.0, 0.0, f, &mut game.stage.overlay);
-                        sp.draw(258, (0, 0), 32.0, 24.0, 768.0, 0.0, f, &mut game.stage.overlay);
-                    }
+                if std::env::var_os("BIGMETER").is_some()
+                    && let Some(sp) = &game.sprites
+                {
+                    let f: f32 = std::env::var("BIGF").ok().and_then(|s| s.parse().ok()).unwrap_or(480.0);
+                    sp.draw(258, (192, 76), 32.0, 24.0, 768.0, 0.0, f, &mut game.stage.overlay);
+                    sp.draw(258, (0, 0), 32.0, 24.0, 768.0, 0.0, f, &mut game.stage.overlay);
                 }
                 let stage = &game.stage;
                 let mut r = Renderer::new(&gpu.device, &gpu.queue, Target::FORMAT, &stage.vram, &stage.fixed);

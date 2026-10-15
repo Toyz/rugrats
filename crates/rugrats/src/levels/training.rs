@@ -93,10 +93,10 @@ impl Training {
         g.fixed = Some((at + EYE, at - Vec3::new(0.0, LOOK_UP, 0.0)));
         // The counter's pie is the pool's: the toss draws its own, and
         // the pies end up thrown (guess: none back on the counter).
-        if let Some(k) = g.carried() {
-            if g.things[k].template == PIE {
-                g.drop_carried();
-            }
+        if let Some(k) = g.carried()
+            && g.things[k].template == PIE
+        {
+            g.drop_carried();
         }
         for t in g.things.iter_mut().filter(|t| t.template == PIE) {
             t.hidden = true;
@@ -161,13 +161,13 @@ impl Script for Training {
             if let Event::Waits(_) = e {
                 g.speech.push([643, 646, 582][(g.rand.next() & 255) as usize % 3]);
             }
-            if let Event::Bite { by, target: Target::Player, amount } = e {
-                if amount > 0 {
-                    g.player.health = (g.player.health - amount).max(0);
-                    g.play(52);
-                    if g.npcs[by].id == LOBSTER {
-                        g.training.show(13);
-                    }
+            if let Event::Bite { by, target: Target::Player, amount } = e
+                && amount > 0
+            {
+                g.player.health = (g.player.health - amount).max(0);
+                g.play(52);
+                if g.npcs[by].id == LOBSTER {
+                    g.training.show(13);
                 }
             }
         }

@@ -268,9 +268,9 @@ impl Player {
             } else if turn.abs() <= SNAP_TURN || self.speed >= MOVING || !on_ground {
                 self.heading = want;
                 self.target = want;
-                self.speed = magnitude * factor >> 12;
+                self.speed = (magnitude * factor) >> 12;
                 // Running at full speed (0x800590d4): message 2.
-                if self.speed > self.gait.0 * 3933 >> 12 {
+                if self.speed > (self.gait.0 * 3933) >> 12 {
                     self.hints.push(2);
                 }
             } else {
@@ -285,22 +285,22 @@ impl Player {
             }
         }
         // Turn toward the wanted heading (0x8005bbf4).
-        let step = self.turn_rate * DT >> 6;
+        let step = (self.turn_rate * DT) >> 6;
         let d = wrap(self.target - self.heading);
         self.heading = (self.heading + d.clamp(-step, step)).rem_euclid(4096);
         let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
         if on_ground {
             // The ground move along the facing (0x8005caac).
             if !self.frozen {
-                self.pos[0] += s * self.speed * DT >> 12;
-                self.pos[2] += c * self.speed * DT >> 12;
+                self.pos[0] += (s * self.speed * DT) >> 12;
+                self.pos[2] += (c * self.speed * DT) >> 12;
             }
             if pressed(input::CROSS) && !acting && self.jump_lock == 0 && !self.no_jump && !self.frozen {
                 // The launch (0x80060f1c): up 1000, and along the facing
                 // 40 a unit of speed when running, else 12.
                 let (up, factor) = if self.speed > WALK { self.moving_jump } else { (-1000, 12) };
                 let along = factor * self.speed;
-                self.v = [s * along >> 12, up, c * along >> 12];
+                self.v = [(s * along) >> 12, up, (c * along) >> 12];
                 self.state = State::Jump;
                 // The take-off's sound (0x800562bc: effect 6).
                 self.effects.push(TAKE_OFF);
@@ -312,7 +312,7 @@ impl Player {
             let a = GRAVITY + lift;
             for k in [0, 2] {
                 self.v[k] -= self.v[k] * 32 / 4096;
-                self.pos[k] += self.v[k] * DT >> 6;
+                self.pos[k] += (self.v[k] * DT) >> 6;
             }
             self.pos[1] += (self.v[1] * DT + a * DT * DT / 2) >> 6;
             self.v[1] = (self.v[1] + a * DT).min(4096);
@@ -341,7 +341,7 @@ impl Player {
             } else {
                 // Too tall (0x80058da4): a step of 1025..3071, message 16.
                 let tall = collide::query(col, [self.pos[0], feet_y - TOO_TALL, self.pos[2]]);
-                if tall.kind == 0 && tall.floor <= feet_y - CLIMB - 1 && tall.floor >= feet_y - TOO_TALL {
+                if tall.kind == 0 && tall.floor < feet_y - CLIMB && tall.floor >= feet_y - TOO_TALL {
                     self.hints.push(16);
                 }
             }
@@ -384,7 +384,7 @@ impl Player {
                     if walking && !b.character {
                         if top >= start_feet - reach {
                             self.hints.push(29);
-                        } else if b.climb && top <= start_feet - CLIMB - 1 && top >= start_feet - TOO_TALL {
+                        } else if b.climb && top < start_feet - CLIMB && top >= start_feet - TOO_TALL {
                             self.hints.push(16);
                         }
                     }
@@ -404,7 +404,7 @@ impl Player {
         if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
             if self.floor - feet_y > STEP_DOWN {
                 self.state = State::Fall;
-                self.v = [s * self.speed >> 6, 0, c * self.speed >> 6];
+                self.v = [(s * self.speed) >> 6, 0, (c * self.speed) >> 6];
             } else {
                 self.pos[1] = self.floor + self.feet;
             }
@@ -495,21 +495,21 @@ impl Player {
         } else {
             self.speed = 0;
         }
-        let step = self.turn_rate * DT >> 6;
+        let step = (self.turn_rate * DT) >> 6;
         let d = wrap(self.target - self.heading);
         self.heading = (self.heading + d.clamp(-step, step)).rem_euclid(4096);
         let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
-        self.pos[0] += s * self.speed * DT >> 12;
-        self.pos[2] += c * self.speed * DT >> 12;
-        bob = (bob + (218 * DT >> 6)).rem_euclid(4096);
+        self.pos[0] += (s * self.speed * DT) >> 12;
+        self.pos[2] += (c * self.speed * DT) >> 12;
+        bob = (bob + ((218 * DT) >> 6)).rem_euclid(4096);
         if held(input::CROSS) {
-            self.pos[1] -= 262 * DT >> 6;
+            self.pos[1] -= (262 * DT) >> 6;
             anchor = self.pos[1];
         } else if held(input::CIRCLE) {
-            self.pos[1] += 131 * DT >> 5;
+            self.pos[1] += (131 * DT) >> 5;
             anchor = self.pos[1];
         } else if self.speed == 0 {
-            self.pos[1] = anchor + (trig.sin(bob) * 256 >> 12);
+            self.pos[1] = anchor + ((trig.sin(bob) * 256) >> 12);
         }
         // Walls and floors still stop the body.
         let q = collide::query(col, [self.pos[0], self.pos[1] - self.feet, self.pos[2]]);
@@ -547,7 +547,7 @@ impl Player {
         self.target = heading;
         self.speed = 0;
         self.action = None;
-        self.v = [trig.sin(heading) * speed >> 12, up, trig.cos(heading) * speed >> 12];
+        self.v = [(trig.sin(heading) * speed) >> 12, up, (trig.cos(heading) * speed) >> 12];
         self.state = State::Jump;
     }
 

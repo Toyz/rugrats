@@ -344,11 +344,11 @@ impl Script for AisleSeven {
             self.aisles(g);
         } else if self.phase == 2 {
             for id in LOBSTERS {
-                if let Some(k) = find(g, id) {
-                    if g.npcs[k].health > 0 {
-                        let home = g.npcs[k].home;
-                        g.npcs[k].place(home, &g.col);
-                    }
+                if let Some(k) = find(g, id)
+                    && g.npcs[k].health > 0
+                {
+                    let home = g.npcs[k].home;
+                    g.npcs[k].place(home, &g.col);
                 }
             }
         }

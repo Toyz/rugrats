@@ -126,10 +126,10 @@ impl MrFriend {
 impl Script for MrFriend {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
-            if let Event::Bite { target: Target::Player, amount, .. } = e {
-                if amount > 0 {
-                    g.player.health = (g.player.health - amount).max(0);
-                }
+            if let Event::Bite { target: Target::Player, amount, .. } = e
+                && amount > 0
+            {
+                g.player.health = (g.player.health - amount).max(0);
             }
         }
         // Things thrown at him (0x800834b0 and Damage with the thing's

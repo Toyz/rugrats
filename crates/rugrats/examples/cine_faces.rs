@@ -63,7 +63,7 @@ fn flags_probe(disc: &GameDisc) -> Result<(), String> {
     );
     for tid in [626usize, 704] {
         let tm = t[tid];
-        println!("raw {:02x?}", &raw.get(4 + 56 * tid..4 + 56 * tid + 56));
+        println!("raw {:02x?}", raw.get(4 + 56 * tid..4 + 56 * tid + 56));
         println!("template {tid}: {tm:?} at {:#x}", models.find(tm.shape as u32));
         if let Ok(out) = std::env::var("MOD_OUT") {
             std::fs::write(

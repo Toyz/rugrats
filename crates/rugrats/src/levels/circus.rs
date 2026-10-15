@@ -265,19 +265,19 @@ impl Script for Circus {
             }
             Step::Meter { mut first, mut first_up, mut second, done_first } => {
                 // The meter (0x80058a78): 6 a frame.
-                if done_first.is_none() {
-                    if let Some(f) = first.as_mut() {
-                        if first_up {
-                            *f += 6;
-                            if *f >= METER_MAX {
-                                first_up = false;
-                            }
-                        } else {
-                            *f -= 6;
-                            if *f <= 0 {
-                                first = None;
-                                first_up = true;
-                            }
+                if done_first.is_none()
+                    && let Some(f) = first.as_mut()
+                {
+                    if first_up {
+                        *f += 6;
+                        if *f >= METER_MAX {
+                            first_up = false;
+                        }
+                    } else {
+                        *f -= 6;
+                        if *f <= 0 {
+                            first = None;
+                            first_up = true;
                         }
                     }
                 }
@@ -390,10 +390,8 @@ impl Script for Circus {
                 g.player.launch(heading, -2000, forward, &g.trig);
                 self.flown = true;
             }
-            n if LOSE3.contains(&n) => {
-                if self.lose_try(g) {
-                    self.ring3(g);
-                }
+            n if LOSE3.contains(&n) && self.lose_try(g) => {
+                self.ring3(g);
             }
             _ => {}
         }

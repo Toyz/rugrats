@@ -47,7 +47,9 @@ enum Boot {
     Opening { cine: Box<Cine> },
     /// A cinematic between levels: a level's start (0x80074958) or a
     /// door's (0x8004f78c), then level `then`.
-    Scene { cine: Box<Cine>, then: usize },
+    Scene { cine: Box<Cine>, n: usize, then: usize },
+    /// A hint card after a cinematic (0x80044434), then level `then`.
+    Card { card: Box<rugrats::front::Card>, then: usize },
     /// A level in play.
     Game { game: Box<Level> },
     /// Where the port ends for now.
@@ -187,7 +189,7 @@ impl Rugrats {
         match Cine::open(&self.disc, n, db, now, &self.soundtrack) {
             Ok(cine) => {
                 self.world = None;
-                Boot::Scene { cine: Box::new(cine), then }
+                Boot::Scene { cine: Box::new(cine), n, then }
             }
             Err(e) => {
                 rrt::tracing::error!("cine {n}: {e}");
@@ -278,13 +280,29 @@ impl Game for Rugrats {
                     self.boot = self.opening(now);
                 }
             }
-            Boot::Scene { cine, then } => {
+            Boot::Scene { cine, n, then } => {
                 if cine.tick(now) {
                     self.pads.update([Some(&t.pad), None]);
                     if self.pads.pressed(0, input::TRIANGLE) || cine.over() {
                         if let Ok(mut s) = self.soundtrack.lock() {
                             *s = Soundtrack::default();
                         }
+                        let (n, then) = (*n, *then);
+                        // CineFinish (0x800783d8) shows the cinematic's card.
+                        self.boot = match rugrats::front::card_after(n).map(|f| rugrats::front::Card::open(&self.disc, f)) {
+                            Some(Ok(card)) => {
+                                self.world = None;
+                                Boot::Card { card: Box::new(card), then }
+                            }
+                            _ => self.game(then, now),
+                        };
+                    }
+                }
+            }
+            Boot::Card { card, then } => {
+                if now.is_multiple_of(2) {
+                    self.pads.update([Some(&t.pad), None]);
+                    if card.frame(&self.pads) {
                         let then = *then;
                         self.boot = self.game(then, now);
                     }
@@ -357,6 +375,7 @@ impl Game for Rugrats {
         let stage: &Stage = match &self.boot {
             Boot::Opening { cine } => &cine.stage,
             Boot::Scene { cine, .. } => &cine.stage,
+            Boot::Card { card, .. } => &card.stage,
             Boot::Title { title } => &title.stage,
             Boot::Game { game } => &game.stage,
             _ => {

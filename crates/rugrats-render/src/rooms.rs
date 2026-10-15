@@ -10,7 +10,7 @@ fn rgb(c: [u8; 3]) -> u32 {
 }
 
 fn uv(t: [u8; 2]) -> u32 {
-    t[0] as u32 | (t[1] as u32) << 8
+    Vtx::uv_of(t[0] as u32, t[1] as u32)
 }
 
 /// One mesh's faces as triangles. A quad's corners go to the GPU in its

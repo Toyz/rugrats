@@ -41,7 +41,7 @@ pub struct Vtx {
     pub pos: [f32; 3],
     /// r | g << 8 | b << 16
     pub colour: u32,
-    /// u | v << 8
+    /// u | v << 16 (u may run to 256: a sprite's far edge)
     pub uv: u32,
     /// clut | tpage << 16
     pub mode: u32,
@@ -51,6 +51,11 @@ pub struct Vtx {
 }
 
 impl Vtx {
+    /// A texel coordinate pair as `uv` holds it.
+    pub const fn uv_of(u: u32, v: u32) -> u32 {
+        u | v << 16
+    }
+
     /// The whole texture page.
     pub const WHOLE: u32 = 0xffff_0000;
     /// A mode bit: a semi-transparent polygon.

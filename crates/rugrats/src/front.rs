@@ -89,7 +89,7 @@ fn layer(p: (u8, u8), grey: u8, added: bool, out: &mut Vec<Vtx>) {
     let window = 0x80 | 0x80 << 8 | u0 << 16 | (row * 128) << 24;
     for x0 in [0.0, 256.0] {
         let (y0, x1, y1) = (-8.0, x0 + 256.0, 248.0);
-        let v = |x: f32, y: f32, u: u32, v: u32| Vtx { pos: [x, y, 0.0], colour, uv: u | v << 8, mode, window };
+        let v = |x: f32, y: f32, u: u32, v: u32| Vtx { pos: [x, y, 0.0], colour, uv: Vtx::uv_of(u, v), mode, window };
         let (a, b, c, d) = (v(x0, y0, 0, 0), v(x1, y0, 255, 0), v(x0, y1, 0, 255), v(x1, y1, 255, 255));
         out.extend([a, b, c, b, d, c]);
     }
@@ -204,7 +204,7 @@ impl Sign {
 fn trademark(out: &mut Vec<Vtx>) {
     let mode = 0x64fb | 0x1e << 16;
     let window = Vtx::window_of([192, 212, 192, 212], [148, 148, 160, 160]);
-    let v = |x: f32, y: f32, u: u32, v: u32| Vtx { pos: [x + 256.0, y + 120.0, 0.0], colour: 0x80_8080, uv: u | v << 8, mode, window };
+    let v = |x: f32, y: f32, u: u32, v: u32| Vtx { pos: [x + 256.0, y + 120.0, 0.0], colour: 0x80_8080, uv: Vtx::uv_of(u, v), mode, window };
     let (a, b, c, d) = (v(210.0, -75.0, 192, 148), v(230.0, -75.0, 212, 148), v(210.0, -69.0, 192, 160), v(230.0, -69.0, 212, 160));
     out.extend([a, b, c, b, d, c]);
 }
@@ -540,25 +540,142 @@ fn words(bytes: &[u8]) -> Vec<u16> {
     bytes.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect()
 }
 
+/// VRAM as the front end has it: MENU.TEX at (0, 256), the characters'
+/// image beside it with the backdrop's CLUTs marked semi-transparent, and
+/// the fonts.
+pub fn menu_vram(disc: &crate::disc::GameDisc) -> Result<rugrats_render::Vram, String> {
+    let mut vram = rugrats_render::Vram::new();
+    vram.load(0, 256, 576, 256, &words(&disc.file(MENU_TEX)?));
+    let mut chars = words(&disc.file(CHARACTR_RAW)?);
+    for row in CLUT_ROWS {
+        let at = (row as usize - 256) * 384 + (CLUT_X as usize - 576);
+        for w in chars.iter_mut().skip(at).take(16) {
+            *w |= 0x8000;
+        }
+    }
+    vram.load(576, 256, 384, 256, &chars);
+    let (fx, fy) = text::FONT_AT;
+    let (fw, fh) = text::FONT_SIZE;
+    vram.load(fx, fy, fw, fh, &words(&disc.file(text::FONT_FILE)?));
+    Ok(vram)
+}
+
+/// The game's string table (0x800bb4e8): string `n`.
+pub fn string(disc: &crate::disc::GameDisc, n: u32) -> String {
+    disc.exe_string_at(0x800b_b4e8 + 4 * n).unwrap_or_default()
+}
+
+/// A hint card (0x80044434): a HINT file's lines over the front end's
+/// backdrop, until Cross.
+pub struct Card {
+    pub stage: crate::stage::Stage,
+    fonts: Fonts,
+    backdrop: Backdrop,
+    texts: Vec<Text>,
+    frames: u32,
+}
+
+/// The cards after cinematics (CineFinish, 0x800783d8's switch on cine -
+/// 1): the HINT file.
+pub fn card_after(cine: usize) -> Option<usize> {
+    Some(match cine {
+        1 => 674,
+        2 => 679,
+        3 => 675,
+        4 => 676,
+        6 => 706,
+        7 => 672,
+        8 | 9 => 681,
+        12 => 707,
+        13 => 682,
+        17 => 699,
+        18 => 710,
+        25 => 697,
+        28 => 685,
+        34 => 698,
+        37 => 687,
+        38 => 693,
+        44 => 677,
+        45 => 694,
+        46 => 695,
+        49 => 696,
+        51 => 709,
+        52 => 700,
+        55 => 701,
+        58 => 702,
+        63 => 678,
+        65 => 709,
+        66 => 703,
+        67 => 705,
+        73 => 684,
+        79 => 708,
+        86 => 683,
+        _ => return None,
+    })
+}
+
+impl Card {
+    /// HINT file `file`.
+    pub fn open(disc: &crate::disc::GameDisc, file: usize) -> Result<Card, String> {
+        let fonts = Fonts::load(disc)?;
+        let raw = disc.file(file)?;
+        let body = String::from_utf8_lossy(&raw).into_owned();
+        let mut texts = Vec::new();
+        let line = |string: String, y: i16, rgb: [u8; 3], fonts: &Fonts| {
+            let mut t = Text { font: 0, spacing: 1, rgb, x: 0, y, string, ..Default::default() };
+            fonts.centre(&mut t, true, false);
+            let mut shadow = t.clone();
+            shadow.rgb = [1, 1, 1];
+            shadow.x += 2;
+            shadow.y += 2;
+            [shadow, t]
+        };
+        for (k, l) in body.split("\r\n").take_while(|l| !l.starts_with('~')).enumerate() {
+            texts.extend(line(l.to_string(), -90 + 18 * k as i16, [0x7f, 0x7f, 0x7f], &fonts));
+        }
+        // "PRESS     TO CONTINUE", the gap the Cross button's.
+        let press = string(disc, 67).replacen("     ", "  %  ", 1);
+        texts.extend(line(press, 80, [255, 255, 255], &fonts));
+        let stage = crate::stage::Stage::new(menu_vram(disc)?, Vec::new());
+        let mut card = Card { stage, fonts, backdrop: Backdrop::default(), texts, frames: 0 };
+        card.draw();
+        Ok(card)
+    }
+
+    /// One frame (every other tick); true when Cross closes it.
+    pub fn frame(&mut self, pads: &crate::input::Pads) -> bool {
+        if self.frames % 30 == 0 {
+            self.backdrop.fading = true;
+        }
+        if self.backdrop.fading {
+            self.backdrop.fading = self.backdrop.step();
+        }
+        self.frames += 1;
+        self.draw();
+        pads.pressed(0, crate::input::CROSS)
+    }
+
+    fn draw(&mut self) {
+        self.stage.under.clear();
+        self.backdrop.triangles(&mut self.stage.under);
+        self.stage.overlay.clear();
+        for t in &self.texts {
+            t.triangles(&self.fonts, &mut self.stage.overlay);
+        }
+        // The card runs the 320-wide display: its drawing is centred on
+        // 160 and the screen stretches it to the full width.
+        for v in self.stage.under.iter_mut().chain(self.stage.overlay.iter_mut()) {
+            v.pos[0] = (v.pos[0] - 256.0) * (512.0 / 320.0) + 256.0;
+        }
+    }
+}
+
 impl Title {
     /// The front end's setup, which also draws on rand once (an object it
     /// makes, through 0x80048a44, the call at 0x80048b78).
     pub fn open(disc: &crate::disc::GameDisc, now: u64, rng: &mut crate::rand::Rand) -> Result<Title, String> {
         rng.next();
-        let mut vram = rugrats_render::Vram::new();
-        vram.load(0, 256, 576, 256, &words(&disc.file(MENU_TEX)?));
-        let mut chars = words(&disc.file(CHARACTR_RAW)?);
-        // The backdrop's CLUTs, every colour marked semi-transparent.
-        for row in CLUT_ROWS {
-            let at = (row as usize - 256) * 384 + (CLUT_X as usize - 576);
-            for w in chars.iter_mut().skip(at).take(16) {
-                *w |= 0x8000;
-            }
-        }
-        vram.load(576, 256, 384, 256, &chars);
-        let (fx, fy) = text::FONT_AT;
-        let (fw, fh) = text::FONT_SIZE;
-        vram.load(fx, fy, fw, fh, &words(&disc.file(text::FONT_FILE)?));
+        let vram = menu_vram(disc)?;
         let fonts = Fonts::load(disc)?;
         let models = rugrats_data::model::Models::parse(&disc.file(DB00_MOD)?).map_err(|e| e.to_string())?;
         let model = models.get(SIGN_MODEL).ok_or("no sign model in DB00")?.clone();

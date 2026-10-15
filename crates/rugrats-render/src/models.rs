@@ -32,7 +32,7 @@ pub fn model_triangles(m: &Model, rot: Mat3, pos: Vec3, out: &mut Vec<Vtx>) {
             let v = m.vertices[f.v[i] as usize];
             let p = rot * Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32) + pos;
             let (uv, mode) = match f.texture {
-                Some((uv, clut, tpage)) => (uv[i][0] as u32 | (uv[i][1] as u32) << 8, clut as u32 | (tpage as u32) << 16 | semi),
+                Some((uv, clut, tpage)) => (Vtx::uv_of(uv[i][0] as u32, uv[i][1] as u32), clut as u32 | (tpage as u32) << 16 | semi),
                 None => (0, Vtx::FLAT | semi | (f.flags >> 5 & 3) << 21),
             };
             Vtx { pos: p.to_array(), colour: rgb(f.rgb[i]), uv, mode, window: Vtx::WHOLE }

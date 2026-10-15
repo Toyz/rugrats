@@ -40,7 +40,7 @@ fn vs(v: In) -> Out {
     var o: Out;
     o.pos = camera.mvp * vec4f(v.pos, 1.0);
     o.colour = vec3f(f32(v.colour & 255u), f32((v.colour >> 8u) & 255u), f32((v.colour >> 16u) & 255u));
-    o.uv = vec2f(f32(v.uv & 255u), f32((v.uv >> 8u) & 255u));
+    o.uv = vec2f(f32(v.uv & 0xffffu), f32(v.uv >> 16u));
     o.mode = v.mode;
     o.window = v.window;
     return o;

@@ -233,8 +233,17 @@ fn settle(flags: &mut u16, slide: u16, toggle: &mut i16, target: &mut i16, rest:
     }
 }
 
-/// A textured sprite (GPU 0x64: modulated, opaque) as two triangles.
+/// A textured sprite (GPU 0x64: modulated, opaque) as two triangles. The
+/// GPU wraps u within the page, so a sprite running past u 255 (font 0's
+/// "r" at 245, 12 wide) is drawn as two, the rest from u 0.
 pub fn sprite_triangles(s: &Sprite, out: &mut Vec<Vtx>) {
+    let end = s.u as i16 + s.w;
+    if end > 256 {
+        let first = 256 - s.u as i16;
+        sprite_triangles(&Sprite { w: first, ..*s }, out);
+        sprite_triangles(&Sprite { x: s.x + first, w: end - 256, u: 0, ..*s }, out);
+        return;
+    }
     let (x0, y0) = (s.x as f32 + 256.0, s.y as f32 + 120.0);
     let (x1, y1) = (x0 + s.w as f32, y0 + s.h as f32);
     let (u0, v0) = (s.u as u32, s.v as u32);
@@ -244,7 +253,7 @@ pub fn sprite_triangles(s: &Sprite, out: &mut Vec<Vtx>) {
     // A sprite reaches its last texel (unlike a polygon), so the window
     // runs to u1 - 1, v1 - 1, which window_of gives.
     let window = (window & 0x0000_ffff) | (((u1 - 1).min(255)) << 16) | (((v1 - 1).min(255)) << 24);
-    let vtx = |x: f32, y: f32, u: u32, v: u32| Vtx { pos: [x, y, 0.0], colour, uv: u | v << 8, mode: CLUT as u32 | (PAGE as u32) << 16, window };
+    let vtx = |x: f32, y: f32, u: u32, v: u32| Vtx { pos: [x, y, 0.0], colour, uv: Vtx::uv_of(u, v), mode: CLUT as u32 | (PAGE as u32) << 16, window };
     let (a, b, c, d) = (vtx(x0, y0, u0, v0), vtx(x1, y0, u1, v0), vtx(x0, y1, u0, v1), vtx(x1, y1, u1, v1));
     out.extend([a, b, c, b, d, c]);
 }

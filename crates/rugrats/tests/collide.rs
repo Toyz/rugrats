@@ -5,8 +5,8 @@ use std::path::Path;
 
 use rrt::emu::psx::machine_with_exe;
 use rrt::emu::{BusExt, PsxExe};
-use rugrats::collide::{Query, query};
 use rugrats::disc::GameDisc;
+use rugrats::world::collide::{Query, query};
 use rugrats_data::col::Col;
 
 const COL_AT: u32 = 0x8010_0000;

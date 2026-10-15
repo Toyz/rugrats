@@ -6,8 +6,8 @@ use std::path::Path;
 use std::rc::Rc;
 
 use rrt::emu::BusExt;
-use rugrats::front::{Baby, InUse};
 use rugrats::rand::Rand;
+use rugrats::ui::front::{Baby, InUse};
 
 #[test]
 fn babies_match_the_original() {

@@ -5,9 +5,9 @@
 use std::path::Path;
 
 use rugrats::disc::GameDisc;
-use rugrats::game::Game;
 use rugrats::input::{self, Pads};
-use rugrats::progress::Progress;
+use rugrats::save::progress::Progress;
+use rugrats::world::game::Game;
 
 fn disc() -> Option<GameDisc> {
     let cue = rrt::disc::Image::find(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/disc")).ok()?;

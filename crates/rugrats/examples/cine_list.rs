@@ -6,9 +6,9 @@ use rugrats::disc::GameDisc;
 
 fn main() -> Result<(), String> {
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
-    for n in 0..rugrats::cine::CINES {
+    for n in 0..rugrats::media::cine::CINES {
         let name = disc.exe_string_at(0x800b_8bd0 + 16 * n as u32).unwrap_or_default();
-        match rugrats::cine::Stream::read(&disc, n) {
+        match rugrats::media::cine::Stream::read(&disc, n) {
             Ok(s) => println!(
                 "{n:2} {name:28} {:5} frames to {:5.1} s, {:5.1} s sound",
                 s.frames.len(),

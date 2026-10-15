@@ -7,7 +7,7 @@ use rugrats::disc::GameDisc;
 
 fn main() -> Result<(), String> {
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
-    let s = rugrats::cine::Stream::read(&disc, 0)?;
+    let s = rugrats::media::cine::Stream::read(&disc, 0)?;
     let mut actors: BTreeMap<i16, (u16, u16, usize)> = BTreeMap::new();
     let mut poses: BTreeMap<i16, (u16, u16, usize)> = BTreeMap::new();
     for (_, f) in &s.frames {

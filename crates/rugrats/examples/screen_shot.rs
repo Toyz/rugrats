@@ -7,7 +7,7 @@
 use rrt::gpu::{Gpu, Target};
 use rugrats::disc::GameDisc;
 use rugrats::input::{self, Pads};
-use rugrats::screens::{Page, Screen, message};
+use rugrats::ui::screens::{Page, Screen, message};
 use rugrats_render::Renderer;
 
 fn bit(name: &str) -> u16 {
@@ -29,20 +29,25 @@ fn main() -> Result<(), String> {
     let dir = a.next().unwrap_or("screen".into());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let every: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(10);
-    let env = |k: &str, d: u16| std::env::var(k).ok().and_then(|v| u16::from_str_radix(v.trim_start_matches("0x"), 16).ok()).unwrap_or(d);
+    let env = |k: &str, d: u16| {
+        std::env::var(k).ok().and_then(|v| u16::from_str_radix(v.trim_start_matches("0x"), 16).ok()).unwrap_or(d)
+    };
     let (earned, placed) = (env("EARNED", 1), env("PLACED", 0));
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let pages = match std::env::var("BARS").ok().and_then(|v| v.parse().ok()) {
         Some(n) => vec![message::bars(&disc, n, 7)],
         None if std::env::var_os("RESTART").is_some() => vec![Page::Restart],
-        None if std::env::var_os("SCORES").is_some() => vec![Page::Scores { rows: vec![(0, [3, 5, 4, 6, 5, 4, 0, 0, 0]), (2, [5, 4, 6, 0, 0, 0, 0, 0, 0])], press: true }],
+        None if std::env::var_os("SCORES").is_some() => vec![Page::Scores {
+            rows: vec![(0, [3, 5, 4, 6, 5, 4, 0, 0, 0]), (2, [5, 4, 6, 0, 0, 0, 0, 0, 0])],
+            press: true,
+        }],
         None if std::env::var("LOADING").is_ok() => {
             let l = std::env::var("LOADING").unwrap().parse().unwrap_or(2);
             vec![message::loading(&disc, l, false, false)]
         }
         None => vec![message::piece(&disc), Page::Board],
     };
-    let level = rugrats::game::Game::open(&disc, 2)?;
+    let level = rugrats::world::game::Game::open(&disc, 2)?;
     let mut screen = Screen::open(&disc, pages, 2, earned, placed, Some(&level.stage.vram))?;
     let mut rand = rugrats::rand::Rand::default();
     let gpu = Gpu::headless().map_err(|e| e.to_string())?;
@@ -70,10 +75,14 @@ fn main() -> Result<(), String> {
                 let cmd = r.draw(&gpu.device, &gpu.queue, &target.view, (w, h), stage.camera);
                 gpu.queue.submit([cmd]);
                 let rgba = target.read_back(&gpu).rgba;
-                std::fs::write(format!("{dir}/{frame}.png"), rrt::image::png::encode(w, h, &rgba)).map_err(|e| e.to_string())?;
+                std::fs::write(format!("{dir}/{frame}.png"), rrt::image::png::encode(w, h, &rgba))
+                    .map_err(|e| e.to_string())?;
             }
             if !going {
-                println!("{frame}: over, placed {:#x}, all {}, restart {}", screen.placed, screen.all_placed, screen.restart);
+                println!(
+                    "{frame}: over, placed {:#x}, all {}, restart {}",
+                    screen.placed, screen.all_placed, screen.restart
+                );
                 return Ok(());
             }
             frame += 1;

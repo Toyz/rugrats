@@ -8,8 +8,14 @@ fn main() -> Result<(), String> {
     let col = rugrats_data::col::Col::parse(&disc.file(466 + db)?)?;
     for k in 0..=n {
         let (x, z) = (x0 + (x1 - x0) * k / n, z0 + (z1 - z0) * k / n);
-        let q = rugrats::collide::query(&col, [x, y, z]);
-        println!("({x}, {z}): kind {} floor {} ceiling {} flags {}", q.kind, q.floor, q.ceiling, rugrats::collide::floor_flags(&col, &q));
+        let q = rugrats::world::collide::query(&col, [x, y, z]);
+        println!(
+            "({x}, {z}): kind {} floor {} ceiling {} flags {}",
+            q.kind,
+            q.floor,
+            q.ceiling,
+            rugrats::world::collide::floor_flags(&col, &q)
+        );
     }
     Ok(())
 }

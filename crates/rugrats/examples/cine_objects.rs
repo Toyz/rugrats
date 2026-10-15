@@ -8,9 +8,9 @@ use rugrats::disc::GameDisc;
 fn main() -> Result<(), String> {
     let want: usize = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(1);
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
-    let stream = rugrats::cine::Stream::read(&disc, 0)?;
+    let stream = rugrats::media::cine::Stream::read(&disc, 0)?;
     let (_, f) = &stream.frames[want - 1];
-    let m = rugrats::cine::camera(f);
+    let m = rugrats::media::cine::camera(f);
     let lp = rugrats_data::placement::parse_lp(&disc.file(402 + 22)?);
     let templates = rugrats_data::placement::parse_templates(&disc.file(239)?);
     for (k, p) in lp.iter().enumerate().filter(|(_, p)| p.kind == 1) {

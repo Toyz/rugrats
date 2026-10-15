@@ -19,7 +19,7 @@ fn the_legal_screen_matches_the_original() {
         return;
     };
     let disc = GameDisc::open(&cue).unwrap();
-    let ours = rugrats::still::picture(&disc.file(234).unwrap(), &disc.mdec).unwrap();
+    let ours = rugrats::media::still::picture(&disc.file(234).unwrap(), &disc.mdec).unwrap();
 
     let image = Rc::new(rrt::disc::Image::open(&cue).unwrap());
     let mut hle = rugrats_hle::Hle::new(image, true).unwrap();

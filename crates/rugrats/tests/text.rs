@@ -7,7 +7,7 @@ use std::path::Path;
 use rrt::emu::psx::machine_with_exe;
 use rrt::emu::{BusExt, PsxExe};
 use rugrats::disc::GameDisc;
-use rugrats::text::{self, Fonts, Text};
+use rugrats::ui::text::{self, Fonts, Text};
 
 type Emu = rrt::emu::Machine<rrt::emu::psx::R3000, rrt::emu::Memory>;
 

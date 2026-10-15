@@ -1,5 +1,5 @@
-use rugrats::progress::{Finish, Progress};
 use rugrats::rand::Rand;
+use rugrats::save::progress::{Finish, Progress};
 
 #[test]
 fn main_levels_give_pieces_and_open_bonus_levels() {

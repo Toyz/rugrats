@@ -6,7 +6,7 @@ fn main() -> Result<(), String> {
     let db: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(1);
     let t: u32 = a.next().and_then(|s| s.parse().ok()).unwrap_or(0);
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
-    let set = rugrats::cine::Set::load(&disc, db)?;
+    let set = rugrats::media::cine::Set::load(&disc, db)?;
     for (k, p) in set.placements.iter().enumerate().filter(|(_, p)| p.template == t) {
         let tp = set.templates.get(t as usize);
         println!(

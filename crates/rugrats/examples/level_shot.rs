@@ -11,11 +11,11 @@ fn main() -> Result<(), String> {
     let db: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(1);
     let out = a.next().unwrap_or("level.png".into());
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
-    let game = rugrats::game::Game::open(&disc, db)?;
+    let game = rugrats::world::game::Game::open(&disc, db)?;
     println!("player at {:?}, heading {}", game.player.pos, game.player.heading);
     let mut g2 = game;
     g2.frame(&rugrats::input::Pads::default());
-    println!("song asked: {:?}; level set {:?}", g2.song, rugrats::sound::level_set(&disc, db));
+    println!("song asked: {:?}; level set {:?}", g2.song, rugrats::audio::sound::level_set(&disc, db));
     let p = g2.player.pos;
     for (k, r) in g2.set.room_info.iter().enumerate() {
         let inside = (0..3).all(|i| r.min[i] <= p[i] && p[i] <= r.max[i]);
@@ -44,7 +44,15 @@ fn main() -> Result<(), String> {
         *kinds.entry(g.kind).or_insert(0) += 1;
     }
     println!("goodies by kind: {kinds:?}");
-    let bar_templates: Vec<_> = g2.set.templates.iter().enumerate().filter(|(_, t)| u16::from_le_bytes([t.raw[0x26], t.raw[0x27]]) == 3).map(|(k, t)| (k, t.raw[4], t.shape)).take(10).collect();
+    let bar_templates: Vec<_> = g2
+        .set
+        .templates
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| u16::from_le_bytes([t.raw[0x26], t.raw[0x27]]) == 3)
+        .map(|(k, t)| (k, t.raw[4], t.shape))
+        .take(10)
+        .collect();
     println!("bar templates (index, class, shape): {bar_templates:?}");
     let mut kinds_lp = std::collections::BTreeMap::new();
     for p in &g2.set.placements {

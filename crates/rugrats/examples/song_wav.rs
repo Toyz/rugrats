@@ -3,8 +3,8 @@
 //!
 //! cargo run -p rugrats --example song_wav -- SONG SECONDS OUT.wav
 
+use rugrats::audio::sound::{Loaded, MENU_SET, RATE, Spu};
 use rugrats::disc::GameDisc;
-use rugrats::sound::{Loaded, MENU_SET, RATE, Spu};
 
 fn main() -> Result<(), String> {
     let mut a = std::env::args().skip(1);
@@ -21,7 +21,7 @@ fn main() -> Result<(), String> {
     );
     let mut spu = Spu::default();
     spu.set_banks(set.music.clone(), set.effects.clone());
-    spu.play(set.songs.get(song).ok_or("no such song")?, 0, rugrats::sound::MUSIC_VOLUME);
+    spu.play(set.songs.get(song).ok_or("no such song")?, 0, rugrats::audio::sound::MUSIC_VOLUME);
     let mut buf = vec![0i16; 2 * RATE as usize * secs];
     spu.render(&mut buf);
     let peak = buf.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);

@@ -39,7 +39,7 @@ fn main() -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let every: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(10);
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
-    let mut game = rugrats::game::Game::open(&disc, db)?;
+    let mut game = rugrats::world::game::Game::open(&disc, db)?;
     // BOXAT=x,z: the object boxes covering that point.
     if let Some(v) = std::env::var("BOXAT").ok() {
         let p: Vec<i32> = v.split(',').filter_map(|s| s.parse().ok()).collect();
@@ -108,11 +108,16 @@ fn main() -> Result<(), String> {
             let before = game.player.pos;
             game.frame(&pads);
             for (k, t) in game.things.iter().enumerate() {
-                if t.state != rugrats::game::ThingState::Rest {
+                if t.state != rugrats::world::game::ThingState::Rest {
                     println!("{frame}: thing {k} {:?} at {:?}", t.state, t.pos);
                 }
             }
-            if let Some(d) = game.script.as_ref().map(|s| s.describe()).filter(|d| !d.is_empty() && std::env::var_os("DESCRIBE").is_some()) {
+            if let Some(d) = game
+                .script
+                .as_ref()
+                .map(|s| s.describe())
+                .filter(|d| !d.is_empty() && std::env::var_os("DESCRIBE").is_some())
+            {
                 println!("{frame}: {d}");
             }
             if std::env::var_os("GOODIES").is_some() && frame == 0 {
@@ -124,7 +129,14 @@ fn main() -> Result<(), String> {
                 }
             }
             if std::env::var_os("DOORS").is_some() && frame % 10 == 0 {
-                println!("{frame}: doors {:?}", game.doors.iter().filter(|d| d.moving || d.open).map(|d| (d.template, d.open, d.moving)).collect::<Vec<_>>());
+                println!(
+                    "{frame}: doors {:?}",
+                    game.doors
+                        .iter()
+                        .filter(|d| d.moving || d.open)
+                        .map(|d| (d.template, d.open, d.moving))
+                        .collect::<Vec<_>>()
+                );
             }
             if std::env::var_os("WALKERS").is_some() && frame % 30 == 0 {
                 println!("{frame}: walkers {:?}", game.walkers.iter().map(|w| (w.template, w.pos)).collect::<Vec<_>>());
@@ -142,8 +154,11 @@ fn main() -> Result<(), String> {
                         .map(|v| v.split(',').filter_map(|s| s.parse().ok()).collect())
                         .unwrap_or(vec![11, 1776]);
                     // CHARS=c: every character of hierarchy c instead.
-                    let chars: Vec<usize> = std::env::var("CHARS").ok().map(|v| v.split(',').filter_map(|s| s.parse().ok()).collect()).unwrap_or_default();
-                    let picked: Vec<&rugrats::npc::Npc> = if chars.is_empty() {
+                    let chars: Vec<usize> = std::env::var("CHARS")
+                        .ok()
+                        .map(|v| v.split(',').filter_map(|s| s.parse().ok()).collect())
+                        .unwrap_or_default();
+                    let picked: Vec<&rugrats::actors::npc::Npc> = if chars.is_empty() {
                         ids.iter().filter_map(|&id| game.npcs.iter().find(|n| n.id == id)).collect()
                     } else {
                         game.npcs.iter().filter(|n| chars.contains(&n.character)).collect()
@@ -152,7 +167,10 @@ fn main() -> Result<(), String> {
                         .into_iter()
                         .map(|n| (n.id, n.pos, n.health, format!("{:?}", n.mode), n.hidden))
                         .collect();
-                    println!("{frame}: phase {} health {} tries {} npcs {npcs:?}", phase, game.player.health, game.tries);
+                    println!(
+                        "{frame}: phase {} health {} tries {} npcs {npcs:?}",
+                        phase, game.player.health, game.tries
+                    );
                 }
             }
             if let Some(n) = game.training.showing().filter(|_| shown != game.training.showing()) {
@@ -187,7 +205,11 @@ fn main() -> Result<(), String> {
                 );
             }
             if std::env::var_os("OVERLAY").is_some() {
-                println!("{frame}: overlay {} vertices, first {:?}", game.stage.overlay.len(), game.stage.overlay.first().map(|v| v.pos));
+                println!(
+                    "{frame}: overlay {} vertices, first {:?}",
+                    game.stage.overlay.len(),
+                    game.stage.overlay.first().map(|v| v.pos)
+                );
             }
             if frame.is_multiple_of(every) {
                 if std::env::var_os("BIGMETER").is_some() {

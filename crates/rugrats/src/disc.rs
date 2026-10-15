@@ -16,11 +16,11 @@ pub struct GameDisc {
     image: Image,
     table: Vec<Entry>,
     /// The movies `movie_play` knows, by number.
-    pub movies: Vec<crate::movie::Entry>,
+    pub movies: Vec<crate::media::movie::Entry>,
     /// The tables libpress gives the MDEC before decoding a picture.
     pub mdec: Tables,
     /// What the memory card code takes from the executable.
-    pub card: crate::card::Art,
+    pub card: crate::save::card::Art,
     /// The executable's image, from 0x80010000: the tables and strings the
     /// port reads where the game keeps them.
     exe: Vec<u8>,
@@ -45,15 +45,15 @@ impl GameDisc {
         for (k, s) in mdec.scale.iter_mut().enumerate() {
             *s = i16::from_le_bytes([scale[4 + 2 * k], scale[5 + 2 * k]]);
         }
-        let movies = at(crate::movie::TABLE, 8 * crate::movie::COUNT)
+        let movies = at(crate::media::movie::TABLE, 8 * crate::media::movie::COUNT)
             .ok_or("no movie table")?
             .chunks(8)
-            .map(|e| crate::movie::Entry {
+            .map(|e| crate::media::movie::Entry {
                 frames: u32::from_le_bytes(e[..4].try_into().unwrap()),
                 lba: u32::from_le_bytes(e[4..].try_into().unwrap()),
             })
             .collect();
-        let card = crate::card::Art::from_exe(exe).ok_or("no memory card tables in SLUS_006.50")?;
+        let card = crate::save::card::Art::from_exe(exe).ok_or("no memory card tables in SLUS_006.50")?;
         let exe = exe.to_vec();
         Ok(GameDisc { image, table, movies, mdec, card, exe })
     }

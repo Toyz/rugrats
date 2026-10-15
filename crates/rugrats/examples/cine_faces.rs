@@ -6,11 +6,11 @@
 use std::collections::BTreeMap;
 
 use rugrats::disc::GameDisc;
-use rugrats::face::Blinks;
+use rugrats::media::face::Blinks;
 
 fn main() -> Result<(), String> {
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
-    let s = rugrats::cine::Stream::read(&disc, 0)?;
+    let s = rugrats::media::cine::Stream::read(&disc, 0)?;
     let mut seen: BTreeMap<(&str, i16), Vec<(u16, u8, u8)>> = BTreeMap::new();
     for (_, f) in &s.frames {
         for a in f.actors.iter().filter(|a| a.mouth | a.eyes != 0) {
@@ -30,7 +30,7 @@ fn main() -> Result<(), String> {
     }
     let mut a = std::env::args().skip(1);
     if let (Some(want), Some(out)) = (a.next().and_then(|s| s.parse::<u16>().ok()), a.next()) {
-        let set = rugrats::cine::Set::load(&disc, 22)?;
+        let set = rugrats::media::cine::Set::load(&disc, 22)?;
         let mut vram = set.vram.clone();
         let mut blinks = Blinks::new(0);
         for (_, f) in s.frames.iter().take_while(|(_, f)| f.number <= want) {

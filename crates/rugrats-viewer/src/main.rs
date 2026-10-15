@@ -91,12 +91,12 @@ impl Scene {
         let mut cine_camera = None;
         if let Some(want) = cine {
             // Frame `want` of the opening's stream (cine 0) on its rooms.
-            let set = rugrats::cine::Set::load(disc, db)?;
-            let stream = rugrats::cine::Stream::read(disc, 0)?;
+            let set = rugrats::media::cine::Set::load(disc, db)?;
+            let stream = rugrats::media::cine::Stream::read(disc, 0)?;
             let (_, frame) = stream.frames.get(want.saturating_sub(1)).ok_or(format!("no cine frame {want}"))?;
             triangles = set.rooms.clone();
             triangles.extend(set.objects(frame));
-            cine_camera = Some(rugrats::cine::camera(frame));
+            cine_camera = Some(rugrats::media::cine::camera(frame));
             rrt::tracing::info!("cine frame {}: camera at {:?}, {} poses", frame.number, frame.camera_pos, frame.poses.len());
         } else if let Some((hn, an)) = anim {
             // Hierarchy hn at each key frame of animation an, in a row.

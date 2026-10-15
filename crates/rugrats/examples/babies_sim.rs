@@ -4,8 +4,8 @@
 //!
 //! cargo run -p rugrats --example babies_sim -- N
 
-use rugrats::front::{Baby, InUse};
 use rugrats::rand::Rand;
+use rugrats::ui::front::{Baby, InUse};
 
 fn main() {
     let frames: u32 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(120);

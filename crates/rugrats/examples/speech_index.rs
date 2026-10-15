@@ -12,11 +12,18 @@ fn main() -> Result<(), String> {
     println!("{n} lines; xa file {} lba {} size {}", 617 + db, disc.file_lba(617 + db)?, disc.file_size(617 + db)?);
     for (k, id) in ids.iter().enumerate() {
         let e = &raw[at + 4 * k..at + 4 * k + 4];
-        println!("{:4} flags {:x}: offset {} len {} channel {}", id & 4095, id >> 12, u16::from_le_bytes([e[0], e[1]]), e[2], e[3]);
+        println!(
+            "{:4} flags {:x}: offset {} len {} channel {}",
+            id & 4095,
+            id >> 12,
+            u16::from_le_bytes([e[0], e[1]]),
+            e[2],
+            e[3]
+        );
     }
     let mut a = std::env::args().skip(2);
     if let (Some(n), Some(out)) = (a.next().and_then(|s| s.parse().ok()), a.next()) {
-        let mut speech = rugrats::speech::Speech::load(&disc, db);
+        let mut speech = rugrats::audio::speech::Speech::load(&disc, db);
         let buf = speech.line(&disc, n).ok_or("no such line")?;
         let peak = buf.iter().map(|s| s.0.unsigned_abs().max(s.1.unsigned_abs())).max().unwrap_or(0);
         println!("line {n}: {:.2} s, peak {peak}", buf.len() as f64 / 44100.0);

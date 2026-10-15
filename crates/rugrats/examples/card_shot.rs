@@ -11,7 +11,7 @@ fn main() -> Result<(), String> {
     let file: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(672);
     let out = a.next().unwrap_or("card.png".into());
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
-    let card = rugrats::front::Card::open(&disc, file)?;
+    let card = rugrats::ui::front::Card::open(&disc, file)?;
     let stage = &card.stage;
     let gpu = Gpu::headless().map_err(|e| e.to_string())?;
     let (w, h) = (640, 480);

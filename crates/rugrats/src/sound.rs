@@ -34,7 +34,9 @@ impl Bank {
     pub fn load(disc: &GameDisc, vb: usize) -> Result<Bank, String> {
         let vab = Vab::parse(&disc.file(vb + 1)?)?;
         let body = disc.file(vb)?;
-        let samples = (0..vab.vag_sizes.len()).map(|n| Arc::new(vab.vag(&body, n).map(spu::decode_sample).unwrap_or_default())).collect();
+        let samples = (0..vab.vag_sizes.len())
+            .map(|n| Arc::new(vab.vag(&body, n).map(spu::decode_sample).unwrap_or_default()))
+            .collect();
         Ok(Bank { vab, samples })
     }
 
@@ -194,7 +196,10 @@ impl Voice {
     /// One output frame.
     fn render(&mut self) -> (i32, i32) {
         let i = (self.pos >> 12) as i64;
-        let s = spu::interpolate([self.sample_at(i - 3), self.sample_at(i - 2), self.sample_at(i - 1), self.sample_at(i)], (self.pos >> 4 & 255) as u8);
+        let s = spu::interpolate(
+            [self.sample_at(i - 3), self.sample_at(i - 2), self.sample_at(i - 1), self.sample_at(i)],
+            (self.pos >> 4 & 255) as u8,
+        );
         self.env.step();
         let v = s * self.env.level >> 15;
         self.pos += self.pitch.min(0x3fff) as u64;
@@ -292,7 +297,9 @@ fn volumes(parts: &[i32], pans: &[i32]) -> (i32, i32) {
 /// The SPU pitch for `note` on a tone sampled at its centre note: 0x1000
 /// plays at 44100 Hz.
 fn pitch(tone: &Tone, note: u8, bend: i32) -> u32 {
-    let semis = note as f64 - tone.center as f64 + tone.shift as f64 / 128.0 + bend as f64 / 8192.0 * tone.pitch_bend_max.max(1) as f64;
+    let semis = note as f64 - tone.center as f64
+        + tone.shift as f64 / 128.0
+        + bend as f64 / 8192.0 * tone.pitch_bend_max.max(1) as f64;
     (4096.0 * 2f64.powf(semis / 12.0)).round().clamp(0.0, 0x3fff as f64) as u32
 }
 
@@ -340,31 +347,61 @@ impl Spu {
         let Some(bank) = self.effects.clone() else { return };
         let Some(t) = bank.tones(prog).get(tone as usize).cloned() else { return };
         let (pv, pp) = bank.program_volume(prog);
-        let vol = volumes(&[t.volume as i32, pv as i32, volume, bank.vab.master_volume as i32], &[t.pan as i32, pp as i32]);
+        let vol =
+            volumes(&[t.volume as i32, pv as i32, volume, bank.vab.master_volume as i32], &[t.pan as i32, pp as i32]);
         let k = self.next_effect;
         self.next_effect = if k + 1 >= EFFECT_VOICES.end { EFFECT_VOICES.start } else { k + 1 };
         self.voices[k] = self.voice(&bank, &t, note, 0, vol, None);
     }
 
-    fn voice(&self, bank: &Bank, t: &Tone, note: u8, bend: i32, vol: (i32, i32), key: Option<(u8, u8)>) -> Option<Voice> {
+    fn voice(
+        &self,
+        bank: &Bank,
+        t: &Tone,
+        note: u8,
+        bend: i32,
+        vol: (i32, i32),
+        key: Option<(u8, u8)>,
+    ) -> Option<Voice> {
         let sample = bank.samples.get(t.vag as usize)?.clone();
-        Some(Voice { sample, pos: 0, pitch: pitch(t, note, bend), env: Envelope::new(t.adsr1, t.adsr2), vol, key, started: self.clock })
+        Some(Voice {
+            sample,
+            pos: 0,
+            pitch: pitch(t, note, bend),
+            env: Envelope::new(t.adsr1, t.adsr2),
+            vol,
+            key,
+            started: self.clock,
+        })
     }
 
     fn note_on(&mut self, c: Channel, ch: u8, note: u8, vel: u8) {
         let Some(bank) = self.music.clone() else { return };
         let (pv, pp) = bank.program_volume(c.program);
-        let tones: Vec<Tone> = bank.tones(c.program).iter().filter(|t| (t.min_note..=t.max_note).contains(&note)).cloned().collect();
+        let tones: Vec<Tone> =
+            bank.tones(c.program).iter().filter(|t| (t.min_note..=t.max_note).contains(&note)).cloned().collect();
         for t in tones {
             let vol = volumes(
-                &[vel as i32, t.volume as i32, pv as i32, c.volume as i32, c.expression as i32, self.song_volume, bank.vab.master_volume as i32],
+                &[
+                    vel as i32,
+                    t.volume as i32,
+                    pv as i32,
+                    c.volume as i32,
+                    c.expression as i32,
+                    self.song_volume,
+                    bank.vab.master_volume as i32,
+                ],
                 &[t.pan as i32, pp as i32, c.pan as i32],
             );
             let v = self.voice(&bank, &t, note, c.bend, vol, Some((ch, note)));
             // A free voice below the effects', else the oldest.
             let k = (0..EFFECT_VOICES.start)
                 .find(|&k| self.voices[k].as_ref().is_none_or(|v| v.env.phase == Phase::Off))
-                .unwrap_or_else(|| (0..EFFECT_VOICES.start).min_by_key(|&k| self.voices[k].as_ref().map_or(0, |v| v.started)).unwrap_or(0));
+                .unwrap_or_else(|| {
+                    (0..EFFECT_VOICES.start)
+                        .min_by_key(|&k| self.voices[k].as_ref().map_or(0, |v| v.started))
+                        .unwrap_or(0)
+                });
             self.voices[k] = v;
         }
     }

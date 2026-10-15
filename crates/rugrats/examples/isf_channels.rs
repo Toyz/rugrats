@@ -23,7 +23,10 @@ fn main() -> Result<(), String> {
     }
     println!("ISF {}: {} sectors from LBA {start}", 617 + db, sectors);
     for (k, v) in &chans {
-        println!("  file {} chan {} sub {:02x} coding {:02x}: {} sectors, first {}, last {}", k.0, k.1, k.2, k.3, v.2, v.0, v.1);
+        println!(
+            "  file {} chan {} sub {:02x} coding {:02x}: {} sectors, first {}, last {}",
+            k.0, k.1, k.2, k.3, v.2, v.0, v.1
+        );
     }
     if let Ok(t) = disc.file(585 + db) {
         let n = u16::from_le_bytes([t[0], t[1]]) as usize;

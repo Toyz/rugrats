@@ -46,6 +46,10 @@ pub mod anim {
     /// Standing plays the idle (+0xe7, which init sets to 17:
     /// 0x80057244(player, 17, 0)); walking state 1's animation.
     pub const IDLE: i16 = 17;
+    pub const CARRY_IDLE: i16 = 20;
+    pub const PICK_UP: i16 = 13;
+    pub const PUT_DOWN: i16 = 14;
+    pub const THROW: i16 = 18;
     pub const STAND: i16 = 1;
     pub const RUN: i16 = 2;
     pub const JUMP: i16 = 3;
@@ -80,12 +84,26 @@ pub struct Player {
     pub animator: Animator,
     /// Sound effects asked for this frame (0x8006f644's numbers).
     pub effects: Vec<u8>,
+    /// An action's animation playing (pick up 13, put down 14, throw 18):
+    /// the player stands until it ends.
+    pub action: Option<i16>,
+    /// Carrying: the idle is 20 (0x80057244 at the grab).
+    pub carrying: bool,
+    /// The jump lock after a throw (0x800c4290: 300, less dt a frame).
+    pub jump_lock: i32,
 }
 
 impl Player {
     /// Puts the player at `start` with heading `heading` on the floor
     /// (0x800596e8), with `hierarchy`.
-    pub fn new(disc: &GameDisc, hierarchy: Hierarchy, start: [i32; 3], heading: i32, col: &Col, anims: &Anims) -> Result<Player, String> {
+    pub fn new(
+        disc: &GameDisc,
+        hierarchy: Hierarchy,
+        start: [i32; 3],
+        heading: i32,
+        col: &Col,
+        anims: &Anims,
+    ) -> Result<Player, String> {
         let animator = Animator::load(disc, TOMMY)?;
         let feet = hierarchy.parts.first().map_or(0, |p| p.offset[1]);
         let mut p = Player {
@@ -100,6 +118,9 @@ impl Player {
             hierarchy,
             animator,
             effects: Vec::new(),
+            action: None,
+            carrying: false,
+            jump_lock: 0,
         };
         let q = collide::query(col, start);
         if q.tile.is_some() {
@@ -128,10 +149,32 @@ impl Player {
         let start = self.pos;
         // The stick: digital directions are full (4096) on their axis;
         // up is +z.
-        let sx = if held(input::LEFT) { -4096 } else if held(input::RIGHT) { 4096 } else { 0 };
-        let sz = if held(input::UP) { 4096 } else if held(input::DOWN) { -4096 } else { 0 };
-        let magnitude = (((sx * sx + sz * sz) as f64).sqrt() as i32).min(4096);
+        let sx = if held(input::LEFT) {
+            -4096
+        } else if held(input::RIGHT) {
+            4096
+        } else {
+            0
+        };
+        let sz = if held(input::UP) {
+            4096
+        } else if held(input::DOWN) {
+            -4096
+        } else {
+            0
+        };
+        let mut magnitude = (((sx * sx + sz * sz) as f64).sqrt() as i32).min(4096);
         let on_ground = matches!(self.state, State::Stand | State::Walk | State::Run | State::Land);
+        self.jump_lock = (self.jump_lock - DT).max(0);
+        // An action holds the player until its animation ends.
+        if let Some(a) = self.action {
+            if self.animator.playing(a) {
+                magnitude = 0;
+            } else {
+                self.action = None;
+            }
+        }
+        let acting = self.action.is_some();
         if magnitude >= DEAD {
             let dir = (((sx as f64).atan2(sz as f64) / std::f64::consts::TAU) * 4096.0).round() as i32;
             let want = (dir + camera_heading).rem_euclid(4096);
@@ -157,7 +200,7 @@ impl Player {
             // The ground move along the facing (0x8005caac).
             self.pos[0] += s * self.speed * DT >> 12;
             self.pos[2] += c * self.speed * DT >> 12;
-            if pressed(input::CROSS) {
+            if pressed(input::CROSS) && !acting && self.jump_lock == 0 {
                 // The launch (0x80060f1c): up 1000, and along the facing
                 // 40 a unit of speed when running, else 12.
                 let along = if self.speed > WALK { 40 } else { 12 } * self.speed;
@@ -239,10 +282,18 @@ impl Player {
             };
         }
         let a = match self.state {
+            _ if self.action.is_some() && on_ground => self.action.unwrap(),
+            State::Stand if self.carrying => anim::CARRY_IDLE,
             State::Stand => anim::IDLE,
             State::Walk => anim::STAND,
             State::Run => anim::RUN,
-            State::Jump => if self.speed > 0 { anim::JUMP_MOVING } else { anim::JUMP },
+            State::Jump => {
+                if self.speed > 0 {
+                    anim::JUMP_MOVING
+                } else {
+                    anim::JUMP
+                }
+            }
             State::Fall => anim::FALL,
             State::Land => anim::LAND,
         };
@@ -250,12 +301,53 @@ impl Player {
         self.animator.step(anims);
     }
 
+    /// Starts action animation `a`.
+    pub fn act(&mut self, a: i16, anims: &Anims) {
+        self.action = Some(a);
+        self.speed = 0;
+        self.animator.set(a, anims);
+    }
+
+    /// The heading as a rotation (0x80020d10's matrix).
+    pub fn rotation(&self, trig: &Trig) -> Mat3 {
+        let e = trig.euler([self.heading as i16, 0, 0]);
+        Mat3::from_cols_array(
+            &e.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap(),
+        )
+    }
+
+    /// Each part's rotation and joint in the world.
+    pub fn parts(&self, anims: &Anims, trig: &Trig) -> Vec<(Mat3, Vec3)> {
+        let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
+        rugrats_render::models::posed_parts(
+            &self.hierarchy,
+            &self.animator.locals(&self.hierarchy, anims),
+            self.rotation(trig),
+            pos,
+        )
+    }
+
+    /// The part a hand slot names (hierarchy +0x14 + slot).
+    pub fn slot_part(&self, slot: usize) -> Option<usize> {
+        self.hierarchy.header.get(0x14 + slot).copied().filter(|&p| p != 0xff).map(|p| p as usize)
+    }
+
     /// The player's triangles, turned by its heading (0x80020d10).
     pub fn triangles(&self, models: &Models, anims: &Anims, trig: &Trig, out: &mut Vec<Vtx>) {
         let e = trig.euler([self.heading as i16, 0, 0]);
-        let rows = Mat3::from_cols_array(&e.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap()).transpose();
+        let rows = Mat3::from_cols_array(
+            &e.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap(),
+        )
+        .transpose();
         let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
-        posed_triangles(&self.hierarchy, models, &self.animator.locals(&self.hierarchy, anims), rows.transpose(), pos, out);
+        posed_triangles(
+            &self.hierarchy,
+            models,
+            &self.animator.locals(&self.hierarchy, anims),
+            rows.transpose(),
+            pos,
+            out,
+        );
     }
 }
 

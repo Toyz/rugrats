@@ -11,7 +11,9 @@ use rugrats::gte::Trig;
 #[test]
 fn trigonometry_and_projection_match_the_original() {
     let root = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
-    let (Ok(bytes), Ok(cue)) = (std::fs::read(root.join("work/fs/SLUS_006.50")), rrt::disc::Image::find(&root.join("work/disc"))) else {
+    let (Ok(bytes), Ok(cue)) =
+        (std::fs::read(root.join("work/fs/SLUS_006.50")), rrt::disc::Image::find(&root.join("work/disc")))
+    else {
         eprintln!("skipped: no disc");
         return;
     };
@@ -37,7 +39,9 @@ fn trigonometry_and_projection_match_the_original() {
 #[test]
 fn euler_matrices_match_the_original() {
     let root = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
-    let (Ok(bytes), Ok(cue)) = (std::fs::read(root.join("work/fs/SLUS_006.50")), rrt::disc::Image::find(&root.join("work/disc"))) else {
+    let (Ok(bytes), Ok(cue)) =
+        (std::fs::read(root.join("work/fs/SLUS_006.50")), rrt::disc::Image::find(&root.join("work/disc")))
+    else {
         eprintln!("skipped: no disc");
         return;
     };
@@ -46,7 +50,15 @@ fn euler_matrices_match_the_original() {
     m.cpu.r[28] = 0x800c_3e80;
     m.stub(0x8009_f398, 0);
     let (at, out) = (0x8010_0000u32, 0x8010_0100u32);
-    for angles in [[0i16, 0, 0], [1024, 0, 0], [0, 2048, 0], [0, 0, 512], [300, -700, 1500], [2048, 1024, -100], [-4000, 77, 3333]] {
+    for angles in [
+        [0i16, 0, 0],
+        [1024, 0, 0],
+        [0, 2048, 0],
+        [0, 0, 512],
+        [300, -700, 1500],
+        [2048, 1024, -100],
+        [-4000, 77, 3333],
+    ] {
         for (k, a) in angles.iter().enumerate() {
             m.bus.write_u16(at + 2 * k as u32, *a as u16).unwrap();
         }

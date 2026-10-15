@@ -23,10 +23,25 @@ fn main() {
         for b in &babies {
             line += &format!(
                 " | st {} c {} k {} h Some({}) pos {},{},{} tgt {},{},{} ang {},{},{} to {},{},{} sp {},{},{}",
-                b.state, b.corner, b.kind, b.hierarchy,
-                b.pos[0], b.pos[1], b.pos[2], b.target[0], b.target[1], b.target[2],
-                b.angles[0], b.angles[1], b.angles[2], b.turn_to[0], b.turn_to[1], b.turn_to[2],
-                b.speed[0], b.speed[1], b.turn
+                b.state,
+                b.corner,
+                b.kind,
+                b.hierarchy,
+                b.pos[0],
+                b.pos[1],
+                b.pos[2],
+                b.target[0],
+                b.target[1],
+                b.target[2],
+                b.angles[0],
+                b.angles[1],
+                b.angles[2],
+                b.turn_to[0],
+                b.turn_to[1],
+                b.turn_to[2],
+                b.speed[0],
+                b.speed[1],
+                b.turn
             );
         }
         println!("{line}");

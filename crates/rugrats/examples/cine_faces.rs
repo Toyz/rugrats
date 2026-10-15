@@ -54,13 +54,23 @@ fn flags_probe(disc: &GameDisc) -> Result<(), String> {
     for p in lp.iter().filter(|p| matches!(p.template, 1149 | 1130)) {
         println!("lp {p:?} model found {}", models.find(t[p.template as usize].shape as u32));
     }
-    println!("1130 shape {} found {}, 1149 shape {} found {}", t[1130].shape, models.find(t[1130].shape as u32), t[1149].shape, models.find(t[1149].shape as u32));
+    println!(
+        "1130 shape {} found {}, 1149 shape {} found {}",
+        t[1130].shape,
+        models.find(t[1130].shape as u32),
+        t[1149].shape,
+        models.find(t[1149].shape as u32)
+    );
     for tid in [626usize, 704] {
         let tm = t[tid];
         println!("raw {:02x?}", &raw.get(4 + 56 * tid..4 + 56 * tid + 56));
         println!("template {tid}: {tm:?} at {:#x}", models.find(tm.shape as u32));
         if let Ok(out) = std::env::var("MOD_OUT") {
-            std::fs::write(format!("{out}.{tid}"), &disc.file(242 + 22)?[models.find(tm.shape as u32) as usize..][..256]).map_err(|e| e.to_string())?;
+            std::fs::write(
+                format!("{out}.{tid}"),
+                &disc.file(242 + 22)?[models.find(tm.shape as u32) as usize..][..256],
+            )
+            .map_err(|e| e.to_string())?;
         }
         if let Some(m) = models.get(tm.shape as u32) {
             let mut seen = std::collections::BTreeMap::new();
@@ -68,7 +78,11 @@ fn flags_probe(disc: &GameDisc) -> Result<(), String> {
                 *seen.entry((f.flags, f.texture.map(|t| (t.1, t.2)))).or_insert(0) += 1;
             }
             for (k, n) in seen {
-                println!("  flags {:08x} clut/page {:?} x{n}", k.0, k.1.map(|(c, p)| (format!("{c:04x}"), format!("{p:04x}"))));
+                println!(
+                    "  flags {:08x} clut/page {:?} x{n}",
+                    k.0,
+                    k.1.map(|(c, p)| (format!("{c:04x}"), format!("{p:04x}")))
+                );
             }
         }
     }

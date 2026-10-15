@@ -62,7 +62,9 @@ fn read_h(m: &mut Emu, at: u32) -> i16 {
 
 fn items() -> Vec<Text> {
     let mut out = Vec::new();
-    for (font, s) in [(0u8, "Start Game"), (1, "Load Game"), (2, "CANCEL"), (1, "Two\nlines here"), (2, "x: 1, y? [ok]!")] {
+    for (font, s) in
+        [(0u8, "Start Game"), (1, "Load Game"), (2, "CANCEL"), (1, "Two\nlines here"), (2, "x: 1, y? [ok]!")]
+    {
         out.push(Text { font, spacing: 1, rgb: [255, 255, 5], x: 10, y: -20, string: s.into(), ..Default::default() });
     }
     out
@@ -133,11 +135,43 @@ fn slides_match_the_original() {
     // The menu's items (0x8003d5a0), a bounce, an x slide, a wait.
     let base = Text { font: 1, spacing: 1, string: "Item".into(), ..Default::default() };
     let cases = [
-        Text { y: 200, target: (0, 25), rest: (0, 25), speed: (0, 12), count: (0, 4), flags: text::SLIDE_Y | text::WOBBLE, ..base.clone() },
-        Text { y: 250, target: (0, 50), rest: (0, 50), speed: (0, 12), count: (0, 4), flags: text::SLIDE_Y | text::WOBBLE, ..base.clone() },
-        Text { y: -90, target: (0, 40), rest: (0, 10), speed: (0, 5), count: (0, 81), flags: text::SLIDE_Y | text::BOUNCE, ..base.clone() },
+        Text {
+            y: 200,
+            target: (0, 25),
+            rest: (0, 25),
+            speed: (0, 12),
+            count: (0, 4),
+            flags: text::SLIDE_Y | text::WOBBLE,
+            ..base.clone()
+        },
+        Text {
+            y: 250,
+            target: (0, 50),
+            rest: (0, 50),
+            speed: (0, 12),
+            count: (0, 4),
+            flags: text::SLIDE_Y | text::WOBBLE,
+            ..base.clone()
+        },
+        Text {
+            y: -90,
+            target: (0, 40),
+            rest: (0, 10),
+            speed: (0, 5),
+            count: (0, 81),
+            flags: text::SLIDE_Y | text::BOUNCE,
+            ..base.clone()
+        },
         Text { x: -300, target: (17, 0), rest: (17, 0), speed: (9, 0), flags: text::SLIDE_X, ..base.clone() },
-        Text { y: 150, target: (0, 0), rest: (0, 0), speed: (0, 8), wait: 10, flags: text::SLIDE_Y | text::WAIT, ..base.clone() },
+        Text {
+            y: 150,
+            target: (0, 0),
+            rest: (0, 0),
+            speed: (0, 8),
+            wait: 10,
+            flags: text::SLIDE_Y | text::WAIT,
+            ..base.clone()
+        },
     ];
     for t in cases {
         let mut ours = t.clone();
@@ -145,7 +179,12 @@ fn slides_match_the_original() {
         for frame in 0..80 {
             ours.step();
             m.call(0x8002_e2b4, &[ITEM as u64]).unwrap();
-            let theirs = (read_h(&mut m, 0x08), read_h(&mut m, 0x0a), m.bus.read_u16(ITEM + 0x18).unwrap(), read_h(&mut m, 0x0e));
+            let theirs = (
+                read_h(&mut m, 0x08),
+                read_h(&mut m, 0x0a),
+                m.bus.read_u16(ITEM + 0x18).unwrap(),
+                read_h(&mut m, 0x0e),
+            );
             assert_eq!((ours.x, ours.y, ours.flags, ours.target.1), theirs, "frame {frame} of {t:?}");
         }
     }

@@ -13,7 +13,11 @@ fn main() -> Result<(), String> {
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let models = rugrats_data::model::Models::parse(&disc.file(242 + db)?).map_err(|e| e.to_string())?;
     for (id, m) in models.iter() {
-        let hits = m.faces.iter().filter(|f| f.texture.is_some_and(|(_, c, p)| p & 0x1ff == page & 0x1ff && c == clut)).count();
+        let hits = m
+            .faces
+            .iter()
+            .filter(|f| f.texture.is_some_and(|(_, c, p)| p & 0x1ff == page & 0x1ff && c == clut))
+            .count();
         if hits > 0 {
             println!("model {id}: {hits} of {} faces", m.faces.len());
         }

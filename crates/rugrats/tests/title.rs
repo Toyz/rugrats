@@ -57,7 +57,11 @@ fn babies_match_the_original() {
                 turn: h(b, 0x5b0),
             };
             let hier = b.read_u32(o + 0x154).unwrap();
-            assert_eq!(b.read_u32(0x800e_2440 + 4 * ours.hierarchy as u32).unwrap(), hier, "frame {frames}: which baby");
+            assert_eq!(
+                b.read_u32(0x800e_2440 + 4 * ours.hierarchy as u32).unwrap(),
+                hier,
+                "frame {frames}: which baby"
+            );
             assert_eq!(*ours, theirs, "frame {frames}");
         }
     }

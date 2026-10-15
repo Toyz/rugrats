@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-29 entries: audio 6, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 4, render 9, save 1, test 9, tooling 15, ui 5, video 8.
+30 entries: audio 6, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 5, render 9, save 1, test 9, tooling 15, ui 6, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -41,3 +41,4 @@ The [reference](docs/README.md) says what is true now.
 | 27 | [Collision: the COL height field and its query, pinned to the original](worklog/0027-collision-the-col-height-field-and-its-query-pinned-to-the.md) | 2026-10-15 | engine, ui |
 | 28 | [Play: the hub and levels, Tommy running, jumping and colliding](worklog/0028-play-the-hub-and-levels-tommy-running-jumping-and-colliding.md) | 2026-10-15 | play, engine |
 | 29 | [Characters, cinematics between levels, room music](worklog/0029-characters-cinematics-between-levels-room-music.md) | 2026-10-15 | play, audio, video |
+| 30 | [Hint cards, carrying and throwing](worklog/0030-hint-cards-carrying-and-throwing.md) | 2026-10-15 | play, ui |

@@ -5,7 +5,7 @@ use std::path::Path;
 
 use rrt::emu::psx::machine_with_exe;
 use rrt::emu::{BusExt, PsxExe};
-use rugrats::collide::{query, Query};
+use rugrats::collide::{Query, query};
 use rugrats::disc::GameDisc;
 use rugrats_data::col::Col;
 
@@ -15,7 +15,9 @@ const POS: u32 = 0x801f_0000;
 #[test]
 fn queries_match_the_original() {
     let root = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
-    let (Ok(bytes), Ok(cue)) = (std::fs::read(root.join("work/fs/SLUS_006.50")), rrt::disc::Image::find(&root.join("work/disc"))) else {
+    let (Ok(bytes), Ok(cue)) =
+        (std::fs::read(root.join("work/fs/SLUS_006.50")), rrt::disc::Image::find(&root.join("work/disc")))
+    else {
         eprintln!("skipped: no disc");
         return;
     };
@@ -43,7 +45,8 @@ fn queries_match_the_original() {
                         m.bus.write_u32(POS + 4 * k as u32, *v as u32).unwrap();
                     }
                     let out = POS + 0x20;
-                    let r = m.call(0x8002_b240, &[POS as u64, out as u64, (out + 4) as u64, (out + 8) as u64]).unwrap() as i32;
+                    let r = m.call(0x8002_b240, &[POS as u64, out as u64, (out + 4) as u64, (out + 8) as u64]).unwrap()
+                        as i32;
                     let ceiling = m.bus.read_u32(out).unwrap() as i32;
                     let floor = m.bus.read_u32(out + 4).unwrap() as i32;
                     let tile_ptr = m.bus.read_u32(out + 8).unwrap();

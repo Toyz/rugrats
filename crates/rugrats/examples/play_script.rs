@@ -65,8 +65,21 @@ fn main() -> Result<(), String> {
             pads.push_bits(0, bits);
             let before = game.player.pos;
             game.frame(&pads);
+            for (k, t) in game.things.iter().enumerate() {
+                if t.state != rugrats::game::ThingState::Rest {
+                    println!("{frame}: thing {k} {:?} at {:?}", t.state, t.pos);
+                }
+            }
             if game.player.pos != before {
-                println!("{frame}: {:?} heading {} state {:?} v {:?} floor {} track {:?}", game.player.pos, game.player.heading, game.player.state, game.player.v, game.player.floor, game.player.track());
+                println!(
+                    "{frame}: {:?} heading {} state {:?} v {:?} floor {} track {:?}",
+                    game.player.pos,
+                    game.player.heading,
+                    game.player.state,
+                    game.player.v,
+                    game.player.floor,
+                    game.player.track()
+                );
             }
             if frame.is_multiple_of(every) {
                 let stage = &game.stage;
@@ -78,7 +91,8 @@ fn main() -> Result<(), String> {
                 let cmd = r.draw(&gpu.device, &gpu.queue, &target.view, (w, h), stage.camera);
                 gpu.queue.submit([cmd]);
                 let rgba = target.read_back(&gpu).rgba;
-                std::fs::write(format!("{dir}/{frame}.png"), rrt::image::png::encode(w, h, &rgba)).map_err(|e| e.to_string())?;
+                std::fs::write(format!("{dir}/{frame}.png"), rrt::image::png::encode(w, h, &rgba))
+                    .map_err(|e| e.to_string())?;
             }
             frame += 1;
         }

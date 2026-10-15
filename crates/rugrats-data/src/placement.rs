@@ -55,9 +55,18 @@ pub fn parse_lp(b: &[u8]) -> Vec<Placement> {
 pub struct Template {
     pub flags: u32,
     pub shape: u16,
+    /// The 56-byte record (class +0x04, use +0x07, touch +0x0a, sound
+    /// +0x24, pickable +0x28, trigger radius +0x34).
+    pub raw: [u8; 56],
 }
 
 impl Template {
+    /// Whether objects of it can be picked up (+0x28, object flag
+    /// 0x10000, 0x8004691c).
+    pub fn pickable(&self) -> bool {
+        u16::from_le_bytes([self.raw[0x28], self.raw[0x29]]) != 0
+    }
+
     pub fn hierarchy(&self) -> Option<usize> {
         (self.flags & 1 != 0).then_some(self.shape as usize)
     }
@@ -65,6 +74,6 @@ impl Template {
 
 pub fn parse_templates(b: &[u8]) -> Vec<Template> {
     b.chunks_exact(56)
-        .map(|e| Template { flags: u32::from_le_bytes(e[..4].try_into().unwrap()), shape: u16::from_le_bytes([e[0x10], e[0x11]]) })
+        .map(|e| Template { flags: u32::from_le_bytes(e[..4].try_into().unwrap()), shape: u16::from_le_bytes([e[0x10], e[0x11]]), raw: e.try_into().unwrap() })
         .collect()
 }

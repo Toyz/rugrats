@@ -64,7 +64,41 @@ pub struct Game {
     pub effects: Vec<(u8, i32)>,
     /// Paused (Start, 0x80018c38 step 13): the world holds still.
     pub paused: bool,
+    /// The objects that can be picked up, the one carried, and its grip
+    /// (+0x1f8: in the player's frame from hand slot 15).
+    pub things: Vec<Thing>,
+    carried: Option<usize>,
+    grip: Vec3,
 }
+
+/// A model that can be picked up (object flag 0x10000).
+pub struct Thing {
+    pub shape: u32,
+    pub pos: Vec3,
+    pub rot: Mat3,
+    pub state: ThingState,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ThingState {
+    Rest,
+    Carried,
+    /// In flight (0x80087c5c): velocity.
+    Flying([i32; 3]),
+}
+
+/// Hand slots of the grip (0x8005ff88): the object rides slot 15.
+const HAND: usize = 15;
+const OTHER_HAND: usize = 12;
+/// How near an object must be to be touched (the player's radius and some).
+const REACH: f32 = 520.0;
+/// A throw (0x80060b44): direction (0, -384, 1024) turned by the heading,
+/// speed 170; the velocity is dir * (speed * 65536 / 6000) >> 12
+/// (0x8008864c); a put-down is speed 10 along (0, 0, 4096).
+const THROW_SPEED: f32 = 170.0 * 65536.0 / 6000.0;
+const DROP_SPEED: f32 = 10.0 * 65536.0 / 6000.0;
+/// Thrown objects fall at 13 (flight flags 0x700).
+const THING_GRAVITY: i32 = 13;
 
 /// A placed character, standing (its think and AI are not ported).
 pub struct Npc {
@@ -84,7 +118,8 @@ impl Game {
     pub fn open(disc: &GameDisc, level: usize) -> Result<Game, String> {
         let set = Set::load(disc, level)?;
         let col = Col::parse(&disc.file(COL + level)?)?;
-        let anims = Anims::parse(&disc.file(ANM + level)?, &disc.file(FRM + level)?, &disc.file(ROT + level)?).map_err(|e| e.to_string())?;
+        let anims = Anims::parse(&disc.file(ANM + level)?, &disc.file(FRM + level)?, &disc.file(ROT + level)?)
+            .map_err(|e| e.to_string())?;
         let trig = Trig::load(disc)?;
         let start = disc.exe_bytes(STARTS + 16 * level as u32, 12)?;
         let start = [0, 4, 8].map(|k| i32::from_le_bytes(start[k..k + 4].try_into().unwrap()));
@@ -115,7 +150,29 @@ impl Game {
             let p = &set.placements[k];
             p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy().is_some())
         };
-        let scenery = set.objects_except(&Frame::default(), character);
+        // Pickable models move: drawn and collided each frame.
+        let pickable = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1
+                && set
+                    .templates
+                    .get(p.template as usize)
+                    .is_some_and(|t| t.pickable() && t.hierarchy().is_none() && set.models.find(t.shape as u32) != 0)
+        };
+        let things: Vec<Thing> = (0..set.placements.len())
+            .filter(|&k| pickable(k))
+            .map(|k| {
+                let p = &set.placements[k];
+                let shape = set.templates[p.template as usize].shape as u32;
+                Thing {
+                    shape,
+                    pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
+                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    state: ThingState::Rest,
+                }
+            })
+            .collect();
+        let scenery = set.objects_except(&Frame::default(), |k| character(k) || pickable(k));
         let mut npcs = Vec::new();
         for (k, p) in set.placements.iter().enumerate() {
             if !character(k) || Some(k) == player_place {
@@ -126,7 +183,12 @@ impl Game {
             let mut animator = crate::animator::Animator::load(disc, h as u16)?;
             animator.set(crate::player::anim::IDLE, &anims);
             let rot = rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose();
-            rrt::tracing::debug!("npc {} hierarchy {h}: track {:?}, {} parts", p.id, animator.track(), hierarchy.parts.len());
+            rrt::tracing::debug!(
+                "npc {} hierarchy {h}: track {:?}, {} parts",
+                p.id,
+                animator.track(),
+                hierarchy.parts.len()
+            );
             // On the floor under it (0x80081bac asks 0x8002b240), the root
             // the hierarchy's offset above the feet.
             let q = crate::collide::query(&col, p.pos);
@@ -136,8 +198,30 @@ impl Game {
         }
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let yaw = heading as f32;
-        let boxes = object_boxes(&set, |k| character(k));
-        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None, boxes, npcs, room: None, song: None, effects: Vec::new(), paused: false };
+        let boxes = object_boxes(&set, |k| character(k) || pickable(k));
+        let mut g = Game {
+            level,
+            set,
+            col,
+            anims,
+            player,
+            stage,
+            trig,
+            focal,
+            eye: Vec3::ZERO,
+            yaw,
+            scenery,
+            exit: None,
+            boxes,
+            npcs,
+            room: None,
+            song: None,
+            effects: Vec::new(),
+            paused: false,
+            things,
+            carried: None,
+            grip: Vec3::ZERO,
+        };
         g.eye = g.eye_goal();
         g.draw();
         Ok(g)
@@ -147,7 +231,8 @@ impl Game {
     /// it was in first); on a change, the room's song (0x80077a54).
     fn room_change(&mut self) {
         let p = self.player.pos;
-        let inside = |k: usize| self.set.room_info.get(k).is_some_and(|r| (0..3).all(|i| r.min[i] <= p[i] && p[i] <= r.max[i]));
+        let inside =
+            |k: usize| self.set.room_info.get(k).is_some_and(|r| (0..3).all(|i| r.min[i] <= p[i] && p[i] <= r.max[i]));
         let room = match self.room.filter(|&k| inside(k)) {
             Some(k) => Some(k),
             None => (0..self.set.room_info.len()).find(|&k| inside(k)),
@@ -159,6 +244,95 @@ impl Game {
         if let Some(r) = room.and_then(|k| self.set.room_info.get(k)) {
             if r.flags & 128 != 0 && (1..5).contains(&r.song) {
                 self.song = Some(r.song as usize - 1);
+            }
+        }
+    }
+
+    /// GRAB and ACTION in the stand state (0x8005d11c): Circle picks the
+    /// touched object up (state 7) or puts the carried one down (state 8);
+    /// Triangle throws it (0x80060b44).
+    fn carry(&mut self, pads: &Pads) {
+        let p = &self.player;
+        let standing =
+            matches!(p.state, crate::player::State::Stand | crate::player::State::Walk | crate::player::State::Run)
+                && p.action.is_none();
+        if !standing {
+            return;
+        }
+        let me = Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32);
+        let rot = p.rotation(&self.trig);
+        if let Some(k) = self.carried {
+            let throw = pads.pressed(0, input::TRIANGLE);
+            if throw || pads.pressed(0, input::CIRCLE) {
+                let (dir, speed, anim) = if throw {
+                    (rot * Vec3::new(0.0, -384.0, 1024.0), THROW_SPEED, crate::player::anim::THROW)
+                } else {
+                    (rot * Vec3::new(0.0, 0.0, 4096.0), DROP_SPEED, crate::player::anim::PUT_DOWN)
+                };
+                let v = dir.normalize() * speed;
+                self.things[k].state = ThingState::Flying([v.x as i32, v.y as i32, v.z as i32]);
+                self.carried = None;
+                self.player.carrying = false;
+                self.player.act(anim, &self.anims);
+                if throw {
+                    self.player.jump_lock = 300;
+                }
+            }
+            return;
+        }
+        if !pads.pressed(0, input::CIRCLE) {
+            return;
+        }
+        let near = self
+            .things
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.state == ThingState::Rest)
+            .map(|(k, t)| (k, Vec3::new(t.pos.x - me.x, 0.0, t.pos.z - me.z).length(), (t.pos.y - me.y).abs()))
+            .filter(|&(_, d, dy)| d < REACH && dy < 1200.0)
+            .min_by(|a, b| a.1.total_cmp(&b.1));
+        let Some((k, _, _)) = near else { return };
+        // The grip (0x8005ff88 mode 0): the hands' midpoint less hand 15,
+        // in the player's frame, pushed forward by half the object's depth.
+        let parts = self.player.parts(&self.anims, &self.trig);
+        let at = |slot| self.player.slot_part(slot).and_then(|i| parts.get(i)).map(|p| p.1);
+        let depth = self
+            .set
+            .models
+            .get(self.things[k].shape)
+            .map_or(0.0, |m| m.boxes.iter().map(|b| (b.1[2] - b.0[2]) as f32).fold(0.0, f32::max));
+        self.grip = match (at(HAND), at(OTHER_HAND)) {
+            (Some(a), Some(b)) => rot.transpose() * ((a + b) / 2.0 - a) + Vec3::new(0.0, 0.0, depth / 2.0),
+            _ => Vec3::new(0.0, -300.0, depth / 2.0 + 200.0),
+        };
+        self.things[k].state = ThingState::Carried;
+        self.carried = Some(k);
+        self.player.carrying = true;
+        self.player.act(crate::player::anim::PICK_UP, &self.anims);
+    }
+
+    /// Flights (0x80087c5c): gravity 13, pos += (v dt + a dt^2 / 2) >> 6,
+    /// until the object's bottom reaches the floor.
+    fn fly(&mut self) {
+        let dt = crate::player::DT;
+        for t in &mut self.things {
+            let ThingState::Flying(mut v) = t.state else { continue };
+            let bottom =
+                self.set.models.get(t.shape).and_then(|m| m.boxes.iter().map(|b| b.1[1]).max()).unwrap_or(0) as f32;
+            for k in [0, 2] {
+                t.pos[k] += (v[k] * dt >> 6) as f32;
+            }
+            t.pos.y += ((v[1] * dt + THING_GRAVITY * dt * dt / 2) >> 6) as f32;
+            v[1] += THING_GRAVITY * dt;
+            let q = crate::collide::query(&self.col, [t.pos.x as i32, (t.pos.y - 1.0) as i32, t.pos.z as i32]);
+            let floor = if q.tile.is_some() { q.floor as f32 } else { f32::MAX };
+            if q.kind == 2 || t.pos.y + bottom >= floor {
+                if floor < f32::MAX {
+                    t.pos.y = floor - bottom;
+                }
+                t.state = ThingState::Rest;
+            } else {
+                t.state = ThingState::Flying(v);
             }
         }
     }
@@ -207,16 +381,34 @@ impl Game {
         if self.paused {
             return;
         }
-        self.player.frame(pads, self.yaw.round() as i32, &self.col, &self.boxes, &self.anims, &self.trig);
-        let d = (self.eye - Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32)).length();
+        let mut boxes = self.boxes.clone();
+        for t in self.things.iter().filter(|t| t.state == ThingState::Rest) {
+            if let Some(m) = self.set.models.get(t.shape) {
+                boxes.extend(world_boxes(m, t.rot, t.pos));
+            }
+        }
+        self.player.frame(pads, self.yaw.round() as i32, &self.col, &boxes, &self.anims, &self.trig);
+        self.carry(pads);
+        self.fly();
+        let d = (self.eye - Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32))
+            .length();
         let volume = (crate::sound::EFFECTS_VOLUME as f32 * (1.0 - d / 16384.0).max(0.0)) as i32;
         self.effects = self.player.effects.iter().map(|&e| (e, volume)).collect();
         // Using a door (the stand handler's ACTION, Triangle, on an object
         // whose use is 0x8004f78c): its level next.
         if pads.pressed(0, input::TRIANGLE) {
             let p = self.player.pos;
-            let near = self.set.placements.iter().filter(|d| d.kind == 1 && d.level > 0).min_by_key(|d| (d.pos[0] - p[0]).pow(2) as i64 + (d.pos[2] - p[2]).pow(2) as i64);
-            if let Some(d) = near.filter(|d| (d.pos[0] - p[0]).abs() < USE_REACH && (d.pos[2] - p[2]).abs() < USE_REACH && (d.pos[1] - p[1]).abs() < USE_REACH_Y) {
+            let near = self
+                .set
+                .placements
+                .iter()
+                .filter(|d| d.kind == 1 && d.level > 0)
+                .min_by_key(|d| (d.pos[0] - p[0]).pow(2) as i64 + (d.pos[2] - p[2]).pow(2) as i64);
+            if let Some(d) = near.filter(|d| {
+                (d.pos[0] - p[0]).abs() < USE_REACH
+                    && (d.pos[2] - p[2]).abs() < USE_REACH
+                    && (d.pos[1] - p[1]).abs() < USE_REACH_Y
+            }) {
                 rrt::tracing::info!("level {}: a door to level {} (cine {})", self.level, d.level, d.cine);
                 self.exit = Some((d.level as usize, (d.cine > 0).then_some(d.cine as usize)));
             }
@@ -250,6 +442,20 @@ impl Game {
     fn draw(&mut self) {
         let mut moving = self.scenery.clone();
         self.player.triangles(&self.set.models, &self.anims, &self.trig, &mut moving);
+        // The carried object rides hand 15 (0x8005ff88 mode 1).
+        if let Some(k) = self.carried {
+            let parts = self.player.parts(&self.anims, &self.trig);
+            let rot = self.player.rotation(&self.trig);
+            if let Some(hand) = self.player.slot_part(HAND).and_then(|i| parts.get(i)) {
+                self.things[k].pos = hand.1 + rot * self.grip;
+                self.things[k].rot = rot;
+            }
+        }
+        for t in &self.things {
+            if let Some(m) = self.set.models.get(t.shape) {
+                rugrats_render::models::model_triangles(m, t.rot, t.pos, &mut moving);
+            }
+        }
         for n in &self.npcs {
             let locals = n.animator.locals(&n.hierarchy, &self.anims);
             rugrats_render::models::posed_triangles(&n.hierarchy, &self.set.models, &locals, n.rot, n.pos, &mut moving);
@@ -280,27 +486,7 @@ fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate::player::B
         let Some(m) = set.models.get(t.shape as u32) else { continue };
         let rot = rugrats_render::models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
         let pos = Vec3::new(place.pos[0] as f32, place.pos[1] as f32, place.pos[2] as f32);
-        for &(lo, hi) in &m.boxes {
-            let (mut a, mut b) = (f32::MAX, f32::MIN);
-            for c in 0..8 {
-                let v = Vec3::new(
-                    if c & 1 == 0 { lo[0] } else { hi[0] } as f32,
-                    if c & 2 == 0 { lo[1] } else { hi[1] } as f32,
-                    if c & 4 == 0 { lo[2] } else { hi[2] } as f32,
-                );
-                let y = (rot * v + pos).y;
-                a = a.min(y);
-                b = b.max(y);
-            }
-            out.push(crate::player::Box3 {
-                lo: lo.map(|v| v as i32),
-                hi: hi.map(|v| v as i32),
-                rot,
-                pos,
-                min_y: a as i32,
-                max_y: b as i32,
-            });
-        }
+        out.extend(world_boxes(m, rot, pos));
     }
     out
 }
@@ -327,4 +513,31 @@ pub fn start_cine(level: usize) -> Option<usize> {
         21 => 49,
         _ => return None,
     })
+}
+
+/// A model's boxes at `rot`, `pos`, with the heights their corners span.
+fn world_boxes(m: &rugrats_data::model::Model, rot: Mat3, pos: Vec3) -> Vec<crate::player::Box3> {
+    let mut out = Vec::new();
+    for &(lo, hi) in &m.boxes {
+        let (mut a, mut b) = (f32::MAX, f32::MIN);
+        for c in 0..8 {
+            let v = Vec3::new(
+                if c & 1 == 0 { lo[0] } else { hi[0] } as f32,
+                if c & 2 == 0 { lo[1] } else { hi[1] } as f32,
+                if c & 4 == 0 { lo[2] } else { hi[2] } as f32,
+            );
+            let y = (rot * v + pos).y;
+            a = a.min(y);
+            b = b.max(y);
+        }
+        out.push(crate::player::Box3 {
+            lo: lo.map(|v| v as i32),
+            hi: hi.map(|v| v as i32),
+            rot,
+            pos,
+            min_y: a as i32,
+            max_y: b as i32,
+        });
+    }
+    out
 }

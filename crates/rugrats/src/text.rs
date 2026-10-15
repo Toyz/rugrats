@@ -166,7 +166,16 @@ impl Text {
                     self.y -= 1;
                 } else {
                     let (rest, at) = (self.rest.1, self.y);
-                    settle(&mut self.flags, SLIDE_Y, &mut self.toggle, &mut self.target.1, rest, &mut self.speed.1, &mut self.count.1, at);
+                    settle(
+                        &mut self.flags,
+                        SLIDE_Y,
+                        &mut self.toggle,
+                        &mut self.target.1,
+                        rest,
+                        &mut self.speed.1,
+                        &mut self.count.1,
+                        at,
+                    );
                 }
             }
             k += 1;
@@ -182,7 +191,16 @@ impl Text {
                 }
                 if self.x == self.target.0 {
                     let (rest, at) = (self.rest.0, self.x);
-                    settle(&mut self.flags, SLIDE_X, &mut self.toggle, &mut self.target.0, rest, &mut self.speed.0, &mut self.count.0, at);
+                    settle(
+                        &mut self.flags,
+                        SLIDE_X,
+                        &mut self.toggle,
+                        &mut self.target.0,
+                        rest,
+                        &mut self.speed.0,
+                        &mut self.count.0,
+                        at,
+                    );
                 }
             }
             k += 1;
@@ -202,7 +220,16 @@ impl Text {
 /// (a third as high each time) or of a wobble (back by [`WOBBLE_BY`], then
 /// to rest, `count` times, at 2 a frame).
 #[allow(clippy::too_many_arguments)]
-fn settle(flags: &mut u16, slide: u16, toggle: &mut i16, target: &mut i16, rest: i16, speed: &mut i16, count: &mut i16, at: i16) {
+fn settle(
+    flags: &mut u16,
+    slide: u16,
+    toggle: &mut i16,
+    target: &mut i16,
+    rest: i16,
+    speed: &mut i16,
+    count: &mut i16,
+    at: i16,
+) {
     if *flags & (BOUNCE | WOBBLE) == 0 {
         *flags &= !slide;
     } else if *flags & BOUNCE != 0 {
@@ -253,7 +280,13 @@ pub fn sprite_triangles(s: &Sprite, out: &mut Vec<Vtx>) {
     // A sprite reaches its last texel (unlike a polygon), so the window
     // runs to u1 - 1, v1 - 1, which window_of gives.
     let window = (window & 0x0000_ffff) | (((u1 - 1).min(255)) << 16) | (((v1 - 1).min(255)) << 24);
-    let vtx = |x: f32, y: f32, u: u32, v: u32| Vtx { pos: [x, y, 0.0], colour, uv: Vtx::uv_of(u, v), mode: CLUT as u32 | (PAGE as u32) << 16, window };
+    let vtx = |x: f32, y: f32, u: u32, v: u32| Vtx {
+        pos: [x, y, 0.0],
+        colour,
+        uv: Vtx::uv_of(u, v),
+        mode: CLUT as u32 | (PAGE as u32) << 16,
+        window,
+    };
     let (a, b, c, d) = (vtx(x0, y0, u0, v0), vtx(x1, y0, u1, v0), vtx(x0, y1, u0, v1), vtx(x1, y1, u1, v1));
     out.extend([a, b, c, b, d, c]);
 }

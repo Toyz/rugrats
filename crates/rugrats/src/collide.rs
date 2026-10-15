@@ -3,7 +3,7 @@
 //! (SLUS_006.50:0x8002b240), sloped through a plane (0x8002af20,
 //! 0x80068510).
 
-use rugrats_data::col::{Col, COLUMNS};
+use rugrats_data::col::{COLUMNS, Col};
 
 /// What 0x8002b240 answers for a point.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,7 +36,9 @@ fn mul(a: i32, b: i32) -> i32 {
 fn plane_y(line: [[i32; 3]; 2], p: [i32; 3], n: [i32; 3]) -> Option<i32> {
     let d = [line[1][0] - line[0][0], line[1][1] - line[0][1], line[1][2] - line[0][2]];
     let a2 = (mul(n[0], d[0]) >> 12) + (mul(n[1], d[1]) >> 12) + (mul(n[2], d[2]) >> 12);
-    let a1 = (mul(n[0], p[0] - line[0][0]) >> 12) + (mul(n[1], p[1] - line[0][1]) >> 12) + (mul(n[2], p[2] - line[0][2]) >> 12);
+    let a1 = (mul(n[0], p[0] - line[0][0]) >> 12)
+        + (mul(n[1], p[1] - line[0][1]) >> 12)
+        + (mul(n[2], p[2] - line[0][2]) >> 12);
     if a2 == 0 {
         return (a1 == 0).then_some(line[0][1]);
     }
@@ -76,7 +78,11 @@ pub fn query(col: &Col, pos: [i32; 3]) -> Query {
     let x = cell(pos[0] - col.min[0]);
     let z = cell(pos[2] - col.min[2]);
     let none = Query { kind: 1, ceiling: pos[1], floor: pos[1], tile: None };
-    let Some(column) = usize::try_from(x).ok().filter(|&x| x < COLUMNS).and_then(|x| col.columns.get(x).map(|c| (x, c))) else { return none };
+    let Some(column) =
+        usize::try_from(x).ok().filter(|&x| x < COLUMNS).and_then(|x| col.columns.get(x).map(|c| (x, c)))
+    else {
+        return none;
+    };
     let (cx, column) = column;
     let Some(entry) = search(&column.cells, z) else { return none };
     let mut k = entry[1] as usize;
@@ -86,11 +92,8 @@ pub fn query(col: &Col, pos: [i32; 3]) -> Query {
     let mut half = -1i32;
     if first[6] & 128 != 0 {
         let (fx, fz) = (pos[0] & 1023, pos[2] & 1023);
-        half = if (first[6] >> 5) & 1 != 0 {
-            if fx + fz < 1024 { 1 } else { 3 }
-        } else {
-            (((fz < fx) as i32) ^ 1) << 1
-        };
+        half =
+            if (first[6] >> 5) & 1 != 0 { if fx + fz < 1024 { 1 } else { 3 } } else { (((fz < fx) as i32) ^ 1) << 1 };
         // The stack's tile for that half, or none.
         loop {
             let Some(t) = tile(k) else { return none };

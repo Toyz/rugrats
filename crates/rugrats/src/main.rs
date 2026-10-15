@@ -15,13 +15,13 @@ use rrt::audio::Output;
 use rrt::gpu::Target;
 use rrt::prelude::*;
 use rugrats::cine::Cine;
-use rugrats::front::{Outcome, Title};
-use rugrats::stage::Stage;
 use rugrats::disc::GameDisc;
+use rugrats::front::{Outcome, Title};
+use rugrats::game::Game as Level;
 use rugrats::input::{self, Pads, Query};
 use rugrats::movie::{Movie, Soundtrack};
 use rugrats::sound::{self, Spu};
-use rugrats::game::Game as Level;
+use rugrats::stage::Stage;
 use rugrats::still;
 use rugrats_render::Renderer;
 
@@ -289,13 +289,14 @@ impl Game for Rugrats {
                         }
                         let (n, then) = (*n, *then);
                         // CineFinish (0x800783d8) shows the cinematic's card.
-                        self.boot = match rugrats::front::card_after(n).map(|f| rugrats::front::Card::open(&self.disc, f)) {
-                            Some(Ok(card)) => {
-                                self.world = None;
-                                Boot::Card { card: Box::new(card), then }
-                            }
-                            _ => self.game(then, now),
-                        };
+                        self.boot =
+                            match rugrats::front::card_after(n).map(|f| rugrats::front::Card::open(&self.disc, f)) {
+                                Some(Ok(card)) => {
+                                    self.world = None;
+                                    Boot::Card { card: Box::new(card), then }
+                                }
+                                _ => self.game(then, now),
+                            };
                     }
                 }
             }
@@ -350,7 +351,8 @@ impl Game for Rugrats {
                             spu.effect(&self.effect_table, e as usize, v);
                         }
                     }
-                    if let Some(song) = game.song.take().and_then(|n| self.songs.as_ref().and_then(|l| l.songs.get(n))) {
+                    if let Some(song) = game.song.take().and_then(|n| self.songs.as_ref().and_then(|l| l.songs.get(n)))
+                    {
                         if let Ok(mut spu) = self.spu.lock() {
                             spu.play(song, 0, sound::MUSIC_VOLUME);
                         }

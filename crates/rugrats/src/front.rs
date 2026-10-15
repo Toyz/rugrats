@@ -191,7 +191,12 @@ impl Sign {
         }
         let k = (self.phase % 5) as usize;
         for (i, v) in self.model.vertices.iter_mut().enumerate() {
-            let (dx, dy) = if i & 1 == 1 { self.steps[k] } else { let (x, y) = self.steps[4 - k]; (-x, -y) };
+            let (dx, dy) = if i & 1 == 1 {
+                self.steps[k]
+            } else {
+                let (x, y) = self.steps[4 - k];
+                (-x, -y)
+            };
             v[0] = v[0].wrapping_add(dx);
             v[1] = v[1].wrapping_add(dy);
         }
@@ -204,8 +209,15 @@ impl Sign {
 fn trademark(out: &mut Vec<Vtx>) {
     let mode = 0x64fb | 0x1e << 16;
     let window = Vtx::window_of([192, 212, 192, 212], [148, 148, 160, 160]);
-    let v = |x: f32, y: f32, u: u32, v: u32| Vtx { pos: [x + 256.0, y + 120.0, 0.0], colour: 0x80_8080, uv: Vtx::uv_of(u, v), mode, window };
-    let (a, b, c, d) = (v(210.0, -75.0, 192, 148), v(230.0, -75.0, 212, 148), v(210.0, -69.0, 192, 160), v(230.0, -69.0, 212, 160));
+    let v = |x: f32, y: f32, u: u32, v: u32| Vtx {
+        pos: [x + 256.0, y + 120.0, 0.0],
+        colour: 0x80_8080,
+        uv: Vtx::uv_of(u, v),
+        mode,
+        window,
+    };
+    let (a, b, c, d) =
+        (v(210.0, -75.0, 192, 148), v(230.0, -75.0, 212, 148), v(210.0, -69.0, 192, 160), v(230.0, -69.0, 212, 160));
     out.extend([a, b, c, b, d, c]);
 }
 
@@ -693,7 +705,9 @@ impl Title {
         let button_model = models.get(BUTTON_MODEL).ok_or("no button model in DB00")?.clone();
         // The five babies' skeletons: hierarchy copies 1-5 (0x800e2440).
         let all = rugrats_data::hierarchy::parse_file(&disc.file(DB00_HIE)?).map_err(|e| e.to_string())?;
-        let hierarchies = (1..=5).map(|k| all.get(k).cloned().flatten().ok_or(format!("no hierarchy {k} in DB00"))).collect::<Result<Vec<_>, _>>()?;
+        let hierarchies = (1..=5)
+            .map(|k| all.get(k).cloned().flatten().ok_or(format!("no hierarchy {k} in DB00")))
+            .collect::<Result<Vec<_>, _>>()?;
         // The labels (0x80035550, 0x80035674): font 2, as they are, over
         // shadows two pixels down and right.
         let label = |addr: u32, x: i16| Text {
@@ -708,7 +722,8 @@ impl Title {
         let labels = [label(CANCEL, -192), label(ACCEPT, 115)];
         // Their cubes at (-600 or 600, -400, 1298), turning from 0 to a
         // half turn (CANCEL) or a quarter (ACCEPT) at 128 a frame.
-        let button = |x: i32, target: i16| Button { pos: [x, -400, 1298], angles: [0; 3], targets: [target, 0, 0], speed: 128 };
+        let button =
+            |x: i32, target: i16| Button { pos: [x, -400, 1298], angles: [0; 3], targets: [target, 0, 0], speed: 128 };
         let buttons = [button(-600, 2048), button(600, 1024)];
         let mut title = Title {
             babies: [Baby::default(), Baby::default()],
@@ -938,7 +953,12 @@ impl Title {
         self.stage.under.clear();
         self.backdrop.triangles(&mut self.stage.under);
         self.stage.moving.clear();
-        rugrats_render::models::model_triangles(&self.sign.model, rrt::glam::Mat3::IDENTITY, rrt::glam::Vec3::ZERO, &mut self.stage.moving);
+        rugrats_render::models::model_triangles(
+            &self.sign.model,
+            rrt::glam::Mat3::IDENTITY,
+            rrt::glam::Vec3::ZERO,
+            &mut self.stage.moving,
+        );
         // The babies, seen by the buttons' camera (draw_character,
         // 0x8003205c): at rest, turned by their angles (0x80020d10, the
         // transpose of 0x80020ee0's matrix).
@@ -946,9 +966,19 @@ impl Title {
         for b in &self.babies {
             let Some(h) = self.hierarchies.get(b.hierarchy) else { continue };
             let e = self.trig.euler(b.angles);
-            let rows = rrt::glam::Mat3::from_cols_array(&e.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap()).transpose();
+            let rows = rrt::glam::Mat3::from_cols_array(
+                &e.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap(),
+            )
+            .transpose();
             let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
-            rugrats_render::models::posed_triangles(h, &self.models, &[], rows.transpose(), pos, &mut self.stage.moving);
+            rugrats_render::models::posed_triangles(
+                h,
+                &self.models,
+                &[],
+                rows.transpose(),
+                pos,
+                &mut self.stage.moving,
+            );
         }
         self.stage.overlay.clear();
         menu_triangles(&self.fonts, &self.items, self.chosen, &mut self.stage.overlay);
@@ -970,7 +1000,10 @@ impl Title {
         let shift = rrt::glam::Vec3::from(CAMERA) - rrt::glam::Vec3::from(BUTTON_CAMERA);
         for b in &self.buttons {
             let m = self.trig.euler(b.angles);
-            let rows = rrt::glam::Mat3::from_cols_array(&m.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap()).transpose();
+            let rows = rrt::glam::Mat3::from_cols_array(
+                &m.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap(),
+            )
+            .transpose();
             let mut tris = Vec::new();
             let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
             rugrats_render::models::model_triangles(&self.button_model, rows.transpose(), pos, &mut tris);

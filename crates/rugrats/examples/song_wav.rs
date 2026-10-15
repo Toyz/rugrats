@@ -4,7 +4,7 @@
 //! cargo run -p rugrats --example song_wav -- SONG SECONDS OUT.wav
 
 use rugrats::disc::GameDisc;
-use rugrats::sound::{Loaded, Spu, MENU_SET, RATE};
+use rugrats::sound::{Loaded, MENU_SET, RATE, Spu};
 
 fn main() -> Result<(), String> {
     let mut a = std::env::args().skip(1);
@@ -13,7 +13,12 @@ fn main() -> Result<(), String> {
     let out = a.next().unwrap_or("song.wav".into());
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let set = Loaded::load(&disc, MENU_SET)?;
-    println!("{} songs; music bank {} programs, {} tones", set.songs.len(), set.music.vab.programs.len(), set.music.vab.tones.len());
+    println!(
+        "{} songs; music bank {} programs, {} tones",
+        set.songs.len(),
+        set.music.vab.programs.len(),
+        set.music.vab.tones.len()
+    );
     let mut spu = Spu::default();
     spu.set_banks(set.music.clone(), set.effects.clone());
     spu.play(set.songs.get(song).ok_or("no such song")?, 0, rugrats::sound::MUSIC_VOLUME);

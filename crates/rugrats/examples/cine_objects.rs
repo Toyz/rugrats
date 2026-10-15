@@ -21,7 +21,14 @@ fn main() -> Result<(), String> {
         let (x, y) = ((c.x / c.w + 1.0) * 256.0, (1.0 - c.y / c.w) * 120.0);
         if (-50.0..562.0).contains(&x) && (-50.0..290.0).contains(&y) {
             let t = templates[p.template as usize];
-            println!("lp {k:2} id {:4} template {:4} shape {:4} hier {} at ({x:.0}, {y:.0}) depth {:.0}", p.id, p.template, t.shape, t.flags & 1, c.w);
+            println!(
+                "lp {k:2} id {:4} template {:4} shape {:4} hier {} at ({x:.0}, {y:.0}) depth {:.0}",
+                p.id,
+                p.template,
+                t.shape,
+                t.flags & 1,
+                c.w
+            );
         }
     }
     Ok(())

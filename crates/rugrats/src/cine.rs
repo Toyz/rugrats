@@ -20,8 +20,8 @@ use rugrats_render::{Vram, Vtx};
 
 use crate::disc::GameDisc;
 use crate::face::{Blinks, Faces};
-use crate::stage::Stage;
 use crate::movie::Soundtrack;
+use crate::stage::Stage;
 
 /// A database's files, by the game's numbering (file + db).
 const MOD: usize = 242;
@@ -109,7 +109,9 @@ impl Set {
                 let a = p.template.to_le_bytes();
                 let b = (p.pos[0] as u32).to_le_bytes();
                 let Some(r) = set.room_info.get_mut(a[0] as usize) else { continue };
-                for (k, (byte, flag)) in [(a[1], 2), (a[2], 4), (b[0], 32), (b[1], 16), (b[2], 64), (b[3], 128)].into_iter().enumerate() {
+                for (k, (byte, flag)) in
+                    [(a[1], 2), (a[2], 4), (b[0], 32), (b[1], 16), (b[2], 64), (b[3], 128)].into_iter().enumerate()
+                {
                     if byte != 0 {
                         r.flags |= flag;
                         if k == 5 {
@@ -164,7 +166,12 @@ impl Set {
     /// characters, in play).
     pub fn objects_except(&self, f: &Frame, skip: impl Fn(usize) -> bool) -> Vec<Vtx> {
         let mut out = Vec::new();
-        for (_, place) in self.placements.iter().enumerate().filter(|(k, p)| p.kind == 1 && !SKIPPED.contains(&p.template) && !skip(*k)) {
+        for (_, place) in self
+            .placements
+            .iter()
+            .enumerate()
+            .filter(|(k, p)| p.kind == 1 && !SKIPPED.contains(&p.template) && !skip(*k))
+        {
             let Some(t) = self.templates.get(place.template as usize) else { continue };
             // A placed object's rotation is LP's quaternion inverted
             // (0x8001f684) and kept as angles (0x800202b8); the matrix made
@@ -315,7 +322,13 @@ pub struct Cine {
 
 impl Cine {
     /// Cinematic `n` on database `db`, its soundtrack handed to `audio`.
-    pub fn open(disc: &GameDisc, n: usize, db: usize, now: u64, audio: &Arc<Mutex<Soundtrack>>) -> Result<Cine, String> {
+    pub fn open(
+        disc: &GameDisc,
+        n: usize,
+        db: usize,
+        now: u64,
+        audio: &Arc<Mutex<Soundtrack>>,
+    ) -> Result<Cine, String> {
         let set = Set::load(disc, db)?;
         let mut stream = Stream::read(disc, n)?;
         if let Ok(mut a) = audio.lock() {

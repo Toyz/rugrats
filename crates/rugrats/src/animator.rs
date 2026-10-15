@@ -134,7 +134,8 @@ impl Animator {
     /// into the frame showing (0x800552bc, 0x800202ec).
     pub fn locals(&self, hierarchy: &Hierarchy, anims: &Anims) -> Vec<Option<Mat3>> {
         let mut out = vec![None; hierarchy.parts.len()];
-        let quat = |q: [i16; 4]| rrt::glam::Quat::from_xyzw(q[0] as f32, q[1] as f32, q[2] as f32, q[3] as f32).normalize();
+        let quat =
+            |q: [i16; 4]| rrt::glam::Quat::from_xyzw(q[0] as f32, q[1] as f32, q[2] as f32, q[3] as f32).normalize();
         for t in self.tracks.iter().filter(|t| t.count > 0) {
             let (Some(cur), Some(prev)) = (anims.frames.get(t.cur), anims.frames.get(t.prev)) else { continue };
             let dur = cur.duration.max(1) as f32;

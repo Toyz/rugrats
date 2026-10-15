@@ -82,6 +82,16 @@ pub fn posed_triangles(
     pos: Vec3,
     out: &mut Vec<Vtx>,
 ) {
+    for (part, me) in h.parts.iter().zip(posed_parts(h, local, base, pos)) {
+        if let Some(m) = models.get(part.model) {
+            model_triangles(m, me.0, me.1, out);
+        }
+    }
+}
+
+/// Each part's rotation and joint in the world, as UpdatePartRotations
+/// (0x8004a5dc) composes them.
+pub fn posed_parts(h: &rugrats_data::hierarchy::Hierarchy, local: &[Option<Mat3>], base: Mat3, pos: Vec3) -> Vec<(Mat3, Vec3)> {
     let mut world: Vec<(Mat3, Vec3)> = Vec::with_capacity(h.parts.len());
     for (i, part) in h.parts.iter().enumerate() {
         let rot = local.get(i).copied().flatten().unwrap_or(Mat3::IDENTITY);
@@ -92,10 +102,7 @@ pub fn posed_triangles(
             None => Vec3::ZERO,
         };
         let (prot, ppos) = part.parent.map_or((base, pos), |p| world[p]);
-        let me = (prot * rot, ppos + prot * offset);
-        world.push(me);
-        if let Some(m) = models.get(part.model) {
-            model_triangles(m, me.0, me.1, out);
-        }
+        world.push((prot * rot, ppos + prot * offset));
     }
+    world
 }

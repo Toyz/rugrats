@@ -28,10 +28,26 @@ fn main() -> Result<(), String> {
         let c = (p.pos[0] as u32).to_le_bytes();
         println!("kind6 room {} bytes {:?} {:?}", b[0], &b[1..], c);
     }
+    let picks: Vec<_> = g2
+        .set
+        .placements
+        .iter()
+        .filter(|p| {
+            p.kind == 1
+                && g2.set.templates.get(p.template as usize).is_some_and(|t| t.pickable() && t.hierarchy().is_none())
+        })
+        .map(|p| (p.template, p.pos))
+        .collect();
+    println!("{} pickables: {:?}", picks.len(), &picks[..picks.len().min(12)]);
     let game = g2;
     println!("{} boxes", game.boxes.len());
     for n in &game.npcs {
-        println!("npc track {:?} parts {} models {:?}", n.animator.track(), n.hierarchy.parts.len(), n.hierarchy.parts.iter().map(|p| p.model).collect::<Vec<_>>());
+        println!(
+            "npc track {:?} parts {} models {:?}",
+            n.animator.track(),
+            n.hierarchy.parts.len(),
+            n.hierarchy.parts.iter().map(|p| p.model).collect::<Vec<_>>()
+        );
     }
     for z in [20148] {
         for b in game.boxes.iter().filter(|b| (b.pos.x - 7570.0).abs() < 10.0 && b.pos.y > 0.0) {
@@ -45,10 +61,16 @@ fn main() -> Result<(), String> {
             println!("  z {z}: box lo {:?} hi {:?} at {:?} y {}..{}", b.lo, b.hi, b.pos, b.min_y, b.max_y);
         }
     }
-    for b in game.boxes.iter().filter(|b| (b.pos.x as i32 - 5775).abs() < 4000 && (b.pos.z as i32 - 19403).abs() < 4000) {
+    for b in game.boxes.iter().filter(|b| (b.pos.x as i32 - 5775).abs() < 4000 && (b.pos.z as i32 - 19403).abs() < 4000)
+    {
         println!("  box {b:?}");
     }
-    for p in game.set.placements.iter().filter(|p| p.kind == 1 && (p.pos[0] - 5775).abs() < 4000 && (p.pos[2] - 19403).abs() < 4000) {
+    for p in game
+        .set
+        .placements
+        .iter()
+        .filter(|p| p.kind == 1 && (p.pos[0] - 5775).abs() < 4000 && (p.pos[2] - 19403).abs() < 4000)
+    {
         let t = game.set.templates.get(p.template as usize);
         let boxes = t.and_then(|t| game.set.models.get(t.shape as u32)).map(|m| m.boxes.len());
         println!("  near {p:?} {t:?} boxes {boxes:?}");
@@ -56,7 +78,11 @@ fn main() -> Result<(), String> {
     for p in game.set.placements.iter().filter(|p| p.level != 0 && false) {
         println!("  door {p:?} template {:?}", game.set.templates.get(p.template as usize));
     }
-    for p in game.set.placements.iter().filter(|p| game.set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy().is_some()) && (p.pos[0] - 5775).abs() < 3000 && (p.pos[2] - 19403).abs() < 3000) {
+    for p in game.set.placements.iter().filter(|p| {
+        game.set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy().is_some())
+            && (p.pos[0] - 5775).abs() < 3000
+            && (p.pos[2] - 19403).abs() < 3000
+    }) {
         println!("  {p:?} hier {:?}", game.set.templates[p.template as usize].hierarchy());
     }
     let stage = &game.stage;

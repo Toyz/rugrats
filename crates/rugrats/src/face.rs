@@ -14,7 +14,8 @@ use crate::disc::GameDisc;
 use crate::rand::Rand;
 
 /// The bank each mask bit loads; a bank's frames start 64 bytes in.
-const BANKS: [usize; 20] = [535, 531, 536, 532, 537, 545, 538, 546, 539, 540, 541, 542, 543, 544, 533, 534, 547, 548, 549, 550];
+const BANKS: [usize; 20] =
+    [535, 531, 536, 532, 537, 545, 538, 546, 539, 540, 541, 542, 543, 544, 533, 534, 547, 548, 549, 550];
 const BANK_HEADER: usize = 64;
 
 /// The face masks by database (0x800b91a0, a word each).
@@ -76,7 +77,12 @@ impl Faces {
         for (bit, &file) in BANKS.iter().enumerate() {
             banks.push(if mask >> bit & 1 != 0 {
                 let raw = disc.file(file)?;
-                Some(raw[BANK_HEADER.min(raw.len())..].chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect())
+                Some(
+                    raw[BANK_HEADER.min(raw.len())..]
+                        .chunks_exact(2)
+                        .map(|h| u16::from_le_bytes([h[0], h[1]]))
+                        .collect(),
+                )
             } else {
                 None
             });

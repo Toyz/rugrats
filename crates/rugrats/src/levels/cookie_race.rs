@@ -45,7 +45,7 @@ impl CookieRace {
             n.mode = Mode::Posts { prev: 0, cur: FIRST_POST };
         }
         let total = g.goodies.iter().filter(|x| x.template == COOKIE).count() as u32;
-        g.checkpoint = Some((g.player.pos, g.player.heading));
+        g.checkpoint = Some(g.player.pose());
         Ok(CookieRace { cookies: 0, total, raced: false })
     }
 }

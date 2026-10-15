@@ -67,7 +67,7 @@ impl GoldRush {
         }
         self.taken = 0;
         g.timer = Some(CLOCK);
-        g.checkpoint = Some((g.player.pos, g.player.heading));
+        g.checkpoint = Some(g.player.pose());
         g.song = Some(0);
     }
 

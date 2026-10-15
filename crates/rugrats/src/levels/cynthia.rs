@@ -8,6 +8,7 @@
 use rrt::glam::{Mat3, Vec3};
 
 use crate::actors::npc::{Event, Mode, Target};
+use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::Pads;
 use crate::world::game::{Exit, Game};
@@ -39,7 +40,7 @@ const BITE_SOUND: u8 = 168;
 
 pub struct Cynthia {
     pub phase: u8,
-    respawn: ([i32; 3], i32),
+    respawn: Pose,
     /// Where Cynthia waits, and whether the win was asked for.
     cynthia: [i32; 3],
     shape: u32,
@@ -65,7 +66,7 @@ impl Cynthia {
         }
         let mut l = Cynthia {
             phase: 1,
-            respawn: (g.player.pos, g.player.heading),
+            respawn: g.player.pose(),
             cynthia: place.map_or([0; 3], |p| p.pos),
             shape,
             found: false,
@@ -97,7 +98,7 @@ impl Cynthia {
 
     fn set_phase(&mut self, g: &mut Game, phase: u8) {
         self.phase = phase;
-        self.respawn = (g.player.pos, g.player.heading);
+        self.respawn = g.player.pose();
         g.checkpoint = Some(self.respawn);
     }
 }
@@ -174,7 +175,7 @@ impl crate::world::game::Script for Cynthia {
             g.timer = Some(CLOCK);
             self.hide_cynthia(g);
         }
-        let (at, heading) = self.respawn;
+        let Pose { pos: at, heading } = self.respawn;
         g.player.pos = at;
         g.player.heading = heading;
         g.player.target = heading;

@@ -5,6 +5,7 @@
 
 use crate::actors::animator::Animator;
 use crate::actors::npc::{Event, Mode, Target};
+use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::Pads;
 use crate::world::game::Game;
@@ -65,7 +66,7 @@ impl ToyPalace {
         g.player.heading = START_HEADING;
         g.player.target = START_HEADING;
         g.set_camera_yaw(START_HEADING as f32);
-        g.checkpoint = Some((START, START_HEADING));
+        g.checkpoint = Some(Pose::new(START, START_HEADING));
         for (id, range, bite, wait) in GUARDS {
             if let Some(k) = find(g, id) {
                 let n = &mut g.npcs[k];
@@ -124,7 +125,7 @@ impl ToyPalace {
         n.mode = Mode::Idle;
         g.tries = 3;
         self.phase = 3;
-        g.checkpoint = Some((there, g.player.heading));
+        g.checkpoint = Some(Pose::new(there, g.player.heading));
         g.song = Some(1);
         g.set_camera_yaw(g.player.heading as f32);
     }
@@ -199,7 +200,7 @@ impl crate::world::game::Script for ToyPalace {
             if self.phase < 3 {
                 self.phase = 2;
             }
-            g.checkpoint = Some((g.player.pos, g.player.heading));
+            g.checkpoint = Some(g.player.pose());
         }
     }
 

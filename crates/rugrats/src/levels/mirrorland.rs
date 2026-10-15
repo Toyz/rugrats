@@ -5,6 +5,7 @@
 //! all six play cine 72: won. The clock out is a cry that undoes the
 //! colours since the last checkpoint. Tries never run out (0).
 
+use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::world::game::Game;
@@ -51,7 +52,7 @@ pub struct Mirrorland {
     taken: u32,
     /// Rooms whose box was opened since the last checkpoint.
     since: Vec<usize>,
-    respawn: ([i32; 3], i32),
+    respawn: Pose,
     slot_group: [u16; 6],
 }
 
@@ -62,7 +63,7 @@ impl Mirrorland {
             g.hide(id, true);
         }
         g.tries = 0;
-        let respawn = (g.player.pos, g.player.heading);
+        let respawn = g.player.pose();
         g.checkpoint = Some(respawn);
         let mut slot_group = [0; 6];
         for room in [25, 19, 21, 5, 2, 45] {
@@ -112,7 +113,7 @@ impl Mirrorland {
         g.hide(id, true);
         g.play(114);
         if self.since.is_empty() {
-            self.respawn = (g.player.pos, g.player.heading);
+            self.respawn = g.player.pose();
             g.checkpoint = Some(self.respawn);
         }
         self.since.push(room);
@@ -132,7 +133,7 @@ impl Mirrorland {
         match count {
             1 | 3 => {
                 self.phase = if count == 1 { 2 } else { 3 };
-                self.respawn = (g.player.pos, g.player.heading);
+                self.respawn = g.player.pose();
                 g.checkpoint = Some(self.respawn);
                 self.since.clear();
             }
@@ -194,7 +195,7 @@ impl crate::world::game::Script for Mirrorland {
         }
         self.running = None;
         g.timer = None;
-        let (at, h) = self.respawn;
+        let Pose { pos: at, heading: h } = self.respawn;
         g.player.pos = at;
         g.player.heading = h;
         g.player.target = h;

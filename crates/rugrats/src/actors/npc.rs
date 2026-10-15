@@ -14,7 +14,7 @@ use rugrats_data::hierarchy::Hierarchy;
 use rugrats_data::placement::Placement;
 
 use crate::actors::animator::Animator;
-use crate::actors::player::DT;
+use crate::actors::player::{DT, Pose};
 use crate::gte::Trig;
 
 /// The speed table (0x800b9698), row 0.
@@ -253,11 +253,11 @@ pub struct World<'a> {
 /// One frame of every NPC (the scheduler running each think, 0x80072bf0).
 pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Event> {
     let mut events = Vec::new();
-    let places: Vec<([i32; 3], i32)> = npcs.iter().map(|n| (n.pos, n.heading)).collect();
+    let places: Vec<Pose> = npcs.iter().map(|n| Pose::new(n.pos, n.heading)).collect();
     let at = |t: Target| match t {
-        Target::Player => (w.player, w.player_heading),
-        Target::Npc(k) => places.get(k).copied().unwrap_or((w.player, 0)),
-        Target::Point(p) => (p, 0),
+        Target::Player => Pose::new(w.player, w.player_heading),
+        Target::Npc(k) => places.get(k).copied().unwrap_or(Pose::new(w.player, 0)),
+        Target::Point(p) => Pose::new(p, 0),
     };
     for (k, n) in npcs.iter_mut().enumerate() {
         n.cooldown = (n.cooldown - DT).max(0);
@@ -266,13 +266,13 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
         match mode {
             Mode::Idle => n.speed = 0,
             Mode::Ride { on, up, turn } => {
-                let (p, h) = at(on);
+                let Pose { pos: p, heading: h } = at(on);
                 n.pos = [p[0], p[1] - up, p[2]];
                 n.heading = (h + turn).rem_euclid(4096);
                 n.speed = 0;
             }
             Mode::Follow(t) => {
-                let (p, _) = at(t);
+                let p = at(t).pos;
                 let d = n.dist(p);
                 if d > 2 * n.range {
                     n.go(p, 2 * base, w);

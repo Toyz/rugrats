@@ -4,6 +4,7 @@
 //! the camera. Cine 85 is the end of the game: the credits, the progress
 //! cleared, the hub.
 
+use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::world::game::Game;
@@ -34,7 +35,7 @@ impl Reptar2010 {
     pub fn start(g: &mut Game, _disc: &GameDisc) -> Result<Reptar2010, String> {
         g.player.pos = START;
         g.player.gait = (10, 10);
-        g.checkpoint = Some((START, g.player.heading));
+        g.checkpoint = Some(Pose::new(START, g.player.heading));
         g.flags |= 512;
         Ok(Reptar2010 { taken: Vec::new(), was_air: false, broken: 0 })
     }

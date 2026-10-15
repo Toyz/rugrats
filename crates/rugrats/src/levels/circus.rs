@@ -10,6 +10,7 @@ use rugrats_data::hierarchy::Hierarchy;
 
 use crate::actors::animator::Animator;
 use crate::actors::npc::Mode;
+use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::world::game::{Exit, Game};
@@ -78,7 +79,7 @@ pub struct Circus {
     bones: u32,
     group: usize,
     bodies: [(usize, Hierarchy, Animator); 4],
-    respawn: ([i32; 3], i32),
+    respawn: Pose,
     /// Ring 3's launch (heading, forward speed) and whether Chuckie left.
     launch: (i32, i32),
     flown: bool,
@@ -108,7 +109,7 @@ impl Circus {
             bones: 0,
             group: FIRST_GROUP,
             bodies,
-            respawn: (SPIKE_AT, SPIKE_HEADING),
+            respawn: Pose::new(SPIKE_AT, SPIKE_HEADING),
             launch: (3072, 2816),
             flown: false,
         };
@@ -153,7 +154,7 @@ impl Circus {
         self.group = FIRST_GROUP;
         self.place_bone(g);
         self.step = Step::Bones;
-        self.respawn = (SPIKE_AT, SPIKE_HEADING);
+        self.respawn = Pose::new(SPIKE_AT, SPIKE_HEADING);
         g.checkpoint = Some(self.respawn);
     }
 
@@ -180,7 +181,7 @@ impl Circus {
         let look = Vec3::new(BOARD_END[0] as f32, (BOARD_END[1] - 1000) as f32, BOARD_END[2] as f32);
         g.fixed = Some((RING3_EYE, look));
         self.phase = 3;
-        self.respawn = (TOWER, 3072);
+        self.respawn = Pose::new(TOWER, 3072);
         g.checkpoint = Some(self.respawn);
         self.step = Step::Meter { first: None, first_up: true, second: None, done_first: None };
     }
@@ -363,14 +364,14 @@ impl crate::world::game::Script for Circus {
                 // 0x8007dadc: Tommy away; ring 2 from here, phase 2.
                 g.hide(TOMMY, true);
                 self.phase = 2;
-                self.respawn = (g.player.pos, g.player.heading);
+                self.respawn = g.player.pose();
                 g.checkpoint = Some(self.respawn);
                 g.song = Some(0);
                 self.step = Step::Ride;
             }
             LOSE2 => {
                 if self.lose_try(g) {
-                    let (at, h) = self.respawn;
+                    let Pose { pos: at, heading: h } = self.respawn;
                     self.become_body(g, 1, at, h);
                     self.step = Step::Ride;
                 }
@@ -407,7 +408,7 @@ impl crate::world::game::Script for Circus {
                 1 => self.ring1(g),
                 3 => self.ring3(g),
                 _ => {
-                    let (at, h) = self.respawn;
+                    let Pose { pos: at, heading: h } = self.respawn;
                     self.become_body(g, 1, at, h);
                     self.step = Step::Ride;
                 }

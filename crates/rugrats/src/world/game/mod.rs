@@ -2,6 +2,7 @@
 //! database's rooms and objects on a stage, the collision under them, the
 //! player, and the follow camera.
 
+pub use crate::actors::player::Pose;
 use rrt::glam::{Mat3, Vec3};
 
 use rugrats_data::anim::Anims;
@@ -178,7 +179,7 @@ pub struct Game {
     /// waiting.
     pub cine: Option<usize>,
     /// The last checkpoint reached (position, heading).
-    pub checkpoint: Option<([i32; 3], i32)>,
+    pub checkpoint: Option<Pose>,
     /// Tries left (state +0x23, from 0x800b2920[level] at the start), and
     /// the cry's time left (0x8007f920: up to 2100 dt).
     pub tries: i32,

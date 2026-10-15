@@ -59,7 +59,7 @@ impl MrFriend {
             g.npcs[k].place(FRIEND_START, &g.col);
         }
         g.aim = true;
-        g.checkpoint = Some((g.player.pos, g.player.heading));
+        g.checkpoint = Some(g.player.pose());
         Ok(MrFriend { phase: 1, counter: 4, l14: false })
     }
 
@@ -73,7 +73,7 @@ impl MrFriend {
             n.bite_wait = 180;
             n.mode = Mode::Follow(Target::Player);
         }
-        g.checkpoint = Some((g.player.pos, g.player.heading));
+        g.checkpoint = Some(g.player.pose());
         Ok(MrFriend { phase: 1, counter: 1, l14: true })
     }
 
@@ -114,7 +114,7 @@ impl MrFriend {
             1 => {
                 // 0x8007cc00: phase 3, one try.
                 self.phase = 3;
-                g.checkpoint = Some((g.player.pos, g.player.heading));
+                g.checkpoint = Some(g.player.pose());
                 g.tries = 1;
             }
             0 => g.cine = Some(CINE_WON),
@@ -178,7 +178,7 @@ impl crate::world::game::Script for MrFriend {
                 }
             }
             self.phase = 2;
-            g.checkpoint = Some((g.player.pos, g.player.heading));
+            g.checkpoint = Some(g.player.pose());
             g.song = Some(0);
         }
     }

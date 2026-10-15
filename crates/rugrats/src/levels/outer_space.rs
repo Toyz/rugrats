@@ -8,6 +8,7 @@
 use rrt::glam::Vec3;
 
 use crate::actors::npc::{Event, Mode, Target};
+use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::world::game::{Exit, Game};
@@ -64,7 +65,7 @@ struct Beam {
 
 pub struct OuterSpace {
     pub phase: u8,
-    respawn: ([i32; 3], i32),
+    respawn: Pose,
     charge: i32,
     doors: Vec<(usize, [i32; 3], bool)>,
     beams: Vec<Beam>,
@@ -100,7 +101,7 @@ impl OuterSpace {
             .filter(|(_, p)| p.kind == 1 && p.template == DOOR)
             .map(|(k, p)| (k, p.pos, false))
             .collect();
-        let respawn = (START, START_HEADING);
+        let respawn = Pose::new(START, START_HEADING);
         g.checkpoint = Some(respawn);
         let mesh = crate::world::fx::Mesh::load(disc, &crate::world::fx::BEAM).ok();
         Ok(OuterSpace { phase: 1, respawn, charge: CHARGE, doors, beams: Vec::new(), mesh })
@@ -108,7 +109,7 @@ impl OuterSpace {
 
     fn set_phase(&mut self, g: &mut Game, phase: u8, at: [i32; 3], heading: i32) {
         self.phase = phase;
-        self.respawn = (at, heading);
+        self.respawn = Pose::new(at, heading);
         g.checkpoint = Some(self.respawn);
     }
 
@@ -264,7 +265,7 @@ impl crate::world::game::Script for OuterSpace {
                 m.reset();
             }
         }
-        let (at, heading) = self.respawn;
+        let Pose { pos: at, heading } = self.respawn;
         Self::put(g, at, heading);
         if self.phase == 3 {
             g.player.float = Some((at[1], 0));

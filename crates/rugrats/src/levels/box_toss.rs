@@ -9,6 +9,7 @@
 //! wins; the round start gives the bottle back to Tommy's body.
 
 use crate::actors::npc::{Mode, Target};
+use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::world::game::{Exit, Game};
@@ -101,7 +102,7 @@ impl BoxToss {
             won_lines,
         };
         l.round(g);
-        g.checkpoint = Some((g.player.pos, g.player.heading));
+        g.checkpoint = Some(g.player.pose());
         Ok(l)
     }
 
@@ -128,7 +129,7 @@ impl BoxToss {
             won_lines,
         };
         l.round(g);
-        g.checkpoint = Some((g.player.pos, g.player.heading));
+        g.checkpoint = Some(g.player.pose());
         Ok(l)
     }
 
@@ -336,7 +337,7 @@ impl crate::world::game::Script for BoxToss {
             } else {
                 // Card 709, then the round again (0x80079f1c).
                 g.card = Some(709);
-                if let Some((at, h)) = g.checkpoint {
+                if let Some(Pose { pos: at, heading: h }) = g.checkpoint {
                     g.player.pos = at;
                     g.player.heading = h;
                 }

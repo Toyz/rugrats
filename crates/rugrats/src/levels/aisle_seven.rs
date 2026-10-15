@@ -9,6 +9,7 @@
 use rrt::glam::Vec3;
 
 use crate::actors::npc::{Event, Mode, Target};
+use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
@@ -65,7 +66,7 @@ struct Toss {
 
 pub struct AisleSeven {
     pub phase: u8,
-    respawn: ([i32; 3], i32),
+    respawn: Pose,
     toss: Option<Toss>,
 }
 
@@ -83,7 +84,7 @@ impl AisleSeven {
         g.player.pos = START;
         let heading = g.player.heading;
         g.yaw = heading as f32;
-        g.checkpoint = Some((START, heading));
+        g.checkpoint = Some(Pose::new(START, heading));
         // Lobsters prowl their posts from the start (0x8008395c, mode 9),
         // the boss blocks (0x800839f8, mode 3).
         for id in LOBSTERS {
@@ -97,7 +98,7 @@ impl AisleSeven {
             let n = &mut g.npcs[k];
             n.mode = Mode::Block { heading: n.heading };
         }
-        Ok(AisleSeven { phase: 1, respawn: (START, heading), toss: None })
+        Ok(AisleSeven { phase: 1, respawn: Pose::new(START, heading), toss: None })
     }
 
     /// The pie toss (0x8007bc60).
@@ -180,7 +181,7 @@ impl AisleSeven {
             }
         }
         self.put(g, AISLES, 2048);
-        self.respawn = (AISLES, 2048);
+        self.respawn = Pose::new(AISLES, 2048);
         g.checkpoint = Some(self.respawn);
         self.phase = 2;
     }
@@ -300,7 +301,7 @@ impl crate::world::game::Script for AisleSeven {
                 for id in [LARRY, STEVE] {
                     g.hide(id, true);
                 }
-                self.put(g, START, self.respawn.1);
+                self.put(g, START, self.respawn.heading);
             }
             CINE_BOSS => {
                 g.hide(LADDER, false);
@@ -317,7 +318,7 @@ impl crate::world::game::Script for AisleSeven {
         // grown to a half size of 1000.
         if n == 1 {
             self.phase = 3;
-            self.respawn = (g.player.pos, g.player.heading);
+            self.respawn = g.player.pose();
             g.checkpoint = Some(self.respawn);
             for id in BULLIES {
                 if let Some(k) = find(g, id) {
@@ -347,7 +348,7 @@ impl crate::world::game::Script for AisleSeven {
                 }
             }
         }
-        let (at, heading) = self.respawn;
+        let Pose { pos: at, heading } = self.respawn;
         self.put(g, at, heading);
         true
     }

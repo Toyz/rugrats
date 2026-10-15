@@ -77,7 +77,7 @@ impl Game {
         // Flag 32: a checkpoint (0x800772e0): where a cry sends the
         // player back to.
         if r.flags & 32 != 0 {
-            self.checkpoint = Some((self.player.pos, self.player.heading));
+            self.checkpoint = Some(self.player.pose());
         }
         // Flag 128: +0x64 below 5 a song, else a speech line.
         if r.flags & 128 != 0 && (1..5).contains(&r.song) {

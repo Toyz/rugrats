@@ -76,6 +76,20 @@ pub enum State {
     Land,
 }
 
+/// Where a body stands and which way it faces: a start, a checkpoint, a
+/// respawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pose {
+    pub pos: [i32; 3],
+    pub heading: i32,
+}
+
+impl Pose {
+    pub fn new(pos: [i32; 3], heading: i32) -> Pose {
+        Pose { pos, heading }
+    }
+}
+
 pub struct Player {
     pub pos: [i32; 3],
     /// Heading (+0x24) and the one wanted (+0x2c), 4096 a turn.
@@ -131,6 +145,11 @@ pub struct Player {
 }
 
 impl Player {
+    /// Where it stands and faces now.
+    pub fn pose(&self) -> Pose {
+        Pose::new(self.pos, self.heading)
+    }
+
     /// Puts the player at `start` with heading `heading` on the floor
     /// (0x800596e8), with `hierarchy`.
     pub fn new(

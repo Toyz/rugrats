@@ -8,7 +8,7 @@ use rugrats_data::hierarchy::Hierarchy;
 
 use crate::actors::animator::Animator;
 use crate::actors::npc::{Event, Mode, Target};
-use crate::actors::player::DT;
+use crate::actors::player::{DT, Pose};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::world::game::{Exit, Game};
@@ -63,7 +63,7 @@ struct Puck {
 pub struct GrandpasTeeth {
     pub phase: u8,
     tries: i32,
-    respawn: ([i32; 3], i32),
+    respawn: Pose,
     puck: Option<Puck>,
     tommy: (Hierarchy, Animator),
     spike: (Hierarchy, Animator),
@@ -79,8 +79,14 @@ impl GrandpasTeeth {
         let tommy = (g.player.hierarchy.clone(), Animator::load(disc, TOMMY as u16)?);
         let spike_h = g.set.hierarchies.get(SPIKE_CHAR as usize).cloned().flatten().ok_or("no hierarchy for Spike")?;
         let spike = (spike_h, Animator::load(disc, SPIKE_CHAR)?);
-        let mut l =
-            GrandpasTeeth { phase: 1, tries: TRIES, respawn: (RESPAWN, g.player.heading), puck: None, tommy, spike };
+        let mut l = GrandpasTeeth {
+            phase: 1,
+            tries: TRIES,
+            respawn: Pose::new(RESPAWN, g.player.heading),
+            puck: None,
+            tommy,
+            spike,
+        };
         // Chuckie follows Tommy (0x80083764, speed index 4).
         if let Some(c) = find(g, CHUCKIE) {
             g.npcs[c].mode = Mode::Follow(Target::Player);
@@ -104,7 +110,7 @@ impl GrandpasTeeth {
             g.npcs[k].hidden = g.checkpoint.is_none();
         }
         if g.checkpoint.is_some() {
-            l.respawn = (g.player.pos, g.player.heading);
+            l.respawn = g.player.pose();
         }
         Ok(l)
     }
@@ -197,7 +203,7 @@ impl GrandpasTeeth {
             g.npcs[c].health = g.npcs[c].max_health;
         }
         if !back {
-            self.respawn = (g.player.pos, g.player.heading);
+            self.respawn = g.player.pose();
         }
         self.phase = 2;
     }
@@ -270,7 +276,7 @@ impl GrandpasTeeth {
             }
             return;
         }
-        let (at, heading) = self.respawn;
+        let Pose { pos: at, heading } = self.respawn;
         match self.phase {
             1 => {
                 g.player.pos = at;

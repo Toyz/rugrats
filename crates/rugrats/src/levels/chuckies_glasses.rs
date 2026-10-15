@@ -6,6 +6,7 @@
 //! a try is gone.
 
 use crate::actors::npc::{Event, Mode};
+use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::world::game::{Exit, Game};
@@ -69,7 +70,7 @@ impl ChuckiesGlasses {
         for i in 0..l.babies.len() {
             l.hide(g, i);
         }
-        g.checkpoint = Some((g.player.pos, g.player.heading));
+        g.checkpoint = Some(g.player.pose());
         Ok(l)
     }
 
@@ -101,7 +102,7 @@ impl ChuckiesGlasses {
             g.exit = Some(Exit::to(crate::world::game::HUB));
             return;
         }
-        if let Some((at, h)) = g.checkpoint {
+        if let Some(Pose { pos: at, heading: h }) = g.checkpoint {
             g.player.pos = at;
             g.player.heading = h;
             g.player.target = h;

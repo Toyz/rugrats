@@ -38,7 +38,7 @@ impl EggHunt {
         }
         let total = g.goodies.iter().filter(|x| x.template == EGG).count() as u32;
         g.timer = Some(CLOCK);
-        g.checkpoint = Some((g.player.pos, g.player.heading));
+        g.checkpoint = Some(g.player.pose());
         g.song = Some(0);
         Ok(EggHunt { taken: 0, total, gold: false })
     }

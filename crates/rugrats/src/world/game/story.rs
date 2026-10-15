@@ -118,7 +118,7 @@ impl Game {
                 return;
             }
         }
-        if let Some((at, heading)) = self.checkpoint {
+        if let Some(Pose { pos: at, heading }) = self.checkpoint {
             self.player.pos = at;
             self.player.heading = heading;
             self.player.target = heading;

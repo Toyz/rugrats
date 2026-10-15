@@ -1916,6 +1916,7 @@ impl Game {
             posts: &self.posts,
             trig: &self.trig,
             anims: &self.anims,
+            walls: &boxes,
         };
         self.npc_events = crate::npc::step(&mut self.npcs, &world, &mut self.rand);
         self.with_script(|s, g| s.frame(g, pads));

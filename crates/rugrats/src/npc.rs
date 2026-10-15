@@ -179,7 +179,8 @@ impl Npc {
 
     /// Steers toward `goal` (0x800820e0) and moves at `speed`: a quarter
     /// of it while the turn left is over 1024.
-    fn go(&mut self, goal: [i32; 3], speed: i32, col: &Col, trig: &Trig) {
+    fn go(&mut self, goal: [i32; 3], speed: i32, w: &World) {
+        let (col, trig) = (w.col, w.trig);
         let (dx, dz) = ((goal[0] - self.pos[0]) as f64, (goal[2] - self.pos[2]) as f64);
         let want = ((dx.atan2(dz) / std::f64::consts::TAU) * 4096.0).round() as i32;
         let d = wrap(want - self.heading);
@@ -194,6 +195,12 @@ impl Npc {
         if q.kind == 2 || q.tile.is_none() {
             self.pos = start;
             self.speed = 0;
+        } else if !matches!(self.mode, Mode::Posts { .. } | Mode::Wait { .. }) && self.walled(start, w.walls) {
+            // An object in the way (a shut door, a crate): back across.
+            // Route walkers keep to their posts (guess: +0x688 bit 0x800,
+            // set for the toss and race runners).
+            self.pos = start;
+            self.speed = 0;
         } else if q.floor - (self.pos[1] - self.feet()) > -1200 {
             self.pos[1] = q.floor + self.feet();
         } else {
@@ -201,6 +208,19 @@ impl Npc {
             self.pos = start;
             self.speed = 0;
         }
+    }
+
+    /// Whether the body walked deeper into an object's box than it was at
+    /// `start` (a box whose top is within a step of the feet is floor).
+    fn walled(&self, start: [i32; 3], walls: &[crate::player::Box3]) -> bool {
+        let feet = self.pos[1] - self.feet();
+        walls.iter().any(|b| {
+            !b.character
+                && b.min_y < feet - 384
+                && b.max_y > feet - 600
+                && b.covers(self.pos, 200)
+                && b.depth(self.pos, 200) > b.depth(start, 200)
+        })
     }
 
     fn dist(&self, p: [i32; 3]) -> i32 {
@@ -217,6 +237,8 @@ pub struct World<'a> {
     pub posts: &'a [Post],
     pub trig: &'a Trig,
     pub anims: &'a Anims,
+    /// The objects' boxes this frame (doors, crates; not bodies).
+    pub walls: &'a [crate::player::Box3],
 }
 
 /// One frame of every NPC (the scheduler running each think, 0x80072bf0).
@@ -244,9 +266,9 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                 let (p, _) = at(t);
                 let d = n.dist(p);
                 if d > 2 * n.range {
-                    n.go(p, 2 * base, w.col, w.trig);
+                    n.go(p, 2 * base, w);
                 } else if d >= n.range / 2 {
-                    n.go(p, base, w.col, w.trig);
+                    n.go(p, base, w);
                 } else {
                     n.speed = 0;
                     if n.attacks && n.cooldown == 0 && (p[1] - n.pos[1]).abs() < 1200 {
@@ -277,7 +299,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                         Mode::Posts { prev: cur, cur: next }
                     };
                 } else {
-                    n.go(post.pos, base, w.col, w.trig);
+                    n.go(post.pos, base, w);
                 }
             }
             Mode::Wait { prev, cur, left } => {
@@ -312,11 +334,11 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                             n.cooldown = n.bite_wait;
                         }
                     } else {
-                        n.go(p, base, w.col, w.trig);
+                        n.go(p, base, w);
                     }
                 } else if n.dist(n.home) > 600 {
                     let home = n.home;
-                    n.go(home, base, w.col, w.trig);
+                    n.go(home, base, w);
                 } else {
                     n.speed = 0;
                 }
@@ -334,12 +356,12 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                     events.push(Event::Bite { by: k, target: Target::Player, amount: n.damage });
                     n.mode = Mode::Hit { left: 900, then: Box::new(Mode::Prowl { prev, cur }) };
                 } else if n.dist(post.pos) <= 2 * n.range && n.dist(p) <= n.range {
-                    n.go(p, base, w.col, w.trig);
+                    n.go(p, base, w);
                 } else if n.dist(post.pos) <= n.post_reach {
                     let next = n.next_post(&post, prev, rand);
                     n.mode = Mode::Prowl { prev: cur, cur: next };
                 } else {
-                    n.go(post.pos, base, w.col, w.trig);
+                    n.go(post.pos, base, w);
                 }
             }
             Mode::Block { heading } => {
@@ -358,7 +380,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                     if side.abs() > 200 {
                         let dir = if side > 0 { 1 } else { -1 };
                         let goal = [n.pos[0] + dir * c * 1024 / 4096, n.pos[1], n.pos[2] - dir * s * 1024 / 4096];
-                        n.go(goal, base, w.col, w.trig);
+                        n.go(goal, base, w);
                     } else {
                         n.speed = 0;
                     }

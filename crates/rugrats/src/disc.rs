@@ -19,6 +19,8 @@ pub struct GameDisc {
     pub movies: Vec<crate::movie::Entry>,
     /// The tables libpress gives the MDEC before decoding a picture.
     pub mdec: Tables,
+    /// What the memory card code takes from the executable.
+    pub card: crate::card::Art,
 }
 
 impl GameDisc {
@@ -48,7 +50,8 @@ impl GameDisc {
                 lba: u32::from_le_bytes(e[4..].try_into().unwrap()),
             })
             .collect();
-        Ok(GameDisc { image, table, movies, mdec })
+        let card = crate::card::Art::from_exe(exe).ok_or("no memory card tables in SLUS_006.50")?;
+        Ok(GameDisc { image, table, movies, mdec, card })
     }
 
     /// The first sector of file `index` (the streams are read by sector).

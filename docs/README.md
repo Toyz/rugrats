@@ -43,6 +43,7 @@ How the game works, subsystem by subsystem.
 | [In-engine cinematics](engine/cinematics.md) | partial | US | US SLUS_006.50:0x8007424c, US SLUS_006.50:0x80073810, US SLUS_006.50:0x8007412c, US SLUS_006.50:0x80019da4, US SLUS_006.50:0x80019c88, US SLUS_006.50:0x800b8bd0, US /DATA/CINEMAT/OPEN.BIN, US SLUS_006.50:0x80073b08, US SLUS_006.50:0x80073c34, US SLUS_006.50:0x80073f08, US SLUS_006.50:0x8001e0f4, US SLUS_006.50:0x8001d218 |
 | [The input module](engine/input.md) | partial | US | US SLUS_006.50:0x8001acc0, US SLUS_006.50:0x8001baf8, US SLUS_006.50:0x8001b028, US SLUS_006.50:0x800cda18 |
 | [The PsyQ libraries in the executable](engine/libraries.md) | partial | US | US SLUS_006.50:0x800977e8..0x800b2794 |
+| [The memory card and the save file](engine/memory-card.md) | partial | US | US SLUS_006.50:0x80072730, US SLUS_006.50:0x8007146c, US SLUS_006.50:0x80071ee0, US SLUS_006.50:0x80070e84, US SLUS_006.50:0x80070fa0, US SLUS_006.50:0x80072498, US SLUS_006.50:0x80072320, US SLUS_006.50:0x800721a4, US SLUS_006.50:0x8007062c, US SLUS_006.50:0x80070234, US SLUS_006.50:0x800707a8, US SLUS_006.50:0x8009ac98 |
 
 ## Cut and missing content
 

@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 
 pub mod bus;
+pub mod card;
 pub mod cdrom;
 pub mod gpu;
 pub mod hw;
@@ -140,6 +141,203 @@ fn stop_text(pc: u32, what: impl Into<String>) -> Stop {
     Stop::Hle { pc, what: what.into() }
 }
 
+/// The oracle's card in slot 1: RUGRATS_CARD, or work/oracle/memcard/slot1.
+fn card_dir() -> std::path::PathBuf {
+    std::env::var_os("RUGRATS_CARD").map(Into::into).unwrap_or_else(|| "work/oracle/memcard/slot1".into())
+}
+
+/// The memory card's BIOS calls (see [`card`]): the events (all of them,
+/// those of other classes reading as delivered, as the stock BIOS has
+/// them), `_card_info`, `_card_load`, the raw sector calls and the file
+/// calls on `bu` devices; other files are left to the stock BIOS.
+fn install_card(b: &bios::Bios<PsxBus>, slot1: std::path::PathBuf) {
+    use card::Card;
+    use rrt::emu::BusExt;
+    let _ = std::fs::create_dir_all(&slot1);
+    let card = Rc::new(RefCell::new(Card::new(slot1)));
+    // Event ids, with their class: those of the card classes are the card's.
+    let classes: Rc<RefCell<Vec<(u32, u32)>>> = Default::default();
+    let next = Rc::new(std::cell::Cell::new(0xf100_0001u32));
+    {
+        let (card, classes, next) = (card.clone(), classes.clone(), next.clone());
+        // B0:08 OpenEvent(class, spec, mode, func)
+        b.insert(0xb0, 0x08, move |c| {
+            let (class, spec) = (c.arg32(0), c.arg32(1));
+            let id = if Card::owns(class) {
+                card.borrow_mut().open_event(class, spec)
+            } else {
+                let id = next.get() | 0x0800_0000;
+                next.set(next.get() + 1);
+                id
+            };
+            classes.borrow_mut().push((id, class));
+            HookResult::Return(id as u64)
+        });
+    }
+    for f in [0x0a, 0x0b] {
+        let card = card.clone();
+        // B0:0A WaitEvent(id), B0:0B TestEvent(id)
+        b.insert(0xb0, f, move |c| {
+            let id = c.arg32(0);
+            let mut card = card.borrow_mut();
+            let r = if card.is_ours(id) { card.test_event(id) || f == 0x0a } else { true };
+            if card.is_ours(id) && r {
+                tracing::debug!("card event {id:#x} fired");
+            }
+            HookResult::Return(r as u64)
+        });
+    }
+    for (f, set) in [(0x07, true), (0x20, false)] {
+        let card = card.clone();
+        // B0:07 DeliverEvent(class, spec), B0:20 UnDeliverEvent
+        b.insert(0xb0, f, move |c| {
+            let (class, spec) = (c.arg32(0), c.arg32(1));
+            if Card::owns(class) {
+                if set {
+                    card.borrow_mut().deliver(class, spec);
+                } else {
+                    card.borrow_mut().undeliver(class, spec);
+                }
+            }
+            HookResult::Return(1)
+        });
+    }
+    {
+        let c1 = card.clone();
+        b.insert(0xa0, 0xab, move |c| {
+            tracing::debug!("card _card_info({:#x})", c.arg32(0));
+            c1.borrow_mut().info(c.arg32(0));
+            HookResult::Return(1)
+        });
+        let c2 = card.clone();
+        b.insert(0xa0, 0xac, move |c| {
+            c2.borrow_mut().load(c.arg32(0));
+            HookResult::Return(1)
+        });
+        // B0:4F _card_read(chan, sector, buf), B0:4E _card_write
+        let c3 = card.clone();
+        b.insert(0xb0, 0x4f, move |c| {
+            let (chan, sector, buf) = (c.arg32(0), c.arg32(1), c.arg32(2));
+            let frame = c3.borrow_mut().read_sector(chan, sector);
+            tracing::debug!("card _card_read({chan:#x}, {sector})");
+            match frame {
+                Some(f) => {
+                    for (k, v) in f.iter().enumerate() {
+                        let _ = c.bus.write_u8(buf + k as u32, *v);
+                    }
+                    HookResult::Return(1)
+                }
+                None => {
+                    c3.borrow_mut().deliver(card::HW_CARD, card::EV_TIMEOUT);
+                    HookResult::Return(1)
+                }
+            }
+        });
+        let c4 = card.clone();
+        b.insert(0xb0, 0x4e, move |c| {
+            c4.borrow_mut().write_sector(c.arg32(0), c.arg32(1));
+            HookResult::Return(1)
+        });
+    }
+    // The file calls on bu devices.
+    {
+        let card = card.clone();
+        // B0:32 open(path, flags)
+        b.insert(0xb0, 0x32, move |c| {
+            let path = c.cstr(0);
+            if !path.starts_with("bu") {
+                return HookResult::Return(u32::MAX as u64);
+            }
+            let fd = card.borrow_mut().open(&path, c.arg32(1));
+            tracing::debug!("card open({path:?}, {:#x}) = {fd}", c.arg32(1));
+            HookResult::Return(fd as u32 as u64)
+        });
+    }
+    {
+        let card = card.clone();
+        // B0:33 lseek(fd, offset, whence)
+        b.insert(0xb0, 0x33, move |c| {
+            let fd = c.arg32(0);
+            let r = if fd < 2 { 0 } else { card.borrow_mut().seek(fd, c.arg32(1) as i32, c.arg32(2)) };
+            HookResult::Return(r as u32 as u64)
+        });
+    }
+    {
+        let card = card.clone();
+        // B0:34 read(fd, buf, len)
+        b.insert(0xb0, 0x34, move |c| {
+            let (fd, buf, len) = (c.arg32(0), c.arg32(1), c.arg32(2));
+            let Some(bytes) = card.borrow_mut().read(fd, len as usize) else { return HookResult::Return(0) };
+            for (k, v) in bytes.iter().enumerate() {
+                let _ = c.bus.write_u8(buf + k as u32, *v);
+            }
+            HookResult::Return(bytes.len() as u64)
+        });
+    }
+    {
+        let card = card.clone();
+        // B0:35 write(fd, buf, len): fds below 2 are the console.
+        b.insert(0xb0, 0x35, move |c| {
+            let (fd, buf, len) = (c.arg32(0), c.arg32(1), c.arg32(2));
+            if fd < 2 {
+                // The console: what the game prints.
+                let text: Vec<u8> = (0..len).map(|k| c.bus.read_u8(buf + k).unwrap_or(0)).collect();
+                tracing::info!(target: "tty", "{}", String::from_utf8_lossy(&text).trim_end());
+                return HookResult::Return(len as u64);
+            }
+            let data: Vec<u8> = (0..len).map(|k| c.bus.read_u8(buf + k).unwrap_or(0)).collect();
+            let r = card.borrow_mut().write(fd, &data);
+            HookResult::Return(r as u32 as u64)
+        });
+    }
+    {
+        let card = card.clone();
+        // B0:36 close(fd)
+        b.insert(0xb0, 0x36, move |c| {
+            let fd = c.arg32(0);
+            if fd < 2 {
+                return HookResult::Return(0);
+            }
+            HookResult::Return(card.borrow_mut().close(fd) as u32 as u64)
+        });
+    }
+    for f in [0x42, 0x43] {
+        let card = card.clone();
+        // B0:42 firstfile(path, dirent), B0:43 nextfile(dirent): the
+        // entry is name[20], attr, size, next, head, system[4].
+        b.insert(0xb0, f, move |c| {
+            let (path, dirent) = if f == 0x42 { (Some(c.cstr(0)), c.arg32(1)) } else { (None, c.arg32(0)) };
+            let found = card.borrow_mut().find(path.as_deref());
+            tracing::debug!("card {}({path:?}) = {found:?}", if f == 0x42 { "firstfile" } else { "nextfile" });
+            let Some((name, size, head)) = found else { return HookResult::Return(0) };
+            let mut e = [0u8; 40];
+            e[..name.len().min(19)].copy_from_slice(&name.as_bytes()[..name.len().min(19)]);
+            e[20..24].copy_from_slice(&0x51u32.to_le_bytes());
+            e[24..28].copy_from_slice(&size.to_le_bytes());
+            e[32..36].copy_from_slice(&head.to_le_bytes());
+            for (k, v) in e.iter().enumerate() {
+                let _ = c.bus.write_u8(dirent + k as u32, *v);
+            }
+            HookResult::Return(dirent as u64)
+        });
+    }
+    {
+        let card = card.clone();
+        // B0:45 erase(path)
+        b.insert(0xb0, 0x45, move |c| {
+            let path = c.cstr(0);
+            HookResult::Return(card.borrow_mut().erase(&path) as u64)
+        });
+    }
+    {
+        // B0:41 format(path)
+        b.insert(0xb0, 0x41, move |c| {
+            let path = c.cstr(0);
+            HookResult::Return(card.borrow_mut().format(&path) as u64)
+        });
+    }
+}
+
 impl Hle {
     /// Loads SLUS_006.50 from the disc and installs the hardware and hooks.
     /// `fast_load` serves the game's `read_file` straight from the disc;
@@ -155,12 +353,16 @@ impl Hle {
         let b = bios::install(&mut m);
         // A0:71 _96_init (the BIOS's CD reset): nothing to reset here.
         b.insert(0xa0, 0x71, |_| HookResult::Return(0));
-        // A0:AB _card_info(port), A0:AC _card_load(port): started; the
-        // events they end with all read as delivered. A0:AD
-        // set_card_auto_format(flag).
-        b.insert(0xa0, 0xab, |_| HookResult::Return(1));
-        b.insert(0xa0, 0xac, |_| HookResult::Return(1));
+        // A0:AD set_card_auto_format(flag).
         b.insert(0xa0, 0xad, |_| HookResult::Return(0));
+        install_card(&b, card_dir());
+        // The kernel's device table (pointer at 0x150, size at 0x154, 80
+        // bytes a device): libapi's firstfile (0x8009ac98) looks the device
+        // up by name there before calling the BIOS. One device, "bu".
+        let (devices, bu) = (0x0000_e000u32, 0x0000_e100u32);
+        m.bus.load_ram(0x150, &[devices.to_le_bytes(), 80u32.to_le_bytes()].concat());
+        m.bus.load_ram(devices, &bu.to_le_bytes());
+        m.bus.load_ram(bu, b"bu\0");
         // B0:5C _card_status(slot), B0:5D _card_wait(slot): ready.
         b.insert(0xb0, 0x5c, |_| HookResult::Return(1));
         b.insert(0xb0, 0x5d, |_| HookResult::Return(1));

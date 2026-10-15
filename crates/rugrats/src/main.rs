@@ -252,8 +252,9 @@ impl Rugrats {
         if level != 1 && self.level != Some(level) && self.progress.piece_given(level) {
             notes.push(screens::message::had_piece(&self.disc));
         }
+        // The bars note comes after the start cinematic and its card.
         if matches!(level, 13 | 18) && self.progress.won(level) && !self.progress.activity() {
-            notes.push(screens::message::had_bars(&self.disc));
+            then = Then::Pages(vec![screens::message::had_bars(&self.disc)], Box::new(then));
         }
         match (cine, notes.is_empty()) {
             (Some(n), true) => self.scene(n, level, then, now),
@@ -424,8 +425,10 @@ impl Game for Rugrats {
                         let n = *n;
                         let Boot::Scene { then, .. } = std::mem::replace(&mut self.boot, Boot::FrontEnd) else { unreachable!() };
                         // CineFinish (0x800783d8) shows the cinematic's card.
+                        // No hint cards in activity play.
+                        let card = rugrats::front::card_after(n).filter(|_| !self.progress.activity());
                         self.boot =
-                            match rugrats::front::card_after(n).map(|f| rugrats::front::Card::open(&self.disc, f)) {
+                            match card.map(|f| rugrats::front::Card::open(&self.disc, f)) {
                                 Some(Ok(card)) => {
                                     self.world = None;
                                     Boot::Card { card: Box::new(card), n, then }

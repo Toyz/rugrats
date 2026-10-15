@@ -16,6 +16,7 @@ pub mod level12;
 pub mod level13;
 pub mod level15;
 pub mod level17;
+pub mod level18;
 pub mod level20;
 pub mod golf;
 pub mod screens;

@@ -719,6 +719,7 @@ impl Game {
             20 => Some(Box::new(crate::level20::Level20::start(&mut g, disc)?)),
             21 => Some(Box::new(crate::level20::Level20::start21(&mut g, disc)?)),
             17 => Some(Box::new(crate::level17::Level17::start(&mut g, disc)?)),
+            18 => Some(Box::new(crate::level18::Level18::start(&mut g, disc)?)),
             11 => Some(Box::new(crate::level11::Level11::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
@@ -1540,12 +1541,14 @@ fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate::player::B
 /// whether it was won: 5 (level 2), 14 (3), 19 (9), 20 and 21 (13), 24
 /// (18), 26 (17), 35 (8), 40 (5), 47 (6), 48 (4), 50 (21), 62 (11), 64
 /// (20), 68 (12), 72 (15), 78 (10).
-const ENDINGS: [(usize, bool); 17] = [
+const ENDINGS: [(usize, bool); 18] = [
     (5, true),
     (14, true),
     (19, true),
     (20, false),
     (21, true),
+    // Egg Hunt's loss: its last try is gone before cine 23 plays.
+    (23, false),
     (24, true),
     (26, true),
     (35, true),

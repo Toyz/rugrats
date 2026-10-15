@@ -11,7 +11,7 @@ use crate::actors::npc::{Event, Mode, Target};
 use crate::actors::player::DT;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::Game;
+use crate::world::game::{Exit, Game};
 
 /// Registry ids (LP +0x2a).
 const CHUCKIE: u16 = 1776;
@@ -125,11 +125,11 @@ impl GrandpasTeeth {
                 }
                 // 0x8007737c case 4: exit 1, the level won.
                 g.won = Some(true);
-                g.exit = Some((crate::world::game::HUB, None));
+                g.exit = Some(Exit::to(crate::world::game::HUB));
             }
             CINE_LOSE => {
                 g.won = Some(false);
-                g.exit = Some((crate::world::game::HUB, None));
+                g.exit = Some(Exit::to(crate::world::game::HUB));
             }
             _ => {}
         }
@@ -266,7 +266,7 @@ impl GrandpasTeeth {
                 g.timer = None;
                 g.cine = Some(CINE_LOSE);
             } else {
-                g.exit = Some((crate::world::game::HUB, None));
+                g.exit = Some(Exit::to(crate::world::game::HUB));
             }
             return;
         }
@@ -301,7 +301,7 @@ impl GrandpasTeeth {
             match e {
                 Event::Bite { target: Target::Player, amount, .. } if amount > 0 => {
                     g.player.health = (g.player.health - amount).max(0);
-                    g.effects.push((30, crate::audio::sound::EFFECTS_VOLUME));
+                    g.play(30);
                 }
                 _ => {}
             }
@@ -321,7 +321,7 @@ impl GrandpasTeeth {
                 g.player.pos[2] + (c * 512 >> 12),
             ];
             self.puck = Some(Puck { pos: start, v: [s * PUCK_SPEED >> 12, c * PUCK_SPEED >> 12], travelled: 0 });
-            g.effects.push((36, crate::audio::sound::EFFECTS_VOLUME));
+            g.play(36);
             g.player.act(7, &g.anims);
         }
         if let Some(p) = &mut self.puck {
@@ -343,7 +343,7 @@ impl GrandpasTeeth {
                     m => Box::new(m.clone()),
                 };
                 n.mode = Mode::Hit { left: 300, then };
-                g.effects.push((34, crate::audio::sound::EFFECTS_VOLUME));
+                g.effects.push(crate::world::game::Effect::new(34));
                 // 0x8007eb68: the goose at 0 wins, Chuckie at 0 is a cry.
                 if n.health == 0 {
                     if n.id == GOOSE {

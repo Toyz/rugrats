@@ -11,7 +11,7 @@
 use crate::actors::npc::{Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::Game;
+use crate::world::game::{Exit, Game};
 
 /// The box (template 442) and the cookies in it.
 const BOX: u16 = 442;
@@ -218,7 +218,7 @@ impl BoxToss {
         }
         self.ended = true;
         g.tries -= 1;
-        g.effects.push((121, crate::audio::sound::EFFECTS_VOLUME));
+        g.play(121);
         g.drop_carried();
         // 0x80079f5c / 0x8007a388: a line, then the cine.
         if !self.lost_lines.is_empty() {
@@ -249,7 +249,7 @@ impl crate::world::game::Script for BoxToss {
             self.eat_wait = EAT_WAIT;
             g.player.act(self.rules.eat, &g.anims);
             let sound = if self.rules.throw_costs { 43 + (g.rand.next() & 15) as u8 } else { 123 };
-            g.effects.push((sound, crate::audio::sound::EFFECTS_VOLUME));
+            g.play(sound);
             if self.cookies <= 0 {
                 self.ended = true;
                 // 0x8007a504 (level 21): a line, then cine 50.
@@ -320,7 +320,7 @@ impl crate::world::game::Script for BoxToss {
             let floor_box = !holding && self.catcher.is_none();
             if d2 < LUNGE * LUNGE && self.lunge == 0 {
                 self.lunge = 40;
-                g.effects.push((121, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(121);
                 if d2 < KNOCK * KNOCK && (holding || floor_box) {
                     self.lose(g);
                 }
@@ -332,7 +332,7 @@ impl crate::world::game::Script for BoxToss {
         if n == self.rules.lost {
             if g.tries <= 0 {
                 g.won = Some(false);
-                g.exit = Some((crate::world::game::HUB, None));
+                g.exit = Some(Exit::to(crate::world::game::HUB));
             } else {
                 // Card 709, then the round again (0x80079f1c).
                 g.card = Some(709);

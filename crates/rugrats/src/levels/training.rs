@@ -134,7 +134,7 @@ impl Training {
         // A hit (0x8007eafc): 50 off; at 0 her health back and won.
         for _ in hits {
             let Some(k) = find(g, ANGELICA) else { break };
-            g.effects.push((44, crate::audio::sound::EFFECTS_VOLUME));
+            g.play(44);
             let r = g.rand.next() & 1;
             g.speech.extend(crate::world::game::hit_line(3, 16, r));
             let n = &mut g.npcs[k];
@@ -160,7 +160,7 @@ impl crate::world::game::Script for Training {
             if let Event::Bite { by, target: Target::Player, amount } = e {
                 if amount > 0 {
                     g.player.health = (g.player.health - amount).max(0);
-                    g.effects.push((52, crate::audio::sound::EFFECTS_VOLUME));
+                    g.play(52);
                     if g.npcs[by].id == LOBSTER {
                         g.training.show(13);
                     }
@@ -172,7 +172,7 @@ impl crate::world::game::Script for Training {
             if g.npcs[k].id != LOBSTER {
                 continue;
             }
-            g.effects.push((44, crate::audio::sound::EFFECTS_VOLUME));
+            g.play(44);
             let n = &mut g.npcs[k];
             n.health = (n.health - amount).max(0);
             if n.health == 0 {

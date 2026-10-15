@@ -10,7 +10,7 @@ use rrt::glam::{Mat3, Vec3};
 use crate::actors::player::DT;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::Game;
+use crate::world::game::{Exit, Game};
 
 /// Hole index (play order) to level (0x80057dcc), par (0x800b7ffc) and the
 /// baby who plays it (0x800b7ff0).
@@ -256,7 +256,7 @@ impl Golf {
         self.roll = Some([s * k >> 12, 0, c * k >> 12]);
         self.lipped = false;
         self.strokes += 1;
-        g.effects.push((118, crate::audio::sound::EFFECTS_VOLUME));
+        g.play(118);
     }
 
     /// One frame of the roll (0x80087c5c, 0x80086ef0, 0x80086cd0) and the
@@ -276,7 +276,7 @@ impl Golf {
             let wall = object || q.kind != 0 || q.tile.is_none() || q.floor < start[1] + RADIUS - 384;
             if wall {
                 v[k] = -(v[k] * BOUNCE >> 12);
-                g.effects.push((137, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(137);
             } else {
                 self.ball = p;
             }
@@ -323,11 +323,11 @@ impl Golf {
         if !self.lipped && dx * dx + dz * dz <= CUP_REACH2 {
             let s = isqrt(v[0] as i64 * v[0] as i64 + v[2] as i64 * v[2] as i64);
             if s > CUP_SPEED {
-                g.effects.push((119, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(119);
                 self.lipped = true;
                 v = lip_out(v, [dx as i32, dz as i32], s);
             } else {
-                g.effects.push((120, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(120);
                 self.roll = None;
                 self.ball = [self.cup[0], self.cup[1], self.cup[2]];
                 self.holed(g);
@@ -343,7 +343,7 @@ impl Golf {
         // A ball that stops within the cup's reach drops.
         let (dx, dz) = ((self.cup[0] - self.ball[0]) as i64, (self.cup[2] - self.ball[2]) as i64);
         if dx * dx + dz * dz <= CUP_REACH2 {
-            g.effects.push((120, crate::audio::sound::EFFECTS_VOLUME));
+            g.play(120);
             self.holed(g);
             return false;
         }
@@ -427,7 +427,7 @@ impl Golf {
         if g.activity {
             self.stage = Stage::Done;
             g.strokes = Some(self.strokes);
-            g.exit = Some((g.level, None));
+            g.exit = Some(Exit::to(g.level));
             return;
         }
         self.say(g);
@@ -453,7 +453,7 @@ impl Golf {
             g.record = RECORD;
             g.cine = Some(CINE_END);
         } else {
-            g.exit = Some((LEVELS[self.hole + 1], None));
+            g.exit = Some(Exit::to(LEVELS[self.hole + 1]));
         }
     }
 
@@ -619,7 +619,7 @@ impl crate::world::game::Script for Golf {
 
     /// The golf case of ForceCry: the hole again (0x8007aff0).
     fn cry(&mut self, g: &mut Game) -> bool {
-        g.exit = Some((g.level, None));
+        g.exit = Some(Exit::to(g.level));
         true
     }
 

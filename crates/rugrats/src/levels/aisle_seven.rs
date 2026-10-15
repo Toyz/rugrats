@@ -12,7 +12,7 @@ use crate::actors::npc::{Event, Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
-use crate::world::game::Game;
+use crate::world::game::{Exit, Game};
 
 /// Registry ids (LP +0x2a).
 const LARRY: u16 = 75;
@@ -156,7 +156,7 @@ impl AisleSeven {
             // ForceCry at once (phase 1: no cry): a try gone.
             g.tries -= 1;
             if g.tries <= 0 {
-                g.exit = Some((crate::world::game::HUB, None));
+                g.exit = Some(Exit::to(crate::world::game::HUB));
             }
         }
     }
@@ -228,7 +228,7 @@ impl AisleSeven {
                     }
                 }
             }
-            g.effects.push((44, crate::audio::sound::EFFECTS_VOLUME));
+            g.play(44);
             if left == 0 {
                 self.end_toss(g, true);
                 return;
@@ -243,7 +243,7 @@ impl crate::world::game::Script for AisleSeven {
             match e {
                 Event::Bite { target: Target::Player, amount, .. } if amount > 0 => {
                     g.player.health = (g.player.health - amount).max(0);
-                    g.effects.push((52, crate::audio::sound::EFFECTS_VOLUME));
+                    g.play(52);
                 }
                 // GoalPost (0x80077ff0): one of them reached post 39.
                 Event::Goal(k) if self.toss.is_some() && [LARRY, STEVE].contains(&g.npcs[k].id) => {
@@ -251,7 +251,7 @@ impl crate::world::game::Script for AisleSeven {
                 }
                 Event::Swat { heading, .. } => {
                     g.player.launch(heading, SWAT_UP, SWAT_SPEED, &g.trig);
-                    g.effects.push((148, crate::audio::sound::EFFECTS_VOLUME));
+                    g.play(148);
                 }
                 _ => {}
             }
@@ -260,7 +260,7 @@ impl crate::world::game::Script for AisleSeven {
         // and at 0 is gone (0x8007ebd4); the boss is stunned 600 dt.
         for (k, _, amount) in std::mem::take(&mut g.struck) {
             let id = g.npcs[k].id;
-            g.effects.push((44, crate::audio::sound::EFFECTS_VOLUME));
+            g.play(44);
             let n = &mut g.npcs[k];
             let back = match &n.mode {
                 Mode::Hit { then, .. } => (**then).clone(),
@@ -332,7 +332,7 @@ impl crate::world::game::Script for AisleSeven {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some((crate::world::game::HUB, None));
+            g.exit = Some(Exit::to(crate::world::game::HUB));
             return true;
         }
         if self.phase == 3 {

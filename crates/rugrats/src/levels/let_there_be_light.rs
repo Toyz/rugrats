@@ -110,7 +110,7 @@ impl LetThereBeLight {
             if along > 0.0 && along < REACH && across < WIDTH {
                 g.npcs[k].hidden = true;
                 g.npcs[k].mode = Mode::Idle;
-                g.effects.push((110, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(110);
                 self.away.push((k, AWAY));
             }
         }
@@ -131,7 +131,7 @@ impl crate::world::game::Script for LetThereBeLight {
         let holding = self.holding(g);
         self.shining = holding && pads.held(0, input::TRIANGLE) && self.charge > 0;
         if holding && pads.pressed(0, input::TRIANGLE) {
-            g.effects.push((161, crate::audio::sound::EFFECTS_VOLUME));
+            g.play(161);
         }
         if self.shining {
             self.charge -= 1;
@@ -169,7 +169,7 @@ impl crate::world::game::Script for LetThereBeLight {
                 if holding {
                     self.charge = (self.charge + 30).min(self.max);
                 }
-                g.effects.push((109, crate::audio::sound::EFFECTS_VOLUME));
+                g.effects.push(crate::world::game::Effect::new(109));
             }
         }
         // Picked up again (0x800602d8): the gauge's max is 100.

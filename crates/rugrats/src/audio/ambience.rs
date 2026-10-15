@@ -104,7 +104,7 @@ pub fn frame(g: &mut Game, t: &Tables, cue: i32) {
                     g.ambience = (r(g) * 8) as i32;
                 } else {
                     let e = 32 + (r(g) & 3) as u8;
-                    g.effects.push((e, crate::audio::sound::EFFECTS_VOLUME));
+                    g.play(e);
                 }
             } else if let Some(k) = goose.filter(|&k| matches!(g.npcs[k].mode, Mode::Posts { .. } | Mode::Wait { .. }))
             {
@@ -115,7 +115,7 @@ pub fn frame(g: &mut Game, t: &Tables, cue: i32) {
                     g.ambience = (r(g) * 12 + 900) as i32;
                 } else {
                     let e = 32 + (r(g) & 3) as u8;
-                    g.effects.push((e, crate::audio::sound::EFFECTS_VOLUME));
+                    g.play(e);
                 }
             } else {
                 say(g, t.get(0x800b_9398, s % 11));

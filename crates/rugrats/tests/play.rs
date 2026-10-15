@@ -71,7 +71,7 @@ fn hub_doors_lead_to_their_levels() {
         put(&mut g, at, h);
         let mut exit = None;
         run(&mut g, &[(&[], 3), (&[input::TRIANGLE], 1), (&[], 3)], |g, _| exit = exit.or(g.exit.take()));
-        assert_eq!(exit.map(|e| e.0), Some(level), "door at {at:?}");
+        assert_eq!(exit.map(|e| e.level), Some(level), "door at {at:?}");
     }
 }
 
@@ -97,7 +97,7 @@ fn board_returns_to_level_7() {
     put(&mut g, [3103, 779, 1200], 2048);
     let mut exit = None;
     run(&mut g, &[(&[], 3), (&[input::TRIANGLE], 1), (&[], 3)], |g, _| exit = exit.or(g.exit.take()));
-    assert_eq!(exit.map(|e| e.0), Some(7));
+    assert_eq!(exit.map(|e| e.level), Some(7));
 }
 
 /// Golf holes do not hurt (Damage is dropped in 23-31).

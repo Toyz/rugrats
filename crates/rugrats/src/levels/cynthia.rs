@@ -10,7 +10,7 @@ use rrt::glam::{Mat3, Vec3};
 use crate::actors::npc::{Event, Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::Pads;
-use crate::world::game::Game;
+use crate::world::game::{Exit, Game};
 
 /// Cynthia (id 34), the rats (char 39).
 const CYNTHIA: u16 = 34;
@@ -108,7 +108,7 @@ impl crate::world::game::Script for Cynthia {
             if let Event::Bite { target: Target::Player, amount, .. } = e {
                 if amount > 0 {
                     g.player.health = (g.player.health - amount).max(0);
-                    g.effects.push((BITE_SOUND, crate::audio::sound::EFFECTS_VOLUME));
+                    g.play(BITE_SOUND);
                 }
             }
         }
@@ -167,7 +167,7 @@ impl crate::world::game::Script for Cynthia {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some((crate::world::game::HUB, None));
+            g.exit = Some(Exit::to(crate::world::game::HUB));
             return true;
         }
         if self.phase == 4 {

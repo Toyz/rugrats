@@ -83,6 +83,36 @@ fn player_character(level: usize) -> usize {
 }
 
 /// A level's own play (its EpisodeStart callback and the level cases of
+/// Where a level ends (the exit code, 0x800c4918): a level to go to,
+/// and a cinematic to play first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Exit {
+    pub level: usize,
+    pub cine: Option<usize>,
+}
+
+impl Exit {
+    /// Straight to `level`.
+    pub fn to(level: usize) -> Exit {
+        Exit { level, cine: None }
+    }
+}
+
+/// A sound effect asked for this frame (0x8006f644): its number and its
+/// volume (the effects setting, less with distance from the camera).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Effect {
+    pub sound: u8,
+    pub volume: i32,
+}
+
+impl Effect {
+    /// At full volume (0x8006f26c).
+    pub fn new(sound: u8) -> Effect {
+        Effect { sound, volume: crate::audio::sound::EFFECTS_VOLUME }
+    }
+}
+
 /// the event handlers).
 pub trait Script {
     /// One frame, after the player and the NPCs moved.
@@ -143,7 +173,7 @@ pub struct Game {
     scenery: Vec<rugrats_render::Vtx>,
     /// Where the level ends: a level to go to (the exit code, 0x800c4918)
     /// and a cinematic to play first.
-    pub exit: Option<(usize, Option<usize>)>,
+    pub exit: Option<Exit>,
     /// A cinematic the level asks for (PostCine), played with the level
     /// waiting.
     pub cine: Option<usize>,
@@ -175,7 +205,7 @@ pub struct Game {
     pub song: Option<usize>,
     /// Sound effects asked for this frame, with their volume (0x8006f644:
     /// the effects setting, less with distance from the camera).
-    pub effects: Vec<(u8, i32)>,
+    pub effects: Vec<Effect>,
     /// Paused (Start, 0x80018c38 step 13): the world holds still and the
     /// pause menu runs (0x8003e05c).
     pub paused: bool,
@@ -343,6 +373,11 @@ const EPISODE_OBJECTS: [u32; 2] = [111, 441];
 const LOCKED_OBJECTS: [u32; 3] = [117, 715, 720];
 
 impl Game {
+    /// Plays sound effect `sound` at full volume (0x8006f26c).
+    pub fn play(&mut self, sound: u8) {
+        self.effects.push(Effect::new(sound));
+    }
+
     pub fn open(disc: &GameDisc, level: usize) -> Result<Game, String> {
         Game::open_from(disc, level, None, &crate::save::progress::Progress::default())
     }
@@ -904,12 +939,12 @@ impl Game {
                     if matches!(self.level, HUB | 16) {
                         self.quit = true;
                     } else {
-                        self.exit = Some((HUB, None));
+                        self.exit = Some(Exit::to(HUB));
                     }
                 }
                 None => {}
             }
-            self.effects.extend(self.pause.sounds.drain(..).map(|s| (s, crate::audio::sound::EFFECTS_VOLUME)));
+            self.effects.extend(self.pause.sounds.drain(..).map(Effect::new));
             self.draw();
             return;
         }
@@ -932,7 +967,7 @@ impl Game {
         crate::audio::ambience::frame(self, &lines, cue);
         let mut closed = Vec::new();
         if self.training.frame(pads, &mut closed) {
-            self.effects.extend(closed.into_iter().map(|e| (e, crate::audio::sound::EFFECTS_VOLUME)));
+            self.effects.extend(closed.into_iter().map(Effect::new));
             self.draw();
             return;
         }
@@ -1022,8 +1057,8 @@ impl Game {
         let d = (self.eye - Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32))
             .length();
         let volume = (crate::audio::sound::EFFECTS_VOLUME as f32 * (1.0 - d / 16384.0).max(0.0)) as i32;
-        self.effects.extend(closed.into_iter().map(|e| (e, crate::audio::sound::EFFECTS_VOLUME)));
-        self.effects.extend(self.player.effects.iter().map(|&e| (e, volume)));
+        self.effects.extend(closed.into_iter().map(Effect::new));
+        self.effects.extend(self.player.effects.iter().map(|&sound| Effect { sound, volume }));
         // Using an object (the stand handler's ACTION, Triangle, on the
         // touched object): a door (use 0x8004f78c, LP +0x42) goes to its
         // level; one with only a cinematic (0x8004f83c, LP +0x44, made by
@@ -1088,18 +1123,18 @@ impl Game {
                 if d.template == BOARD_OBJECT && self.flags & 512 != 0 {
                     // 0x8004d3f0: once Reptar 2010 has begun (+0x30 bit
                     // 512), the board goes back to it.
-                    self.exit = Some((7, None));
+                    self.exit = Some(Exit::to(7));
                 } else if d.template == BOARD_OBJECT {
                     self.board = true;
                 } else if mirror(&d) {
                     // The mirror (0x800478bc): Mirrorland, with bit 16.
-                    self.exit = Some((15, (d.cine > 0).then_some(d.cine as usize)));
+                    self.exit = Some(Exit { level: 15, cine: (d.cine > 0).then_some(d.cine as usize) });
                 } else if d.level > 0 && matches!(d.level, 3 | 4 | 6) && !flag16 {
                     // 0x8004f78c: "you'll need more puzzle pieces" (HINT41).
                     self.card = Some(LOCKED_CARD);
                 } else if d.level > 0 {
                     rrt::tracing::info!("level {}: a door to level {} (cine {})", self.level, d.level, d.cine);
-                    self.exit = Some((d.level as usize, (d.cine > 0).then_some(d.cine as usize)));
+                    self.exit = Some(Exit { level: d.level as usize, cine: (d.cine > 0).then_some(d.cine as usize) });
                 } else {
                     rrt::tracing::info!("level {}: object {} plays cine {}", self.level, d.id, cine_of(&d));
                     self.cine = Some(cine_of(&d));
@@ -1165,7 +1200,7 @@ impl Game {
             let t = t - crate::actors::player::DT;
             if t <= 0 {
                 self.timer = None;
-                self.effects.push((117, crate::audio::sound::EFFECTS_VOLUME));
+                self.play(117);
                 self.with_script(|s, g| s.timer_expired(g));
             } else {
                 self.timer = Some(t);

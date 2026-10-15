@@ -10,7 +10,7 @@ use rrt::glam::Vec3;
 use crate::actors::npc::{Event, Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::Game;
+use crate::world::game::{Exit, Game};
 
 /// Hidden by cine 37's end (0x800732d4 case 37) and 0x8007b280.
 const CINE_ACTORS: [u16; 11] = [1776, 608, 609, 1492, 130, 132, 131, 134, 514, 524, 8801];
@@ -128,7 +128,7 @@ impl OuterSpace {
             self.doors[i].2 = open;
             g.hide_placement(k, open);
             let _ = at;
-            g.effects.push((71, crate::audio::sound::EFFECTS_VOLUME));
+            g.play(71);
         }
     }
 
@@ -139,7 +139,7 @@ impl OuterSpace {
             return;
         }
         self.charge = (self.charge - ZAP_COST).max(0);
-        g.effects.push((68, crate::audio::sound::EFFECTS_VOLUME));
+        g.play(68);
         let (s, c) = (g.trig.sin(g.player.heading), g.trig.cos(g.player.heading));
         let p = g.player.pos;
         let at = [p[0], p[1] - 500, p[2]];
@@ -175,7 +175,7 @@ impl OuterSpace {
                 // A robot (0x800511a8 case 33): stunned 20 s, sound 63.
                 if let Some(n) = g.npcs.iter_mut().find(|n| n.character == ROBOT && !n.hidden && near(n.pos)) {
                     n.mode = Mode::Hit { left: STUN, then: Box::new(Mode::Guard) };
-                    g.effects.push((63, crate::audio::sound::EFFECTS_VOLUME));
+                    g.play(63);
                     b.done = true;
                     break;
                 }
@@ -208,7 +208,7 @@ impl crate::world::game::Script for OuterSpace {
         for (kind, value) in std::mem::take(&mut g.collected) {
             if kind == 12 {
                 self.charge = (self.charge + value).min(CHARGE);
-                g.effects.push((69, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(69);
             }
         }
         // Triangle with the remote (0x8005a6f4): the zap.
@@ -256,7 +256,7 @@ impl crate::world::game::Script for OuterSpace {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some((crate::world::game::HUB, None));
+            g.exit = Some(Exit::to(crate::world::game::HUB));
             return true;
         }
         if self.phase <= 1 {

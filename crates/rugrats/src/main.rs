@@ -644,7 +644,7 @@ impl Game for Rugrats {
                     game.state_block = self.progress.block;
                     game.frame(&self.pads);
                     if let Ok(mut spu) = self.spu.lock() {
-                        for &(e, v) in &game.effects {
+                        for &rugrats::world::game::Effect { sound: e, volume: v } in &game.effects {
                             spu.effect(
                                 &self.effect_table,
                                 e as usize,
@@ -714,7 +714,7 @@ impl Game for Rugrats {
                         self.stop_song();
                         let page = screens::message::returning(&self.disc, self.progress.activity());
                         self.boot = self.screen(vec![page], 1, Then::Title, None, now);
-                    } else if let Some((mut level, mut cine)) = game.exit {
+                    } else if let Some(rugrats::world::game::Exit { mut level, mut cine }) = game.exit {
                         // Activity golf (0x80096a30): a holed ball ends the turn;
                         // the next player plays the hole from the tee, after
                         // the last the score card and the next hole.

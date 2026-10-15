@@ -113,7 +113,7 @@ impl Game {
             self.tries -= 1;
             if self.tries == 0 {
                 if !matches!(self.level, 1 | 20 | 21) {
-                    self.exit = Some((HUB, None));
+                    self.exit = Some(Exit::to(HUB));
                 }
                 return;
             }
@@ -139,7 +139,7 @@ impl Game {
         match ENDINGS.iter().find(|e| e.0 == n) {
             Some(&(_, won)) => {
                 self.won = Some(won);
-                self.exit = Some((HUB, None));
+                self.exit = Some(Exit::to(HUB));
             }
             // The end (0x8007737c case 84): exit -1, the credits.
             None if n == REPTAR_DANCE => self.ending = true,

@@ -156,7 +156,7 @@ impl crate::world::game::Script for ToyPalace {
             Some(s) if !self.scared => {
                 self.scared = true;
                 g.player.health = (g.player.health - s.damage).max(0);
-                g.effects.push((72, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(72);
             }
             Some(_) => {}
             None => self.scared = false,
@@ -166,7 +166,7 @@ impl crate::world::game::Script for ToyPalace {
         for &(at, period, reach) in &self.bursts {
             if self.clock % period == 0 && d2(at) <= reach * reach {
                 g.player.health = (g.player.health - BURST_HURT).max(0);
-                g.effects.push((79, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(79);
             }
         }
         // Breaking toys (0x8005ac98): standing on one breaks it.
@@ -186,7 +186,7 @@ impl crate::world::game::Script for ToyPalace {
             if let Some(i) = under {
                 let k = self.breakables.remove(i);
                 g.hide_placement(k, true);
-                g.effects.push((173, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(173);
                 let h = g.player.heading;
                 g.player.launch(h, -2000, 0, &g.trig);
                 g.player.health = (g.player.health - 5).max(0);

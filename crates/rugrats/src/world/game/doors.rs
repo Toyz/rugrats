@@ -179,15 +179,15 @@ impl Game {
             // going open.
             if d.template == 770 {
                 if d.open && next[1] == 900 {
-                    self.effects.push((136, crate::audio::sound::EFFECTS_VOLUME));
+                    self.effects.push(Effect::new(136));
                 } else if !d.open && next[1] == 1600 {
-                    self.effects.push((135, crate::audio::sound::EFFECTS_VOLUME));
+                    self.effects.push(Effect::new(135));
                 }
             }
             if stop {
                 // A hinged close ends with sound 54 (not 1216, 672).
                 if d.hinged && d.open && !matches!(d.template, 1216 | 672) {
-                    self.effects.push((54, crate::audio::sound::EFFECTS_VOLUME));
+                    self.effects.push(Effect::new(54));
                 }
                 d.open = !d.open;
                 if let Some(s) = &mut d.swing {
@@ -247,7 +247,7 @@ impl Game {
                     d.target = d.open_end;
                 }
                 if d.sound == 1 {
-                    self.effects.push((if level16 { 170 } else { 14 }, crate::audio::sound::EFFECTS_VOLUME));
+                    self.effects.push(Effect::new(if level16 { 170 } else { 14 }));
                 }
             } else {
                 let ok = a != 0
@@ -258,11 +258,11 @@ impl Game {
                 }
                 d.target = d.shut;
                 if d.sound == 1 {
-                    self.effects.push((if level16 { 170 } else { 15 }, crate::audio::sound::EFFECTS_VOLUME));
+                    self.effects.push(Effect::new(if level16 { 170 } else { 15 }));
                 }
             }
         } else if d.sound == 2 {
-            self.effects.push((if d.open { 17 } else { 16 }, crate::audio::sound::EFFECTS_VOLUME));
+            self.effects.push(Effect::new(if d.open { 17 } else { 16 }));
         }
         d.moving = true;
         true

@@ -110,7 +110,7 @@ impl Mirrorland {
     fn open(&mut self, g: &mut Game, id: u16, room: usize) {
         let Some((group, slot)) = colour_of(room) else { return };
         g.hide(id, true);
-        g.effects.push((114, crate::audio::sound::EFFECTS_VOLUME));
+        g.play(114);
         if self.since.is_empty() {
             self.respawn = (g.player.pos, g.player.heading);
             g.checkpoint = Some(self.respawn);
@@ -147,7 +147,7 @@ impl crate::world::game::Script for Mirrorland {
         // Balloons taken (0x800514b0 kinds 6-11): sound 113, the count.
         for (kind, _) in std::mem::take(&mut g.collected) {
             if BALLOON_KINDS.contains(&kind) && self.running.is_some() {
-                g.effects.push((113, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(113);
                 self.taken += 1;
                 if self.taken >= self.total {
                     self.done(g);

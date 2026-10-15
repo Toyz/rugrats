@@ -7,7 +7,7 @@
 use crate::actors::npc::Mode;
 use crate::disc::GameDisc;
 use crate::input::Pads;
-use crate::world::game::Game;
+use crate::world::game::{Exit, Game};
 
 /// The nickels (template 446, kind 2, group 1) and the gold coin (1218,
 /// kind 15, group 0).
@@ -137,7 +137,7 @@ impl crate::world::game::Script for GoldRush {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if self.lil || g.tries <= 0 {
-            g.exit = Some((crate::world::game::HUB, None));
+            g.exit = Some(Exit::to(crate::world::game::HUB));
         } else {
             g.cine = Some(CINE_LOST);
         }

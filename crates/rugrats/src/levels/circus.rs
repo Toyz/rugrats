@@ -12,7 +12,7 @@ use crate::actors::animator::Animator;
 use crate::actors::npc::Mode;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::Game;
+use crate::world::game::{Exit, Game};
 
 /// Ids: the tricycle, Angelica, Chuckie, Tommy, the net, the board.
 const TRIKE: u16 = 508;
@@ -189,7 +189,7 @@ impl Circus {
     fn lose_try(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some((crate::world::game::HUB, None));
+            g.exit = Some(Exit::to(crate::world::game::HUB));
             return false;
         }
         true
@@ -294,17 +294,17 @@ impl crate::world::game::Script for Circus {
                 if pads.pressed(0, input::TRIANGLE) {
                     match (first, done_first, second) {
                         (None, None, _) => {
-                            g.effects.push((124, crate::audio::sound::EFFECTS_VOLUME));
+                            g.play(124);
                             first = Some(6);
                             first_up = true;
                         }
                         (Some(f), None, None) => {
-                            g.effects.push((125, crate::audio::sound::EFFECTS_VOLUME));
+                            g.play(125);
                             done_first = Some(f);
                             second = Some(METER_MAX - f);
                         }
                         (_, Some(f), Some(s)) => {
-                            g.effects.push((125, crate::audio::sound::EFFECTS_VOLUME));
+                            g.play(125);
                             // 0x80058cb8: the readings pick the launch.
                             let heading = match s {
                                 1..=171 => 2944,

@@ -82,7 +82,7 @@ impl Game {
             if Vec3::new(d.x, 0.0, d.z).length() < r && d.y.abs() < 1200.0 {
                 g.taken = true;
                 self.collected.push((g.kind, g.value));
-                self.effects.push((goodie::sound(g.kind), crate::audio::sound::EFFECTS_VOLUME));
+                self.effects.push(Effect::new(goodie::sound(g.kind)));
                 // Cookies and bones heal by their +0x6d (0x800514b0).
                 if matches!(g.kind, goodie::COOKIE | goodie::BONE) {
                     self.player.health = (self.player.health + g.value).min(255);

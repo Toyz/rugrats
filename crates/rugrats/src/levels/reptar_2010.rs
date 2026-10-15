@@ -86,12 +86,13 @@ impl Reptar2010 {
                     _ => 0,
                 };
                 if sound != 0 {
-                    g.effects.push((sound, crate::audio::sound::EFFECTS_VOLUME));
+                    g.play(sound);
                 }
                 if t == 931 {
                     g.speech.push(1183);
                 }
-                g.effects.push((if g.rand.next() & 1 == 0 { 91 } else { 92 }, crate::audio::sound::EFFECTS_VOLUME));
+                let sound = if g.rand.next() & 1 == 0 { 91 } else { 92 };
+                g.play(sound);
             }
         }
     }
@@ -102,17 +103,17 @@ impl crate::world::game::Script for Reptar2010 {
         // Raw Triangle and Circle (0x8005ab60), in any state.
         if g.player.action.is_none() {
             if pads.pressed(0, input::TRIANGLE) {
-                g.effects.push((89, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(89);
                 g.player.act(CHOMP, &g.anims);
             } else if pads.pressed(0, input::CIRCLE) {
-                g.effects.push((89, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(89);
                 g.player.act(FIRE, &g.anims);
             }
         }
         // The landing's rumble (0x8005cba8 for char 9): sound 93.
         let air = matches!(g.player.state, crate::actors::player::State::Jump | crate::actors::player::State::Fall);
         if self.was_air && !air {
-            g.effects.push((93, crate::audio::sound::EFFECTS_VOLUME));
+            g.play(93);
         }
         self.was_air = air;
         self.break_near(g);
@@ -127,7 +128,7 @@ impl crate::world::game::Script for Reptar2010 {
             if dx * dx + dz * dz < TAKE_REACH * TAKE_REACH {
                 self.taken.push(k);
                 g.hide_placement(k, true);
-                g.effects.push((sound, crate::audio::sound::EFFECTS_VOLUME));
+                g.play(sound);
             }
         }
     }

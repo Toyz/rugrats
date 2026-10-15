@@ -8,7 +8,7 @@
 use crate::actors::npc::{Event, Mode};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::Game;
+use crate::world::game::{Exit, Game};
 
 /// The hiders: Phil, Lil, Tommy; their catch and win cines.
 const BABIES: [(u16, usize, usize); 3] = [(608, 76, 42), (609, 75, 41), (1492, 77, 43)];
@@ -98,7 +98,7 @@ impl ChuckiesGlasses {
     fn lose_try(&mut self, g: &mut Game) {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some((crate::world::game::HUB, None));
+            g.exit = Some(Exit::to(crate::world::game::HUB));
             return;
         }
         if let Some((at, h)) = g.checkpoint {
@@ -196,7 +196,7 @@ impl crate::world::game::Script for ChuckiesGlasses {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some((crate::world::game::HUB, None));
+            g.exit = Some(Exit::to(crate::world::game::HUB));
         }
         true
     }

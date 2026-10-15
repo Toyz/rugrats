@@ -88,7 +88,7 @@ impl MrFriend {
         }
         n.health = (n.health - amount).max(0);
         if !l14 {
-            g.effects.push((19, crate::audio::sound::EFFECTS_VOLUME));
+            g.effects.push(crate::world::game::Effect::new(19));
             // His line (0x800833a4 / 0x800834b0 in level 9: 0x800b96c8).
             g.speech.push([153, 187, 146][(g.rand.next() & 255) as usize % 3]);
         }
@@ -108,7 +108,7 @@ impl MrFriend {
         if self.l14 {
             return;
         }
-        g.effects.push((100, crate::audio::sound::EFFECTS_VOLUME));
+        g.play(100);
         match self.counter {
             3 => g.cine = Some(CINE_MORE),
             1 => {
@@ -150,7 +150,7 @@ impl crate::world::game::Script for MrFriend {
                 let a = if self.l14 || g.rand.next() & 1 == 0 { 50 } else { 37 };
                 g.player.act(a, &g.anims);
                 if !self.l14 {
-                    g.effects.push((98, crate::audio::sound::EFFECTS_VOLUME));
+                    g.play(98);
                 }
                 self.hit(g, k, KICK);
             }

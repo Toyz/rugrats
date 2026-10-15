@@ -58,6 +58,8 @@ pub mod anim {
     pub const LAND: i16 = 4;
     pub const FALL: i16 = 15;
     pub const JUMP_MOVING: i16 = 28;
+    /// The cry (0x8007f920: 0x800572a8(player, 16, 2560)).
+    pub const CRY: i16 = 16;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

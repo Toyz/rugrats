@@ -245,7 +245,7 @@ impl Level2 {
     }
 
     /// ForceCry (0x8007fd0c): a try gone; back to the respawn, or out.
-    fn cry(&mut self, g: &mut Game) {
+    pub fn cry(&mut self, g: &mut Game) {
         if g.exit.is_some() || g.cine.is_some() {
             return;
         }
@@ -298,7 +298,7 @@ impl Level2 {
             }
         }
         if g.player.health <= 0 {
-            self.cry(g);
+            g.cry();
         }
         if self.phase != 3 {
             return;
@@ -307,7 +307,7 @@ impl Level2 {
         self.timer -= DT;
         if self.timer <= 0 {
             g.effects.push((117, crate::sound::EFFECTS_VOLUME));
-            self.cry(g);
+            g.cry();
             return;
         }
         // A kick (state 12, the puck's use 0x8004d1a8): along the facing.
@@ -345,7 +345,7 @@ impl Level2 {
                         self.timer = 0;
                     } else {
                         self.puck = None;
-                        self.cry(g);
+                        g.cry();
                         return;
                     }
                 }

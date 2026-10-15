@@ -56,6 +56,10 @@ pub struct Game {
     pub cine: Option<usize>,
     /// The last checkpoint reached (position, heading).
     pub checkpoint: Option<([i32; 3], i32)>,
+    /// Tries left (state +0x23, from 0x800b2920[level] at the start), and
+    /// the cry's time left (0x8007f920: up to 2100 dt).
+    pub tries: i32,
+    crying: i32,
     /// Level 2's own play, and how a level ended (0x80076d6c's won).
     pub level2: Option<crate::level2::Level2>,
     pub won: Option<bool>,
@@ -336,6 +340,8 @@ impl Game {
             exit: None,
             cine: None,
             checkpoint: None,
+            tries: disc.exe_bytes(TRIES + level as u32, 1).map_or(3, |b| b[0] as i8 as i32),
+            crying: 0,
             level2: None,
             won: None,
             sprites: crate::hud::Sprites::load(disc, level).ok(),
@@ -514,6 +520,46 @@ impl Game {
 
     /// A cinematic asked for has played (CineFinish, 0x800783d8): the
     /// room's song again, and the level's own reaction.
+    /// ForceCry (0x8007fd0c): the player cries (0x8007f920), then a try
+    /// is gone.
+    pub fn cry(&mut self) {
+        if self.crying > 0 || self.exit.is_some() || self.cine.is_some() {
+            return;
+        }
+        self.crying = CRY_TIME;
+        self.player.act(crate::player::anim::CRY, &self.anims);
+    }
+
+    /// After the cry: health back to 255; the level's own respawn, or by
+    /// default the last checkpoint; with no tries left, the hub (not from
+    /// levels 1, 20 and 21).
+    fn cried(&mut self) {
+        self.player.health = 255;
+        self.player.action = None;
+        if let Some(mut l) = self.level2.take() {
+            l.cry(self);
+            self.level2 = Some(l);
+            return;
+        }
+        if self.tries > 0 {
+            self.tries -= 1;
+            if self.tries == 0 {
+                if !matches!(self.level, 1 | 20 | 21) {
+                    self.exit = Some((HUB, None));
+                }
+                return;
+            }
+        }
+        if let Some((at, heading)) = self.checkpoint {
+            self.player.pos = at;
+            self.player.heading = heading;
+            self.player.target = heading;
+            self.player.speed = 0;
+            self.yaw = heading as f32;
+            self.eye = self.eye_goal();
+        }
+    }
+
     pub fn cine_finished(&mut self, n: usize) {
         self.room = None;
         self.eye = self.eye_goal();
@@ -606,6 +652,17 @@ impl Game {
             self.draw();
             return;
         }
+        if self.crying > 0 {
+            // The cry runs on its own (0x8007f920's loop): the world waits.
+            self.crying -= crate::player::DT;
+            self.player.animator.step(&self.anims);
+            if self.crying <= 0 || !self.player.animator.playing(crate::player::anim::CRY) {
+                self.crying = 0;
+                self.cried();
+            }
+            self.draw();
+            return;
+        }
         let mut boxes = self.boxes.clone();
         for t in self.things.iter().filter(|t| t.state == ThingState::Rest) {
             if let Some(m) = self.set.models.get(t.shape) {
@@ -682,6 +739,10 @@ impl Game {
         if let Some(mut l) = self.level2.take() {
             l.frame(self, pads);
             self.level2 = Some(l);
+        }
+        // Damage (0x80077864): health at 0 is a cry.
+        if self.player.health <= 0 {
+            self.cry();
         }
         self.meter_shown = (self.meter_shown - crate::player::DT).max(0);
         if self.player.health != self.meter_health {
@@ -797,6 +858,10 @@ const ENDINGS: [(usize, bool); 17] = [
     (72, true),
     (78, true),
 ];
+/// Tries a level gives (s8 by level).
+const TRIES: u32 = 0x800b_2920;
+/// The cry's longest run (0x8007f920: 2100 dt).
+const CRY_TIME: i32 = 2100;
 /// Cine 85: the end of the game (exit code -1).
 const REPTAR_DANCE: usize = 85;
 

@@ -14,10 +14,10 @@ use crate::player::DT;
 
 /// Hole index (play order) to level (0x80057dcc), par (0x800b7ffc) and the
 /// baby who plays it (0x800b7ff0).
-const LEVELS: [usize; 9] = [25, 28, 24, 29, 23, 30, 26, 31, 27];
+pub const LEVELS: [usize; 9] = [25, 28, 24, 29, 23, 30, 26, 31, 27];
 /// Level 23's ball-reset object (0x800c4168).
 const RESET_ZONE: u32 = 1264;
-const PAR: [u32; 9] = [4, 5, 4, 5, 5, 5, 4, 5, 3];
+pub const PAR: [u32; 9] = [4, 5, 4, 5, 5, 5, 4, 5, 3];
 const BABY: [usize; 9] = [1, 2, 3, 5, 4, 1, 2, 3, 1];
 /// Where the player starts (0x8007a584).
 const STARTS: [[i32; 3]; 9] = [
@@ -376,6 +376,14 @@ impl Golf {
     /// Holing out (0x8007a9d8).
     fn holed(&mut self, g: &mut Game) {
         g.fixed = None;
+        // Activity play (0x8007a9d8 step 1): the turn ends, nothing judged
+        // or recorded; the round driver takes the next hole.
+        if g.activity {
+            self.stage = Stage::Done;
+            g.strokes = Some(self.strokes);
+            g.exit = Some((LEVELS.get(self.hole + 1).copied().unwrap_or(crate::game::HUB), None));
+            return;
+        }
         self.say(g);
         if self.strokes > PAR[self.hole] {
             // Over par: the box (0x80043968), then a cry and the hole

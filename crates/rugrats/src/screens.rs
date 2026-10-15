@@ -101,6 +101,9 @@ pub enum Page {
     /// The loading screen (0x8003eefc): lines (string, colour, font, y),
     /// held a moment once the burst arrives.
     Loading(Vec<(String, [u8; 3], u8, i16)>),
+    /// Mini-golf's score card (0x80095768): each player's strokes by
+    /// hole, until Cross.
+    Scores(Vec<[u32; 9]>),
 }
 
 /// The messages (0x800930c8 and its siblings), by kind.
@@ -260,6 +263,8 @@ pub struct Screen {
     pub restart: bool,
     cursor: u8,
     restart_text: [String; 3],
+    /// "Hole", "Total", "Par" (strings 123-125).
+    score_text: [String; 3],
     held: u32,
     pub sounds: Vec<u8>,
     /// Speech lines asked for this frame.
@@ -332,6 +337,7 @@ impl Screen {
             cursor: 2,
             held: 0,
             restart_text: [229, 11, 12].map(|n| crate::front::string(disc, n)),
+            score_text: [123, 124, 125].map(|n| crate::front::string(disc, n)),
             sounds: Vec::new(),
             speech: Vec::new(),
         };
@@ -374,6 +380,15 @@ impl Screen {
         let done = match page {
             Page::Message { .. } => self.message_frame(pads),
             Page::Restart => self.restart_frame(pads),
+            Page::Scores(_) => {
+                self.z = NEAR;
+                self.fly = Fly::Hold;
+                let done = pads.pressed(0, input::CROSS);
+                if done {
+                    self.sounds.push(OK);
+                }
+                done
+            }
             Page::Loading(_) => {
                 // Flies in, holds (two frames, and the port's load), ends
                 // without flying out.
@@ -611,6 +626,30 @@ impl Screen {
         t.triangles(&self.fonts, out);
     }
 
+    /// PRESS X TO CONTINUE (0x80035798) and its cube.
+    fn press_cube(&self, eye: Vec3, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
+        self.text(&self.press, Some(-96), 80, 2, WHITE, overlay);
+        if let Some(m) = &self.button_model {
+            let e = self.trig.euler(self.cube.angles);
+            let rows = Mat3::from_cols_array(&e.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap()).transpose();
+            let shift = eye - BUTTON_CAMERA;
+            let pos = Vec3::new(self.cube.pos[0] as f32, self.cube.pos[1] as f32, self.cube.pos[2] as f32) + shift;
+            rugrats_render::models::model_triangles(m, rows.transpose(), pos, moving);
+        }
+    }
+
+    /// Font 0 centred across `x` (0x8002e144 flag 1), with its shadow.
+    fn text_at(&self, s: &str, x: i16, y: i16, rgb: [u8; 3], out: &mut Vec<Vtx>) {
+        let mut t = Text { font: 0, spacing: 1, rgb, x, y, string: s.to_string(), ..Default::default() };
+        self.fonts.centre(&mut t, true, false);
+        let mut shadow = t.clone();
+        shadow.rgb = SHADOW;
+        shadow.x += 2;
+        shadow.y += 2;
+        shadow.triangles(&self.fonts, out);
+        t.triangles(&self.fonts, out);
+    }
+
     fn draw(&mut self) {
         self.stage.under.clear();
         self.backdrop.triangles(&mut self.stage.under);
@@ -630,6 +669,30 @@ impl Screen {
                         self.text(l, None, *y, *f, *c, &mut overlay);
                     }
                 }
+            }
+            (Some(Page::Scores(players)), _) => {
+                // 0x80095768: "Hole" (-200, -95) and the hole numbers from
+                // x -124 by 27 in 0x5d17c6's colour, "Par" (-200, -75) and
+                // the pars in light blue, "Total" at x 169 in yellow; each
+                // player's row from y -40 by 30, the strokes white.
+                let (pink, blue, yellow) = ([0xc6, 0x17, 0x5d], [0x6a, 0xb9, 0xe4], [0xec, 0xcd, 0x13]);
+                let at = |k: usize| -124 + 27 * k as i16;
+                self.text_at(&self.score_text[0], -200, -95, pink, &mut overlay);
+                self.text_at(&self.score_text[1], 169, -95, yellow, &mut overlay);
+                self.text_at(&self.score_text[2], -200, -75, blue, &mut overlay);
+                for k in 0..9 {
+                    self.text_at(&(k + 1).to_string(), at(k), -95, pink, &mut overlay);
+                    self.text_at(&crate::golf::PAR[k].to_string(), at(k), -75, blue, &mut overlay);
+                }
+                self.text_at(&crate::golf::PAR.iter().sum::<u32>().to_string(), 169, -75, yellow, &mut overlay);
+                for (p, row) in players.iter().enumerate() {
+                    let y = -40 + 30 * p as i16;
+                    for (k, &n) in row.iter().enumerate().filter(|(_, n)| **n > 0) {
+                        self.text_at(&n.to_string(), at(k), y, WHITE, &mut overlay);
+                    }
+                    self.text_at(&row.iter().sum::<u32>().to_string(), 169, y, WHITE, &mut overlay);
+                }
+                self.press_cube(eye, &mut moving, &mut overlay);
             }
             (Some(Page::Restart), _) => {
                 if let Some(m) = &self.burst {
@@ -664,15 +727,7 @@ impl Screen {
                         sp.draw(PIECE + i as u32, (0, 45), 64.0, 64.0, 1024.0, 0.0, self.focal, &mut overlay);
                     }
                 }
-                // PRESS X TO CONTINUE (0x80035798) and its cube.
-                self.text(&self.press, Some(-96), 80, 2, WHITE, &mut overlay);
-                if let Some(m) = &self.button_model {
-                    let e = self.trig.euler(self.cube.angles);
-                    let rows = Mat3::from_cols_array(&e.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap()).transpose();
-                    let shift = eye - BUTTON_CAMERA;
-                    let pos = Vec3::new(self.cube.pos[0] as f32, self.cube.pos[1] as f32, self.cube.pos[2] as f32) + shift;
-                    rugrats_render::models::model_triangles(m, rows.transpose(), pos, &mut moving);
-                }
+                self.press_cube(eye, &mut moving, &mut overlay);
             }
             _ => {}
         }

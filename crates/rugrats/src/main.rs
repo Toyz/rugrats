@@ -120,6 +120,8 @@ struct Rugrats {
     _audio: Option<Output>,
     /// The game's rand, which the babies and the chooser share.
     rand: rugrats::rand::Rand,
+    /// Activity mini-golf's strokes by hole (0x800c46d0 +0x81c).
+    golf_scores: [u32; 9],
     /// What draws a 3D screen, made for its stage's generation, the 4:3
     /// picture it draws into, and the VRAM revision it holds.
     world: Option<(Renderer, Target, u64, u64)>,
@@ -148,6 +150,7 @@ impl Rugrats {
             _audio: audio,
             world: None,
             rand: Default::default(),
+            golf_scores: [0; 9],
         })
     }
 
@@ -646,13 +649,34 @@ impl Game for Rugrats {
                         let page = screens::message::returning(&self.disc, self.progress.activity());
                         self.boot = self.screen(vec![page], 1, Then::Title, None, now);
                     } else if let Some((mut level, mut cine)) = game.exit {
+                        // Activity golf (0x80096a30): each hole's strokes
+                        // kept for the score card.
+                        if let Some(n) = game.strokes {
+                            if let Some(k) = rugrats::golf::LEVELS.iter().position(|&l| l == game.level) {
+                                if k == 0 {
+                                    self.golf_scores = [0; 9];
+                                }
+                                self.golf_scores[k] = n;
+                            }
+                        }
+                        // The card before each next hole (0x80095c2c).
+                        if game.strokes.is_some() && self.progress.activity() && level != rugrats::game::HUB {
+                            let page = Page::Scores(vec![self.golf_scores]);
+                            self.boot = self.screen(vec![page], 1, Then::Enter(level), None, now);
+                            return;
+                        }
                         if self.progress.activity() && level == rugrats::game::HUB {
                             // "Returning to the Activities Menu"; golf goes
-                            // hole to hole first.
+                            // hole to hole first, then its score card.
+                            let golf = game.strokes.is_some();
                             self.level = None;
                             self.stop_song();
-                            let page = screens::message::returning(&self.disc, true);
-                            self.boot = self.screen(vec![page], 1, Then::Title, None, now);
+                            let mut pages = Vec::new();
+                            if golf {
+                                pages.push(Page::Scores(vec![self.golf_scores]));
+                            }
+                            pages.push(screens::message::returning(&self.disc, true));
+                            self.boot = self.screen(pages, 1, Then::Title, None, now);
                             return;
                         }
                         if let Some(won) = game.won {

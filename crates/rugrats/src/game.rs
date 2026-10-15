@@ -251,6 +251,8 @@ pub struct Game {
     /// (0x80094b8c) for the pause.
     pub won_levels: u32,
     pub pieces: u32,
+    /// Activity golf: the strokes of the hole just holed.
+    pub strokes: Option<u32>,
 }
 
 /// A door (docs/engine/doors.md): class 4 hinged (0x8004860c, think
@@ -910,6 +912,7 @@ impl Game {
             no_damage: matches!(level, 1 | 11 | 17 | 23..=31),
             won_levels: (0..32).filter(|&l| progress.won(l)).fold(0, |a, l| a | 1 << l),
             pieces: progress.pieces(),
+            strokes: None,
         };
         g.talkers = talkers(&g.set, level);
         g.player.falls_hurt = !g.no_damage;

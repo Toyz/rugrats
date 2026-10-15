@@ -70,6 +70,8 @@ pub struct RoomInfo {
     pub song: u8,
     /// The cinematic entering plays once (+0x5b, flag 2).
     pub cine: u8,
+    /// The Gameplay script entering runs once (+0x5f, flag 64).
+    pub script: u8,
 }
 
 impl Set {
@@ -104,7 +106,7 @@ impl Set {
                 .map(|r| {
                     let w = |at: usize| i32::from_le_bytes(r.record[at..at + 4].try_into().unwrap());
                     // The loader clears +0x0c; LP kind 6 sets it.
-                    RoomInfo { min: [w(0x10), w(0x14), w(0x18)], max: [w(0x20), w(0x24), w(0x28)], flags: 0, song: 0, cine: 0 }
+                    RoomInfo { min: [w(0x10), w(0x14), w(0x18)], max: [w(0x20), w(0x24), w(0x28)], flags: 0, song: 0, cine: 0, script: 0 }
                 })
                 .collect(),
         })
@@ -126,6 +128,9 @@ impl Set {
                         }
                         if k == 0 {
                             r.cine = byte;
+                        }
+                        if k == 4 {
+                            r.script = byte;
                         }
                     }
                 }

@@ -36,6 +36,11 @@ pub mod post {
     pub const END: u32 = 1;
     pub const WAIT: u32 = 2;
     pub const RANDOM: u32 = 4;
+    /// A loop post (0x80082ee0): every reload-th time, the second
+    /// neighbour.
+    pub const LOOP: u32 = 16;
+    /// Reaching it posts GoalPost (0x80077ff0).
+    pub const GOAL: u32 = 32;
     pub const JUMP: u32 = 64;
 }
 
@@ -74,6 +79,12 @@ pub enum Mode {
     /// Riding another (0x80083634): its position less `up`, its heading
     /// plus `turn`.
     Ride { on: Target, up: i32, turn: i32 },
+    /// Mode 9 (0x80084084): its posts, the player chased while near them
+    /// and in range, bitten within twice its half size.
+    Prowl { prev: u8, cur: u8 },
+    /// Mode 3: keeps itself between the player and what it guards,
+    /// facing `heading`; the player in range is swatted back.
+    Block { heading: i32 },
 }
 
 pub struct Npc {
@@ -101,6 +112,10 @@ pub struct Npc {
     pub cooldown: i32,
     /// LP +0x40.
     pub first_post: u8,
+    /// Loop posts (flag 16): the count left and its reload (LP +0x42).
+    pub loops: (i32, i32),
+    /// Half its size (the hierarchy's, which a level may grow).
+    pub size: i32,
 }
 
 /// What a step of the NPCs asks of the level.
@@ -110,6 +125,10 @@ pub enum Event {
     Bite { by: usize, target: Target, amount: i32 },
     /// A post route ended (flag 1).
     RouteEnd(usize),
+    /// A goal post was reached (flag 32, GoalPost 0x80077ff0).
+    Goal(usize),
+    /// Mode 3's swat (0x80084084): the player thrown along `heading`.
+    Swat { by: usize, heading: i32 },
 }
 
 fn wrap(a: i32) -> i32 {
@@ -215,17 +234,20 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                 }
             }
             Mode::Posts { prev, cur } => {
-                let Some(post) = w.posts.get(cur as usize - 1).copied() else {
+                let Some(post) = w.posts.get((cur as usize).wrapping_sub(1)).copied() else {
                     n.mode = Mode::Idle;
                     continue;
                 };
                 if n.dist(post.pos) <= REACH {
-                    if post.flags & post::END != 0 {
+                    if post.flags & post::GOAL != 0 {
+                        events.push(Event::Goal(k));
+                    }
+                    if post.flags & post::END != 0 || post.next == [0; 4] {
                         n.mode = Mode::Idle;
                         events.push(Event::RouteEnd(k));
                         continue;
                     }
-                    let next = next_post(&post, prev, rand);
+                    let next = n.next_post(&post, prev, rand);
                     n.mode = if post.flags & post::WAIT != 0 {
                         Mode::Wait { prev: cur, cur: next, left: n.wait * DT / 2 }
                     } else {
@@ -273,6 +295,50 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                     n.speed = 0;
                 }
             }
+            Mode::Prowl { prev, cur } => {
+                let Some(post) = w.posts.get((cur as usize).wrapping_sub(1)).copied() else {
+                    n.mode = Mode::Idle;
+                    continue;
+                };
+                let p = w.player;
+                let reach = 2 * n.half_size().max(1);
+                if n.dist(p) <= reach && (p[1] - n.pos[1]).abs() < 1200 {
+                    // Mode 5: the bite, then mode 1.
+                    n.speed = 0;
+                    events.push(Event::Bite { by: k, target: Target::Player, amount: n.damage });
+                    n.mode = Mode::Hit { left: 900, then: Box::new(Mode::Prowl { prev, cur }) };
+                } else if n.dist(post.pos) <= 2 * n.range && n.dist(p) <= n.range {
+                    n.go(p, base, w.col, w.trig);
+                } else if n.dist(post.pos) <= REACH {
+                    let next = n.next_post(&post, prev, rand);
+                    n.mode = Mode::Prowl { prev: cur, cur: next };
+                } else {
+                    n.go(post.pos, base, w.col, w.trig);
+                }
+            }
+            Mode::Block { heading } => {
+                let p = w.player;
+                let dist = n.dist(p);
+                let higher = p[1] + 600 < n.pos[1] - n.feet();
+                if dist <= n.range && !higher {
+                    n.speed = 0;
+                    events.push(Event::Swat { by: k, heading });
+                    n.mode = Mode::Hit { left: 1200, then: Box::new(Mode::Block { heading }) };
+                } else {
+                    // Sideways along its facing's normal toward the side the
+                    // player is on (0x80082230), facing kept.
+                    let (s, c) = (w.trig.sin(heading), w.trig.cos(heading));
+                    let side = ((p[0] - n.pos[0]) as i64 * c as i64 - (p[2] - n.pos[2]) as i64 * s as i64) >> 12;
+                    if side.abs() > 200 {
+                        let dir = if side > 0 { 1 } else { -1 };
+                        let goal = [n.pos[0] + dir * c * 1024 / 4096, n.pos[1], n.pos[2] - dir * s * 1024 / 4096];
+                        n.go(goal, base, w.col, w.trig);
+                    } else {
+                        n.speed = 0;
+                    }
+                    n.heading = heading;
+                }
+            }
             Mode::Hit { left, then } => {
                 n.speed = 0;
                 n.mode = if left <= 0 { *then } else { Mode::Hit { left: left - DT, then } };
@@ -283,6 +349,30 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
         n.animator.step(w.anims);
     }
     events
+}
+
+impl Npc {
+    /// The larger of the hierarchy's half sizes (+0x08, +0x10).
+    pub fn half_size(&self) -> i32 {
+        self.size
+    }
+
+    /// The next post (0x80082c78), with loop posts counted (0x80082ee0):
+    /// at one with the count spent, it is reloaded and the second
+    /// neighbour taken.
+    fn next_post(&mut self, p: &Post, prev: u8, rand: &mut crate::rand::Rand) -> u8 {
+        if p.flags & post::LOOP != 0 && self.loops.1 > 0 {
+            if self.loops.0 <= 0 {
+                self.loops.0 = self.loops.1;
+                if p.next[1] != 0 {
+                    return p.next[1];
+                }
+            } else {
+                self.loops.0 -= 1;
+            }
+        }
+        next_post(p, prev, rand)
+    }
 }
 
 /// The next post (0x80082c78): a random neighbour with flag 4, else the

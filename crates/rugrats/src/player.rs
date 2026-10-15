@@ -193,7 +193,12 @@ impl Player {
             let want = (dir + camera_heading).rem_euclid(4096);
             let factor = if held(input::SQUARE) { WALK } else { RUN };
             let turn = wrap(want - self.heading);
-            if turn.abs() <= SNAP_TURN || self.speed >= MOVING || !on_ground {
+            if self.frozen {
+                // Held in place (+0x188 bit 1): only the turn runs, so the
+                // stick aims.
+                self.target = want;
+                self.speed = 0;
+            } else if turn.abs() <= SNAP_TURN || self.speed >= MOVING || !on_ground {
                 self.heading = want;
                 self.target = want;
                 self.speed = magnitude * factor >> 12;
@@ -203,6 +208,10 @@ impl Player {
             }
         } else {
             self.speed = 0;
+            if self.frozen {
+                // The aim stops where the stick is let go (guess).
+                self.target = self.heading;
+            }
         }
         // Turn toward the wanted heading (0x8005bbf4).
         let step = self.turn_rate * DT >> 6;
@@ -331,6 +340,17 @@ impl Player {
     /// The feet's height above the root (the hierarchy's root offset).
     pub fn feet(&self) -> i32 {
         self.feet
+    }
+
+    /// Thrown through the air (state 16, 0x8005ec9c): along `heading` at
+    /// `speed`, up at `up`.
+    pub fn launch(&mut self, heading: i32, up: i32, speed: i32, trig: &Trig) {
+        self.heading = heading;
+        self.target = heading;
+        self.speed = 0;
+        self.action = None;
+        self.v = [trig.sin(heading) * speed >> 12, up, trig.cos(heading) * speed >> 12];
+        self.state = State::Jump;
     }
 
     /// Starts action animation `a`.

@@ -76,10 +76,19 @@ fn main() -> Result<(), String> {
                 }
             }
             if frame % 30 == 0 {
-                if let Some(l) = &game.level2 {
-                    let goose = game.npcs.iter().find(|n| n.id == 11).map(|n| (n.pos, n.health, format!("{:?}", n.mode)));
-                    let chuckie = game.npcs.iter().find(|n| n.id == 1776).map(|n| (n.pos, n.health, format!("{:?}", n.mode)));
-                    println!("{frame}: phase {} health {} goose {goose:?} chuckie {chuckie:?}", l.phase, game.player.health);
+                if let Some(l) = &game.script {
+                    // NPCS=id,id: the characters to show (level 2's goose and
+                    // Chuckie by default).
+                    let ids: Vec<u16> = std::env::var("NPCS")
+                        .ok()
+                        .map(|v| v.split(',').filter_map(|s| s.parse().ok()).collect())
+                        .unwrap_or(vec![11, 1776]);
+                    let npcs: Vec<_> = ids
+                        .iter()
+                        .filter_map(|&id| game.npcs.iter().find(|n| n.id == id))
+                        .map(|n| (n.id, n.pos, n.health, format!("{:?}", n.mode), n.hidden))
+                        .collect();
+                    println!("{frame}: phase {} health {} tries {} npcs {npcs:?}", l.phase(), game.player.health, game.tries);
                 }
             }
             if let Some(n) = game.cine.take() {

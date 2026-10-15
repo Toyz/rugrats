@@ -169,6 +169,8 @@ impl Level2 {
                 attacks: false,
                 cooldown: 0,
                 first_post: 0,
+                loops: (0, 0),
+                size: 0,
             };
             rider.animator.set(crate::player::anim::IDLE, &g.anims);
             g.npcs.push(rider);
@@ -294,7 +296,7 @@ impl Level2 {
                     g.player.health = (g.player.health - amount).max(0);
                     g.effects.push((30, crate::sound::EFFECTS_VOLUME));
                 }
-                Event::Bite { .. } | Event::RouteEnd(_) => {}
+                _ => {}
             }
         }
         if g.player.health <= 0 {
@@ -386,5 +388,28 @@ impl Level2 {
                 }
             }
         }
+    }
+}
+
+impl crate::game::Script for Level2 {
+    fn frame(&mut self, g: &mut Game, pads: &Pads) {
+        Level2::frame(self, g, pads);
+    }
+
+    fn cine_finished(&mut self, g: &mut Game, n: usize) {
+        Level2::cine_finished(self, g, n);
+    }
+
+    fn cry(&mut self, g: &mut Game) -> bool {
+        Level2::cry(self, g);
+        true
+    }
+
+    fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+        Level2::draw(self, g, moving, overlay);
+    }
+
+    fn phase(&self) -> u8 {
+        self.phase
     }
 }

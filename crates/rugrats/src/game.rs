@@ -34,6 +34,28 @@ const EYE_UP: f32 = 1024.0;
 /// database's number 1 (0x800450ac).
 const TOMMY: usize = 1;
 
+/// A level's own play (its EpisodeStart callback and the level cases of
+/// the event handlers).
+pub trait Script {
+    /// One frame, after the player and the NPCs moved.
+    fn frame(&mut self, g: &mut Game, pads: &Pads);
+    /// A cinematic it or a room asked for has played (CineFinish).
+    fn cine_finished(&mut self, _g: &mut Game, _n: usize) {}
+    /// After a cry (ForceCry's level case); false leaves it to the
+    /// default respawn.
+    fn cry(&mut self, _g: &mut Game) -> bool {
+        false
+    }
+    /// A room's Gameplay script (room flag 64, 0x80077ee4).
+    fn gameplay(&mut self, _g: &mut Game, _n: u8) {}
+    /// The level's own models and HUD.
+    fn draw(&self, _g: &Game, _moving: &mut Vec<rugrats_render::Vtx>, _overlay: &mut Vec<rugrats_render::Vtx>) {}
+    /// The phase, for tools.
+    fn phase(&self) -> u8 {
+        0
+    }
+}
+
 pub struct Game {
     pub level: usize,
     pub set: Set,
@@ -60,8 +82,8 @@ pub struct Game {
     /// the cry's time left (0x8007f920: up to 2100 dt).
     pub tries: i32,
     crying: i32,
-    /// Level 2's own play, and how a level ended (0x80076d6c's won).
-    pub level2: Option<crate::level2::Level2>,
+    /// The level's own play, and how a level ended (0x80076d6c's won).
+    pub script: Option<Box<dyn Script>>,
     pub won: Option<bool>,
     /// The HUD's sprites, and the health meter's time left and last value.
     pub sprites: Option<crate::hud::Sprites>,
@@ -104,6 +126,17 @@ pub struct Game {
     pub load: bool,
     carried: Option<usize>,
     grip: Vec3,
+    /// Objects hidden by id (0x80078bc4) and the placements always drawn
+    /// apart (characters, pickables, collectibles).
+    hidden: std::collections::HashSet<u16>,
+    apart: Vec<bool>,
+    /// Placements whose use was taken away (+0x54 = 0).
+    unusable: std::collections::HashSet<usize>,
+    /// Thrown objects that struck a character this frame (0x80086ef0):
+    /// (character, thing, the thing's +0x6d).
+    pub struck: Vec<(usize, usize, i32)>,
+    /// A fixed camera (eye, look-at) a level sets (0x800291f8 kind 4).
+    pub fixed: Option<(Vec3, Vec3)>,
 }
 
 /// A collectible (0x80048a44, touched by 0x800514b0).
@@ -139,6 +172,13 @@ const COUNTER_TIME: i32 = 1500;
 
 /// A model that can be picked up (object flag 0x10000).
 pub struct Thing {
+    /// Its placement, template and registry id; +0x6d (template +0x32).
+    pub placement: usize,
+    pub template: u16,
+    pub id: u16,
+    pub damage: i32,
+    /// Hidden (off in the world, 0x80078bc4 or a level's pool).
+    pub hidden: bool,
     pub shape: u32,
     pub pos: Vec3,
     pub rot: Mat3,
@@ -163,6 +203,8 @@ const REACH: f32 = 520.0;
 /// (0x8008864c); a put-down is speed 10 along (0, 0, 4096).
 const THROW_SPEED: f32 = 170.0 * 65536.0 / 6000.0;
 const DROP_SPEED: f32 = 10.0 * 65536.0 / 6000.0;
+/// How near a flight passes a character to strike it (the radii, guess).
+const STRIKE: i32 = 450;
 /// Thrown objects fall at 13 (flight flags 0x700).
 const THING_GRAVITY: i32 = 13;
 
@@ -238,9 +280,14 @@ impl Game {
             .filter(|&k| pickable(k))
             .map(|k| {
                 let p = &set.placements[k];
-                let shape = set.templates[p.template as usize].shape as u32;
+                let t = &set.templates[p.template as usize];
                 Thing {
-                    shape,
+                    placement: k,
+                    template: p.template as u16,
+                    id: p.id,
+                    damage: t.raw[0x32] as i32,
+                    hidden: false,
+                    shape: t.shape as u32,
                     pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
                     rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
                     state: ThingState::Rest,
@@ -279,7 +326,8 @@ impl Game {
             })
             .collect();
         let pickable = |k: usize| pickable(k) && !collectible(k);
-        let scenery = set.objects_except(&Frame::default(), |k| character(k) || pickable(k) || collectible(k));
+        let apart: Vec<bool> = (0..set.placements.len()).map(|k| character(k) || pickable(k) || collectible(k)).collect();
+        let scenery = set.objects_except(&Frame::default(), |k| apart[k]);
         let mut npcs = Vec::new();
         for (k, p) in set.placements.iter().enumerate() {
             if !character(k) || Some(k) == player_place {
@@ -315,15 +363,18 @@ impl Game {
                 attacks: false,
                 cooldown: 0,
                 first_post: p.post,
+                loops: (p.level as i32, p.level as i32),
+                size: 0,
             };
             // On the floor under it (0x80081bac asks 0x8002b240), the root
             // the hierarchy's offset above the feet.
+            n.size = n.hierarchy.half_size();
             n.place(p.pos, &col);
             npcs.push(n);
         }
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let yaw = heading as f32;
-        let boxes = object_boxes(&set, |k| character(k) || pickable(k) || collectible(k));
+        let boxes = object_boxes(&set, |k| apart[k]);
         let posts = crate::npc::posts(&set.placements);
         let mut g = Game {
             level,
@@ -342,7 +393,7 @@ impl Game {
             checkpoint: None,
             tries: disc.exe_bytes(TRIES + level as u32, 1).map_or(3, |b| b[0] as i8 as i32),
             crying: 0,
-            level2: None,
+            script: None,
             won: None,
             sprites: crate::hud::Sprites::load(disc, level).ok(),
             meter_shown: 0,
@@ -368,11 +419,17 @@ impl Game {
             load: false,
             carried: None,
             grip: Vec3::ZERO,
+            hidden: Default::default(),
+            apart,
+            unusable: Default::default(),
+            struck: Vec::new(),
+            fixed: None,
         };
-        if level == 2 {
-            let l = crate::level2::Level2::start(&mut g, disc)?;
-            g.level2 = Some(l);
-        }
+        g.script = match level {
+            2 => Some(Box::new(crate::level2::Level2::start(&mut g, disc)?)),
+            3 => Some(Box::new(crate::level3::Level3::start(&mut g, disc)?)),
+            _ => None,
+        };
         g.eye = g.eye_goal();
         g.draw();
         Ok(g)
@@ -406,6 +463,45 @@ impl Game {
         }
         if r.flags & 128 != 0 && (1..5).contains(&r.song) {
             self.song = Some(r.song as usize - 1);
+        }
+        // Flag 64: the level's Gameplay script, once (0x80077ee4).
+        if r.flags & 64 != 0 {
+            self.set.room_info[k].flags &= !64;
+            self.with_script(|s, g| s.gameplay(g, r.script));
+        }
+    }
+
+    /// Runs `f` on the level's script, if any.
+    pub fn with_script<R: Default>(&mut self, f: impl FnOnce(&mut dyn Script, &mut Game) -> R) -> R {
+        let Some(mut s) = self.script.take() else { return R::default() };
+        let r = f(s.as_mut(), self);
+        self.script = Some(s);
+        r
+    }
+
+    /// Hides or shows the objects with registry id `id` (0x80078bc4):
+    /// characters, pickables and the scenery.
+    pub fn hide(&mut self, id: u16, hidden: bool) {
+        for n in self.npcs.iter_mut().filter(|n| n.id == id) {
+            n.hidden = hidden;
+        }
+        for t in self.things.iter_mut().filter(|t| t.id == id) {
+            t.hidden = hidden;
+        }
+        let changed = if hidden { self.hidden.insert(id) } else { self.hidden.remove(&id) };
+        if changed {
+            let skip = |k: usize| self.apart[k] || self.hidden.contains(&self.set.placements[k].id);
+            self.scenery = self.set.objects_except(&Frame::default(), skip);
+            self.boxes = object_boxes(&self.set, skip);
+        }
+    }
+
+    /// Takes the use away from the objects with id `id` (+0x54 = 0).
+    pub fn disable_use(&mut self, id: u16) {
+        for (k, p) in self.set.placements.iter().enumerate() {
+            if p.kind == 1 && p.id == id {
+                self.unusable.insert(k);
+            }
         }
     }
 
@@ -448,7 +544,7 @@ impl Game {
             .things
             .iter()
             .enumerate()
-            .filter(|(_, t)| t.state == ThingState::Rest)
+            .filter(|(_, t)| t.state == ThingState::Rest && !t.hidden)
             .map(|(k, t)| (k, Vec3::new(t.pos.x - me.x, 0.0, t.pos.z - me.z).length(), (t.pos.y - me.y).abs()))
             .filter(|&(_, d, dy)| d < REACH && dy < 1200.0)
             .min_by(|a, b| a.1.total_cmp(&b.1));
@@ -496,8 +592,25 @@ impl Game {
     /// until the object's bottom reaches the floor.
     fn fly(&mut self) {
         let dt = crate::player::DT;
-        for t in &mut self.things {
+        self.struck.clear();
+        for (k, t) in self.things.iter_mut().enumerate() {
             let ThingState::Flying(mut v) = t.state else { continue };
+            // A flight that reaches a character (0x80086ef0): its touch
+            // (0x800511a8) with the thing's +0x6d; the thing drops.
+            if v[0] != 0 || v[2] != 0 {
+                let hit = self.npcs.iter().position(|n| {
+                    let (dx, dz) = (n.pos[0] as f32 - t.pos.x, n.pos[2] as f32 - t.pos.z);
+                    !n.hidden
+                        && !matches!(n.mode, crate::npc::Mode::Ride { .. })
+                        && dx * dx + dz * dz < (STRIKE * STRIKE) as f32
+                        && (t.pos.y - (n.pos[1] - n.feet() / 2) as f32).abs() < 900.0
+                });
+                if let Some(n) = hit {
+                    self.struck.push((n, k, t.damage));
+                    v[0] = 0;
+                    v[2] = 0;
+                }
+            }
             let bottom =
                 self.set.models.get(t.shape).and_then(|m| m.boxes.iter().map(|b| b.1[1]).max()).unwrap_or(0) as f32;
             for k in [0, 2] {
@@ -536,9 +649,7 @@ impl Game {
     fn cried(&mut self) {
         self.player.health = 255;
         self.player.action = None;
-        if let Some(mut l) = self.level2.take() {
-            l.cry(self);
-            self.level2 = Some(l);
+        if self.with_script(|s, g| s.cry(g)) {
             return;
         }
         if self.tries > 0 {
@@ -574,10 +685,7 @@ impl Game {
             None if n == REPTAR_DANCE => self.quit = true,
             None => {}
         }
-        if let Some(mut l) = self.level2.take() {
-            l.cine_finished(self, n);
-            self.level2 = Some(l);
-        }
+        self.with_script(|s, g| s.cine_finished(g, n));
     }
 
     /// The projection distance in play.
@@ -691,23 +799,43 @@ impl Game {
             .length();
         let volume = (crate::sound::EFFECTS_VOLUME as f32 * (1.0 - d / 16384.0).max(0.0)) as i32;
         self.effects = self.player.effects.iter().map(|&e| (e, volume)).collect();
-        // Using a door (the stand handler's ACTION, Triangle, on an object
-        // whose use is 0x8004f78c): its level next.
-        if pads.pressed(0, input::TRIANGLE) {
+        // Using an object (the stand handler's ACTION, Triangle, on the
+        // touched object): a door (use 0x8004f78c, LP +0x42) goes to its
+        // level; one with only a cinematic (0x8004f83c, LP +0x44, made by
+        // 0x8004691c: 16 is played as 14, template 567 is 8) plays it.
+        if pads.pressed(0, input::TRIANGLE) && !self.player.carrying && self.carried.is_none() {
             let p = self.player.pos;
+            let cine_of = |d: &rugrats_data::placement::Placement| match (d.cine, d.template) {
+                (16, _) => 14,
+                (0, 567) => 8,
+                (c, _) => c as usize,
+            };
             let near = self
                 .set
                 .placements
                 .iter()
-                .filter(|d| d.kind == 1 && d.level > 0)
+                .enumerate()
+                .filter(|(k, d)| {
+                    d.kind == 1
+                        && !self.apart[*k]
+                        && (d.level > 0 || cine_of(d) > 0)
+                        && !self.unusable.contains(k)
+                        && !self.hidden.contains(&d.id)
+                })
+                .map(|(_, d)| d)
                 .min_by_key(|d| (d.pos[0] - p[0]).pow(2) as i64 + (d.pos[2] - p[2]).pow(2) as i64);
             if let Some(d) = near.filter(|d| {
                 (d.pos[0] - p[0]).abs() < USE_REACH
                     && (d.pos[2] - p[2]).abs() < USE_REACH
                     && (d.pos[1] - p[1]).abs() < USE_REACH_Y
             }) {
-                rrt::tracing::info!("level {}: a door to level {} (cine {})", self.level, d.level, d.cine);
-                self.exit = Some((d.level as usize, (d.cine > 0).then_some(d.cine as usize)));
+                if d.level > 0 {
+                    rrt::tracing::info!("level {}: a door to level {} (cine {})", self.level, d.level, d.cine);
+                    self.exit = Some((d.level as usize, (d.cine > 0).then_some(d.cine as usize)));
+                } else {
+                    rrt::tracing::info!("level {}: object {} plays cine {}", self.level, d.id, cine_of(d));
+                    self.cine = Some(cine_of(d));
+                }
             }
         }
         // Select: the restart menu (0x80043d58); for now, back to the hub.
@@ -736,10 +864,7 @@ impl Game {
             anims: &self.anims,
         };
         self.npc_events = crate::npc::step(&mut self.npcs, &world, &mut self.rand);
-        if let Some(mut l) = self.level2.take() {
-            l.frame(self, pads);
-            self.level2 = Some(l);
-        }
+        self.with_script(|s, g| s.frame(g, pads));
         // Damage (0x80077864): health at 0 is a cry.
         if self.player.health <= 0 {
             self.cry();
@@ -767,7 +892,7 @@ impl Game {
                 self.things[k].rot = rot;
             }
         }
-        for t in &self.things {
+        for t in self.things.iter().filter(|t| !t.hidden) {
             if let Some(m) = self.set.models.get(t.shape) {
                 rugrats_render::models::model_triangles(m, t.rot, t.pos, &mut moving);
             }
@@ -781,8 +906,8 @@ impl Game {
             crate::npc::triangles(n, &self.set.models, &self.anims, &self.trig, &mut moving);
         }
         let mut overlay = Vec::new();
-        if let Some(l) = &self.level2 {
-            l.draw(self, &mut moving, &mut overlay);
+        if let Some(s) = &self.script {
+            s.draw(self, &mut moving, &mut overlay);
         }
         // The health meter (levels 2-6, 9, 12, 14, 16: 0x8008c094's switch).
         if self.meter_shown > 0 && matches!(self.level, 2..=6 | 9 | 12 | 14 | 16) {
@@ -804,12 +929,13 @@ impl Game {
             shadow.triangles(&self.fonts, &mut self.stage.overlay);
             t.triangles(&self.fonts, &mut self.stage.overlay);
         }
-        let f = (self.target() - self.eye).normalize_or(Vec3::Z);
+        let (eye, target) = self.fixed.unwrap_or((self.eye, self.target()));
+        let f = (target - eye).normalize_or(Vec3::Z);
         let x = Vec3::Y.cross(f).normalize_or(Vec3::X);
         let y = f.cross(x);
         // World to camera: rows x (right), y (down), z (ahead).
         let rows = Mat3::from_cols(x, y, f).transpose();
-        self.stage.camera = crate::stage::view(self.eye, rows, self.focal);
+        self.stage.camera = crate::stage::view(eye, rows, self.focal);
     }
 }
 

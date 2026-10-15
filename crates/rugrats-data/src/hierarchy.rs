@@ -37,6 +37,13 @@ fn u32_at(b: &[u8], at: usize) -> Result<u32, Error> {
 }
 
 impl Hierarchy {
+    /// The larger of the half sizes at header +0x08 and +0x10 (0x80084084
+    /// takes it as the bite reach's half).
+    pub fn half_size(&self) -> i32 {
+        let h = |at: usize| self.header.get(at..at + 2).map_or(0, |b| i16::from_le_bytes([b[0], b[1]]) as i32).abs();
+        h(0x08).max(h(0x10))
+    }
+
     pub fn parse(b: &[u8]) -> Result<Hierarchy, Error> {
         let n = b.get(..2).map(|s| i16::from_le_bytes([s[0], s[1]])).ok_or_else(|| Error("HIE: short".into()))?;
         let mut parts: Vec<Part> = Vec::new();

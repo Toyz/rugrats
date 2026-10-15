@@ -2,7 +2,7 @@
 title: Mini golf, levels 23-31
 status: partial
 discs: US
-covers: US SLUS_006.50:0x8007a584, US SLUS_006.50:0x80057e50, US SLUS_006.50:0x80057d50, US SLUS_006.50:0x80057dcc, US SLUS_006.50:0x80058538, US SLUS_006.50:0x8005a068, US SLUS_006.50:0x8005b2d8, US SLUS_006.50:0x8005faf4, US SLUS_006.50:0x8005fb38, US SLUS_006.50:0x8005fcb8, US SLUS_006.50:0x8005f998, US SLUS_006.50:0x8005f810, US SLUS_006.50:0x8005f68c, US SLUS_006.50:0x8005ba44, US SLUS_006.50:0x8005bac4, US SLUS_006.50:0x8005bc80, US SLUS_006.50:0x8005be24, US SLUS_006.50:0x80058278, US SLUS_006.50:0x8008864c, US SLUS_006.50:0x80087c5c, US SLUS_006.50:0x80086ef0, US SLUS_006.50:0x80086b58, US SLUS_006.50:0x80086668, US SLUS_006.50:0x80086cd0, US SLUS_006.50:0x80086a20, US SLUS_006.50:0x8007666c, US SLUS_006.50:0x800763d0, US SLUS_006.50:0x800580a8, US SLUS_006.50:0x80057f78, US SLUS_006.50:0x80057f08, US SLUS_006.50:0x8007a9d8, US SLUS_006.50:0x8007aff0, US SLUS_006.50:0x80043968, US SLUS_006.50:0x8007fd0c, US SLUS_006.50:0x80074958, US SLUS_006.50:0x8007737c, US SLUS_006.50:0x80072ef0, US SLUS_006.50:0x800732d4, US SLUS_006.50:0x800783d8, US SLUS_006.50:0x80025c64, US SLUS_006.50:0x8002953c, US SLUS_006.50:0x800972c4, US SLUS_006.50:0x8008cef0, US SLUS_006.50:0x8008cd00, US SLUS_006.50:0x800818e0, US SLUS_006.50:0x80081758, US SLUS_006.50:0x80096134, US SLUS_006.50:0x80096a30, US SLUS_006.50:0x800494d8, US SLUS_006.50:0x800b7ffc, US SLUS_006.50:0x800b7ff0, US /DATA/DB23/DB23LP.BIN, US /DATA/DB25/DB25LP.BIN, US /DATA/DB00/TEMPLATE.BIN, US /DATA/HINTS
+covers: US SLUS_006.50:0x8007a584, US SLUS_006.50:0x80057e50, US SLUS_006.50:0x80057d50, US SLUS_006.50:0x80057dcc, US SLUS_006.50:0x80058538, US SLUS_006.50:0x8005a068, US SLUS_006.50:0x8005b2d8, US SLUS_006.50:0x8005faf4, US SLUS_006.50:0x8005fb38, US SLUS_006.50:0x8005fcb8, US SLUS_006.50:0x8005f998, US SLUS_006.50:0x8005f810, US SLUS_006.50:0x8005f68c, US SLUS_006.50:0x8005ba44, US SLUS_006.50:0x8005bac4, US SLUS_006.50:0x8005bc80, US SLUS_006.50:0x8005be24, US SLUS_006.50:0x80058278, US SLUS_006.50:0x8008864c, US SLUS_006.50:0x80087c5c, US SLUS_006.50:0x80086ef0, US SLUS_006.50:0x80086b58, US SLUS_006.50:0x80086668, US SLUS_006.50:0x80086cd0, US SLUS_006.50:0x80086a20, US SLUS_006.50:0x8007666c, US SLUS_006.50:0x800763d0, US SLUS_006.50:0x800580a8, US SLUS_006.50:0x80057f78, US SLUS_006.50:0x80057f08, US SLUS_006.50:0x8007a9d8, US SLUS_006.50:0x8007aff0, US SLUS_006.50:0x80043968, US SLUS_006.50:0x8007fd0c, US SLUS_006.50:0x80074958, US SLUS_006.50:0x8007737c, US SLUS_006.50:0x80072ef0, US SLUS_006.50:0x800732d4, US SLUS_006.50:0x800783d8, US SLUS_006.50:0x80025c64, US SLUS_006.50:0x8002953c, US SLUS_006.50:0x800972c4, US SLUS_006.50:0x8008cef0, US SLUS_006.50:0x8008cd00, US SLUS_006.50:0x800818e0, US SLUS_006.50:0x80081758, US SLUS_006.50:0x80096134, US SLUS_006.50:0x80096a30, US SLUS_006.50:0x800965e8, US SLUS_006.50:0x80095c2c, US SLUS_006.50:0x80095768, US SLUS_006.50:0x800955f4, US SLUS_006.50:0x800960a0, US SLUS_006.50:0x80094f64, US SLUS_006.50:0x800952a0, US SLUS_006.50:0x800954c4, US SLUS_006.50:0x80094e90, US SLUS_006.50:0x80095550, US SLUS_006.50:0x80095140, US SLUS_006.50:0x800bb4ac, US SLUS_006.50:0x800bb494, US SLUS_006.50:0x800494d8, US SLUS_006.50:0x800b7ffc, US SLUS_006.50:0x800b7ff0, US /DATA/DB23/DB23LP.BIN, US /DATA/DB25/DB25LP.BIN, US /DATA/DB00/TEMPLATE.BIN, US /DATA/HINTS
 worklog:
 ---
 
@@ -62,8 +62,8 @@ player start is passed to 0x800825b0, and the floor snap moves y (level
 number, not the play order (cine table 0x800b8bd0).
 
 Characters: 1 Tommy (registry id 1492), 2 Chuckie (1776), 3 Angelica
-(600), 4 and 5 the twins (609 and 608; 4 is Lil and 5 Phil, guess from
-the pick screen's faces), 37 Susie (guess, activity play only). Hand and
+(600), 4 and 5 the twins (609 and 608; 4 is Lil and 5 Phil, seen on the
+pick screen's heads), 37 Susie (seen there; activity play only). Hand and
 club models per character are under The club.
 
 ## Golf state
@@ -97,8 +97,9 @@ Templates (TEMPLATE.BIN): 724 the ball, model 1066, class 0, +0x28 = 1
 2. Hole index 0: all nine stroke bytes and the total cleared. Other
    holes: only that hole's byte (the total is kept).
 3. Normal play: character = 0x800b7ff0[hole] (0x8005928c: new hierarchy,
-   state +0x08, player reset). Activity play: 0x80097268 (the current
-   player's pick) and 0x80097288(camera +0x9c) (the camera-height base).
+   state +0x08, player reset). Activity play: 0x80097268 is called and
+   its result dropped (the round driver sets state +0x08 before player
+   init), then 0x80097288(camera +0x9c) (the camera-height base).
 4. 0x800c429c = 0.
 
 ### Level-start cinematic (0x80074958)
@@ -615,43 +616,408 @@ state 15 (598, 270, 347, 820 or 868, 949 or 995), else random from
 
 ## Activity play: Mini-Golf for one to four players
 
-Activities (front end 0x8003b7bc) item Mini-Golf returns -2 and runs
-0x80096134:
+Activities (front end 0x8003b7bc) item Mini-Golf returns -2, and the
+Start Game submenu then calls 0x80096134 (0x8003d400). It returns 0 or
+25. On 0 the submenu shows the Activities menu again (0x8003d474). On 25
+it sets state +0x21 = 1 and passes 25 up (0x8003d42c), and main
+(0x800187f0) runs 0x80096a30 instead of the level runner (activity play
+and level 25). 0x80096a30 returns -1: the front end, back at the
+Activities menu (seen).
 
-1. Player count 1-4 (0x800c46cc), Left and Right change it, Cross
-   accepts.
-2. Each player picks a face on a 3 x 2 grid (slot = x + 3 y; Left/Right,
-   Up/Down; Cross). Slot to character: 0x800bb4ac = [1, 2, 3, 5, 4, 37]
-   (Tommy, Chuckie, Angelica, the twins, Susie (guess)). Slots go to
-   0x800c46d0 +0xfc + player, and bit slot of +0xf8. Triangle (pad word
-   +0x34, guess) in the pick step clears every pick and goes back to the
-   count; in the count step it leaves with 0.
-3. Returns 0x80057dcc(0) = 25.
+In short:
 
-main (0x800187f0): activity play and mode 25 run 0x80096a30 instead of
-the level runner. 0x80096a30:
-
-1. State +0x21 = 1 (activity), hole counter 0x800c46d0 +0x866 = 0.
-2. For each hole index 0..8: its own copy of the runner's setup (level
-   0x80057dcc(index)); holes 0 and 8 hide 600, 1776, 609, 608, 15. The
-   player (411 words, 1644 bytes) and the ball (42 words, 168 bytes) are
-   copied to 0x800c46d0 +264 and +1908 (0x80021b48(dst, src, words)). From the second hole on, the score card (0x80095c2c(3,
-   count, hole, 1)) shows until Cross.
-3. For each player: current player +0x860; "Player %d" and "Hole %d" at
-   (-230, 60) / (-230, 80) in the player's colour 0x800bb494 (red, green,
-   blue, yellow); character = 0x800bb4ac[slot]; player init
-   (0x800596e8). The first player gets the music and the start cine
-   (0x80074958 with no player: no CineFinish, no card); the others a
-   banner (0x800965e8). Camera reset; the frame loop (0x80018c38).
-4. Holing out ends the turn (SwitchEpisode to the same level). Strokes go
-   to 0x800c46d0 +0x81c + 9 * player + hole. Player and ball are put back
-   from the copies, so each player plays the hole from the tee.
-5. Any exit code <= 0 (quit) ends the round. After hole 9 the score card
-   (strings 123 "Hole", 124 "Total", 125 "Par"; 0x80095768) shows until
-   Cross; returns -1 (the front end).
+1. 0x80096134: the player count, then each player picks a face.
+2. 0x80096a30: nine holes; each player plays each hole in turn from the
+   tee; a score card between holes and at the end.
 
 Activity play has no par judgement (0x8007a9d8 returns first), no
 crying, no bars and nothing recorded (0x80076d6c skips activity play).
+
+### The activity block (0x800c46d0)
+
+| offset | what |
+|---|---|
+| +0x00..+0x18 | TEXPOS entries 367, 368, 369, 371, 370, 372, 373 (0x80089fa4, from 0x800955f4); only +0x18 (373, the cursor) is used here |
+| +0x48 + 44 n | the count items "1".."4" (text items, font 1, spacing 1) |
+| +0xf8 | u32: bit `slot` set when that face is taken |
+| +0xfc + p | u8: player p's slot, 255 for none |
+| +0x100 + 2 n | the strings "1".."4" |
+| +0x108 | the player snapshot, 411 words (1644 bytes) |
+| +0x774 | the ball snapshot, 42 words (168 bytes) |
+| +0x81c + 9 p + h | u8: player p's strokes on hole index h; 0x800955f4 sets all 36 to 1 |
+| +0x840 | the face matrix (0x80094df0) |
+| +0x860 | s16: the current player (0x80097268 returns his slot) |
+| +0x862, +0x864 | the Circle camera-height cycle (see Camera) |
+| +0x866 | s16: holes done; the hole index of the hole in play |
+
+0x800c46cc (u16) is the player count: 1 at boot, kept between visits.
+0x800c4728 and 0x800c472c are the cursor's column and row.
+
+### The setup loop (0x80096134)
+
+0x800955f4 fills the block on entry. Then one game frame a pass, with a
+step and a done flag. The pads are port 0's words at 0x800cda18
+([screens](../engine/screens.md)): Up +0x14, Right +0x18, Down +0x1c, Left
++0x20, Triangle +0x34, Cross +0x3c; "pressed" is `& 3 == 1`. Sounds
+(0x8006f26c) are the front end's: 1 leave, 2 accept, 3 and 4 the moves.
+
+Step 0, the count (it starts at 0x800c46cc):
+
+- Triangle: sound 1, result 0, done; cursor column -1.
+- Left: count - 1 if it is above 1; sound 3, also at 1.
+- Right: count + 1 if it is below 4; sound 4, also at 4.
+- Cross: 0x800c46cc = count, cursor column 0 (the row is kept), sound 2,
+  step 1.
+
+Step 1, the picks (player p from 0):
+
+- Left / Right: column - 1 / + 1 within 0..2; sound 3 / 4 even at the
+  edge.
+- Up / Down: row - 1 / + 1 within 0..1; sound 3 / 4 even at the edge.
+- Cross: +0xfc[p] = slot (column + 3 row), bit slot of +0xf8 set, p + 1,
+  sound 2. When p reaches the count: column -1, step 2. A taken face is
+  not tested here.
+- Triangle: every pick back to 255, +0xf8 = 0, p = 0, 0x800c46cc = 0,
+  step 0. No sound. The count shown stays the old one.
+- Not Triangle: 0x800960a0 moves the cursor off taken faces: column + 1;
+  at 3, column 0 and row + 1; at row 2, back to (0, 0); while the face
+  is taken. It shifts the taken bits along, so a wrap to (0, 0) stops
+  there even when face 0 is taken (guess: it moves on the next frame,
+  and a Cross on that frame would take face 0 twice; not checked).
+
+The moves and Cross are read before the skip, so right after a pick the
+cursor is on the next free face (seen: Tommy taken, the arrow went to
+Chuckie).
+
+Step 2: result 0x80057dcc(0) = 25, done.
+
+Step 3 (Cross: count kept, step 1) is never entered.
+
+Each pass ends with the picks (below, skipped once done or in step 2)
+and the screen 0x80095c2c(step, count, p, cursor slot). So the leaving
+pass draws the screen once more: step 0 after Triangle; step 2 (only
+the backdrop, CANCEL and ACCEPT) after the last pick, which gets two
+such frames (the pick's pass and the leaving pass).
+
+Triangle from the picks and then Triangle from the count leaves
+0x800c46cc at 0, so the next visit starts at count 0 (guess: no number
+lit and Right gives 1; not checked).
+
+### The setup screen (0x80095c2c, steps 0-2)
+
+Every call is one frame:
+
+1. A menu cube 0x8003f444(0) (state +0xd0 = 2), freed at the end;
+   drawn only on the score card.
+2. Frame start (0x8001d440(-1)). A backdrop fade step (0x80034e80) every
+   30 calls (counter 0x800c46c8, latch 0x800c4074), then backdrop B
+   (0x80034fdc), as in [screens](../engine/screens.md#what-is-behind-these-screens).
+3. Steps other than 3: CANCEL and ACCEPT with their cubes (0x80035550,
+   0x80035674).
+4. 0x8001d2b0(0), 0x8001d34c(0).
+5. Steps 0 and 1: the title "Mini-Golf" (string 87), font 1, colour 0xe0
+   (red), centred, y -100 (0x800c46a4), over its shadow (+2, +2) in
+   0x010101.
+6. The step's items, below.
+7. Text out (0x8002ecd0(1)), 0x8001d2b0(1), flip (0x8001d3e8(1)).
+
+There is no burst, no sign and no baby on these screens (seen).
+
+The count step (0x80094f64(count - 1), then the faces):
+
+- "How Many Players?" (86), font 1, 0xffff (yellow), centred, y -65
+  (0x800c46b6), shadow (+2, +2).
+- "1".."4" (block +0x100), font 1, at x = -160 + 100 n (0x800c46a6, plus
+  n times 0x800c46aa / 4), y -35 (0x800c46a8). Not centred, no shadow.
+  The number of the current count: 0xf0f0f0, flags +0x18 |= 16 (wobble),
+  counts +0x24 = +0x26 = 5, then text_slide (0x8002e2b4). The others:
+  0x404040, flags 0. All four get y = -35 again every frame (guess: the
+  wobble restarts each frame; not measured).
+
+The pick step (0x800952a0(p + 1, count, colour), the faces, the cursor):
+
+- Count 1: "One player\n" (199). Else "%s players\n" (200) with "Two",
+  "Three" or "Four" (strings 120-122, through the s16 table 0x800bb4a4).
+  Font 1, 0xf0f0f0, centred, y -65, shadow (+2, +2).
+- "Player %d, pick your character!\n" (201) with p + 1, font 0, the
+  player's colour, centred, y -35, shadow (+2, +2).
+
+Player colours, 0x800bb494 by player: 0xff red, 0xff00 green, 0xff0000
+blue, 0xffff yellow (R | G << 8 | B << 16). Seen: "Player 1, pick" in
+red, "Player 2, pick" in green.
+
+### The face grid (0x800954c4, 0x80094e90)
+
+Steps 0 and 1 draw the six faces every frame: 0x80094e90(slot, x, y,
+5500) with x = -120 + 130 c and y = 25 + 60 r (0x800c46ac, 0x800c46b0;
+0x800c46ae, 0x800c46b2), c = slot % 3, r = slot / 3.
+
+0x80094e90(slot, x, y, depth): model 0x80044b74(0x800bb47c[slot]) (by
+id in the loaded models; ids 2, 17, 32, 64, 49, 1173) drawn by
+0x80010000 with the block's matrix (+0x840), translation (0, 0, depth)
+and the GTE screen offset set to (x, y) (0x8009fd58), so the model's
+origin sits at (x, y) from the screen centre. The offset goes back to
+(0, 0) after. The matrix (0x80094df0): the identity (0x800b4578) turned
+2048 about y (0x800a0188), then 0x8001e0f4 scales row 0 by 0x800c4a14 /
+320 and row 1 by 0x800c4a16 / 240 (guess: the screen's aspect).
+
+Seen: six heads facing the camera, Tommy, Chuckie and Angelica on top;
+Phil (brown tuft), Lil (pink bow) and Susie below. So slot 3 (char 5) is
+Phil, slot 4 (char 4) Lil and slot 5 (char 37) Susie. For the five
+babies each id is 5 below the bare hand's (7, 22, 37, 54, 69, see The
+club); Susie's are 1173 and 1185 (guess: the head part of each set).
+
+The cursor (0x80095550(slot), step 1 only): TEXPOS 373 (block +0x18) as
+a POLY_FT4 (0x800306ac: the right and bottom texel edges + 1), 31 x 31,
+its top left at (x + 0, y - 10) (0x800c46b8, 0x800c46ba), colour
+0x808080, OT 1. Seen: a yellow arrow under the face's lower right,
+pointing up at it.
+
+The picks, drawn by 0x80096134 for each p below the count, before the
+frame (steps 0 and 1):
+
+- The number (block +0x100 + 2 p), font 1, the player's colour, centred
+  both ways (0x8002e144 flag 3) at (x + 0, y - 20) (0x800c4720,
+  0x800c4724). No shadow.
+- 0x80095140(x, y): TEXPOS 427 as a POLY_FT4, colour 0xffffff, OT 1,
+  from (x - 68, y - 56) to (x + 69, y + 18) (0x800c46bc..0x800c46c2, and
+  0x800c46b4 = 42 times 512 / 320 = 67 across).
+- A player with no pick (255) is drawn too: the test is `bltz` on an
+  `lbu` (0x800964a8), so slot 255 lands at y = 25 + 60 x 85 = 5125, off
+  the screen (seen: y 5093 for the number).
+
+Seen: a white star with a purple edge behind the picked head, the
+number over the head, in red for player 1. The picks are queued before
+0x80095c2c's frame start and still show.
+
+### The round (0x80096a30)
+
+Start: block +0x866 = 0, state +0x21 = 1. For hole index i = 0..8, while
+the last exit code is above 0:
+
+1. level = 0x80057dcc(i), state +0x00 = level, the 0x1014 block
+   (0x800c3e84). Hole one only: the loading screen (0x8008fc0c(level)).
+2. The runner's setup for the level, its own copy (0x80046340 ..
+   0x800454dc, see [gameplay](../engine/gameplay.md#the-level-runner-0x80017c0c));
+   holes 0 and 8 hide 600, 1776, 609, 608 and 15 (0x80078bc4). Then the
+   face mask 0x800b91a0[level], 0x80074b9c and the pools.
+3. Snapshots (0x80021b48): the player (0x800e2b48, 411 words) to block
+   +0x108, the ball (0x800c42b0, 42 words) to +0x774.
+4. Holes two to nine: the score card 0x80095c2c(3, count, i, 1) until
+   Cross (sound 126).
+5. 0x8001dd80(-1).
+6. For each player p, while the last exit code is above 0:
+   1. +0x860 = p.
+   2. Two HUD texts (0x80090004, kept in 0x800c4e18 and 0x800c4e1c):
+      "Player %d" (203) with p + 1 at (-230, 60) and "Hole %d" (204) with
+      i + 1 at (-230, 80). Font 0, spacing 1, the player's colour, not
+      centred; 0x80090004 adds a shadow (+2, +2) in 0x000100.
+   3. State +0x08 = 0x800bb4ac[+0xfc[p]] (the character), then player
+      init 0x800596e8: the body (hierarchy 0x800450ac(char), +0x15c =
+      char) and, in levels 23-31, 0x80057e50 (see Player init).
+   4. p = 0: 0x8001d218(-1, 0, 1, 0), loading screen off (0x8008fbdc),
+      memory budget (0x80019204, 0x800220e0), the level's music
+      (0x8006fea8(level, 0)), the start cine (0x80074958(level, 0): no
+      player, so no CineFinish and no HINT27 card; level 25 gives 31 in
+      activity play). From hole two on, the banner after the cine.
+      p > 0: only the banner, 0x800965e8(p + 1, i + 1). No music call:
+      the song plays on.
+   5. Camera: player +0x224 = 0x800de460. p = 0: 0x800290a4 (the full
+      reset); p > 0: 0x80026ddc(camera, player, 0) only. The frame loop
+      also resets each player's camera as it ends (0x80029078 ->
+      0x800290a4, seen at each turn's end), so every turn starts with a
+      fresh follow camera.
+   6. The frame loop 0x80018c38. Before its first frame it runs
+      EpisodeStart (0x8007a584): the player at the tee, the "Par",
+      "Swing" and "%d" texts, the hole index. So every turn starts at
+      the tee with its own HUD.
+   7. Strokes: block +0x81c + 9 p + i = player +0x1b6[i] (that hole's
+      byte). Also after a quit, where nothing reads it.
+   8. 0x80059454 (0x80057e44 in levels 23-31), the ball out of its room's
+      list (0x8001a810), both snapshots copied back, the ball into its
+      room's list again (0x8001a1c0), every HUD text freed (0x800901c0).
+7. State +0x08 = 1 (Tommy).
+8. Not quit: holes one to eight, one frame of the card with "Loading Hole
+   %d..." (0x80095c2c(3, count, i + 1, 0)), which stays on the screen
+   through the next load (seen). Hole nine: the card 0x80095c2c(3,
+   count, 9, 1) until Cross (sound 126).
+9. Teardown, the runner's frees (0x8008a7ec .. 0x800219d8). It also frees
+   0x800c4e18 twice (0x8008ff24 at 0x800970e4 and 0x800970f0); both items
+   were freed in step 6.8 (seen, no harm in the oracle). +0x866 += 1.
+
+End: 0x80095c04 frees the block; the result is -1.
+
+The turn's texts are made before the cine and the banner, but HUD texts
+are drawn only by the frame loop (0x80090174), so "Player %d" / "Hole
+%d" show from the turn's first frame to its last (seen: bottom left, in
+the player's colour, not during the cine or the banner).
+
+What the snapshots put back: the whole player record as it was after the
+hole's setup, before any player init (position, angles, state,
+animation, body, the stroke bytes, power); and the ball record (its LP
+position at the tee and room +0x3b, flight +0x90 = 0, think +0x44 = 0,
++0x6b). So each player plays the hole from the tee with an untouched
+ball. Not put back: other objects, the scheduler, the speech timer
+0x800c4cc0, the music (guess: the level goes on as it was).
+
+A turn ends when the ball drops: 0x8007a9d8 in activity play only posts
+SwitchEpisode(player, this level), so the exit code is the level and
+the next player goes. There is no stroke limit.
+
+### Golf code in activity play
+
+- 0x80057e50: stroke bytes cleared as in normal play (all nine on hole
+  index 0, else that hole's); it calls 0x80097268 and drops the result,
+  so the character comes only from state +0x08 (above); camera-height
+  base 0x80097288(camera +0x9c).
+- 0x800818e0 (each frame): the ambience callback is picked by the
+  character (+0x15c), not the level: 1 level 25's, 2 26's, 3 31's, 4
+  23's, 5 29's. Susie (37) gets 0x800b9618[0], which is 0: no ambience
+  and no golf lines. So level 23's ball reset (0x80081758) runs only on
+  Lil's turns, on any hole (guess: it does nothing where 0x800c4168 has
+  no object; not checked).
+- Select (restart) is skipped in activity play (0x80018c38, step 14 in
+  [gameplay](../engine/gameplay.md#the-frame-0x80018c38)).
+- 0x80074958's level 25 case plays 31 "Golf Cam 3" in activity play.
+
+### The turn banner (0x800965e8)
+
+0x800965e8(player number, hole number), the same frame as the golf
+over-par box ([screens](../engine/screens.md#the-golf-over-par-box-0x80043968)):
+
+- 0x8008dbec first (guess: pauses the speech).
+- "Player %d" (203), font 1, pink 0x5d17c6, centred, y -60, shadow (+2,
+  +2) in 0x010101.
+- "Hole %d" (204), font 1, pink, centred, y -30. Its shadow is only 2
+  down (x not moved: 0x800967c4 copies x as is; seen: text at (-38,
+  -30), shadow at (-38, -28)).
+- "PRESS     TO CONTINUE" (67), font 2, white, (-96, 80), shadow (-94,
+  82); its cube (a new 0x8003f444(0)) at (-60, 410, 1298), angle target
+  +0x2c = 1024 at +0xce = 128.
+- 0x800403b4(1): the burst flies in. The two lines are drawn from the
+  arrival frame on (0x80040408 latched); the PRESS line from the start.
+- Each frame: Cross pressed: sound 126 and leave after this frame (also
+  during the fly-in). Frame start, a fade step every 30 (0x800c46c8),
+  backdrop B, the camera (0x800403e8), the lines, 0x8001d34c(0), the
+  burst (0x80040428), text out, the cube (0x8003f934), flip.
+- Leaves with the cube freed and no fly-out; the frame loop follows.
+
+Seen: "Player 2 / Hole 1" in pink on the burst until Cross, the PRESS
+line from the first frame; "Player 1 / Hole 2" after cine 81.
+
+### The score card (0x80095c2c step 3, 0x80095768)
+
+0x80095c2c(3, count, holes, press): frame start, fade and backdrop B as
+above; no title, no CANCEL and ACCEPT, no burst. Then 0x80095768(count,
+holes), then the bottom line:
+
+- press 1: "PRESS     TO CONTINUE" (67), font 2, white, (-95, 80),
+  shadow (-93, 82); the cube at (-60, 420, 1025), angle +0x24 = 1024 set
+  at once, +0xce = 128, drawn by 0x8003f934.
+- press 0: "Loading Hole %d..." (202) with holes + 1, font 0, colour
+  0x1ec8c8, centred, y 80, shadow (+2, +2).
+
+0x80095768: every text is font 0, centred on its x (0x8002e144 flag 1),
+over a shadow (+2, +2) in 0x010101. Columns: hole h at x = -124 + 27 h
+(0x800c46ec, 0x800c4700); total x 169 (0x800c46f0).
+
+| row | y | label (x -200, 0x800c46e8) | per hole | total |
+|---|---|---|---|---|
+| holes | -95 (0x800c46f8) | "Hole" (123), pink 0x5d17c6 (0x800c46d4) | 1..9, pink | "Total" (124), yellow 0x13cdec (0x800c46dc) |
+| par | -75 (0x800c46fc) | "Par" (125), light blue 0xe4b96a (0x800c46d8) | par[h] (0x800b7ffc), light blue | 40, yellow |
+| player p | -40 + 30 p (0x800c46f4, 0x800c4704) | his face | strokes, white (0x800c46e0), for h below `holes`, skipped when 0 | the sum, in the colour last set (white once a stroke is drawn) |
+
+The face: 0x80094e90(+0xfc[p], -200, -20 + 30 p, 7000) (0x800c4708,
+0x800c470c, 0x800c4710, depth 0x800c46c6): the head of his pick, not a
+name and not his colour. The numbers print with "%d" (0x800c471c).
+
+Seen after hole one with two players: Tommy 3 and Angelica 5, totals 3
+and 5, pars 4 5 4 5 5 5 4 5 3, total 40 (text positions as above, x
+after centring, e.g. "Hole" at -220, "3" at -130).
+
+### Ending and quitting
+
+- Nine holes: after hole nine the card until Cross, then 0x80096a30
+  returns -1; main goes to the front end and the Activities menu. No
+  "Returning to" page (that is the pause's).
+- The pause (Start) works as in any level
+  ([objectives](../engine/objectives.md#pause-0x8003e05c)): Quit Game, or
+  Quit Level (activity play), returns -1 after "Returning to the /
+  Activities Menu / Loading". The frame loop ends with -1; the strokes
+  are stored and the snapshots put back as usual (step 6.7-6.8), the
+  player loop stops, no card, teardown, the hole loop stops, the block
+  is freed and the round returns -1. Seen with the exit code poked to -1
+  in player 1's first turn: no banner, no card, the Activities menu
+  (0x8003cf80, 0x8003b7bc) the next frame.
+- A Load Game from the pause returns 1, which the round takes as a
+  finished turn (guess, from the code: any exit code above 0 goes on).
+
+### Checked in the oracle (activity)
+
+The probe in the scratch folder golfmp (presses only, then two pokes a
+turn: player +0x1b4 word = power 1 and strokes, exit code 0x800c4918 =
+25 to end the turn as a holed ball would). Frames are vertical blanks.
+
+- Activities, Mini-Golf (0x80096134 at 1604): the count screen, "1"
+  white, "2".."4" grey, six heads. Right (sound 4) and Cross (sound 2).
+- Picks: "Two players", "Player 1, pick your character!" in red, the
+  arrow; Cross (sound 2): Tommy; the arrow moved to Chuckie; Right
+  (sound 4) to Angelica; Cross: "Player 2" picked her (the star and a red
+  "1" on Tommy, the green prompt). The round began at 2276.
+- Hole one, player 1: cine 31, then Tommy at the tee, "Par 4", "Swing
+  0", "Player 1" / "Hole 1" in red at the bottom left.
+- Turn end: 0x800901c0 freed five texts, player 2's texts, player init,
+  the banner "Player 2 / Hole 1" until Cross (sound 126); Angelica at the
+  tee, "Player 2" / "Hole 1" in green; the camera only by 0x80026ddc.
+- After player 2: one frame of the card with "Loading Hole 2..." through
+  the load, then the card with PRESS X until Cross; hole two: music
+  (0x8006fea8(28)), cine 81, the banner "Player 1 / Hole 2", then
+  0x800290a4 and the turn.
+- Not checked: four players, a real swing in activity play, Susie or Lil
+  on a turn, the pause's own quit path (the exit code was poked), the
+  count-0 and taken-face-0 edge cases, the loading screen's lines for
+  hole one in activity play, the GTE H the heads are drawn with (seen:
+  Tommy's head about 75 pixels wide of 512 at depth 5500 on the pick
+  screen, about 51 at depth 7000 on the card, so not the same H).
+
+### What the port needs for several players
+
+In order:
+
+1. front.rs: Mini-Golf goes to the setup (count, then picks), not to
+   level 25. Triangle at the count goes back to the Activities menu;
+   Triangle in the picks goes back to the count. The result: the count
+   and the slots (0x800bb4ac: Tommy 1, Chuckie 2, Angelica 3, Phil 5,
+   Lil 4, Susie 37).
+2. The setup screen: backdrop with fades, CANCEL and ACCEPT, the title,
+   the texts and the six heads above, the arrow, the stars and numbers.
+   The heads need models 2, 17, 32, 64, 49, 1173 and the matrix above.
+3. A round outside the level: count, slots, strokes [4][9] (u8), hole
+   index i, player p. main.rs `golf_scores` becomes per player.
+4. Per hole: load the level once; hide 600, 1776, 609, 608, 15 only on
+   holes 0 and 8 (the port's Golf::start hides OTHERS on every hole;
+   guess: in activity play holes 1-7 keep them). Keep the player and
+   ball as loaded (the snapshot).
+5. Per turn, without reloading: the body of the player's pick (Susie
+   too: club 1219, hand 1185); the player at the tee and the stroke byte
+   cleared (EpisodeStart, 0x80057e50); the ball back at its LP position,
+   not rolling, the Golf stage Free, `lipped` cleared, the meter gone;
+   the follow camera reset; the HUD "Par", "Swing", "%d" and "Player %d"
+   / "Hole %d" (font 0, (-230, 60) / (-230, 80), the player's colour).
+6. Player 1 only: the music (once per hole) and the start cine (31 for
+   level 25, no card). Everyone else, and player 1 from hole two after
+   the cine: the banner until Cross.
+7. golf.rs `holed` in activity play: end the turn (not the hole), keep
+   the strokes for (p, i); the round picks the next player or hole.
+   Golf::start in activity play takes the character from the pick, not
+   BABY. The ambience by character (no lines for Susie); level 23's ball
+   reset only on Lil's turns.
+8. screens.rs Page::Scores: one row a player with his head, the colours
+   and positions above; the "Loading Hole %d..." frame between holes
+   (no Cross); PRESS X with its cube at the start of holes two to nine
+   and after hole nine; no title, no burst.
+9. The end: after hole nine's card straight to the Activities menu. A
+   pause quit: "Returning to the Activities Menu", no card.
 
 ### Level 22, "Multiplayer Golf"
 
@@ -699,12 +1065,12 @@ once (0x80018824 = `li a0, N`, restored to `move a0, a1` at 3000);
   then 0x80076d6c(8, 1), exit 1, the puzzle-piece screen.
 - Level 23: Lil (char 4) with cine 29; the ball reset to (45552, 280,
   2753).
-- Activities, Mini-Golf, two players: the pick screen, then 0x80096a30,
-  hole 1 with "Player 1" / "Hole 1" in red at the bottom left.
+- Activities, Mini-Golf, two players: see Checked in the oracle
+  (activity) above.
 - Not checked: speech lines' words, the Circle+Cross camera adjust,
   slopes (slope_push), object hits during a roll, the last-try speech,
-  Select's restart, the loading screen's text, the score card, levels
-  24, 26, 29-31 beyond their table values.
+  Select's restart, the loading screen's text, levels 24, 26, 29-31
+  beyond their table values.
 
 ## For the port
 
@@ -735,7 +1101,8 @@ Order (port code is crates/rugrats/src/game.rs and friends):
    the Circle height cycle.
 8. HUD: three texts, the meter quads, the aim sprites.
 9. Level 23's ball reset; the per-level speech.
-10. Activity play: setup, the round driver with snapshots, score card.
+10. Activity play: setup, the round driver with snapshots, score card
+    (see What the port needs for several players).
 
 ## Unknown
 
@@ -750,8 +1117,10 @@ Order (port code is crates/rugrats/src/game.rs and friends):
 - The level 23 object (template 1264) and the template 1231 object (id
   524); ids 9999 (DB26), 9998 and 6660 (DB31).
 - 0x8007614c's sign (which side a lip out turns to).
-- The loading screen's text for the holes (read only); the score card's
-  layout (0x80095768).
+- The loading screen's text for the holes (read only).
+- The activity edge cases: count 0 after two Triangles, a pick landing
+  on taken face 0 after a wrap (0x800960a0), a Load Game from the pause
+  mid-round; the GTE H used for the heads.
 - Whether a Select restart (0x80043d58) leaves the total too high (the
   hole's byte is cleared, the total is not); nothing in single play reads
   the total.

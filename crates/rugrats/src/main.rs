@@ -378,6 +378,18 @@ impl Game for Rugrats {
                     for &n in &game.found {
                         self.progress.find_bar(game.level, n);
                     }
+                    if std::mem::take(&mut game.load) {
+                        let cards = rugrats::card::Cards::default();
+                        let state = cards.load(0, &self.disc.card).and_then(|s| s.record((s.words[3] as usize).max(1)));
+                        if let Some(block) = state {
+                            self.progress = rugrats::progress::Progress { block };
+                            self.stop_song();
+                            self.level = None;
+                            self.boot = self.game(rugrats::game::HUB, now);
+                            return;
+                        }
+                        rrt::tracing::info!("load: no saved game on the card in slot 1");
+                    }
                     if std::mem::take(&mut game.save) {
                         let cards = rugrats::card::Cards::default();
                         let mut save = cards.load(0, &self.disc.card).unwrap_or_default();

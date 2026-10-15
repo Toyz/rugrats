@@ -80,6 +80,7 @@ pub struct Game {
     /// Bars found this frame (0x80094a58), and a save asked for.
     pub found: Vec<usize>,
     pub save: bool,
+    pub load: bool,
     carried: Option<usize>,
     grip: Vec3,
 }
@@ -318,6 +319,7 @@ impl Game {
             bar_shown: 0,
             found: Vec::new(),
             save: false,
+            load: false,
             carried: None,
             grip: Vec3::ZERO,
         };
@@ -507,6 +509,7 @@ impl Game {
                 Some(PauseEnd::Continue) => self.paused = false,
                 Some(PauseEnd::QuitGame) => self.quit = true,
                 Some(PauseEnd::Save) => self.save = true,
+                Some(PauseEnd::Load) => self.load = true,
                 // Quit Level: to Pickles' Home, or the front end from the
                 // hub and training (0x800398bc).
                 Some(PauseEnd::QuitLevel) => {
@@ -722,6 +725,8 @@ pub enum PauseEnd {
     Continue,
     /// Save Game (state 3, 0x80070d80): the menu stays.
     Save,
+    /// Load Game (state 9): a confirmed load returns 1, to the hub.
+    Load,
     QuitGame,
     QuitLevel,
 }
@@ -806,7 +811,7 @@ impl Pause {
                 1 => return Some(PauseEnd::Continue),
                 3 | 5 => self.confirm = Some((self.cursor, false)),
                 2 => return Some(PauseEnd::Save),
-                _ => rrt::tracing::info!("pause: loading in play is not ported yet"),
+                _ => return Some(PauseEnd::Load),
             }
         }
         None

@@ -3,7 +3,7 @@
 //! the 2D shapes under the world and over it, the camera and the colour
 //! the screen clears to.
 
-use rrt::glam::Mat4;
+use rrt::glam::{Mat3, Mat4, Vec3};
 use rugrats_render::{Vram, Vtx};
 
 #[derive(Clone)]
@@ -35,4 +35,23 @@ impl Stage {
             clear: [0, 0, 0],
         }
     }
+}
+
+/// The view and projection the original's cameras give: the camera matrix
+/// `rows` (world to camera), its x row scaled by 512 / 320 for the screen
+/// (0x8001e0f4, the screen size at 0x800c4a14), a point seen at
+/// rows (p - pos) (0x8001eb4c), projected by the GTE at distance `h` onto
+/// the 512 x 240 screen with no offset.
+pub fn view(pos: Vec3, rows: Mat3, h: f32) -> Mat4 {
+    let view = Mat4::from_mat3(Mat3::from_diagonal(Vec3::new(512.0 / 320.0, 1.0, 1.0)) * rows) * Mat4::from_translation(-pos);
+    let (near, far) = (16.0f32, 200_000.0f32);
+    let (a, b) = (far / (far - near), -near * far / (far - near));
+    #[rustfmt::skip]
+    let proj = Mat4::from_cols_array(&[
+        h / 256.0, 0.0, 0.0, 0.0,
+        0.0, -h / 120.0, 0.0, 0.0,
+        0.0, 0.0, a, 1.0,
+        0.0, 0.0, b, 0.0,
+    ]);
+    proj * view
 }

@@ -139,23 +139,9 @@ fn vec3(p: [i32; 3]) -> Vec3 {
 }
 
 /// The view and projection of frame `f`'s camera. The stream's quaternion
-/// goes through 0x80020580, the transpose of the parts' matrix; the view
-/// matrix (0x8001e0f4) scales its x row by 512 / 320 for the screen; a
-/// point is seen at view (p - camera) (0x8001eb4c), projected at FOCAL.
+/// goes through 0x80020580, the transpose of the parts' matrix.
 pub fn camera(f: &Frame) -> Mat4 {
-    let r = quat_matrix(f.camera_q).transpose();
-    let view = Mat4::from_mat3(Mat3::from_diagonal(Vec3::new(512.0 / 320.0, 1.0, 1.0)) * r)
-        * Mat4::from_translation(-vec3(f.camera_pos));
-    let (near, far) = (16.0f32, 200_000.0f32);
-    let (a, b) = (far / (far - near), -near * far / (far - near));
-    #[rustfmt::skip]
-    let proj = Mat4::from_cols_array(&[
-        FOCAL / 256.0, 0.0, 0.0, 0.0,
-        0.0, -FOCAL / 120.0, 0.0, 0.0,
-        0.0, 0.0, a, 1.0,
-        0.0, 0.0, b, 0.0,
-    ]);
-    proj * view
+    crate::stage::view(vec3(f.camera_pos), quat_matrix(f.camera_q).transpose(), FOCAL)
 }
 
 /// A cinematic's stream: its frames, each with the tick (from the start)

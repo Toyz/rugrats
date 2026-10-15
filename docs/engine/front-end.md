@@ -2,8 +2,8 @@
 title: The front end
 status: partial
 discs: US
-covers: US SLUS_006.50:0x80030158, US SLUS_006.50:0x8003eb28, US SLUS_006.50:0x8003d884, US SLUS_006.50:0x8003d5a0, US SLUS_006.50:0x80035ab8, US SLUS_006.50:0x80034fdc, US SLUS_006.50:0x8003528c, US SLUS_006.50:0x80034e80, US SLUS_006.50:0x8008b100, US SLUS_006.50:0x8002fb7c
-worklog: 18
+covers: US SLUS_006.50:0x80030158, US SLUS_006.50:0x8003eb28, US SLUS_006.50:0x8003d884, US SLUS_006.50:0x8003d5a0, US SLUS_006.50:0x80035ab8, US SLUS_006.50:0x80034fdc, US SLUS_006.50:0x8003528c, US SLUS_006.50:0x80034e80, US SLUS_006.50:0x8008b100, US SLUS_006.50:0x8002fb7c, US SLUS_006.50:0x80040194, US SLUS_006.50:0x8003f200, US SLUS_006.50:0x8003f7f0, US SLUS_006.50:0x8001dfb8, US SLUS_006.50:0x80020ee0
+worklog: 18, 19
 ---
 
 # The front end
@@ -63,6 +63,33 @@ and the level returns to full. Both start on pattern (2, 0) at 0x80.
 drawn white, the chosen one yellow (0x05ffff), each over a black shadow 2
 down and right.
 
+## The sign, the buttons, the cameras
+
+The front end's camera (0x800e24c0, reset by 0x80040194): field of view
+512 (0x8001dfb8: H = 0xa0000 / (rsin(fov/2) << 12 / rcos(fov/2)), kept as
+16 bits; 386 here, 178 for the opening's 955), at (0, 30, -500), angles
+0. The sign is object 0x800c40a0, model 1038 at the origin. Its state
+(+0xd0) 1 flies the camera in (z + 600 a frame to -500), 2 out (z - 600 to
+-17048), 0 holds. Holding, 0x8003f200 nudges the model's vertices every
+other frame: odd vertices by step k and even ones back by step 4 - k of
+the five (x, y) steps at 0x800b7dd4, k counting on (0x800c40e8). The steps
+sum to nothing over five. The trademark (0x8003f0f0) is a raw POLY_FT4,
+page 0x1e, CLUT 0x64fb, screen (210, -75)-(230, -69), texels
+(192, 148)-(212, 160), drawn while the sign holds.
+
+CANCEL and ACCEPT (0x80035550, 0x80035674; strings at 0x800bb504, 508)
+are font-2 text at (-192, -93) and (115, -93) over shadows at +2, +2.
+Beside each is a cube, a menu block (0x8003f444: model 334 for 0, 332,
+342, 343 for 1-3) at (-600 or 600, -400, 1298). It is drawn with the
+second camera (0x800e2580, 0x80040010: (0, 0, -500), angles 0). Each frame
+the label's code sets the cube's target angle to 2048 (CANCEL) or 1024
+(ACCEPT) at 128 a frame. 0x8003f7f0 eases each angle toward its target
+and reads a whole turn as none; the loop start (0x8003ffe8) zeroes them,
+so the cubes turn to show the triangle and the cross. The block's matrix
+comes from its angles (flag 0x20, 0x80020ee0; checked against the
+original before its MatrixNormal pass).
+
 ## Unknown
 
-- The sign's and the babies' motion, the submenus, the sounds' ids.
+- The babies' motion, the submenus, the sounds' ids.
+- Whether MatrixNormal (0x8009f398) changes the cubes' matrices.

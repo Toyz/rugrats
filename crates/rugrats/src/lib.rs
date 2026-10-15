@@ -9,4 +9,5 @@ pub mod cine;
 pub mod card;
 pub mod text;
 pub mod stage;
+pub mod gte;
 pub mod front;

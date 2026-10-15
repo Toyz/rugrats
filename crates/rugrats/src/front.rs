@@ -144,8 +144,103 @@ const CHARACTR_RAW: usize = 498;
 /// The strings of the title menu's items.
 const ITEM_STRINGS: [u32; 3] = [0x800b_b6c0, 0x800b_b51c, 0x800b_b694];
 
+/// Database 0's models (file 242 + 0) and the sign among them.
+const DB00_MOD: usize = 242;
+const SIGN_MODEL: u32 = 1038;
+/// The sign's wobble (0x800b7dd4): five (x, y) steps.
+const WOBBLE: u32 = 0x800b_7dd4;
+/// The front end's camera (0x80040194): field of view 512, at (0, 30,
+/// -500), looking along z.
+const FOV: i32 = 512;
+const CAMERA: [f32; 3] = [0.0, 30.0, -500.0];
+
+/// The Rugrats sign: model 1038 at the origin, its vertices nudged every
+/// other frame (0x8003f200, from 0x8003f350 while it is still).
+pub struct Sign {
+    pub model: rugrats_data::model::Model,
+    steps: [(i16, i16); 5],
+    /// 0x800c40e0, and the step (0x800c40e8).
+    ticks: u32,
+    phase: u32,
+}
+
+impl Sign {
+    /// One frame: on even ticks, odd vertices move by step `phase % 5`
+    /// and even ones back by step `4 - phase % 5`, the steps summing to
+    /// nothing over five.
+    pub fn step(&mut self) {
+        let tick = self.ticks;
+        self.ticks += 1;
+        if tick & 1 != 0 {
+            return;
+        }
+        let k = (self.phase % 5) as usize;
+        for (i, v) in self.model.vertices.iter_mut().enumerate() {
+            let (dx, dy) = if i & 1 == 1 { self.steps[k] } else { let (x, y) = self.steps[4 - k]; (-x, -y) };
+            v[0] = v[0].wrapping_add(dx);
+            v[1] = v[1].wrapping_add(dy);
+        }
+        self.phase += 1;
+    }
+}
+
+/// The trademark beside the sign (0x8003f0f0): a raw textured quad from
+/// page 0x1e, CLUT 0x64fb, drawn while the sign is still.
+fn trademark(out: &mut Vec<Vtx>) {
+    let mode = 0x64fb | 0x1e << 16;
+    let window = Vtx::window_of([192, 212, 192, 212], [148, 148, 160, 160]);
+    let v = |x: f32, y: f32, u: u32, v: u32| Vtx { pos: [x + 256.0, y + 120.0, 0.0], colour: 0x80_8080, uv: u | v << 8, mode, window };
+    let (a, b, c, d) = (v(210.0, -75.0, 192, 148), v(230.0, -75.0, 212, 148), v(210.0, -69.0, 192, 160), v(230.0, -69.0, 212, 160));
+    out.extend([a, b, c, b, d, c]);
+}
+
+/// The buttons' model (0x8003f444(0)), the CANCEL and ACCEPT labels'
+/// strings, and where the cubes sit.
+const BUTTON_MODEL: u32 = 334;
+const CANCEL: u32 = 0x800b_b504;
+const ACCEPT: u32 = 0x800b_b508;
+/// The second camera (0x80040010), which the buttons are drawn with:
+/// (0, 0, -500), looking along z.
+const BUTTON_CAMERA: [f32; 3] = [0.0, 0.0, -500.0];
+
+/// A button cube beside CANCEL or ACCEPT (a menu block, 0x8003f444): its
+/// angles ease toward their targets (0x8003f7f0), and it is drawn from
+/// them (object flag 0x20: 0x80020ee0, transposed by the object
+/// transform).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Button {
+    pub pos: [i32; 3],
+    /// +0x24, the targets +0x2c, the step +0xce.
+    pub angles: [i16; 3],
+    pub targets: [i16; 3],
+    pub speed: i16,
+}
+
+impl Button {
+    /// One frame of 0x8003f7f0's turning.
+    pub fn step(&mut self) {
+        for (a, t) in self.angles.iter_mut().zip(self.targets.iter_mut()) {
+            if *t < *a {
+                *a = (*a).wrapping_sub(self.speed).max(*t);
+            } else if *a < *t {
+                *a = (*a).wrapping_add(self.speed).min(*t);
+            } else if a.unsigned_abs() == 4096 && t.unsigned_abs() == 4096 {
+                // A whole turn reads as none.
+                *a = 0;
+                *t = 0;
+            }
+        }
+    }
+}
+
 /// The title menu as it stands (0x8003d884).
 pub struct Title {
+    /// CANCEL's and ACCEPT's cubes (0x800c4b14, 0x800c4b18), their labels.
+    pub buttons: [Button; 2],
+    labels: [Text; 2],
+    button_model: rugrats_data::model::Model,
+    trig: crate::gte::Trig,
+    pub sign: Sign,
     pub stage: crate::stage::Stage,
     fonts: Fonts,
     pub backdrop: Backdrop,
@@ -177,10 +272,42 @@ impl Title {
         let (fw, fh) = text::FONT_SIZE;
         vram.load(fx, fy, fw, fh, &words(&disc.file(text::FONT_FILE)?));
         let fonts = Fonts::load(disc)?;
+        let models = rugrats_data::model::Models::parse(&disc.file(DB00_MOD)?).map_err(|e| e.to_string())?;
+        let model = models.get(SIGN_MODEL).ok_or("no sign model in DB00")?.clone();
+        let raw = disc.exe_bytes(WOBBLE, 20)?;
+        let h = |k: usize| i16::from_le_bytes([raw[k], raw[k + 1]]);
+        let steps = [0, 1, 2, 3, 4].map(|k| (h(4 * k), h(4 * k + 2)));
+        let sign = Sign { model, steps, ticks: 0, phase: 0 };
+        let trig = crate::gte::Trig::load(disc)?;
+        let projection = trig.geom_screen(FOV).ok_or("no projection")? as f32;
         let strings = ITEM_STRINGS.map(|a| disc.exe_string_at(a).unwrap_or_default());
         let items = menu_items(&fonts, strings);
+        let mut stage = crate::stage::Stage::new(vram, Vec::new());
+        stage.camera = crate::stage::view(CAMERA.into(), rrt::glam::Mat3::IDENTITY, projection);
+        let button_model = models.get(BUTTON_MODEL).ok_or("no button model in DB00")?.clone();
+        // The labels (0x80035550, 0x80035674): font 2, as they are, over
+        // shadows two pixels down and right.
+        let label = |addr: u32, x: i16| Text {
+            font: 2,
+            spacing: 1,
+            rgb: [255, 255, 255],
+            x,
+            y: -93,
+            string: disc.exe_string_at(addr).unwrap_or_default(),
+            ..Default::default()
+        };
+        let labels = [label(CANCEL, -192), label(ACCEPT, 115)];
+        // Their cubes at (-600 or 600, -400, 1298), turning from 0 to a
+        // half turn (CANCEL) or a quarter (ACCEPT) at 128 a frame.
+        let button = |x: i32, target: i16| Button { pos: [x, -400, 1298], angles: [0; 3], targets: [target, 0, 0], speed: 128 };
+        let buttons = [button(-600, 2048), button(600, 1024)];
         let mut title = Title {
-            stage: crate::stage::Stage::new(vram, Vec::new()),
+            buttons,
+            labels,
+            button_model,
+            trig,
+            sign,
+            stage,
             fonts,
             backdrop: Backdrop::default(),
             items,
@@ -210,13 +337,40 @@ impl Title {
                 t.step();
             }
         }
+        self.sign.step();
+        for b in &mut self.buttons {
+            b.step();
+        }
         self.draw();
     }
 
     fn draw(&mut self) {
         self.stage.under.clear();
         self.backdrop.triangles(&mut self.stage.under);
+        self.stage.moving.clear();
+        rugrats_render::models::model_triangles(&self.sign.model, rrt::glam::Mat3::IDENTITY, rrt::glam::Vec3::ZERO, &mut self.stage.moving);
         self.stage.overlay.clear();
         menu_triangles(&self.fonts, &self.items, self.chosen, &mut self.stage.overlay);
+        trademark(&mut self.stage.overlay);
+        for t in &self.labels {
+            let mut shadow = t.clone();
+            shadow.rgb = [1, 1, 1];
+            shadow.x += 2;
+            shadow.y += 2;
+            shadow.triangles(&self.fonts, &mut self.stage.overlay);
+            t.triangles(&self.fonts, &mut self.stage.overlay);
+        }
+        // The cubes are seen by their own camera, which differs from the
+        // main one only in where it stands: moved by the difference, they
+        // land where the main camera shows them the same.
+        let shift = rrt::glam::Vec3::from(CAMERA) - rrt::glam::Vec3::from(BUTTON_CAMERA);
+        for b in &self.buttons {
+            let m = self.trig.euler(b.angles);
+            let rows = rrt::glam::Mat3::from_cols_array(&m.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap()).transpose();
+            let mut tris = Vec::new();
+            let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
+            rugrats_render::models::model_triangles(&self.button_model, rows.transpose(), pos, &mut tris);
+            self.stage.moving.extend(tris);
+        }
     }
 }

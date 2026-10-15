@@ -1,0 +1,225 @@
+//! rugrats-viewer: fly around a database's rooms.
+//!
+//! ```text
+//! rugrats-viewer DB [--cue DISC.cue] [--at X,Y,Z] [--look YAW,PITCH] [--shot OUT.png]
+//! ```
+//!
+//! DB is 0-31. Keys: W A S D move, R F up and down, arrows turn, Shift
+//! faster, P logs where the camera is; on a pad the left stick moves, the
+//! right stick turns, R1 is faster, R2 and L2 up and down. `--shot` renders
+//! one frame offscreen and writes it as PNG.
+
+#![forbid(unsafe_code)]
+
+use std::collections::HashSet;
+use std::path::PathBuf;
+
+use rrt::glam::{self, Mat4, Vec3};
+use rrt::gpu::{Gpu, Target};
+use rrt::prelude::*;
+use rrt::winit::event::{ElementState, WindowEvent};
+use rrt::winit::keyboard::{KeyCode, PhysicalKey};
+use rugrats::disc::GameDisc;
+use rugrats_render::{Renderer, Vram, Vtx};
+
+/// The database's three files: LEVEL, then its texture image in VRAM.
+const LEVEL: usize = 434;
+const A_RAW: usize = 499;
+
+struct Camera {
+    pos: Vec3,
+    yaw: f32,
+    pitch: f32,
+}
+
+impl Camera {
+    /// The world is y down, as the PlayStation's.
+    fn forward(&self) -> Vec3 {
+        Vec3::new(self.yaw.cos() * self.pitch.cos(), -self.pitch.sin(), self.yaw.sin() * self.pitch.cos())
+    }
+
+    fn matrix(&self, aspect: f32) -> Mat4 {
+        let view = glam::camera::rh::view::look_to_mat4(self.pos, self.forward(), Vec3::NEG_Y);
+        rrt::gpu::projection(60f32.to_radians(), aspect, 16.0, 200_000.0) * view
+    }
+}
+
+struct Scene {
+    vram: Vram,
+    triangles: Vec<Vtx>,
+    start: Vec3,
+}
+
+impl Scene {
+    fn load(disc: &GameDisc, db: usize) -> Result<Scene, String> {
+        let level = rugrats_data::level::parse(&disc.file(LEVEL + db)?).map_err(|e| e.to_string())?;
+        let raw = disc.file(A_RAW + db)?;
+        let mut vram = Vram::new();
+        let words: Vec<u16> = raw.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
+        // load_rooms (0x8002a208) uploads it to (0, 256), 576 x 256.
+        vram.load(0, 256, 576, 256, &words);
+        let triangles = rugrats_render::rooms::level_triangles(&level);
+        // Start in the first room, low, at one end.
+        let start = level.rooms.first().map_or(Vec3::ZERO, |r| {
+            let (lo, hi) = r.bounds();
+            Vec3::new(lo[0] as f32 + 512.0, hi[1] as f32 - 1024.0, (lo[2] + hi[2]) as f32 / 2.0)
+        });
+        rrt::tracing::info!("database {db}: {} rooms, {} triangles", level.rooms.len(), triangles.len() / 3);
+        Ok(Scene { vram, triangles, start })
+    }
+
+    fn renderer(&self, device: &rrt::wgpu::Device, queue: &rrt::wgpu::Queue, format: rrt::wgpu::TextureFormat) -> Renderer {
+        let mut r = Renderer::new(device, queue, format, &self.vram, &self.triangles);
+        r.clear = [64, 64, 80];
+        r
+    }
+
+    fn shot(&self, width: u32, height: u32, mvp: Mat4) -> Result<Vec<u8>, String> {
+        let gpu = Gpu::headless().map_err(|e| e.to_string())?;
+        let target = Target::new(&gpu.device, width, height);
+        let mut renderer = self.renderer(&gpu.device, &gpu.queue, Target::FORMAT);
+        let cmd = renderer.draw(&gpu.device, &gpu.queue, &target.view, (width, height), mvp);
+        gpu.queue.submit([cmd]);
+        Ok(target.read_back(&gpu).rgba)
+    }
+}
+
+fn parse_list(s: &str) -> Option<Vec<f32>> {
+    s.split(',').map(|v| v.trim().parse().ok()).collect()
+}
+
+struct Viewer {
+    scene: Scene,
+    renderer: Option<Renderer>,
+    camera: Camera,
+    keys: HashSet<KeyCode>,
+}
+
+impl Game for Viewer {
+    fn init(&mut self, ctx: &mut Init<'_>) {
+        self.renderer = Some(self.scene.renderer(&ctx.gpu.device, &ctx.gpu.queue, ctx.plain_format));
+    }
+
+    fn event(&mut self, event: &WindowEvent) -> bool {
+        if let WindowEvent::KeyboardInput { event, .. } = event
+            && let PhysicalKey::Code(k) = event.physical_key
+        {
+            if event.state == ElementState::Pressed {
+                if k == KeyCode::KeyP {
+                    let c = &self.camera;
+                    rrt::tracing::info!("--at {:.0},{:.0},{:.0} --look {:.3},{:.3}", c.pos.x, c.pos.y, c.pos.z, c.yaw, c.pitch);
+                }
+                self.keys.insert(k);
+            } else {
+                self.keys.remove(&k);
+            }
+        }
+        false
+    }
+
+    fn tick(&mut self, t: &mut Tick) {
+        let dt = t.dt.as_secs_f32();
+        let pad = t.pad;
+        let held = |k: KeyCode| self.keys.contains(&k);
+        let axis = |b: u8| {
+            let v = (b as f32 - 128.0) / 127.5;
+            if v.abs() < 0.15 { 0.0 } else { v }
+        };
+        let fast = held(KeyCode::ShiftLeft) || pad.held(Buttons::R1);
+        let speed = if fast { 8000.0 } else { 2000.0 } * dt;
+        let mut fwd = -axis(pad.left.y);
+        let mut side = axis(pad.left.x);
+        let mut up = 0.0;
+        for (k, f, s, u) in [
+            (KeyCode::KeyW, 1.0, 0.0, 0.0),
+            (KeyCode::KeyS, -1.0, 0.0, 0.0),
+            (KeyCode::KeyD, 0.0, 1.0, 0.0),
+            (KeyCode::KeyA, 0.0, -1.0, 0.0),
+            (KeyCode::KeyR, 0.0, 0.0, 1.0),
+            (KeyCode::KeyF, 0.0, 0.0, -1.0),
+        ] {
+            if held(k) {
+                fwd += f;
+                side += s;
+                up += u;
+            }
+        }
+        if pad.held(Buttons::R2) {
+            up += 1.0;
+        }
+        if pad.held(Buttons::L2) {
+            up -= 1.0;
+        }
+        let mut turn = axis(pad.right.x) * 2.0;
+        let mut tilt = -axis(pad.right.y) * 1.5;
+        for (k, tu, ti) in [
+            (KeyCode::ArrowLeft, -1.5, 0.0),
+            (KeyCode::ArrowRight, 1.5, 0.0),
+            (KeyCode::ArrowUp, 0.0, 1.0),
+            (KeyCode::ArrowDown, 0.0, -1.0),
+        ] {
+            if held(k) {
+                turn += tu;
+                tilt += ti;
+            }
+        }
+        let c = &mut self.camera;
+        c.yaw += turn * dt;
+        c.pitch = (c.pitch + tilt * dt).clamp(-1.5, 1.5);
+        let right = Vec3::new(-c.yaw.sin(), 0.0, c.yaw.cos());
+        c.pos += (c.forward() * fwd + right * side + Vec3::NEG_Y * up) * speed;
+    }
+
+    fn draw(&mut self, d: &mut Draw<'_>) {
+        let Some(renderer) = &mut self.renderer else { return };
+        let size = (d.width, d.height);
+        let mvp = self.camera.matrix(size.0 as f32 / size.1 as f32);
+        let cmd = renderer.draw(&d.gpu.device, &d.gpu.queue, d.plain, size, mvp);
+        d.submit(cmd);
+    }
+}
+
+fn run() -> Result<(), String> {
+    let mut args = std::env::args().skip(1);
+    let (mut db, mut cue, mut at, mut look, mut out) = (22usize, None::<PathBuf>, None, None, None::<PathBuf>);
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--cue" => cue = args.next().map(PathBuf::from),
+            "--at" => at = args.next().and_then(|s| parse_list(&s)),
+            "--look" => look = args.next().and_then(|s| parse_list(&s)),
+            "--shot" => out = args.next().map(PathBuf::from),
+            n if !n.starts_with('-') => db = n.parse().map_err(|_| format!("{n}: not a database number"))?,
+            _ => return Err("usage: rugrats-viewer DB [--cue DISC.cue] [--at X,Y,Z] [--look YAW,PITCH] [--shot OUT.png]".into()),
+        }
+    }
+    let cue = match cue {
+        Some(c) => c,
+        None => rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?,
+    };
+    let scene = Scene::load(&GameDisc::open(&cue)?, db)?;
+    let mut camera = Camera { pos: scene.start, yaw: 0.0, pitch: 0.0 };
+    if let Some(p) = at.filter(|p| p.len() == 3) {
+        camera.pos = Vec3::new(p[0], p[1], p[2]);
+    }
+    if let Some(l) = look.filter(|l| l.len() == 2) {
+        camera.yaw = l[0];
+        camera.pitch = l[1];
+    }
+    if let Some(out) = out {
+        let (w, h) = (1280, 960);
+        let rgba = scene.shot(w, h, camera.matrix(w as f32 / h as f32))?;
+        std::fs::write(&out, rrt::image::png::encode(w, h, &rgba)).map_err(|e| e.to_string())?;
+        rrt::tracing::info!("-> {}", out.display());
+        return Ok(());
+    }
+    let config = Config::default().title("rugrats-viewer").size((1280, 960)).hz(60.0);
+    rrt::app::run(config, Viewer { scene, renderer: None, camera, keys: Default::default() }).map_err(|e| e.to_string())
+}
+
+fn main() {
+    rrt::app::init_logging(&Config::default().log);
+    if let Err(e) = run() {
+        rrt::tracing::error!("{e}");
+        std::process::exit(1);
+    }
+}

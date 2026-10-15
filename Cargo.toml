@@ -11,6 +11,7 @@ publish = false
 rugrats-psx = { path = "crates/rugrats-psx" }
 rugrats-data = { path = "crates/rugrats-data" }
 rugrats-hle = { path = "crates/rugrats-hle" }
+rugrats-render = { path = "crates/rugrats-render" }
 # The shared runtime for the ports: the disc, the window and loop, the pad,
 # wgpu, audio, pictures. Data crates take only the features they use.
 rrt = { git = "https://github.com/Toyz/retro_rt", default-features = false }

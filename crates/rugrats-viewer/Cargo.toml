@@ -1,0 +1,13 @@
+[package]
+name = "rugrats-viewer"
+version = "0.1.0"
+description = "Fly around a database's rooms as the game's data describes them, textured through VRAM the way the PlayStation does."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rugrats = { path = "../rugrats" }
+rugrats-data.workspace = true
+rugrats-render.workspace = true
+rrt = { workspace = true, features = ["app", "disc", "gpu"] }

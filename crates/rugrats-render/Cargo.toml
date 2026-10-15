@@ -1,0 +1,12 @@
+[package]
+name = "rugrats-render"
+version = "0.1.0"
+description = "Draws the game's rooms and models with wgpu, texturing through a copy of VRAM the way the PlayStation does."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rugrats-data.workspace = true
+rrt = { workspace = true, features = ["disc", "gpu"] }
+tracing.workspace = true

@@ -6,6 +6,7 @@ use std::path::Path;
 
 use rugrats::disc::GameDisc;
 use rugrats::input::{self, Pads};
+use rugrats::levels::Level;
 use rugrats::save::progress::Progress;
 use rugrats::world::game::Game;
 
@@ -29,8 +30,8 @@ fn run(g: &mut Game, steps: &[(&[usize], usize)], mut each: impl FnMut(&mut Game
     }
 }
 
-fn open(disc: &GameDisc, level: usize) -> Game {
-    Game::open_from(disc, level, None, &Progress::default()).unwrap()
+fn open(disc: &GameDisc, level: u8) -> Game {
+    Game::open_from(disc, Level(level), None, &Progress::default()).unwrap()
 }
 
 fn put(g: &mut Game, at: [i32; 3], heading: i32) {
@@ -54,7 +55,7 @@ fn level_13_race_reaches_its_goal() {
 #[test]
 fn hub_doors_lead_to_their_levels() {
     let Some(disc) = disc() else { return };
-    let doors: [([i32; 3], usize); 9] = [
+    let doors: [([i32; 3], u8); 9] = [
         ([16597, -5365, 14246], 11),
         ([34864, -5365, -5324], 5),
         ([22563, -5365, -6729], 13),
@@ -71,7 +72,7 @@ fn hub_doors_lead_to_their_levels() {
         put(&mut g, at, h);
         let mut exit = None;
         run(&mut g, &[(&[], 3), (&[input::TRIANGLE], 1), (&[], 3)], |g, _| exit = exit.or(g.exit.take()));
-        assert_eq!(exit.map(|e| e.level), Some(level), "door at {at:?}");
+        assert_eq!(exit.map(|e| e.level), Some(Level(level)), "door at {at:?}");
     }
 }
 
@@ -93,11 +94,11 @@ fn board_returns_to_level_7() {
     let Some(disc) = disc() else { return };
     let mut p = Progress::default();
     p.set_flags(p.flags() | 512);
-    let mut g = Game::open_from(&disc, 1, None, &p).unwrap();
+    let mut g = Game::open_from(&disc, Level::HUB, None, &p).unwrap();
     put(&mut g, [3103, 779, 1200], 2048);
     let mut exit = None;
     run(&mut g, &[(&[], 3), (&[input::TRIANGLE], 1), (&[], 3)], |g, _| exit = exit.or(g.exit.take()));
-    assert_eq!(exit.map(|e| e.level), Some(7));
+    assert_eq!(exit.map(|e| e.level), Some(Level::REPTAR_2010));
 }
 
 /// Golf holes do not hurt (Damage is dropped in 23-31).

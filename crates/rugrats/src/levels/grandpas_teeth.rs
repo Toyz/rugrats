@@ -131,11 +131,11 @@ impl GrandpasTeeth {
                 }
                 // 0x8007737c case 4: exit 1, the level won.
                 g.won = Some(true);
-                g.exit = Some(Exit::to(crate::world::game::HUB));
+                g.exit = Some(Exit::to(crate::levels::Level::HUB));
             }
             CINE_LOSE => {
                 g.won = Some(false);
-                g.exit = Some(Exit::to(crate::world::game::HUB));
+                g.exit = Some(Exit::to(crate::levels::Level::HUB));
             }
             _ => {}
         }
@@ -272,7 +272,7 @@ impl GrandpasTeeth {
                 g.timer = None;
                 g.cine = Some(CINE_LOSE);
             } else {
-                g.exit = Some(Exit::to(crate::world::game::HUB));
+                g.exit = Some(Exit::to(crate::levels::Level::HUB));
             }
             return;
         }

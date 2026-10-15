@@ -5,12 +5,12 @@ use super::*;
 /// What a character says when a thrown thing hits it (0x800511a8): Angelica
 /// (3) 556 or 557, char 10 1065, char 11 1076 or 1079, Chuckie (2) 185 in
 /// level 2.
-pub fn hit_line(character: usize, level: usize, r: u32) -> Option<u16> {
+pub fn hit_line(character: usize, level: Level, r: u32) -> Option<u16> {
     match character {
         3 => Some(if r != 0 { 556 } else { 557 }),
         10 => Some(1065),
         11 => Some(if r != 0 { 1076 } else { 1079 }),
-        2 if level == 2 => Some(185),
+        2 if level == Level::GRANDPAS_TEETH => Some(185),
         _ => None,
     }
 }
@@ -51,8 +51,8 @@ pub(super) const CRY_TIME: i32 = 2100;
 pub(super) const REPTAR_DANCE: usize = 85;
 
 /// A level's start cinematic (0x80074958).
-pub fn start_cine(level: usize) -> Option<usize> {
-    Some(match level {
+pub fn start_cine(level: Level) -> Option<usize> {
+    Some(match level.0 {
         1 => 7,
         2 => 1,
         3 => 2,
@@ -112,8 +112,8 @@ impl Game {
         if self.tries > 0 {
             self.tries -= 1;
             if self.tries == 0 {
-                if !matches!(self.level, 1 | 20 | 21) {
-                    self.exit = Some(Exit::to(HUB));
+                if !matches!(self.level, Level::HUB | Level::NO_MORE_COOKIES | Level::TOUCHDOWN_TOMMY) {
+                    self.exit = Some(Exit::to(Level::HUB));
                 }
                 return;
             }
@@ -139,7 +139,7 @@ impl Game {
         match ENDINGS.iter().find(|e| e.0 == n) {
             Some(&(_, won)) => {
                 self.won = Some(won);
-                self.exit = Some(Exit::to(HUB));
+                self.exit = Some(Exit::to(Level::HUB));
             }
             // The end (0x8007737c case 84): exit -1, the credits.
             None if n == REPTAR_DANCE => self.ending = true,

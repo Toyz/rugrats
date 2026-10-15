@@ -14,6 +14,7 @@
 //! +0xc8  u32[32] bars spent
 //! ```
 
+use crate::levels::Level;
 use crate::rand::Rand;
 use crate::save::card::STATE_SIZE;
 
@@ -25,7 +26,7 @@ pub struct Finish {
     /// A puzzle piece given: the puzzle screen shows.
     pub piece: bool,
     /// The level that starts next (SwitchEpisode), instead of the exit's.
-    pub next: Option<usize>,
+    pub next: Option<Level>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,16 +72,24 @@ impl Progress {
     }
 
     /// Whether bar `n` of `level` was found (+0x48).
-    pub fn bar_found(&self, level: usize, n: usize) -> bool {
-        level < 32 && n < 32 && self.u32(0x48 + 4 * level) >> n & 1 != 0
+    pub fn bar_found(&self, level: Level, n: usize) -> bool {
+        n < 32 && self.bars(level) >> n & 1 != 0
     }
 
     /// Bar `n` of `level` found (0x80094a58).
-    pub fn find_bar(&mut self, level: usize, n: usize) {
-        if level < 32 && n < 32 {
-            let w = self.u32(0x48 + 4 * level) | 1 << n;
-            self.set_u32(0x48 + 4 * level, w);
+    pub fn find_bar(&mut self, level: Level, n: usize) {
+        if n < 32 {
+            self.set_bars(level, self.bars(level) | 1 << n);
         }
+    }
+
+    /// The bars found in `level` (+0x48), a bit a bar.
+    fn bars(&self, level: Level) -> u32 {
+        self.u32(0x48 + 4 * level.index())
+    }
+
+    fn set_bars(&mut self, level: Level, w: u32) {
+        self.set_u32(0x48 + 4 * level.index(), w);
     }
 
     /// Bars found less bars spent (0x80094a0c).
@@ -90,26 +99,24 @@ impl Progress {
     }
 
     /// Level `level` played (+0x34) and the levels moved on.
-    pub fn enter(&mut self, level: usize) {
+    pub fn enter(&mut self, level: Level) {
         let now = self.u32(0x00);
         self.set_u32(0x04, now);
-        self.set_u32(0x00, level as u32);
-        if level < 32 {
-            let w = self.u32(0x34) | 1 << level;
-            self.set_u32(0x34, w);
-        }
+        self.set_u32(0x00, level.0 as u32);
+        let w = self.u32(0x34) | level.bit();
+        self.set_u32(0x34, w);
     }
 
     /// Level `level` finished (0x80076d6c): played (+0x34), and when won
     /// the bonus bars, the level's puzzle piece, and the first completion
     /// (+0x38; levels 2-6 and 8-12 count to +0x22, the 2nd, 3rd, 5th and
     /// 7th leading to a bonus level). Nothing is kept in activity play.
-    pub fn finish(&mut self, level: usize, won: bool, rand: &mut Rand) -> Finish {
+    pub fn finish(&mut self, level: Level, won: bool, rand: &mut Rand) -> Finish {
         let mut f = Finish::default();
-        if level >= 32 || self.activity() {
+        if self.activity() {
             return f;
         }
-        let played = self.u32(0x34) | 1 << level;
+        let played = self.u32(0x34) | level.bit();
         self.set_u32(0x34, played);
         if !won {
             return f;
@@ -118,14 +125,14 @@ impl Progress {
         // levels give for a perfect run (0x80076ba8 and friends) is not
         // kept yet.
         let bars = match level {
-            13 | 18 if self.won(level) => 0,
-            13 | 14 => 2,
-            17 | 18 | 20 | 21 => 3,
+            Level::COOKIE_RACE | Level::EGG_HUNT if self.won(level) => 0,
+            Level::COOKIE_RACE | Level::RETURN_OF_MR_FRIEND => 2,
+            Level::GOLD_RUSH | Level::EGG_HUNT | Level::NO_MORE_COOKIES | Level::TOUCHDOWN_TOMMY => 3,
             _ => 0,
         };
         if bars > 0 {
-            let w = (0..bars).fold(self.u32(0x48 + 4 * level), |w, k| w | 1 << (31 - k));
-            self.set_u32(0x48 + 4 * level, w);
+            let w = (0..bars).fold(self.bars(level), |w, k| w | 1 << (31 - k));
+            self.set_bars(level, w);
             f.bars = bars;
         }
         let mut all_placed = false;
@@ -135,16 +142,16 @@ impl Progress {
         }
         if all_placed && self.flags() & 512 == 0 {
             self.complete(level);
-            f.next = Some(7);
+            f.next = Some(Level::REPTAR_2010);
         } else if !self.won(level) {
             self.complete(level);
-            if matches!(level, 2..=6 | 8..=12) {
+            if level.is_episode() {
                 self.block[0x22] = self.block[0x22].wrapping_add(1);
                 let next = match self.block[0x22] {
-                    2 => Some(20),
-                    3 => Some(15),
-                    5 => Some(21),
-                    7 => Some(17),
+                    2 => Some(Level::NO_MORE_COOKIES),
+                    3 => Some(Level::MIRRORLAND),
+                    5 => Some(Level::TOUCHDOWN_TOMMY),
+                    7 => Some(Level::GOLD_RUSH),
                     _ => None,
                 };
                 if next.is_some() {
@@ -153,15 +160,15 @@ impl Progress {
                 }
             }
         }
-        if level == 15 {
+        if level == Level::MIRRORLAND {
             self.set_u32(0x30, self.flags() | 16);
-            f.next = Some(1);
+            f.next = Some(Level::HUB);
         }
         f
     }
 
-    fn complete(&mut self, level: usize) {
-        let done = self.u32(0x38) | 1 << level;
+    fn complete(&mut self, level: Level) {
+        let done = self.u32(0x38) | level.bit();
         self.set_u32(0x38, done);
     }
 
@@ -266,21 +273,21 @@ impl Progress {
 
     /// Whether `level`'s own piece was given (0x80094bc0: level 25 reads
     /// as 8).
-    pub fn piece_given(&self, level: usize) -> bool {
-        let level = if level == 25 { 8 } else { level };
-        matches!(level, 1..=6 | 8..=12 | 15) && self.u32(0x40) >> level & 1 != 0
+    pub fn piece_given(&self, level: Level) -> bool {
+        let level = level.record();
+        level.has_piece() && self.u32(0x40) & level.bit() != 0
     }
 
     /// The pieces a finished level gives (0x80094bfc): one bought with
     /// bars, and the level's own (levels 1-6, 8-12 and 15, 0x800919b4)
     /// once (+0x40). Whether the puzzle screen shows.
-    pub fn give_piece(&mut self, level: usize, rand: &mut Rand) -> bool {
+    pub fn give_piece(&mut self, level: Level, rand: &mut Rand) -> bool {
         if self.pieces() >= 12 {
             return false;
         }
         let mut given = self.buy_piece(rand);
-        if matches!(level, 1..=6 | 8..=12 | 15) && self.u32(0x40) >> level & 1 == 0 {
-            let w = self.u32(0x40) | 1 << level;
+        if level.has_piece() && self.u32(0x40) & level.bit() == 0 {
+            let w = self.u32(0x40) | level.bit();
             self.set_u32(0x40, w);
             self.award_piece(rand);
             given = true;
@@ -289,13 +296,13 @@ impl Progress {
     }
 
     /// Whether level `level` was won (+0x38).
-    pub fn won(&self, level: usize) -> bool {
-        level < 32 && self.u32(0x38) >> level & 1 != 0
+    pub fn won(&self, level: Level) -> bool {
+        self.u32(0x38) & level.bit() != 0
     }
 
     /// The level saved in (+0x00).
-    pub fn level(&self) -> usize {
-        self.u32(0x00).clamp(1, 31) as usize
+    pub fn level(&self) -> Level {
+        Level(self.u32(0x00).clamp(1, 31) as u8)
     }
 
     /// Pieces earned (0x80094b8c).

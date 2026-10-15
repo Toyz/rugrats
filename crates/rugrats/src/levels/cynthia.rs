@@ -168,7 +168,7 @@ impl crate::world::game::Script for Cynthia {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some(Exit::to(crate::world::game::HUB));
+            g.exit = Some(Exit::to(crate::levels::Level::HUB));
             return true;
         }
         if self.phase == 4 {

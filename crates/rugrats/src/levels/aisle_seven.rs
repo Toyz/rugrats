@@ -12,6 +12,7 @@ use crate::actors::npc::{Event, Mode, Target};
 use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
+use crate::levels::Level;
 use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
 use crate::world::game::{Exit, Game, Strike};
 
@@ -157,7 +158,7 @@ impl AisleSeven {
             // ForceCry at once (phase 1: no cry): a try gone.
             g.tries -= 1;
             if g.tries <= 0 {
-                g.exit = Some(Exit::to(crate::world::game::HUB));
+                g.exit = Some(Exit::to(crate::levels::Level::HUB));
             }
         }
     }
@@ -216,7 +217,7 @@ impl AisleSeven {
             // The one hit says so (0x800511a8: Larry 1065, Steve 1076 /
             // 1079).
             let r = g.rand.next() & 1;
-            g.speech.extend(crate::world::game::hit_line(g.npcs[hit].character, 3, r));
+            g.speech.extend(crate::world::game::hit_line(g.npcs[hit].character, Level::AISLE_SEVEN, r));
             let mut left = TOSS_HEALTH;
             for id in [LARRY, STEVE] {
                 if let Some(k) = find(g, id) {
@@ -333,7 +334,7 @@ impl crate::world::game::Script for AisleSeven {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some(Exit::to(crate::world::game::HUB));
+            g.exit = Some(Exit::to(crate::levels::Level::HUB));
             return true;
         }
         if self.phase == 3 {

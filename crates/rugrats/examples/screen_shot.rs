@@ -42,12 +42,12 @@ fn main() -> Result<(), String> {
             press: true,
         }],
         None if std::env::var("LOADING").is_ok() => {
-            let l = std::env::var("LOADING").unwrap().parse().unwrap_or(2);
+            let l = rugrats::levels::Level(std::env::var("LOADING").unwrap().parse().unwrap_or(2));
             vec![message::loading(&disc, l, false, false)]
         }
         None => vec![message::piece(&disc), Page::Board],
     };
-    let level = rugrats::world::game::Game::open(&disc, 2)?;
+    let level = rugrats::world::game::Game::open(&disc, rugrats::levels::Level::GRANDPAS_TEETH)?;
     let mut screen = Screen::open(&disc, pages, 2, earned, placed, Some(&level.stage.vram))?;
     let mut rand = rugrats::rand::Rand::default();
     let gpu = Gpu::headless().map_err(|e| e.to_string())?;

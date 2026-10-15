@@ -13,6 +13,7 @@ pub use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::gte::Trig;
 use crate::input::{self, Pads};
+pub use crate::levels::Level;
 use crate::media::cine::Set;
 use crate::stage::Stage;
 
@@ -63,31 +64,17 @@ const FOV: i32 = 612;
 /// database's number 1 (0x800450ac).
 const TOMMY: usize = 1;
 
-/// The playable character by level (0x80018598): Spike in levels 4 and
-/// 11, else Tommy.
-fn player_character(level: usize) -> usize {
-    match level {
-        4 | 11 => 6,
-        5 => 3,
-        7 => 9,
-        6 | 10 => 2,
-        17 => 5,
-        _ => TOMMY,
-    }
-}
-
-/// A level's own play (its EpisodeStart callback and the level cases of
 /// Where a level ends (the exit code, 0x800c4918): a level to go to,
 /// and a cinematic to play first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Exit {
-    pub level: usize,
+    pub level: Level,
     pub cine: Option<usize>,
 }
 
 impl Exit {
     /// Straight to `level`.
-    pub fn to(level: usize) -> Exit {
+    pub fn to(level: Level) -> Exit {
         Exit { level, cine: None }
     }
 }
@@ -107,6 +94,7 @@ impl Effect {
     }
 }
 
+/// A level's own play (its EpisodeStart callback and the level cases of
 /// the event handlers).
 pub trait Script {
     /// One frame, after the player and the NPCs moved.
@@ -152,7 +140,7 @@ pub trait Script {
 }
 
 pub struct Game {
-    pub level: usize,
+    pub level: Level,
     pub set: Set,
     pub col: Col,
     pub anims: Anims,
@@ -262,7 +250,7 @@ pub struct Game {
     /// The level timer (0x800c4430, dt left), set by a level.
     pub timer: Option<i32>,
     /// The level a finish is recorded for (golf records level 8).
-    pub record: usize,
+    pub record: Level,
     /// The puzzle board asked for (its object's use, 0x8004d3f0).
     pub board: bool,
     /// The last frame's camera: eye and world-to-camera rows; frames run.
@@ -349,9 +337,6 @@ const USE_REACH: i32 = 1500;
 
 const USE_REACH_Y: i32 = 1500;
 
-/// The hub, Pickles' home.
-pub const HUB: usize = 1;
-
 /// The pie (template 564) and training's box (1016) for the messages.
 const PIE: u16 = 564;
 
@@ -369,7 +354,7 @@ impl Game {
         self.effects.push(Effect::new(sound));
     }
 
-    pub fn open(disc: &GameDisc, level: usize) -> Result<Game, String> {
+    pub fn open(disc: &GameDisc, level: Level) -> Result<Game, String> {
         Game::open_from(disc, level, None, &crate::save::progress::Progress::default())
     }
 
@@ -378,21 +363,22 @@ impl Game {
     /// EpisodeStart callback (0x80078e7c) puts it, unless from training.
     pub fn open_from(
         disc: &GameDisc,
-        level: usize,
-        from: Option<usize>,
+        level: Level,
+        from: Option<Level>,
         progress: &crate::save::progress::Progress,
     ) -> Result<Game, String> {
-        let who = player_character(level);
+        let who = level.character();
+        let db = level.index();
         // Level 12's Tommy is hierarchy 44 (0x8005981c).
-        let body = if level == 12 { 44 } else { who };
-        let set = Set::load(disc, level)?;
-        let col = Col::parse(&disc.file(COL + level)?)?;
-        let anims = Anims::parse(&disc.file(ANM + level)?, &disc.file(FRM + level)?, &disc.file(ROT + level)?)
+        let body = if level == Level::LET_THERE_BE_LIGHT { 44 } else { who };
+        let set = Set::load(disc, db)?;
+        let col = Col::parse(&disc.file(COL + db)?)?;
+        let anims = Anims::parse(&disc.file(ANM + db)?, &disc.file(FRM + db)?, &disc.file(ROT + db)?)
             .map_err(|e| e.to_string())?;
         let trig = Trig::load(disc)?;
-        let start = disc.exe_bytes(STARTS + 16 * level as u32, 12)?;
+        let start = disc.exe_bytes(STARTS + 16 * db as u32, 12)?;
         let start = [0, 4, 8].map(|k| i32::from_le_bytes(start[k..k + 4].try_into().unwrap()));
-        let angles = disc.exe_bytes(START_ANGLES + 8 * level as u32, 2)?;
+        let angles = disc.exe_bytes(START_ANGLES + 8 * db as u32, 2)?;
         let heading = u16::from_le_bytes([angles[0], angles[1]]) as i32 & 4095;
         // The placements loader (0x800454dc) moves the player onto the LP
         // record whose template is the character's hierarchy, turned by
@@ -408,9 +394,9 @@ impl Game {
             }
             None => (start, heading),
         };
-        let start = match from.filter(|&f| level == HUB && f != HUB && f != 16) {
+        let start = match from.filter(|&f| level == Level::HUB && f != Level::HUB && f != Level::TRAINING) {
             Some(f) => {
-                let b = disc.exe_bytes(0x800b_8718 + 16 * f as u32, 12)?;
+                let b = disc.exe_bytes(0x800b_8718 + 16 * f.index() as u32, 12)?;
                 let spot = [0, 4, 8].map(|k| i32::from_le_bytes(b[k..k + 4].try_into().unwrap()));
                 if spot == [0; 3] { start } else { spot }
             }
@@ -481,7 +467,7 @@ impl Game {
         // (0x80045e08).
         let mut spots: Vec<rugrats_data::placement::Spot> =
             set.placements.iter().filter_map(rugrats_data::placement::Spot::of).collect();
-        if level == 4 {
+        if level == Level::CYNTHIA {
             if let Some(s) = spots.get_mut(1) {
                 s.pos[1] = 900;
             }
@@ -690,7 +676,7 @@ impl Game {
             }
             let Some(h) = set.templates.get(p.template as usize).and_then(|t| t.hierarchy()) else { continue };
             // Level 12's Spike is hierarchy 45 (0x80048284).
-            let h = if level == 12 && h == 6 { 45 } else { h };
+            let h = if level == Level::LET_THERE_BE_LIGHT && h == 6 { 45 } else { h };
             let Some(Some(hierarchy)) = set.hierarchies.get(h).cloned() else { continue };
             let mut animator = crate::actors::animator::Animator::load(disc, h as u16)?;
             animator.set(crate::actors::player::anim::IDLE, &anims);
@@ -753,11 +739,11 @@ impl Game {
             exit: None,
             cine: None,
             checkpoint: None,
-            tries: disc.exe_bytes(TRIES + level as u32, 1).map_or(3, |b| b[0] as i8 as i32),
+            tries: disc.exe_bytes(TRIES + db as u32, 1).map_or(3, |b| b[0] as i8 as i32),
             crying: 0,
             script: None,
             won: None,
-            sprites: crate::ui::hud::Sprites::load(disc, level).ok(),
+            sprites: crate::ui::hud::Sprites::load(disc, db).ok(),
             meter_shown: 0,
             meter_health: 255,
             boxes,
@@ -795,7 +781,7 @@ impl Game {
             walkers,
             fixed: None,
             eye_up: default_eye_up(level),
-            behind: if level == 7 { 6400.0 } else { BEHIND },
+            behind: if level == Level::REPTAR_2010 { 6400.0 } else { BEHIND },
             post_camera: None,
             hazards: Vec::new(),
             hurt_wait: 0,
@@ -814,16 +800,16 @@ impl Game {
             flags: progress.flags(),
             training: crate::ui::tips::Training::load(disc, level),
             speech: Vec::new(),
-            lines: crate::audio::speech::Speech::load(disc, level),
+            lines: crate::audio::speech::Speech::load(disc, db),
             talkers: Vec::new(),
             ambience: crate::audio::ambience::setup(level).0,
             ambience_first: crate::audio::ambience::setup(level).1,
             ambience_lines: std::rc::Rc::new(crate::audio::ambience::Tables::load(disc)),
             // Damage is dropped in levels 1, 11, 17 and 23-31 (0x800780d8).
-            no_damage: matches!(level, 1 | 11 | 17 | 23..=31),
+            no_damage: level.no_damage(),
             cam_hold: false,
             shaft: false,
-            won_levels: (0..32).filter(|&l| progress.won(l)).fold(0, |a, l| a | 1 << l),
+            won_levels: (0..32).map(Level).filter(|&l| progress.won(l)).fold(0, |a, l| a | l.bit()),
             pieces: progress.pieces(),
             strokes: None,
         };
@@ -927,10 +913,10 @@ impl Game {
                 // Quit Level: to Pickles' Home, or the front end from the
                 // hub and training (0x800398bc).
                 Some(PauseEnd::QuitLevel) => {
-                    if matches!(self.level, HUB | 16) {
+                    if matches!(self.level, Level::HUB | Level::TRAINING) {
                         self.quit = true;
                     } else {
-                        self.exit = Some(Exit::to(HUB));
+                        self.exit = Some(Exit::to(Level::HUB));
                     }
                 }
                 None => {}
@@ -1037,7 +1023,7 @@ impl Game {
         self.player.frame(pads, self.yaw.round() as i32, &self.col, &boxes, &self.anims, &self.trig);
         for n in std::mem::take(&mut self.player.hints) {
             // The slip's start (state 3, 0x8005b3c4): speech 212 in level 16.
-            if n == 32 && self.level == 16 {
+            if n == 32 && self.level == Level::TRAINING {
                 self.speech.push(212);
             }
             self.training.show(n as usize);
@@ -1071,8 +1057,9 @@ impl Game {
             if let Some(d) = hint {
                 self.training.show(if EPISODE_OBJECTS.contains(&d.template) { 34 } else { 33 });
             }
-            let training_object =
-                |d: &rugrats_data::placement::Placement| self.level == 16 && EPISODE_OBJECTS.contains(&d.template);
+            let training_object = |d: &rugrats_data::placement::Placement| {
+                self.level == Level::TRAINING && EPISODE_OBJECTS.contains(&d.template)
+            };
             let mirror = |d: &rugrats_data::placement::Placement| matches!(d.template, MIRROR_A | MIRROR_B);
             let flag16 = self.flags & 16 != 0;
             let cine_of = |d: &rugrats_data::placement::Placement| match (d.cine, d.template) {
@@ -1114,18 +1101,19 @@ impl Game {
                 if d.template == BOARD_OBJECT && self.flags & 512 != 0 {
                     // 0x8004d3f0: once Reptar 2010 has begun (+0x30 bit
                     // 512), the board goes back to it.
-                    self.exit = Some(Exit::to(7));
+                    self.exit = Some(Exit::to(Level::REPTAR_2010));
                 } else if d.template == BOARD_OBJECT {
                     self.board = true;
                 } else if mirror(&d) {
                     // The mirror (0x800478bc): Mirrorland, with bit 16.
-                    self.exit = Some(Exit { level: 15, cine: (d.cine > 0).then_some(d.cine as usize) });
+                    self.exit = Some(Exit { level: Level::MIRRORLAND, cine: (d.cine > 0).then_some(d.cine as usize) });
                 } else if d.level > 0 && matches!(d.level, 3 | 4 | 6) && !flag16 {
                     // 0x8004f78c: "you'll need more puzzle pieces" (HINT41).
                     self.card = Some(LOCKED_CARD);
                 } else if d.level > 0 {
                     rrt::tracing::info!("level {}: a door to level {} (cine {})", self.level, d.level, d.cine);
-                    self.exit = Some(Exit { level: d.level as usize, cine: (d.cine > 0).then_some(d.cine as usize) });
+                    self.exit =
+                        Some(Exit { level: Level(d.level as u8), cine: (d.cine > 0).then_some(d.cine as usize) });
                 } else {
                     rrt::tracing::info!("level {}: object {} plays cine {}", self.level, d.id, cine_of(&d));
                     self.cine = Some(cine_of(&d));
@@ -1266,7 +1254,7 @@ impl Game {
             }
         }
         // Level 15's balloons (kinds 6-11) are sprites its script draws.
-        let sprites_only = |g: &&Goodie| self.level == 15 && (6..=11).contains(&g.kind);
+        let sprites_only = |g: &&Goodie| self.level == Level::MIRRORLAND && (6..=11).contains(&g.kind);
         for g in self.goodies.iter().filter(|g| !g.taken).filter(|g| !sprites_only(g)) {
             if let Some(m) = self.set.models.get(g.shape) {
                 rugrats_render::models::model_triangles(m, g.rot, g.pos, &mut moving);
@@ -1280,7 +1268,7 @@ impl Game {
             s.draw(self, &mut moving, &mut overlay);
         }
         // The health meter (levels 2-6, 9, 12, 14, 16: 0x8008c094's switch).
-        if self.meter_shown > 0 && matches!(self.level, 2..=6 | 9 | 12 | 14 | 16) {
+        if self.meter_shown > 0 && self.level.has_meter() {
             if let Some(s) = &self.sprites {
                 crate::ui::hud::meter(s, self.player.health, 255, self.focal, &mut overlay);
             }
@@ -1342,8 +1330,8 @@ impl Game {
                 // and the bars available at (-150, -80); bottom left in
                 // levels 17-18, bottom right in golf.
                 let (icon, text) = match self.level {
-                    17 | 18 => ((-192, 76), (-150, 80)),
-                    23..=31 => ((192, 76), (145, 70)),
+                    Level::GOLD_RUSH | Level::EGG_HUNT => ((-192, 76), (-150, 80)),
+                    l if l.is_hole() => ((192, 76), (145, 70)),
                     _ => ((-192, -76), (-150, -80)),
                 };
                 if let Some(sp) = &self.sprites {

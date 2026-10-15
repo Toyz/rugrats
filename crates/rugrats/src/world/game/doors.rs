@@ -228,7 +228,7 @@ impl Game {
                 })
         });
         let Some(k) = touched else { return false };
-        let level16 = self.level == 16;
+        let level16 = self.level == Level::TRAINING;
         let hp = self.player.heading;
         let d = &mut self.doors[k];
         if d.moving {

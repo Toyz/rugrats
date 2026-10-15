@@ -8,6 +8,7 @@ use rrt::glam::Vec3;
 use crate::actors::npc::{Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::Pads;
+use crate::levels::Level;
 use crate::world::game::{Game, ThingState};
 
 /// Hidden at every start: cine 7's end hook (0x800732d4 case 7, also
@@ -35,8 +36,8 @@ const DOORWAYS: [usize; 2] = [35, 36];
 /// mirror only with +0x30 bit 16.
 const SIGN_REACH: i64 = 2500;
 const MIRRORS: [u32; 2] = [836, 881];
-const HARD: [i16; 3] = [3, 4, 6];
-const MEDIUM: [i16; 4] = [2, 5, 11, 12];
+const HARD: [Level; 3] = [Level::AISLE_SEVEN, Level::CYNTHIA, Level::TOY_PALACE];
+const MEDIUM: [Level; 4] = [Level::GRANDPAS_TEETH, Level::OUTER_SPACE, Level::CIRCUS, Level::LET_THERE_BE_LIGHT];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Spike {
@@ -231,10 +232,10 @@ impl crate::world::game::Script for Hub {
         let mut drawn = Vec::new();
         for (k, d) in g.set.placements.iter().enumerate() {
             let mirror = MIRRORS.contains(&d.template);
-            let level = if mirror { 15 } else { d.level };
-            if d.kind != 1 || level <= 0 || (mirror && !flag16) || g.is_hidden(d.id) {
+            if d.kind != 1 || (!mirror && d.level <= 0) || (mirror && !flag16) || g.is_hidden(d.id) {
                 continue;
             }
+            let level = if mirror { Level::MIRRORLAND } else { Level(d.level as u8) };
             let pos = g
                 .things
                 .iter()
@@ -255,9 +256,8 @@ impl crate::world::game::Script for Hub {
             } else {
                 (&self.words[0], [0, 255, 0])
             };
-            let record = if level == 25 { 8 } else { level as usize };
-            let name_rgb = if g.won_levels >> record & 1 != 0 { [0, 255, 255] } else { [255, 255, 255] };
-            let name = self.names.get(level as usize).cloned().unwrap_or_default();
+            let name_rgb = if g.won_levels & level.record().bit() != 0 { [0, 255, 255] } else { [255, 255, 255] };
+            let name = self.names.get(level.index()).cloned().unwrap_or_default();
             for (text, y, rgb) in [(word.clone(), 62, rgb), (name, 80, name_rgb)] {
                 let mut t =
                     crate::ui::text::Text { font: 0, spacing: 1, rgb, x: 0, y, string: text, ..Default::default() };

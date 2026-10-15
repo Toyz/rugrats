@@ -3,6 +3,7 @@
 //! runs out. Speech only; nothing that changes play.
 
 use crate::actors::npc::Mode;
+use crate::levels::Level;
 use crate::world::game::Game;
 
 /// The line tables (s16 each) the callbacks pick from.
@@ -57,8 +58,8 @@ impl Tables {
 
 /// The setup's countdown (0x800b9598: 0x80080308 900, 0x80080318 300
 /// and the first-line flag).
-pub fn setup(level: usize) -> (i32, bool) {
-    match level {
+pub fn setup(level: Level) -> (i32, bool) {
+    match level.0 {
         7 | 17 => (300, true),
         2..=6 | 9..=13 | 15 | 16 | 23..=31 => (900, false),
         _ => (0, false),
@@ -83,7 +84,7 @@ pub fn frame(g: &mut Game, t: &Tables, cue: i32) {
             _ => return,
         }
     } else {
-        g.level
+        g.level.0
     };
     let dt = crate::actors::player::DT;
     let say = |g: &mut Game, n: u16| g.speech.push(n);

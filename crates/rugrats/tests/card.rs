@@ -7,6 +7,7 @@ use std::path::Path;
 
 use rrt::emu::psx::machine_with_exe;
 use rrt::emu::{BusExt, PsxExe};
+use rugrats::levels::Level;
 use rugrats::save::card::{self, Art, Save};
 
 fn root() -> &'static Path {
@@ -126,9 +127,9 @@ fn the_empty_save_file_matches_the_originals() {
 #[test]
 fn a_record_round_trips() {
     let mut p = rugrats::save::progress::Progress::default();
-    p.enter(2);
-    p.find_bar(2, 3);
-    p.find_bar(2, 6);
+    p.enter(Level::GRANDPAS_TEETH);
+    p.find_bar(Level::GRANDPAS_TEETH, 3);
+    p.find_bar(Level::GRANDPAS_TEETH, 6);
     let mut save = rugrats::save::card::Save::default();
     save.put_record(1, &p.block);
     assert!(save.check());
@@ -136,7 +137,11 @@ fn a_record_round_trips() {
     assert_eq!(back.record(1), Some(p.block));
     assert_eq!(back.words[3], 1);
     let q = rugrats::save::progress::Progress { block: back.record(1).unwrap() };
-    assert!(q.bar_found(2, 3) && q.bar_found(2, 6) && !q.bar_found(2, 4));
+    assert!(
+        q.bar_found(Level::GRANDPAS_TEETH, 3)
+            && q.bar_found(Level::GRANDPAS_TEETH, 6)
+            && !q.bar_found(Level::GRANDPAS_TEETH, 4)
+    );
     assert_eq!(q.bars_available(), 2);
-    assert_eq!(q.level(), 2);
+    assert_eq!(q.level(), Level::GRANDPAS_TEETH);
 }

@@ -5,6 +5,7 @@
 
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
+use crate::levels::Level;
 
 /// Messages 0-35: strings 237-272 (0x800bb89c).
 const COUNT: usize = 36;
@@ -18,7 +19,7 @@ const RGB: [u8; 3] = [106, 185, 228];
 const SHADOW: [u8; 3] = [1, 1, 1];
 
 pub struct Training {
-    level: usize,
+    level: Level,
     strings: Vec<String>,
     /// Shows left (0x800e7f08) and cooldowns (0x800e7e90), per message.
     left: [u8; COUNT],
@@ -29,8 +30,8 @@ pub struct Training {
 
 impl Training {
     /// 0x80097664: every message once.
-    pub fn load(disc: &GameDisc, level: usize) -> Training {
-        let strings = if matches!(level, 1 | 16) {
+    pub fn load(disc: &GameDisc, level: Level) -> Training {
+        let strings = if matches!(level, Level::HUB | Level::TRAINING) {
             (0..COUNT as u32).map(|n| crate::ui::front::string(disc, FIRST_STRING + n)).collect()
         } else {
             Vec::new()
@@ -41,7 +42,7 @@ impl Training {
     /// 0x80097788: message `n`, in level 16 (level 1: 33 and 35 only),
     /// dropped while another shows.
     pub fn show(&mut self, n: usize) {
-        let allowed = self.level == 16 || (self.level == 1 && matches!(n, 33 | 35));
+        let allowed = self.level == Level::TRAINING || (self.level == Level::HUB && matches!(n, 33 | 35));
         if !allowed || self.showing.is_some() || n >= COUNT {
             return;
         }
@@ -69,7 +70,7 @@ impl Training {
                 } else {
                     *time -= crate::actors::player::DT;
                 }
-                self.level != 1
+                self.level != Level::HUB
             }
             Some(_) => {
                 self.showing = None;
@@ -90,7 +91,7 @@ impl Training {
         let Some(s) = self.showing.and_then(|(n, time)| (time > 0).then(|| self.strings.get(n)).flatten()) else {
             return;
         };
-        let (font, y, down) = if self.level == 1 { (0, -105, false) } else { (1, 0, true) };
+        let (font, y, down) = if self.level == Level::HUB { (0, -105, false) } else { (1, 0, true) };
         let mut t =
             crate::ui::text::Text { font, spacing: 1, rgb: RGB, x: 0, y, string: s.clone(), ..Default::default() };
         fonts.centre(&mut t, true, down);

@@ -137,7 +137,7 @@ impl crate::world::game::Script for GoldRush {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if self.lil || g.tries <= 0 {
-            g.exit = Some(Exit::to(crate::world::game::HUB));
+            g.exit = Some(Exit::to(crate::levels::Level::HUB));
         } else {
             g.cine = Some(CINE_LOST);
         }

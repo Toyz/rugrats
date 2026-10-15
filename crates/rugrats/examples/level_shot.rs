@@ -11,7 +11,7 @@ fn main() -> Result<(), String> {
     let db: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(1);
     let out = a.next().unwrap_or("level.png".into());
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
-    let game = rugrats::world::game::Game::open(&disc, db)?;
+    let game = rugrats::world::game::Game::open(&disc, rugrats::levels::Level(db as u8))?;
     println!("player at {:?}, heading {}", game.player.pos, game.player.heading);
     let mut g2 = game;
     g2.frame(&rugrats::input::Pads::default());

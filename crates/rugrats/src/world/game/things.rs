@@ -158,7 +158,8 @@ impl Game {
             self.training.show(if self.things[k].template == PIE { 27 } else { 6 });
             let throw = pads.pressed(0, input::TRIANGLE) && !self.things[k].keep;
             // GRAB never puts down in levels 5, 20 and 21 (0x8005d11c).
-            let put_down = pads.pressed(0, input::CIRCLE) && !matches!(self.level, 5 | 20 | 21);
+            let put_down = pads.pressed(0, input::CIRCLE)
+                && !matches!(self.level, Level::OUTER_SPACE | Level::NO_MORE_COOKIES | Level::TOUCHDOWN_TOMMY);
             if throw || put_down {
                 // Level 9 aims (0x80061c98): at the nearest visible character
                 // within 512 of the facing, the direction's y -300.

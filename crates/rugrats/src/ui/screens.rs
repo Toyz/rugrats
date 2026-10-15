@@ -9,6 +9,7 @@ use rugrats_render::Vtx;
 
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
+use crate::levels::Level;
 use crate::ui::front::{Backdrop, Button};
 use crate::ui::hud::Sprites;
 use crate::ui::text::{Fonts, Text};
@@ -136,16 +137,17 @@ pub mod message {
 
     /// The loading screen's lines for `level` (0x8003b168, switch
     /// 0x800133f0).
-    pub fn loading(disc: &GameDisc, level: usize, activity: bool, home_seen: bool) -> Page {
+    pub fn loading(disc: &GameDisc, level: Level, activity: bool, home_seen: bool) -> Page {
         let s = |n: u32| crate::ui::front::string(disc, n);
-        let name = |l: usize| {
-            let n =
-                disc.exe_bytes(0x800b_7d60 + 2 * l as u32, 2).map_or(236, |b| i16::from_le_bytes([b[0], b[1]]) as u32);
+        let name = |l: Level| {
+            let n = disc
+                .exe_bytes(0x800b_7d60 + 2 * l.0 as u32, 2)
+                .map_or(236, |b| i16::from_le_bytes([b[0], b[1]]) as u32);
             s(n)
         };
         let loading = s(24);
-        let hole = |l: usize| [25, 28, 24, 29, 23, 30, 26, 31, 27].iter().position(|&x| x == l).unwrap_or(0) as u32;
-        let (lines, fonts, ys): (Vec<String>, Vec<u8>, Vec<i16>) = match level {
+        let hole = |l: Level| crate::levels::golf::LEVELS.iter().position(|&x| x == l).unwrap_or(0) as u32;
+        let (lines, fonts, ys): (Vec<String>, Vec<u8>, Vec<i16>) = match level.0 {
             1 if !home_seen => (vec![s(183), s(182), loading], vec![1, 0, 0], vec![-35, -55, -5]),
             1 => (vec![s(151), s(73), loading], vec![1, 0, 0], vec![-35, -55, -5]),
             4 => (vec![s(188), s(189), loading], vec![1, 1, 0], vec![-60, -30, 0]),

@@ -333,7 +333,7 @@ impl crate::world::game::Script for BoxToss {
         if n == self.rules.lost {
             if g.tries <= 0 {
                 g.won = Some(false);
-                g.exit = Some(Exit::to(crate::world::game::HUB));
+                g.exit = Some(Exit::to(crate::levels::Level::HUB));
             } else {
                 // Card 709, then the round again (0x80079f1c).
                 g.card = Some(709);

@@ -6,11 +6,11 @@ use super::*;
 /// The placements with a speech line (LP +0x4c; template 613 says 194,
 /// 0x80046d04) and their trigger radius (template +0x34).
 /// The hub's doors lose theirs to the sign's enter (0x800481c8).
-pub(super) fn talkers(set: &Set, level: usize) -> Vec<Talker> {
+pub(super) fn talkers(set: &Set, level: Level) -> Vec<Talker> {
     set.placements
         .iter()
         .enumerate()
-        .filter(|(_, p)| p.kind == 1 && !(level == HUB && p.level > 0))
+        .filter(|(_, p)| p.kind == 1 && !(level == Level::HUB && p.level > 0))
         .filter_map(|(k, p)| {
             let line = if p.template == 613 { 194 } else { p.speech };
             let t = set.templates.get(p.template as usize)?;
@@ -99,12 +99,12 @@ impl Game {
         // 0x800291f8): kind 3 a fixed camera at post +0x5c; the follow
         // kinds set its height (6: 200, 7: 500, 8: 1600, 9: 2000, 11:
         // 500; 1500 means the level's own).
-        let floating = self.level == 5 && self.player.float.is_some();
+        let floating = self.level == Level::OUTER_SPACE && self.player.float.is_some();
         if r.flags & 4 != 0 && floating && r.camera == 7 {
             // Level 5 floating: kind 7 becomes 13, the camera holds where
             // it is (0x800c4a50 = 1; rooms 73-75).
             self.cam_hold = true;
-        } else if r.flags & 4 != 0 && self.level == 5 && r.camera == 3 {
+        } else if r.flags & 4 != 0 && self.level == Level::OUTER_SPACE && r.camera == 3 {
             // Level 5's kind 3 (0x800293c0): floating, only while held, a
             // fixed post by room; walking, the shaft camera (rooms 15, 40).
             if floating {
@@ -124,7 +124,9 @@ impl Game {
                 self.post_camera = None;
                 self.shaft = true;
             }
-        } else if r.flags & 4 != 0 && (!matches!(self.level, 20 | 21) || r.camera == 3) {
+        } else if r.flags & 4 != 0
+            && (!matches!(self.level, Level::NO_MORE_COOKIES | Level::TOUCHDOWN_TOMMY) || r.camera == 3)
+        {
             // The follow setup lets go of a level 5 hold (0x80025e90).
             if r.camera != 3 {
                 self.cam_hold = false;
@@ -135,8 +137,8 @@ impl Game {
                 1 | 6..=13 => {
                     self.post_camera = None;
                     // Level 7 keeps -1000 for every switch (0x80029288).
-                    self.eye_up = if self.level == 7 {
-                        default_eye_up(7)
+                    self.eye_up = if self.level == Level::REPTAR_2010 {
+                        default_eye_up(Level::REPTAR_2010)
                     } else {
                         match r.camera {
                             6 => 200.0,
@@ -153,7 +155,7 @@ impl Game {
         // Flag 64: the level's Gameplay script, once (0x80077ee4); level
         // 16's room keeps it (0x800789e4 never sets +0x11).
         if r.flags & 64 != 0 {
-            if self.level != 16 {
+            if self.level != Level::TRAINING {
                 self.set.room_info[k].flags &= !64;
             }
             self.with_script(|s, g| s.gameplay(g, r.script));

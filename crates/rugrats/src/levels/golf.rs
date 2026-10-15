@@ -10,11 +10,13 @@ use rrt::glam::{Mat3, Vec3};
 use crate::actors::player::DT;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
+use crate::levels::Level;
 use crate::world::game::{Exit, Game};
 
 /// Hole index (play order) to level (0x80057dcc), par (0x800b7ffc) and the
 /// baby who plays it (0x800b7ff0).
-pub const LEVELS: [usize; 9] = [25, 28, 24, 29, 23, 30, 26, 31, 27];
+pub const LEVELS: [Level; 9] =
+    [Level(25), Level(28), Level(24), Level(29), Level(23), Level(30), Level(26), Level(31), Level(27)];
 /// Level 23's ball-reset object (0x800c4168).
 const RESET_ZONE: u32 = 1264;
 pub const PAR: [u32; 9] = [4, 5, 4, 5, 5, 5, 4, 5, 3];
@@ -81,7 +83,7 @@ const EYE: Vec3 = Vec3::new(440.0, -2368.0, -4096.0);
 const LOOK: Vec3 = Vec3::new(440.0, -768.0, 0.0);
 /// The end: cine 35 "Golf Ending", recorded as level 8.
 const CINE_END: usize = 35;
-const RECORD: usize = 8;
+const RECORD: Level = Level::GOLF;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Stage {
@@ -515,7 +517,7 @@ impl crate::world::game::Script for Golf {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         // Level 23's callback (0x80081758): a ball at rest within x +-2000,
         // z +-1000 of template 1264 goes to (x, 280, 2753).
-        if g.level == 23 && self.roll.is_none() {
+        if g.level == Level::FIRST_HOLE && self.roll.is_none() {
             if let Some(o) = g.set.placements.iter().find(|p| p.kind == 1 && p.template == RESET_ZONE).map(|p| p.pos) {
                 if (self.ball[0] - o[0]).abs() < 2000 && (self.ball[2] - o[2]).abs() < 1000 {
                     self.ball = [self.ball[0], 280, 2753];

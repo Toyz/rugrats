@@ -190,7 +190,7 @@ impl Circus {
     fn lose_try(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some(Exit::to(crate::world::game::HUB));
+            g.exit = Some(Exit::to(crate::levels::Level::HUB));
             return false;
         }
         true

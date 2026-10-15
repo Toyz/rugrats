@@ -17,13 +17,15 @@ use rrt::prelude::*;
 use rugrats::audio::sound::{self, Spu};
 use rugrats::disc::GameDisc;
 use rugrats::input::{self, Pads, Query};
+use rugrats::levels::Level;
 use rugrats::media::cine::Cine;
 use rugrats::media::movie::{Movie, Soundtrack};
 use rugrats::media::still;
 use rugrats::stage::Stage;
 use rugrats::ui::front::{Outcome, Title};
 use rugrats::ui::screens::{self, Page, Screen};
-use rugrats::world::game::Game as Level;
+// rrt's Game is the app trait; the level in play is a Play.
+use rugrats::world::game::Game as Play;
 use rugrats_render::Renderer;
 
 /// Files the boot reads, by the game's numbering.
@@ -34,17 +36,17 @@ const LEGAL512_BS: usize = 234;
 /// 0x80018ad0), told the cinematic finished (CineFinish, 0x800783d8).
 enum Then {
     /// Level n, at once.
-    Level(usize),
+    Level(Level),
     /// Level n with its start cinematic (SwitchEpisode).
-    Enter(usize),
+    Enter(Level),
     /// The level the cinematic interrupted, told it finished.
-    Resume(Box<Level>),
+    Resume(Box<Play>),
     /// The level a screen interrupted.
-    Back(Box<Level>),
+    Back(Box<Play>),
     /// Screens, then more.
     Pages(Vec<Page>, Box<Then>),
-    /// Cinematic n on database db, then more.
-    Scene(usize, usize, Box<Then>),
+    /// Cinematic n in a level's database, then more.
+    Scene(usize, Level, Box<Then>),
     /// The title menu.
     Title,
 }
@@ -72,7 +74,7 @@ enum Boot {
     /// A hint card after a cinematic (0x80044434), then `then`.
     Card { card: Box<rugrats::ui::front::Card>, n: usize, then: Then },
     /// A level in play.
-    Game { game: Box<Level> },
+    Game { game: Box<Play> },
     /// The credits after Reptar Dance (movie 6, CREDITS.STR, any button
     /// skips), then the hub.
     Credits { movie: Box<Movie> },
@@ -85,8 +87,8 @@ enum Boot {
 
 /// The pages after a piece was given in `level` (0x8009480c): the message,
 /// then the board unless it is level 1's first piece.
-fn piece_pages(disc: &GameDisc, progress: &rugrats::save::progress::Progress, level: usize) -> Vec<Page> {
-    if level == 1 && progress.pieces() == 1 {
+fn piece_pages(disc: &GameDisc, progress: &rugrats::save::progress::Progress, level: Level) -> Vec<Page> {
+    if level == Level::HUB && progress.pieces() == 1 {
         vec![screens::message::help(disc)]
     } else {
         vec![screens::message::piece(disc), Page::Board]
@@ -149,7 +151,7 @@ struct Rugrats {
     /// The game state (0x800c5678), what a save holds.
     progress: rugrats::save::progress::Progress,
     /// The level last played (state +0x04), for the hub's return spot.
-    level: Option<usize>,
+    level: Option<Level>,
     /// Levels whose start cinematic has played (state +0x30's bits).
     /// Kept so the sound plays; None headless or with no device.
     _audio: Option<Output>,
@@ -262,13 +264,13 @@ impl Rugrats {
     /// Level `level`, its start cinematic first (0x80074958): level 1's
     /// "Reptar Puzzle" once (+0x30 bit 4), giving the first piece; level
     /// 2's until its checkpoint (bit 2).
-    fn enter(&mut self, level: usize, now: u64) -> Boot {
+    fn enter(&mut self, level: Level, now: u64) -> Boot {
         // Level 7's EpisodeStart (0x8007b748): the final level reached.
-        if level == 7 {
+        if level == Level::REPTAR_2010 {
             self.progress.set_flags(self.progress.flags() | 512);
         }
         // Cine 73's start (0x800731ec): Mirrorland entered, +0x30 bit 16.
-        if level == 15 {
+        if level == Level::MIRRORLAND {
             self.progress.set_flags(self.progress.flags() | 16);
         }
         // A new level starts without its checkpoint (+0x30 bits 1, 2).
@@ -277,34 +279,37 @@ impl Rugrats {
         }
         let flags = self.progress.flags();
         let cine = rugrats::world::game::start_cine(level).filter(|_| match level {
-            1 => flags & 4 == 0,
-            2 => flags & 2 == 0,
+            Level::HUB => flags & 4 == 0,
+            Level::GRANDPAS_TEETH => flags & 2 == 0,
             _ => true,
         });
         // Level 25's intro only from outside the course (0x80074958).
         let cine = match (level, self.level) {
-            (25, Some(24 | 25 | 28)) => Some(31),
-            _ if level == 25 && self.progress.activity() => Some(31),
+            (Level::GOLF_DOOR, Some(Level(24 | 25 | 28))) => Some(31),
+            _ if level == Level::GOLF_DOOR && self.progress.activity() => Some(31),
             _ => cine,
         };
         // Reptar Puzzle gives the first piece (0x80094bfc(1)): "Help Tommy
         // win twelve puzzle pieces", the board only with more.
         let mut then = Then::Level(level);
-        if level == 1 && cine.is_some() {
+        if level == Level::HUB && cine.is_some() {
             self.progress.set_flags(flags | 4);
-            if self.progress.give_piece(1, &mut self.rand) {
-                then = Then::Pages(piece_pages(&self.disc, &self.progress, 1), Box::new(then));
+            if self.progress.give_piece(Level::HUB, &mut self.rand) {
+                then = Then::Pages(piece_pages(&self.disc, &self.progress, Level::HUB), Box::new(then));
             }
         }
         // The "already earned" notes (0x80017c0c): coming from another
         // level into one whose piece was given, or into Cookie Race or Egg
         // Hunt with their bars won.
         let mut notes = vec![screens::message::loading(&self.disc, level, self.progress.activity(), false)];
-        if level != 1 && self.level != Some(level) && self.progress.piece_given(level) {
+        if level != Level::HUB && self.level != Some(level) && self.progress.piece_given(level) {
             notes.push(screens::message::had_piece(&self.disc));
         }
         // The bars note comes after the start cinematic and its card.
-        if matches!(level, 13 | 18) && self.progress.won(level) && !self.progress.activity() {
+        if matches!(level, Level::COOKIE_RACE | Level::EGG_HUNT)
+            && self.progress.won(level)
+            && !self.progress.activity()
+        {
             then = Then::Pages(vec![screens::message::had_bars(&self.disc)], Box::new(then));
         }
         match (cine, notes.is_empty()) {
@@ -321,10 +326,10 @@ impl Rugrats {
         }
     }
 
-    /// Cinematic `n` on database `db`, then `then`.
-    fn scene(&mut self, n: usize, db: usize, then: Then, now: u64) -> Boot {
+    /// Cinematic `n` in `level`'s database, then `then`.
+    fn scene(&mut self, n: usize, level: Level, then: Then, now: u64) -> Boot {
         self.stop_song();
-        match Cine::open(&self.disc, n, db, now, &self.soundtrack) {
+        match Cine::open(&self.disc, n, level.index(), now, &self.soundtrack) {
             Ok(cine) => {
                 self.world = None;
                 Boot::Scene { cine: Box::new(cine), n, then }
@@ -336,18 +341,18 @@ impl Rugrats {
         }
     }
 
-    /// The screens `pages` (sprites from database `db`), then `then`.
-    /// `vram` is what the level left (for its bar icon).
+    /// The screens `pages` (sprites from `level`'s database), then
+    /// `then`. `vram` is what the level left (for its bar icon).
     fn screen(
         &mut self,
         pages: Vec<Page>,
-        db: usize,
+        level: Level,
         then: Then,
         vram: Option<rugrats_render::Vram>,
         now: u64,
     ) -> Boot {
         let (earned, placed) = self.progress.piece_bits();
-        match Screen::open(&self.disc, pages, db, earned, placed, vram.as_ref()) {
+        match Screen::open(&self.disc, pages, level.index(), earned, placed, vram.as_ref()) {
             Ok(screen) => {
                 self.world = None;
                 Boot::Screen { screen: Box::new(screen), then }
@@ -378,8 +383,8 @@ impl Rugrats {
                 boot
             }
             Then::Pages(pages, then) => {
-                let db = self.level.unwrap_or(1);
-                self.screen(pages, db, *then, None, now)
+                let level = self.level.unwrap_or(Level::HUB);
+                self.screen(pages, level, *then, None, now)
             }
             Then::Resume(mut game) => {
                 self.world = None;
@@ -389,10 +394,10 @@ impl Rugrats {
         }
     }
 
-    fn game(&mut self, mode: usize, _now: u64) -> Boot {
-        let from = self.level.replace(mode);
-        self.progress.enter(mode);
-        match Level::open_from(&self.disc, mode, from, &self.progress) {
+    fn game(&mut self, level: Level, _now: u64) -> Boot {
+        let from = self.level.replace(level);
+        self.progress.enter(level);
+        match Play::open_from(&self.disc, level, from, &self.progress) {
             Ok(mut game) => {
                 // Activity golf: the turn's player and body (0x80096a30).
                 if let Some(r) = &self.golf_round {
@@ -403,7 +408,7 @@ impl Rugrats {
                 // The level's song set (0x80017c0c, 0x8006e96c), and for
                 // levels 22 and up its song at once (0x8006fea8).
                 self.stop_song();
-                if let Some((set, song)) = sound::level_set(&self.disc, mode) {
+                if let Some((set, song)) = sound::level_set(&self.disc, level.index()) {
                     self.song_set(set);
                     if let Some(n) = song {
                         self.play_song(n, self.progress.audio().music);
@@ -412,7 +417,7 @@ impl Rugrats {
                 Boot::Game { game: Box::new(game) }
             }
             Err(e) => {
-                rrt::tracing::error!("game mode {mode}: {e}");
+                rrt::tracing::error!("level {level}: {e}");
                 self.front_end()
             }
         }
@@ -475,7 +480,7 @@ impl Game for Rugrats {
                     if let Ok(mut s) = self.soundtrack.lock() {
                         *s = Soundtrack::default();
                     }
-                    self.boot = self.game(rugrats::world::game::HUB, now);
+                    self.boot = self.game(Level::HUB, now);
                 }
             }
             Boot::Demo { movie } => {
@@ -544,12 +549,16 @@ impl Game for Rugrats {
                             unreachable!()
                         };
                         // All twelve placed: Reptar 2010 (0x80092c68 step 5).
-                        let then = if all && self.progress.flags() & 512 == 0 { Then::Enter(7) } else { then };
+                        let then = if all && self.progress.flags() & 512 == 0 {
+                            Then::Enter(Level::REPTAR_2010)
+                        } else {
+                            then
+                        };
                         // Restart: the level again (golf from Hole One),
                         // its checkpoint cleared.
                         let then = match then {
                             Then::Back(game) if restart => {
-                                let level = if (23..=31).contains(&game.level) { 25 } else { game.level };
+                                let level = if game.level.is_hole() { Level::GOLF_DOOR } else { game.level };
                                 self.progress.set_flags(self.progress.flags() & !2);
                                 self.level = None;
                                 Then::Enter(level)
@@ -609,7 +618,7 @@ impl Game for Rugrats {
                         self.progress = rugrats::save::progress::Progress { block: **block };
                         self.level = Some(self.progress.level());
                         self.stop_song();
-                        self.boot = self.enter(rugrats::world::game::HUB, now);
+                        self.boot = self.enter(Level::HUB, now);
                     } else if let Some(Outcome::Golf(slots)) = &outcome {
                         // Mini-golf's round (0x80096a30) after its setup.
                         self.progress = Default::default();
@@ -628,10 +637,10 @@ impl Game for Rugrats {
                         rrt::tracing::info!("title: game mode {mode}");
                         // Mini-golf from the Activities menu: one player,
                         // Tommy, until the setup screen gives more.
-                        if mode as usize == rugrats::levels::golf::LEVELS[0] && self.progress.activity() {
+                        if Level(mode) == rugrats::levels::golf::LEVELS[0] && self.progress.activity() {
                             self.golf_round = Some(GolfRound::new(vec![0]));
                         }
-                        self.boot = self.enter(mode as usize, now);
+                        self.boot = self.enter(Level(mode), now);
                     } else if outcome == Some(Outcome::Idle) {
                         self.stop_song();
                         self.boot = self.demo(now);
@@ -681,8 +690,8 @@ impl Game for Rugrats {
                         let saved = self.progress.level();
                         self.stop_song();
                         self.level = Some(saved);
-                        let page = screens::message::loading(&self.disc, rugrats::world::game::HUB, false, true);
-                        self.boot = self.screen(vec![page], 1, Then::Level(rugrats::world::game::HUB), None, now);
+                        let page = screens::message::loading(&self.disc, Level::HUB, false, true);
+                        self.boot = self.screen(vec![page], Level::HUB, Then::Level(Level::HUB), None, now);
                         return;
                     }
                     if let Some(song) = game.song.take().and_then(|n| self.songs.as_ref().and_then(|l| l.songs.get(n)))
@@ -696,13 +705,13 @@ impl Game for Rugrats {
                         // progress cleared, the credits, then the hub at
                         // level 7's spot.
                         self.progress.clear_for_ending();
-                        self.level = Some(7);
+                        self.level = Some(Level::REPTAR_2010);
                         self.stop_song();
                         self.boot = match Movie::open(&self.disc, CREDITS, true, now, &self.soundtrack) {
                             Ok(movie) => Boot::Credits { movie: Box::new(movie) },
                             Err(e) => {
                                 rrt::tracing::error!("credits: {e}");
-                                self.game(rugrats::world::game::HUB, now)
+                                self.game(Level::HUB, now)
                             }
                         };
                         return;
@@ -713,7 +722,7 @@ impl Game for Rugrats {
                         self.level = None;
                         self.stop_song();
                         let page = screens::message::returning(&self.disc, self.progress.activity());
-                        self.boot = self.screen(vec![page], 1, Then::Title, None, now);
+                        self.boot = self.screen(vec![page], Level::HUB, Then::Title, None, now);
                     } else if let Some(rugrats::world::game::Exit { mut level, mut cine }) = game.exit {
                         // Activity golf (0x80096a30): a holed ball ends the turn;
                         // the next player plays the hole from the tee, after
@@ -728,11 +737,11 @@ impl Game for Rugrats {
                                 game.with_script(|s, g| s.activity_turn(g, pl, ch));
                                 // The banner (0x800965e8) until Cross.
                                 let banner = r.banner(&self.disc);
-                                let db = game.level;
+                                let here = game.level;
                                 let Boot::Game { game } = std::mem::replace(&mut self.boot, Boot::FrontEnd) else {
                                     unreachable!()
                                 };
-                                self.boot = self.screen(vec![banner], db, Then::Back(game), None, now);
+                                self.boot = self.screen(vec![banner], here, Then::Back(game), None, now);
                                 return;
                             }
                             r.player = 0;
@@ -740,7 +749,7 @@ impl Game for Rugrats {
                                 r.hole += 1;
                                 let next = rugrats::levels::golf::LEVELS[r.hole];
                                 let card = r.card(true);
-                                self.boot = self.screen(vec![card], 1, Then::Enter(next), None, now);
+                                self.boot = self.screen(vec![card], Level::HUB, Then::Enter(next), None, now);
                             } else {
                                 // After hole nine: the card, then the Activities
                                 // menu (no "Returning to").
@@ -748,17 +757,17 @@ impl Game for Rugrats {
                                 self.golf_round = None;
                                 self.level = None;
                                 self.stop_song();
-                                self.boot = self.screen(vec![card], 1, Then::Title, None, now);
+                                self.boot = self.screen(vec![card], Level::HUB, Then::Title, None, now);
                             }
                             return;
                         }
-                        if self.progress.activity() && level == rugrats::world::game::HUB {
+                        if self.progress.activity() && level == Level::HUB {
                             // "Returning to the Activities Menu".
                             self.golf_round = None;
                             self.level = None;
                             self.stop_song();
                             let page = screens::message::returning(&self.disc, true);
-                            self.boot = self.screen(vec![page], 1, Then::Title, None, now);
+                            self.boot = self.screen(vec![page], Level::HUB, Then::Title, None, now);
                             return;
                         }
                         if let Some(won) = game.won {

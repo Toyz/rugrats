@@ -48,10 +48,10 @@ pub(super) const MOVE_ON: u8 = crate::ui::card_menu::ON;
 pub(super) const PICK: u8 = crate::ui::card_menu::PICK;
 
 impl Pause {
-    pub(super) fn load(disc: &GameDisc, level: usize) -> Result<Pause, String> {
+    pub(super) fn load(disc: &GameDisc, level: Level) -> Result<Pause, String> {
         let s = |n: u32| crate::ui::front::string(disc, n);
         // The hub's spot for this level (0x800b8718), written into a save.
-        let b = disc.exe_bytes(0x800b_8718 + 16 * level as u32, 12)?;
+        let b = disc.exe_bytes(0x800b_8718 + 16 * level.index() as u32, 12)?;
         let spot = [0, 4, 8].map(|k| i32::from_le_bytes(b[k..k + 4].try_into().unwrap()));
         let spot = if spot == [0; 3] { [5775, 779, 19403] } else { spot };
         Ok(Pause {

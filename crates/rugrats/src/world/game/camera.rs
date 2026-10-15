@@ -13,10 +13,10 @@ pub(super) const EYE_UP: f32 = 1024.0;
 
 /// The follow camera's height by level (0x800290a4, 0x800291f8: 512 in
 /// levels 4 and 15, -1000 in 7).
-pub(super) fn default_eye_up(level: usize) -> f32 {
+pub(super) fn default_eye_up(level: Level) -> f32 {
     match level {
-        4 | 15 => 512.0,
-        7 => -1000.0,
+        Level::CYNTHIA | Level::MIRRORLAND => 512.0,
+        Level::REPTAR_2010 => -1000.0,
         _ => EYE_UP,
     }
 }
@@ -59,7 +59,7 @@ impl Game {
         // Floating in level 5 the goal's y is the anchor (+0x65c), not
         // the bobbing body's (0x80025e90).
         let y = match (self.level, self.player.float) {
-            (5, Some((anchor, _))) => anchor,
+            (Level::OUTER_SPACE, Some((anchor, _))) => anchor,
             _ => p[1],
         };
         Vec3::new(p[0] as f32, y as f32 - up, p[2] as f32)

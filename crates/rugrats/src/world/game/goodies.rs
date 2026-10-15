@@ -99,7 +99,7 @@ impl Game {
                     goodie::BAR => self.training.show(3),
                     goodie::COOKIE => {
                         self.training.show(7);
-                        if self.level == 16 {
+                        if self.level == Level::TRAINING {
                             self.speech.push(216);
                         }
                     }

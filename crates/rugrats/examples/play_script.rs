@@ -33,7 +33,7 @@ fn bit(name: &str) -> u16 {
 
 fn main() -> Result<(), String> {
     let mut a = std::env::args().skip(1);
-    let db: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(1);
+    let db = rugrats::levels::Level(a.next().and_then(|s| s.parse().ok()).unwrap_or(1));
     let script = a.next().unwrap_or("up*30".into());
     let dir = a.next().unwrap_or("play".into());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;

@@ -9,6 +9,7 @@ use rrt::glam::Vec3;
 use crate::actors::npc::{Event, Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
+use crate::levels::Level;
 use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
 use crate::world::game::{Game, Strike};
 
@@ -136,7 +137,7 @@ impl Training {
             let Some(k) = find(g, ANGELICA) else { break };
             g.play(44);
             let r = g.rand.next() & 1;
-            g.speech.extend(crate::world::game::hit_line(3, 16, r));
+            g.speech.extend(crate::world::game::hit_line(3, Level::TRAINING, r));
             let n = &mut g.npcs[k];
             n.health = (n.health - PIE_DAMAGE).max(0);
             if n.health == 0 {

@@ -410,11 +410,22 @@ impl Game for Rugrats {
                         }
                     }
                     if !going {
-                        let (placed, all) = (screen.placed, screen.all_placed);
+                        let (placed, all, restart) = (screen.placed, screen.all_placed, screen.restart);
                         self.progress.set_placed_bits(placed);
                         let Boot::Screen { then, .. } = std::mem::replace(&mut self.boot, Boot::FrontEnd) else { unreachable!() };
                         // All twelve placed: Reptar 2010 (0x80092c68 step 5).
                         let then = if all && self.progress.flags() & 512 == 0 { Then::Enter(7) } else { then };
+                        // Restart: the level again (golf from Hole One),
+                        // its checkpoint cleared.
+                        let then = match then {
+                            Then::Back(game) if restart => {
+                                let level = if (23..=31).contains(&game.level) { 25 } else { game.level };
+                                self.progress.set_flags(self.progress.flags() & !2);
+                                self.level = None;
+                                Then::Enter(level)
+                            }
+                            t => t,
+                        };
                         self.boot = self.after(then, 0, now);
                     }
                 }

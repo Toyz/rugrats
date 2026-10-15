@@ -90,9 +90,10 @@ pub enum Page {
     /// Three lines (string, colour) at y -65, -40, -15, font 1; with the
     /// bar icon and the bars available; with the blinking piece.
     Message { lines: Vec<(String, [u8; 3])>, bars: Option<u32>, blink: bool },
-    /// The puzzle board (0x80092c68); `house` from the board in Pickles'
-    /// Home (no message before it).
+    /// The puzzle board (0x80092c68).
     Board,
+    /// Select's "Restart Level?" (0x80043d58): Yes? or No?.
+    Restart,
 }
 
 /// The messages (0x800930c8 and its siblings), by kind.
@@ -186,6 +187,10 @@ pub struct Screen {
     pub placed: u16,
     /// All twelve placed on this board: Reptar 2010 next.
     pub all_placed: bool,
+    /// The restart menu's answer, and its cursor (1 Yes?, 2 No?).
+    pub restart: bool,
+    cursor: u8,
+    restart_text: [String; 3],
     pub sounds: Vec<u8>,
 }
 
@@ -248,6 +253,9 @@ impl Screen {
             earned,
             placed,
             all_placed: false,
+            restart: false,
+            cursor: 2,
+            restart_text: [229, 11, 12].map(|n| crate::front::string(disc, n)),
             sounds: Vec::new(),
         };
         s.begin();
@@ -287,6 +295,7 @@ impl Screen {
         let Some(page) = self.pages.first().cloned() else { return false };
         let done = match page {
             Page::Message { .. } => self.message_frame(pads),
+            Page::Restart => self.restart_frame(pads),
             Page::Board => {
                 if self.board.is_none() {
                     self.z = NEAR;
@@ -338,6 +347,38 @@ impl Screen {
                 false
             }
         }
+    }
+
+    /// The restart menu (0x80043d58): the burst already near; Left/Up
+    /// and Right/Down move between Yes? and No?; Cross answers, Start or
+    /// Triangle is No.
+    fn restart_frame(&mut self, pads: &Pads) -> bool {
+        self.z = NEAR;
+        self.fly = Fly::Hold;
+        if pads.pressed(0, input::LEFT) && self.cursor > 1 {
+            self.cursor -= 1;
+            self.sounds.push(MOVE);
+        } else if pads.pressed(0, input::RIGHT) && self.cursor < 2 {
+            self.cursor += 1;
+            self.sounds.push(BACK);
+        } else if pads.pressed(0, input::UP) && self.cursor < 2 {
+            self.cursor += 1;
+            self.sounds.push(MOVE);
+        } else if pads.pressed(0, input::DOWN) && self.cursor > 1 {
+            self.cursor -= 1;
+            self.sounds.push(BACK);
+        }
+        if pads.pressed(0, input::START) || pads.pressed(0, input::TRIANGLE) {
+            self.sounds.push(MOVE);
+            self.restart = false;
+            return true;
+        }
+        if pads.pressed(0, input::CROSS) {
+            self.sounds.push(OK);
+            self.restart = self.cursor == 1;
+            return true;
+        }
+        false
     }
 
     /// The board (0x80092c68, 0x800929f8).
@@ -485,6 +526,18 @@ impl Screen {
         let page = self.pages.first().cloned();
         match (&page, &self.board) {
             (Some(Page::Board), Some(b)) => self.draw_board(b, &mut overlay),
+            (Some(Page::Restart), _) => {
+                if let Some(m) = &self.burst {
+                    rugrats_render::models::model_triangles(m, Mat3::IDENTITY, Vec3::ZERO, &mut moving);
+                }
+                // The chosen item yellow (0x13cdeb), the other white.
+                let colour = |k: u8| if self.cursor == k { YELLOW } else { WHITE };
+                self.text(&self.restart_text[0], None, -55, 1, WHITE, &mut overlay);
+                self.text(&self.restart_text[1], Some(-90), -20, 0, colour(1), &mut overlay);
+                self.text(&self.restart_text[2], Some(45), -20, 0, colour(2), &mut overlay);
+                self.text(&self.labels[0], Some(-192), -93, 2, WHITE, &mut overlay);
+                self.text(&self.labels[1], Some(115), -93, 2, WHITE, &mut overlay);
+            }
             (Some(Page::Message { lines, bars, blink }), _) => {
                 if let Some(m) = &self.burst {
                     rugrats_render::models::model_triangles(m, Mat3::IDENTITY, Vec3::ZERO, &mut moving);

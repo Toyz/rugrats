@@ -925,9 +925,9 @@ impl Game {
                 }
             }
         }
-        // Select: the restart menu (0x80043d58); for now, back to the hub.
+        // Select: the restart menu (0x80043d58), outside activity play.
         if pads.pressed(0, input::SELECT) {
-            self.exit = Some((HUB, None));
+            self.pages.push(crate::screens::Page::Restart);
         }
         // The camera buttons turn it by an eighth (L2, R2: 341 a press).
         if pads.pressed(0, input::L2) {

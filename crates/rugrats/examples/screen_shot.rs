@@ -34,6 +34,7 @@ fn main() -> Result<(), String> {
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let pages = match std::env::var("BARS").ok().and_then(|v| v.parse().ok()) {
         Some(n) => vec![message::bars(&disc, n, 7)],
+        None if std::env::var_os("RESTART").is_some() => vec![Page::Restart],
         None => vec![message::piece(&disc), Page::Board],
     };
     let level = rugrats::game::Game::open(&disc, 2)?;
@@ -67,7 +68,7 @@ fn main() -> Result<(), String> {
                 std::fs::write(format!("{dir}/{frame}.png"), rrt::image::png::encode(w, h, &rgba)).map_err(|e| e.to_string())?;
             }
             if !going {
-                println!("{frame}: over, placed {:#x}, all {}", screen.placed, screen.all_placed);
+                println!("{frame}: over, placed {:#x}, all {}, restart {}", screen.placed, screen.all_placed, screen.restart);
                 return Ok(());
             }
             frame += 1;

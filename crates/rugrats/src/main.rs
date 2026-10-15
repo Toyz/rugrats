@@ -200,6 +200,15 @@ impl Rugrats {
         match Level::open(&self.disc, mode) {
             Ok(game) => {
                 self.world = None;
+                // The level's song set (0x80017c0c, 0x8006e96c), and for
+                // levels 22 and up its song at once (0x8006fea8).
+                self.stop_song();
+                if let Some((set, song)) = sound::level_set(&self.disc, mode) {
+                    self.song_set(set);
+                    if let Some(n) = song {
+                        self.play_song(n, sound::MUSIC_VOLUME);
+                    }
+                }
                 Boot::Game { game: Box::new(game) }
             }
             Err(e) => {
@@ -318,6 +327,11 @@ impl Game for Rugrats {
                 if now.is_multiple_of(2) {
                     self.pads.update([Some(&t.pad), None]);
                     game.frame(&self.pads);
+                    if let Some(song) = game.song.take().and_then(|n| self.songs.as_ref().and_then(|l| l.songs.get(n))) {
+                        if let Ok(mut spu) = self.spu.lock() {
+                            spu.play(song, 0, sound::MUSIC_VOLUME);
+                        }
+                    }
                     if let Some((level, cine)) = game.exit {
                         let here = game.level;
                         self.boot = match cine {

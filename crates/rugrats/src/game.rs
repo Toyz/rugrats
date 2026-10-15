@@ -55,6 +55,10 @@ pub struct Game {
     pub boxes: Vec<crate::player::Box3>,
     /// The placed characters other than the player.
     pub npcs: Vec<Npc>,
+    /// The room the player is in, and a song the room asked for
+    /// (RoomChange, 0x80077a54: room flag 128, song at +0x64 less one).
+    room: Option<usize>,
+    pub song: Option<usize>,
 }
 
 /// A placed character, standing (its think and AI are not ported).
@@ -128,10 +132,30 @@ impl Game {
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let yaw = heading as f32;
         let boxes = object_boxes(&set, |k| character(k));
-        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None, boxes, npcs };
+        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None, boxes, npcs, room: None, song: None };
         g.eye = g.eye_goal();
         g.draw();
         Ok(g)
+    }
+
+    /// The player's room (0x8002b660, here by the rooms' bounds, the one
+    /// it was in first); on a change, the room's song (0x80077a54).
+    fn room_change(&mut self) {
+        let p = self.player.pos;
+        let inside = |k: usize| self.set.room_info.get(k).is_some_and(|r| (0..3).all(|i| r.min[i] <= p[i] && p[i] <= r.max[i]));
+        let room = match self.room.filter(|&k| inside(k)) {
+            Some(k) => Some(k),
+            None => (0..self.set.room_info.len()).find(|&k| inside(k)),
+        };
+        if room == self.room {
+            return;
+        }
+        self.room = room;
+        if let Some(r) = room.and_then(|k| self.set.room_info.get(k)) {
+            if r.flags & 128 != 0 && (1..5).contains(&r.song) {
+                self.song = Some(r.song as usize - 1);
+            }
+        }
     }
 
     /// Puts the camera behind heading `yaw` at once (for tools).
@@ -185,6 +209,7 @@ impl Game {
         for n in &mut self.npcs {
             n.animator.step(&self.anims);
         }
+        self.room_change();
         let goal = self.eye_goal();
         self.eye += (goal - self.eye) / 8.0;
         self.draw();

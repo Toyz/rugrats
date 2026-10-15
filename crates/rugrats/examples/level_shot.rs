@@ -13,6 +13,22 @@ fn main() -> Result<(), String> {
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let game = rugrats::game::Game::open(&disc, db)?;
     println!("player at {:?}, heading {}", game.player.pos, game.player.heading);
+    let mut g2 = game;
+    g2.frame(&rugrats::input::Pads::default());
+    println!("song asked: {:?}; level set {:?}", g2.song, rugrats::sound::level_set(&disc, db));
+    let p = g2.player.pos;
+    for (k, r) in g2.set.room_info.iter().enumerate() {
+        let inside = (0..3).all(|i| r.min[i] <= p[i] && p[i] <= r.max[i]);
+        if inside || r.flags & 128 != 0 {
+            println!("room {k}: {r:?} inside {inside}");
+        }
+    }
+    for p in g2.set.placements.iter().filter(|p| p.kind == 6) {
+        let b = p.template.to_le_bytes();
+        let c = (p.pos[0] as u32).to_le_bytes();
+        println!("kind6 room {} bytes {:?} {:?}", b[0], &b[1..], c);
+    }
+    let game = g2;
     println!("{} boxes", game.boxes.len());
     for n in &game.npcs {
         println!("npc track {:?} parts {} models {:?}", n.animator.track(), n.hierarchy.parts.len(), n.hierarchy.parts.iter().map(|p| p.model).collect::<Vec<_>>());

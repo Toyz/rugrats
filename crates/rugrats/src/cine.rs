@@ -58,6 +58,16 @@ pub struct Set {
     pub placements: Vec<Placement>,
     pub templates: Vec<Template>,
     faces: Faces,
+    /// Each room's bounds (+0x10, +0x20), flags (+0x0c) and song (+0x64).
+    pub room_info: Vec<RoomInfo>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RoomInfo {
+    pub min: [i32; 3],
+    pub max: [i32; 3],
+    pub flags: u32,
+    pub song: u8,
 }
 
 impl Set {
@@ -81,6 +91,34 @@ impl Set {
             placements: rugrats_data::placement::parse_lp(&disc.file(LP + db)?),
             templates: rugrats_data::placement::parse_templates(&disc.file(TEMPLATE)?),
             faces: Faces::load(disc, Faces::mask(disc, db)?)?,
+            room_info: level
+                .rooms
+                .iter()
+                .map(|r| {
+                    let w = |at: usize| i32::from_le_bytes(r.record[at..at + 4].try_into().unwrap());
+                    // The loader clears +0x0c; LP kind 6 sets it.
+                    RoomInfo { min: [w(0x10), w(0x14), w(0x18)], max: [w(0x20), w(0x24), w(0x28)], flags: 0, song: 0 }
+                })
+                .collect(),
+        })
+        .map(|mut set: Set| {
+            // LP kind 6 (0x800454dc): room properties, the record's data
+            // bytes from +4: room, then +0x5b, +0x5d, the camera +0x5c,
+            // flags 32 and 16, +0x5f, and the song (+0x64, flag 128).
+            for p in set.placements.iter().filter(|p| p.kind == 6) {
+                let a = p.template.to_le_bytes();
+                let b = (p.pos[0] as u32).to_le_bytes();
+                let Some(r) = set.room_info.get_mut(a[0] as usize) else { continue };
+                for (k, (byte, flag)) in [(a[1], 2), (a[2], 4), (b[0], 32), (b[1], 16), (b[2], 64), (b[3], 128)].into_iter().enumerate() {
+                    if byte != 0 {
+                        r.flags |= flag;
+                        if k == 5 {
+                            r.song = byte;
+                        }
+                    }
+                }
+            }
+            set
         })
     }
 

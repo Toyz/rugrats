@@ -55,6 +55,16 @@ impl Bank {
     }
 }
 
+/// Level `level`'s song set (0x800b82e8, a pointer a level), and the song
+/// 0x8006fea8 plays at once for levels 22 and up (set +0x07).
+pub fn level_set(disc: &GameDisc, level: usize) -> Option<(SongSet, Option<usize>)> {
+    let p = disc.exe_u32(0x800b_82e8 + 4 * level as u32).ok().filter(|&p| p != 0)?;
+    let b = disc.exe_bytes(p, 8).ok()?;
+    let h = |k: usize| i16::from_le_bytes([b[k], b[k + 1]]) as usize;
+    let set = SongSet { music: h(0), effects: h(2), sep: h(4) };
+    Some((set, (level >= 22).then_some(b[7] as usize)))
+}
+
 /// The menu's song set (0x800b8030).
 pub const MENU_SET: SongSet = SongSet { music: 109, effects: 151, sep: 230 };
 

@@ -75,6 +75,9 @@ fn main() -> Result<(), String> {
                     println!("{frame}: thing {k} {:?} at {:?}", t.state, t.pos);
                 }
             }
+            if let Some(d) = game.script.as_ref().map(|s| s.describe()).filter(|d| !d.is_empty() && std::env::var_os("DESCRIBE").is_some()) {
+                println!("{frame}: {d}");
+            }
             if frame % 30 == 0 {
                 {
                     let phase = game.script.as_ref().map_or(0, |l| l.phase());

@@ -66,6 +66,10 @@ pub trait Script {
     fn phase(&self) -> u8 {
         0
     }
+    /// The level's own state in words, for tools.
+    fn describe(&self) -> String {
+        String::new()
+    }
 }
 
 pub struct Game {
@@ -162,6 +166,8 @@ pub struct Game {
     hurt_wait: i32,
     /// The level timer (0x800c4430, dt left), set by a level.
     pub timer: Option<i32>,
+    /// The level a finish is recorded for (golf records level 8).
+    pub record: usize,
 }
 
 /// A collectible (0x80048a44, touched by 0x800514b0).
@@ -470,11 +476,13 @@ impl Game {
             hazards: Vec::new(),
             hurt_wait: 0,
             timer: None,
+            record: level,
         };
         g.hazards = hazards(&g.set, &g.apart);
         g.script = match level {
             2 => Some(Box::new(crate::level2::Level2::start(&mut g, disc)?)),
             3 => Some(Box::new(crate::level3::Level3::start(&mut g, disc)?)),
+            23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
         };
         g.eye = g.eye_goal();
@@ -1140,6 +1148,17 @@ pub fn start_cine(level: usize) -> Option<usize> {
         18 => 25,
         20 => 63,
         21 => 49,
+        // Golf: "Golf Cam n" by level; level 25 the intro (main plays
+        // "Golf Cam 3", 31, when coming from a hole).
+        23 => 29,
+        24 => 30,
+        25 => 34,
+        26 => 32,
+        27 => 33,
+        28 => 81,
+        29 => 82,
+        30 => 83,
+        31 => 84,
         _ => return None,
     })
 }

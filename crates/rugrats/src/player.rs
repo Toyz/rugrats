@@ -97,6 +97,10 @@ pub struct Player {
     /// An action's animation playing (pick up 13, put down 14, throw 18):
     /// the player stands until it ends.
     pub action: Option<i16>,
+    /// An animation a level holds the player in, looped (golf's stance).
+    pub hold: Option<i16>,
+    /// Jump ignored (golf, 0x8005d11c).
+    pub no_jump: bool,
     /// Carrying: the idle is 20 (0x80057244 at the grab).
     pub carrying: bool,
     /// The jump lock after a throw (0x800c4290: 300, less dt a frame).
@@ -132,6 +136,8 @@ impl Player {
             animator,
             effects: Vec::new(),
             action: None,
+            hold: None,
+            no_jump: false,
             carrying: false,
             jump_lock: 0,
         };
@@ -224,7 +230,7 @@ impl Player {
                 self.pos[0] += s * self.speed * DT >> 12;
                 self.pos[2] += c * self.speed * DT >> 12;
             }
-            if pressed(input::CROSS) && !acting && self.jump_lock == 0 {
+            if pressed(input::CROSS) && !acting && self.jump_lock == 0 && !self.no_jump && !self.frozen {
                 // The launch (0x80060f1c): up 1000, and along the facing
                 // 40 a unit of speed when running, else 12.
                 let along = if self.speed > WALK { 40 } else { 12 } * self.speed;
@@ -306,6 +312,7 @@ impl Player {
             };
         }
         let a = match self.state {
+            _ if self.hold.is_some() => self.hold.unwrap(),
             _ if self.action.is_some() && on_ground => self.action.unwrap(),
             State::Stand if self.carrying => anim::CARRY_IDLE,
             State::Stand => anim::IDLE,

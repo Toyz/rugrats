@@ -200,6 +200,12 @@ impl Rugrats {
             2 => flags & 2 == 0,
             _ => true,
         });
+        // Level 25's intro only from outside the course (0x80074958).
+        let cine = match (level, self.level) {
+            (25, Some(24 | 25 | 28)) => Some(31),
+            _ if level == 25 && self.progress.activity() => Some(31),
+            _ => cine,
+        };
         if level == 1 && cine.is_some() {
             self.progress.set_flags(flags | 4);
             if self.progress.give_piece(1, &mut self.rand) {
@@ -456,15 +462,16 @@ impl Game for Rugrats {
                         self.stop_song();
                         self.boot = self.title(now);
                     } else if let Some((mut level, mut cine)) = game.exit {
-                        if self.progress.activity() {
-                            // "Returning to the Activities Menu".
+                        if self.progress.activity() && level == rugrats::game::HUB {
+                            // "Returning to the Activities Menu"; golf goes
+                            // hole to hole first.
                             self.level = None;
                             self.stop_song();
                             self.boot = self.title(now);
                             return;
                         }
                         if let Some(won) = game.won {
-                            let f = self.progress.finish(game.level, won, &mut self.rand);
+                            let f = self.progress.finish(game.record, won, &mut self.rand);
                             rrt::tracing::info!("level {} finished: {f:?}", game.level);
                             if f.piece {
                                 // The puzzle board (0x8009480c) is not ported:

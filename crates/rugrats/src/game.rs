@@ -54,6 +54,8 @@ pub struct Game {
     /// A cinematic the level asks for (PostCine), played with the level
     /// waiting.
     pub cine: Option<usize>,
+    /// The last checkpoint reached (position, heading).
+    pub checkpoint: Option<([i32; 3], i32)>,
     /// The placed objects' collision boxes in the world.
     pub boxes: Vec<crate::player::Box3>,
     /// The placed characters other than the player.
@@ -308,6 +310,7 @@ impl Game {
             scenery,
             exit: None,
             cine: None,
+            checkpoint: None,
             boxes,
             npcs,
             room: None,
@@ -346,10 +349,20 @@ impl Game {
             return;
         }
         self.room = room;
-        if let Some(r) = room.and_then(|k| self.set.room_info.get(k)) {
-            if r.flags & 128 != 0 && (1..5).contains(&r.song) {
-                self.song = Some(r.song as usize - 1);
-            }
+        let Some(k) = room else { return };
+        let r = self.set.room_info[k];
+        // Flag 2: the room's cinematic, once (PostCine, then cleared).
+        if r.flags & 2 != 0 && r.cine != 0 {
+            self.set.room_info[k].flags &= !2;
+            self.cine = Some(r.cine as usize);
+        }
+        // Flag 32: a checkpoint (0x800772e0): where a cry sends the
+        // player back to.
+        if r.flags & 32 != 0 {
+            self.checkpoint = Some((self.player.pos, self.player.heading));
+        }
+        if r.flags & 128 != 0 && (1..5).contains(&r.song) {
+            self.song = Some(r.song as usize - 1);
         }
     }
 

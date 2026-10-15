@@ -68,6 +68,8 @@ pub struct RoomInfo {
     pub max: [i32; 3],
     pub flags: u32,
     pub song: u8,
+    /// The cinematic entering plays once (+0x5b, flag 2).
+    pub cine: u8,
 }
 
 impl Set {
@@ -102,7 +104,7 @@ impl Set {
                 .map(|r| {
                     let w = |at: usize| i32::from_le_bytes(r.record[at..at + 4].try_into().unwrap());
                     // The loader clears +0x0c; LP kind 6 sets it.
-                    RoomInfo { min: [w(0x10), w(0x14), w(0x18)], max: [w(0x20), w(0x24), w(0x28)], flags: 0, song: 0 }
+                    RoomInfo { min: [w(0x10), w(0x14), w(0x18)], max: [w(0x20), w(0x24), w(0x28)], flags: 0, song: 0, cine: 0 }
                 })
                 .collect(),
         })
@@ -121,6 +123,9 @@ impl Set {
                         r.flags |= flag;
                         if k == 5 {
                             r.song = byte;
+                        }
+                        if k == 0 {
+                            r.cine = byte;
                         }
                     }
                 }

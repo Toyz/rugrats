@@ -44,6 +44,12 @@ fn main() -> Result<(), String> {
         let frames = id.map(|i| game.anims.frames_of(i).len());
         println!("state {a}: anm {id:?}, {frames:?} frames");
     }
+    if let Some(v) = std::env::var("START").ok() {
+        let p: Vec<i32> = v.split(',').filter_map(|s| s.parse().ok()).collect();
+        if p.len() == 3 {
+            game.player.pos = [p[0], p[1], p[2]];
+        }
+    }
     if let Some(h) = std::env::var("HEADING").ok().and_then(|s| s.parse().ok()) {
         game.player.heading = h;
         game.player.target = h;
@@ -69,6 +75,10 @@ fn main() -> Result<(), String> {
                 if t.state != rugrats::game::ThingState::Rest {
                     println!("{frame}: thing {k} {:?} at {:?}", t.state, t.pos);
                 }
+            }
+            if let Some(n) = game.cine.take() {
+                println!("{frame}: the level asks for cine {n}");
+                game.cine_finished(n);
             }
             if game.player.pos != before {
                 println!(

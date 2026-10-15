@@ -17,3 +17,4 @@ pub mod sound;
 pub mod collide;
 pub mod game;
 pub mod player;
+pub mod animator;

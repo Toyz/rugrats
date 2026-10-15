@@ -14,6 +14,9 @@ fn main() -> Result<(), String> {
     let game = rugrats::game::Game::open(&disc, db)?;
     println!("player at {:?}, heading {}", game.player.pos, game.player.heading);
     println!("{} boxes", game.boxes.len());
+    for n in &game.npcs {
+        println!("npc track {:?} parts {} models {:?}", n.animator.track(), n.hierarchy.parts.len(), n.hierarchy.parts.iter().map(|p| p.model).collect::<Vec<_>>());
+    }
     for z in [20148] {
         for b in game.boxes.iter().filter(|b| (b.pos.x - 7570.0).abs() < 10.0 && b.pos.y > 0.0) {
             for k in 0..22 {

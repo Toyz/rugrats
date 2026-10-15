@@ -119,13 +119,14 @@ impl Set {
     /// stream's actors move them (0x80073c34) or where LP put them, and the
     /// posed skeletons (0x80073f08).
     pub fn objects(&self, f: &Frame) -> Vec<Vtx> {
-        self.objects_except(f, None)
+        self.objects_except(f, |_| false)
     }
 
-    /// [`Set::objects`] without placement `skip` (the player's, in play).
-    pub fn objects_except(&self, f: &Frame, skip: Option<usize>) -> Vec<Vtx> {
+    /// [`Set::objects`] without the placements `skip` takes (the
+    /// characters, in play).
+    pub fn objects_except(&self, f: &Frame, skip: impl Fn(usize) -> bool) -> Vec<Vtx> {
         let mut out = Vec::new();
-        for (_, place) in self.placements.iter().enumerate().filter(|(k, p)| p.kind == 1 && !SKIPPED.contains(&p.template) && Some(*k) != skip) {
+        for (_, place) in self.placements.iter().enumerate().filter(|(k, p)| p.kind == 1 && !SKIPPED.contains(&p.template) && !skip(*k)) {
             let Some(t) = self.templates.get(place.template as usize) else { continue };
             // A placed object's rotation is LP's quaternion inverted
             // (0x8001f684) and kept as angles (0x800202b8); the matrix made

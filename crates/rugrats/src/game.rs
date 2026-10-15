@@ -52,6 +52,16 @@ pub struct Game {
     pub exit: Option<usize>,
     /// The placed objects' collision boxes in the world.
     pub boxes: Vec<crate::player::Box3>,
+    /// The placed characters other than the player.
+    pub npcs: Vec<Npc>,
+}
+
+/// A placed character, standing (its think and AI are not ported).
+pub struct Npc {
+    pub hierarchy: rugrats_data::hierarchy::Hierarchy,
+    pub animator: crate::animator::Animator,
+    rot: Mat3,
+    pos: Vec3,
 }
 
 /// How near (in x and z, and in y) the player must stand to use a door.
@@ -89,13 +99,35 @@ impl Game {
         let player = Player::new(disc, hierarchy, start, heading, &col, &anims)?;
         let mut stage = Stage::new(set.vram.clone(), set.rooms.clone());
         stage.clear = [0, 0, 0];
-        // Everything placed but the player itself.
+        // The placed characters move on their own; the rest stands.
         let player_place = set.placements.iter().position(|p| mine(&p));
-        let scenery = set.objects_except(&Frame::default(), player_place);
+        let character = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy().is_some())
+        };
+        let scenery = set.objects_except(&Frame::default(), character);
+        let mut npcs = Vec::new();
+        for (k, p) in set.placements.iter().enumerate() {
+            if !character(k) || Some(k) == player_place {
+                continue;
+            }
+            let Some(h) = set.templates.get(p.template as usize).and_then(|t| t.hierarchy()) else { continue };
+            let Some(Some(hierarchy)) = set.hierarchies.get(h).cloned() else { continue };
+            let mut animator = crate::animator::Animator::load(disc, h as u16)?;
+            animator.set(crate::player::anim::STAND, &anims);
+            let rot = rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose();
+            rrt::tracing::debug!("npc {} hierarchy {h}: track {:?}, {} parts", p.id, animator.track(), hierarchy.parts.len());
+            // On the floor under it (0x80081bac asks 0x8002b240), the root
+            // the hierarchy's offset above the feet.
+            let q = crate::collide::query(&col, p.pos);
+            let feet = hierarchy.parts.first().map_or(0, |r| r.offset[1]);
+            let y = if q.tile.is_some() { q.floor + feet } else { p.pos[1] };
+            npcs.push(Npc { hierarchy, animator, rot, pos: Vec3::new(p.pos[0] as f32, y as f32, p.pos[2] as f32) });
+        }
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let yaw = heading as f32;
-        let boxes = object_boxes(&set, player_place);
-        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None, boxes };
+        let boxes = object_boxes(&set, |k| character(k));
+        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None, boxes, npcs };
         g.eye = g.eye_goal();
         g.draw();
         Ok(g)
@@ -149,6 +181,9 @@ impl Game {
             self.yaw += d / 16.0;
         }
         self.yaw = self.yaw.rem_euclid(4096.0);
+        for n in &mut self.npcs {
+            n.animator.step(&self.anims);
+        }
         let goal = self.eye_goal();
         self.eye += (goal - self.eye) / 8.0;
         self.draw();
@@ -157,6 +192,10 @@ impl Game {
     fn draw(&mut self) {
         let mut moving = self.scenery.clone();
         self.player.triangles(&self.set.models, &self.anims, &self.trig, &mut moving);
+        for n in &self.npcs {
+            let locals = n.animator.locals(&n.hierarchy, &self.anims);
+            rugrats_render::models::posed_triangles(&n.hierarchy, &self.set.models, &locals, n.rot, n.pos, &mut moving);
+        }
         self.stage.set_moving(moving);
         let f = (self.target() - self.eye).normalize_or(Vec3::Z);
         let x = Vec3::Y.cross(f).normalize_or(Vec3::X);
@@ -170,10 +209,10 @@ impl Game {
 /// The world boxes of the placed models (the player's placement left out):
 /// each model box with the placement's rotation and position, and the
 /// heights its corners span.
-fn object_boxes(set: &Set, skip: Option<usize>) -> Vec<crate::player::Box3> {
+fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate::player::Box3> {
     let mut out = Vec::new();
     for (k, place) in set.placements.iter().enumerate() {
-        if place.kind != 1 || Some(k) == skip {
+        if place.kind != 1 || skip(k) {
             continue;
         }
         let Some(t) = set.templates.get(place.template as usize) else { continue };

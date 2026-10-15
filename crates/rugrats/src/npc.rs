@@ -22,7 +22,7 @@ pub const SPEEDS: [i32; 6] = [0, 4, 8, 12, 17, 25];
 /// The most an NPC turns a step (0x800c4444).
 const TURN: i32 = 512;
 /// How near a post counts as reached (+0x690, 1024 at init).
-const REACH: i32 = 1024;
+pub const REACH: i32 = 1024;
 
 /// A post (LP kind 2): position, neighbours (1-based, 0 none), flags.
 #[derive(Clone, Copy, Debug)]
@@ -125,6 +125,9 @@ pub struct Npc {
     /// A run speed other than the table's row 0 (levels 9 and 10 use row
     /// 1: index 4 is 11).
     pub run_speed: Option<i32>,
+    /// How near a post counts as reached (+0x690: 1024; level 13's
+    /// Angelica 1536).
+    pub post_reach: i32,
 }
 
 /// What a step of the NPCs asks of the level.
@@ -178,7 +181,8 @@ impl Npc {
         let start = self.pos;
         self.pos[0] += trig.sin(self.heading) * speed * DT >> 12;
         self.pos[2] += trig.cos(self.heading) * speed * DT >> 12;
-        let q = crate::collide::query(col, [self.pos[0], self.pos[1] - self.feet() - 1, self.pos[2]]);
+        // Asked from a step above the feet, as the player's floor test.
+        let q = crate::collide::query(col, [self.pos[0], self.pos[1] - self.feet() - 384, self.pos[2]]);
         if q.kind == 2 || q.tile.is_none() {
             self.pos = start;
             self.speed = 0;
@@ -247,7 +251,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                     n.mode = Mode::Idle;
                     continue;
                 };
-                if n.dist(post.pos) <= REACH {
+                if n.dist(post.pos) <= n.post_reach {
                     if post.flags & post::GOAL != 0 {
                         events.push(Event::Goal(k));
                     }
@@ -318,7 +322,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                     n.mode = Mode::Hit { left: 900, then: Box::new(Mode::Prowl { prev, cur }) };
                 } else if n.dist(post.pos) <= 2 * n.range && n.dist(p) <= n.range {
                     n.go(p, base, w.col, w.trig);
-                } else if n.dist(post.pos) <= REACH {
+                } else if n.dist(post.pos) <= n.post_reach {
                     let next = n.next_post(&post, prev, rand);
                     n.mode = Mode::Prowl { prev: cur, cur: next };
                 } else {

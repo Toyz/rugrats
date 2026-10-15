@@ -173,6 +173,7 @@ impl Level2 {
                 reach: 600,
                 bite_wait: 900,
                 run_speed: None,
+                post_reach: crate::npc::REACH,
             };
             rider.animator.set(crate::player::anim::IDLE, &g.anims);
             g.npcs.push(rider);

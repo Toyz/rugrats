@@ -621,6 +621,7 @@ impl Game {
                 reach: 600,
                 bite_wait: 900,
                 run_speed: None,
+                post_reach: crate::npc::REACH,
             };
             // On the floor under it (0x80081bac asks 0x8002b240), the root
             // the hierarchy's offset above the feet.
@@ -712,6 +713,7 @@ impl Game {
             9 => Some(Box::new(crate::level9::Level9::start(&mut g, disc)?)),
             10 => Some(Box::new(crate::level10::Level10::start(&mut g, disc)?)),
             12 => Some(Box::new(crate::level12::Level12::start(&mut g, disc)?)),
+            13 => Some(Box::new(crate::level13::Level13::start(&mut g, disc)?)),
             14 => Some(Box::new(crate::level9::Level9::start14(&mut g, disc)?)),
             15 => Some(Box::new(crate::level15::Level15::start(&mut g, disc)?)),
             20 => Some(Box::new(crate::level20::Level20::start(&mut g, disc)?)),

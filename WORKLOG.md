@@ -8,9 +8,10 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-2 entries: build 1, content 1, decomp 1, disc 1, format 1, tooling 2.
+3 entries: build 1, content 1, decomp 2, disc 1, engine 1, format 1, test 1, tooling 3, video 1.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
 | 1 | [The disc, and the file table the game reads it through](worklog/0001-the-disc-and-the-file-table-the-game-reads-it-through.md) | 2026-10-14 | disc, content, format, tooling, build |
 | 2 | [The image puts its rodata between hand-written asm and the compiled code](worklog/0002-the-image-puts-its-rodata-between-hand-written-asm-and-the.md) | 2026-10-14 | decomp, tooling |
+| 3 | [The original boots in a harness on rrt-emu, to the legal screen](worklog/0003-the-original-boots-in-a-harness-on-rrt-emu-to-the-legal.md) | 2026-10-14 | tooling, engine, decomp, video, test |

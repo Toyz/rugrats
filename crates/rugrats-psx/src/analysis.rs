@@ -188,7 +188,7 @@ pub fn data_refs(mem: &Memory, gp: Option<u32>) -> BTreeMap<u32, BTreeSet<u32>> 
         let insn = decode(mem.u32(pc).unwrap());
         if let Some(gp) = gp
             && insn.rs() == 28
-            && (insn.is_load_store() || insn.op == Op::Addiu)
+            && (insn.is_load_store() || (insn.op == Op::Addiu && insn.rt() != 28))
         {
             refs.entry(gp.wrapping_add(insn.simm() as u32)).or_default().insert(pc);
         }

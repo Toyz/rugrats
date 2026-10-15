@@ -1,0 +1,13 @@
+[package]
+name = "rugrats-hle"
+version = "0.1.0"
+description = "Runs the original SLUS_006.50 in rrt-emu's R3000A with the console's I/O modelled and the BIOS answered on the host: the reference the port is checked against."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rrt = { workspace = true, features = ["disc", "emu"] }
+rugrats-data.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

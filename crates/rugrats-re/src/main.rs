@@ -412,6 +412,21 @@ fn exe_info(args: &mut Args, cue: &Option<String>) -> Result<()> {
     Ok(())
 }
 
+/// `@data 0xSTART 0xEND` lines in `symbols/<stem>.txt`: data inside the code.
+fn load_data_ranges(file: &str) -> Vec<std::ops::Range<u32>> {
+    let stem = file.trim_start_matches("disc:").rsplit(['/', '\\']).next().unwrap_or(file);
+    let stem = stem.split('.').next().unwrap_or(stem).to_lowercase();
+    let path = root().join("symbols").join(format!("{stem}.txt"));
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    text.lines()
+        .filter_map(|l| {
+            let mut w = l.split('#').next()?.split_whitespace();
+            (w.next()? == "@data").then_some(())?;
+            Some(parse_num(w.next()?).ok()?..parse_num(w.next()?).ok()?)
+        })
+        .collect()
+}
+
 /// Names from `symbols/<stem>.txt`: one `0xADDRESS name` per line, `#` comments.
 fn load_symbols(file: &str) -> std::collections::BTreeMap<u32, String> {
     let stem = file.trim_start_matches("disc:").rsplit(['/', '\\']).next().unwrap_or(file);
@@ -456,13 +471,8 @@ impl Program {
         let mem = rugrats_psx::Memory { base, bytes: image };
         let entry = exe.as_ref().map_or(base, |e| e.pc0);
         let gp = gp_arg.or_else(|| rugrats_psx::analysis::find_gp(&mem, entry));
-        // `rodata_start`/`rodata_end` in the symbols mark data inside the code.
         let symbols = load_symbols(&file);
-        let at = |n: &str| symbols.iter().find(|(_, v)| v.as_str() == n).map(|(&a, _)| a);
-        let data = match (at("rodata_start"), at("rodata_end")) {
-            (Some(s), Some(e)) => vec![s..e],
-            _ => Vec::new(),
-        };
+        let data = load_data_ranges(&file);
         let a = rugrats_psx::program::Program::analyze_with_data(mem, entry, gp, data);
         let refs = rugrats_psx::analysis::data_refs(&mem, gp);
         let mut names = std::collections::BTreeMap::new();

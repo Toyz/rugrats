@@ -2,11 +2,82 @@
 # One `0xADDRESS name` per line. Read by rugrats-re disasm/funcs/strings.
 # Confidence is in the comment: (sure) traced, (likely) from strings or shape.
 
-# Layout of the image
-0x80012760 rodata_start            # (sure) strings and jump tables; hand-written asm before it
-0x80017c0c rodata_end              # (sure) first compiled function follows "<NULL>"
+# Data inside the code: `@data START END`.
+@data 0x80012760 0x80017c0c        # (sure) rodata: strings and jump tables, between the asm and the C
 
 # Files (see docs/formats/file-table.md)
 0x800b2c40 file_table              # (sure) {u32 lba; u32 size}[714]
 0x80019794 read_file               # (sure) read_file(index, dest, len); indexes file_table
 0x80019a04 file_size               # (sure) file_table[index].size
+
+# Boot (see docs/engine/boot.md)
+0x800977e8 _start                  # (sure) PsyQ crt0: clears bss 0x800c4910..0x800eafb0, sets sp/gp, InitHeap, main
+0x800185f8 main                    # (sure) called by _start; the mode loop on gp+16
+0x800193fc game_init               # (sure) first call from main: patches, CD init, callbacks, root counter
+0x80019630 cd_init                 # (sure) CdRemove, _96_init, CdInit, callbacks off, CdControl(Setmode 0x80)
+0x80019558 load_file               # (sure) load_file(index, dest): size, "File '%d' not found!", read_file
+0x800195e0 load_file_alloc         # (likely) load_file into a block from 0x800218ac(size)
+0x80019688 read_file_ready         # (sure) CdReadyCallback while read_file runs: copies sectors to dest
+0x800b1478 printf                  # (sure) debug output
+
+# libetc (intr.c, vsync.c)
+0x8009af48 VSync                   # (sure) mode<0 counter, 1 hcount, n waits; 73 callers
+0x8009b0c0 v_wait                  # (sure) "VSync: timeout"
+0x8009b2fc ResetCallback           # (sure) installs the dispatcher with setjmp + HookEntryInt
+0x8009b3d4 intr_dispatch           # (sure) I_STAT & I_MASK -> handlers at 0x800bba9c; "unexpected interrupt"
+0x8009b5a4 InterruptCallback       # (sure) handlers[irq] = func
+0x8009b6ec StopCallback            # (likely)
+0x8009b78c RestartCallback         # (likely)
+0x8009b858 vsync_install           # (sure) installs vblank_handler for IRQ 0, returns VSyncCallbacks
+0x8009b8b0 vblank_handler          # (sure) counter 0x800bcb60++, then the 8 callbacks at 0x800bcb40
+0x8009b91c VSyncCallbacks          # (sure) VSyncCallbacks(index, func)
+0x8009b978 dma_install             # (sure) installs dma_handler for IRQ 3, returns DMACallback
+0x8009b9c4 dma_handler             # (sure) DICR flags -> callbacks at 0x800bcb74; "DMA bus error"
+0x8009bb44 DMACallback             # (sure) DMACallback(channel, func)
+0x8009b1f8 VSyncCallback           # (likely) VSyncCallbacks(4?, func) through the libetc interface table 0x800bcb20
+0x800bcb60 vblank_count            # (sure)
+
+# libgpu (sys.c)
+0x8009bc18 LoadTPage               # (likely) LoadImage then GetTPage
+0x8009bd00 LoadClut                # (likely) 256-entry LoadImage then GetClut
+0x8009bd64 LoadClut2               # (likely) 16-entry
+0x8009bdc8 SetDefDrawEnv           # (likely)
+0x8009be7c SetDefDispEnv           # (likely)
+0x8009bee8 ResetGraph              # (sure) "ResetGraph(%d)..."
+0x8009c05c SetGraphDebug           # (sure)
+0x8009c0b8 SetGraphQueue           # (sure)
+0x8009c16c DrawSyncCallback        # (sure)
+0x8009c1cc SetDispMask             # (sure)
+0x8009c264 DrawSync                # (sure)
+0x8009c3e8 ClearImage              # (sure)
+0x8009c478 ClearImage2             # (sure)
+0x8009c510 LoadImage               # (sure)
+0x8009c570 StoreImage              # (sure)
+0x8009c5d0 MoveImage               # (sure)
+0x8009c688 ClearOTag               # (sure)
+
+# libpress (MDEC)
+0x800a0858 DecDCTReset             # (likely) "MDEC_rest:bad option"
+0x800a0a64 DecDCTinSync            # (likely) "MDEC_in_sync"
+0x800a0af8 DecDCToutSync           # (likely) "MDEC_out_sync"
+
+# libcd
+0x800a1918 CdInit                  # (sure) "CdInit: Init failed"
+0x800a19a8 CdReset                 # (sure) called by CdInit, 1 = ok
+0x800a1bbc CdSync                  # (sure) -> CD_sync
+0x800a1bdc CdReady                 # (sure) -> CD_ready
+0x800a1bfc CdSyncCallback          # (sure) 0x800c2f78
+0x800a1c10 CdReadyCallback         # (sure) 0x800c2f7c
+0x800a1c24 CdControl               # (sure)
+0x800a1d60 CdControlF              # (likely)
+0x800a1e94 CdControlB              # (sure)
+0x800a2000 CdGetSector             # (sure)
+0x800a2084 CdIntToPos              # (sure)
+0x800a2188 CdPosToInt              # (sure)
+0x800a2208 cd_intr                 # (sure) the drive's interrupt handler; "DiskError", "CDROM: unknown intr"
+0x800a2764 CD_sync                 # (sure)
+0x800a29e4 CD_ready                # (sure)
+0x800a2cac CD_cw                   # (sure) writes a command and its parameters
+0x800a3350 CD_init                 # (sure) "CD_init:", "addr=%08x"
+0x800a3530 CD_datasync             # (sure)
+0x800a3698 CD_getsector            # (likely) DMA 3 from the drive's FIFO

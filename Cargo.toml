@@ -10,6 +10,7 @@ publish = false
 [workspace.dependencies]
 rugrats-psx = { path = "crates/rugrats-psx" }
 rugrats-data = { path = "crates/rugrats-data" }
+rugrats-hle = { path = "crates/rugrats-hle" }
 # The shared runtime for the ports: the disc, the window and loop, the pad,
 # wgpu, audio, pictures. Data crates take only the features they use.
 rrt = { git = "https://github.com/Toyz/retro_rt", default-features = false }

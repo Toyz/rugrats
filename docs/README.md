@@ -26,6 +26,15 @@ The containers and record layouts.
 | --- | --- | --- | --- |
 | [The file table in the executable](formats/file-table.md) | partial | US | US SLUS_006.50:0x800b2c40, US SLUS_006.50:0x80019794, US SLUS_006.50:0x80019a04 |
 
+## Engine
+
+How the game works, subsystem by subsystem.
+
+| Page | Status | Discs | Covers |
+| --- | --- | --- | --- |
+| [Boot, main and the start-up calls](engine/boot.md) | partial | US | US SLUS_006.50:0x800977e8, US SLUS_006.50:0x800185f8, US SLUS_006.50:0x800193fc, US SLUS_006.50:0x80019630 |
+| [The PsyQ libraries in the executable](engine/libraries.md) | partial | US | US SLUS_006.50:0x800977e8..0x800b2794 |
+
 ## Cut and missing content
 
 Content the game names, references or half-carries but does not ship whole, one page per item.

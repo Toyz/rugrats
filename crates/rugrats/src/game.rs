@@ -1496,6 +1496,16 @@ impl Game {
     fn fly(&mut self) {
         let dt = crate::player::DT;
         self.struck.clear();
+        // What a flight may land on besides the floor: the boxes of things
+        // at rest (stacking, 0x8006c7a0).
+        let resting: Vec<(usize, crate::player::Box3)> = self
+            .things
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.state == ThingState::Rest && !t.hidden)
+            .filter_map(|(k, t)| self.set.models.get(t.shape).map(|m| (k, m, t)))
+            .flat_map(|(k, m, t)| world_boxes(m, t.rot, t.pos).into_iter().map(move |b| (k, b)))
+            .collect();
         for (k, t) in self.things.iter_mut().enumerate() {
             let ThingState::Flying(mut v) = t.state else { continue };
             // A flight that reaches a character (0x80086ef0): its touch
@@ -1519,13 +1529,31 @@ impl Game {
             }
             let bottom =
                 self.set.models.get(t.shape).and_then(|m| m.boxes.iter().map(|b| b.1[1]).max()).unwrap_or(0) as f32;
+            let before = t.pos;
             for k in [0, 2] {
                 t.pos[k] += (v[k] * dt >> 6) as f32;
+            }
+            // The wall test (0x80060810): a step into a wall or a higher
+            // column is taken back, and the thing drops where it was.
+            let side = crate::collide::query(&self.col, [t.pos.x as i32, (t.pos.y + bottom - 1.0) as i32, t.pos.z as i32]);
+            if side.kind != 0 || side.tile.is_none() {
+                t.pos.x = before.x;
+                t.pos.z = before.z;
+                v[0] = 0;
+                v[2] = 0;
             }
             t.pos.y += ((v[1] * dt + THING_GRAVITY * dt * dt / 2) >> 6) as f32;
             v[1] += THING_GRAVITY * dt;
             let q = crate::collide::query(&self.col, [t.pos.x as i32, (t.pos.y - 1.0) as i32, t.pos.z as i32]);
-            let floor = if q.tile.is_some() { q.floor as f32 } else { f32::MAX };
+            let mut floor = if q.tile.is_some() { q.floor as f32 } else { f32::MAX };
+            // Another thing's top under it, crossed this step.
+            let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
+            for (_, b) in resting.iter().filter(|(j, _)| *j != k) {
+                let top = b.min_y as f32;
+                if b.covers(at, 0) && top >= before.y + bottom - 1.0 && top < floor {
+                    floor = top;
+                }
+            }
             if q.kind == 2 || t.pos.y + bottom >= floor {
                 if floor < f32::MAX {
                     t.pos.y = floor - bottom;

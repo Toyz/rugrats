@@ -2,6 +2,7 @@
 //! `rugrats` program runs and the tests check against the original.
 
 pub mod actors;
+pub mod app;
 pub mod audio;
 pub mod disc;
 pub mod gte;

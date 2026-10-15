@@ -60,6 +60,8 @@ pub trait Script {
     fn gameplay(&mut self, _g: &mut Game, _n: u8) {}
     /// The level's own models and HUD.
     fn draw(&self, _g: &Game, _moving: &mut Vec<rugrats_render::Vtx>, _overlay: &mut Vec<rugrats_render::Vtx>) {}
+    /// The level timer ran out (TimerExpired's level callback).
+    fn timer_expired(&mut self, _g: &mut Game) {}
     /// The phase, for tools.
     fn phase(&self) -> u8 {
         0
@@ -125,7 +127,8 @@ pub struct Game {
     /// The objects that can be picked up, the one carried, and its grip
     /// (+0x1f8: in the player's frame from hand slot 15).
     pub things: Vec<Thing>,
-    /// Bars, cookies and the levels' other collectibles; the bars taken
+    /// Bars, cookies and the levels' other collectibles; the bars
+    /// available (0x800c4194: found less spent, kept in step here)
     /// here (0x80094a58) and how long the counter shows.
     pub goodies: Vec<Goodie>,
     pub bars: u32,
@@ -157,6 +160,8 @@ pub struct Game {
     /// the next hurt.
     hazards: Vec<(crate::player::Box3, i32)>,
     hurt_wait: i32,
+    /// The level timer (0x800c4430, dt left), set by a level.
+    pub timer: Option<i32>,
 }
 
 /// A collectible (0x80048a44, touched by 0x800514b0).
@@ -223,6 +228,21 @@ const REACH: f32 = 520.0;
 /// (0x8008864c); a put-down is speed 10 along (0, 0, 4096).
 const THROW_SPEED: f32 = 170.0 * 65536.0 / 6000.0;
 const DROP_SPEED: f32 = 10.0 * 65536.0 / 6000.0;
+/// The HUD's bar and clock icons (sprites; their sizes are guesses).
+const BAR_ICON: u32 = 291;
+const CLOCK_ICON: u32 = 375;
+
+/// Text in font 1 with its shadow 2 down and right (0x80090004).
+pub fn shadowed(fonts: &crate::text::Fonts, x: i16, y: i16, string: String, out: &mut Vec<rugrats_render::Vtx>) {
+    let t = crate::text::Text { font: 1, spacing: 1, rgb: [255, 255, 255], x, y, string, ..Default::default() };
+    let mut shadow = t.clone();
+    shadow.rgb = [1, 1, 1];
+    shadow.x += 2;
+    shadow.y += 2;
+    shadow.triangles(fonts, out);
+    t.triangles(fonts, out);
+}
+
 /// How near a flight passes a character to strike it (the radii, guess).
 const STRIKE: i32 = 450;
 /// Thrown objects fall at 13 (flight flags 0x700).
@@ -432,7 +452,7 @@ impl Game {
             quit: false,
             things,
             goodies,
-            bars: 0,
+            bars: progress.bars_available(),
             bar_shown: 0,
             found: Vec::new(),
             save: false,
@@ -449,6 +469,7 @@ impl Game {
             post_camera: None,
             hazards: Vec::new(),
             hurt_wait: 0,
+            timer: None,
         };
         g.hazards = hazards(&g.set, &g.apart);
         g.script = match level {
@@ -911,10 +932,11 @@ impl Game {
         };
         self.npc_events = crate::npc::step(&mut self.npcs, &world, &mut self.rand);
         self.with_script(|s, g| s.frame(g, pads));
-        // Hazards (0x8005e1f4): touching one costs its +0x6d; the next
-        // only after a second (guess).
+        // Hazards (0x8005e1f4, the walk and run states): walking into one
+        // costs its +0x6d; the next only after 300 dt (guess).
         self.hurt_wait = (self.hurt_wait - crate::player::DT).max(0);
-        if self.hurt_wait == 0 && self.crying == 0 {
+        let walking = matches!(self.player.state, crate::player::State::Walk | crate::player::State::Run);
+        if self.hurt_wait == 0 && self.crying == 0 && walking && !self.player.frozen {
             let p = self.player.pos;
             let (feet, head) = (p[1] - self.player.feet(), p[1] - self.player.feet() - crate::player::HEIGHT);
             let hurt = self
@@ -926,6 +948,17 @@ impl Game {
             if let Some(d) = hurt {
                 self.player.health = (self.player.health - d).max(0);
                 self.hurt_wait = 300;
+            }
+        }
+        // The level timer (0x8007f5a8): at 0, sound 117 and TimerExpired.
+        if let Some(t) = self.timer {
+            let t = t - crate::player::DT;
+            if t <= 0 {
+                self.timer = None;
+                self.effects.push((117, crate::sound::EFFECTS_VOLUME));
+                self.with_script(|s, g| s.timer_expired(g));
+            } else {
+                self.timer = Some(t);
             }
         }
         // Damage (0x80077864): health at 0 is a cry.
@@ -982,15 +1015,29 @@ impl Game {
         self.stage.overlay = overlay;
         if self.paused {
             self.pause.triangles(&self.fonts, &mut self.stage.overlay);
-        } else if self.bar_shown > 0 {
-            // The bar counter (0x80090004): "%d" at (-150, -80).
-            let t = crate::text::Text { font: 1, spacing: 1, rgb: [255, 255, 255], x: -150, y: -80, string: format!("{}", self.bars), ..Default::default() };
-            let mut shadow = t.clone();
-            shadow.rgb = [1, 1, 1];
-            shadow.x += 2;
-            shadow.y += 2;
-            shadow.triangles(&self.fonts, &mut self.stage.overlay);
-            t.triangles(&self.fonts, &mut self.stage.overlay);
+        } else {
+            // The level timer: "%ld" seconds at the top by the clock
+            // (model 375).
+            if let Some(t) = self.timer {
+                if let Some(sp) = &self.sprites {
+                    sp.draw(CLOCK_ICON, (-40, -96), 24.0, 24.0, crate::hud::METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
+                }
+                shadowed(&self.fonts, -12, -100, format!("{}", t / 300), &mut self.stage.overlay);
+            }
+            if self.bar_shown > 0 {
+                // The bar counter (0x80090004): model 291 at (-192, -76)
+                // and the bars available at (-150, -80); bottom left in
+                // levels 17-18, bottom right in golf.
+                let (icon, text) = match self.level {
+                    17 | 18 => ((-192, 76), (-150, 80)),
+                    23..=31 => ((192, 76), (145, 70)),
+                    _ => ((-192, -76), (-150, -80)),
+                };
+                if let Some(sp) = &self.sprites {
+                    sp.draw(BAR_ICON, icon, 26.0, 32.0, crate::hud::METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
+                }
+                shadowed(&self.fonts, text.0, text.1, format!("{}", self.bars), &mut self.stage.overlay);
+            }
         }
         let post = self.post_camera.and_then(|k| self.posts.get(k.wrapping_sub(1))).map(|p| {
             (Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32), self.target())

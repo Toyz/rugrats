@@ -422,6 +422,7 @@ impl Game for Rugrats {
                             self.progress.place_earned();
                         }
                     }
+                    game.bars = self.progress.bars_available();
                     if std::mem::take(&mut game.load) {
                         let cards = rugrats::card::Cards::default();
                         let state = cards.load(0, &self.disc.card).and_then(|s| s.record((s.words[3] as usize).max(1)));

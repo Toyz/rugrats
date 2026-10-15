@@ -64,7 +64,6 @@ pub struct Level2 {
     pub phase: u8,
     tries: i32,
     respawn: ([i32; 3], i32),
-    timer: i32,
     puck: Option<Puck>,
     tommy: (Hierarchy, Animator),
     spike: (Hierarchy, Animator),
@@ -80,7 +79,7 @@ impl Level2 {
         let tommy = (g.player.hierarchy.clone(), Animator::load(disc, TOMMY as u16)?);
         let spike_h = g.set.hierarchies.get(SPIKE_CHAR as usize).cloned().flatten().ok_or("no hierarchy for Spike")?;
         let spike = (spike_h, Animator::load(disc, SPIKE_CHAR)?);
-        let mut l = Level2 { phase: 1, tries: TRIES, respawn: (RESPAWN, g.player.heading), timer: 0, puck: None, tommy, spike };
+        let mut l = Level2 { phase: 1, tries: TRIES, respawn: (RESPAWN, g.player.heading), puck: None, tommy, spike };
         // Chuckie follows Tommy (0x80083764, speed index 4).
         if let Some(c) = find(g, CHUCKIE) {
             g.npcs[c].mode = Mode::Follow(Target::Player);
@@ -138,7 +137,7 @@ impl Level2 {
     /// Phase 2 (0x8007c08c): Tommy rides Spike after the goose, which
     /// carries Chuckie along its route of posts.
     fn chase(&mut self, g: &mut Game, back: bool) {
-        self.timer = 0;
+        g.timer = None;
         self.puck = None;
         g.player.frozen = false;
         let (h, a) = (self.spike.0.clone(), self.spike.1.clone());
@@ -242,7 +241,7 @@ impl Level2 {
             g.npcs[s].place(SPIKE_SPOT, &g.col);
             g.npcs[s].mode = Mode::Idle;
         }
-        self.timer = CLOCK;
+        g.timer = Some(CLOCK);
         self.phase = 3;
     }
 
@@ -256,7 +255,7 @@ impl Level2 {
         if self.tries <= 0 {
             if self.phase == 3 {
                 // 0x8007ec48: the loss, cine 16, then the hub.
-                self.timer = 0;
+                g.timer = None;
                 g.cine = Some(CINE_LOSE);
             } else {
                 g.exit = Some((crate::game::HUB, None));
@@ -305,13 +304,6 @@ impl Level2 {
         if self.phase != 3 {
             return;
         }
-        // The clock (0x8007f5a8): at 0, sound 117 and a cry.
-        self.timer -= DT;
-        if self.timer <= 0 {
-            g.effects.push((117, crate::sound::EFFECTS_VOLUME));
-            g.cry();
-            return;
-        }
         // A kick (state 12, the puck's use 0x8004d1a8): along the facing.
         if self.puck.is_none() && pads.pressed(0, input::TRIANGLE) {
             let (s, c) = (g.trig.sin(g.player.heading), g.trig.cos(g.player.heading));
@@ -344,7 +336,7 @@ impl Level2 {
                 if n.health == 0 {
                     if n.id == GOOSE {
                         g.cine = Some(CINE_WIN);
-                        self.timer = 0;
+                        g.timer = None;
                     } else {
                         self.puck = None;
                         g.cry();
@@ -366,17 +358,7 @@ impl Level2 {
                 rugrats_render::models::model_triangles(m, rrt::glam::Mat3::IDENTITY, pos, moving);
             }
         }
-        let mut text = |s: String, x: i16, y: i16| {
-            let t = crate::text::Text { font: 1, spacing: 1, rgb: [255, 255, 255], x, y, string: s, ..Default::default() };
-            let mut shadow = t.clone();
-            shadow.rgb = [1, 1, 1];
-            shadow.x += 2;
-            shadow.y += 2;
-            shadow.triangles(&g.fonts, overlay);
-            t.triangles(&g.fonts, overlay);
-        };
         if self.phase == 3 {
-            text(format!("{}", (self.timer + 299) / 300), -12, -100);
             // The two gauges (0x8008c5e0 in 0x8007c6e0): the goose's (278)
             // bottom left, Chuckie's (279) bottom right.
             if let Some(s) = &g.sprites {
@@ -407,6 +389,11 @@ impl crate::game::Script for Level2 {
 
     fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
         Level2::draw(self, g, moving, overlay);
+    }
+
+    /// The clock (0x8007ecc4): a cry.
+    fn timer_expired(&mut self, g: &mut Game) {
+        g.cry();
     }
 
     fn phase(&self) -> u8 {

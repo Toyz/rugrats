@@ -82,15 +82,27 @@ turn). Lines 2041-2046 (the result screens' voices) are in every set.
 - **Level 17.** The clock about to run out (0x8007f8a4, timer 10) with
   under 30 nickels: Lil (char 4) 986, Phil (char 5) 859.
 - **The puzzle board.** "You did it!" 2046 (0x80094978).
-- **Not yet listed:**
-  - the NPC callbacks 0x800831a4 (level 10, 0x800b9728), 0x800833a4 and
-    0x800834b0 (level 9, char 16, 0x800b96c8), 0x80083e2c (0x800b96d0,
-    0x800b96e4), 0x80084084 (143 / 21, 0x800b96e0 in level 13,
-    0x800b9710, 0x800b971c, 1134, 0x800b96ec in level 1);
-  - the dog's 159 / 234 / 235 (0x800601e4), 191 / 192 (0x80060b44) and
-    190 (0x80062ac4);
-  - 1183 (0x8004d7c4);
-  - 0x8008d654's pending line (0x800c4614).
+- **Waiting at a post (0x80083e2c, mode 7 entered).** Level 13
+  0x800b96d0[rand & 7] (608, 609, 610, 643, 645, 646, 664, 723); level 16
+  0x800b96e4[(rand & 255) mod 3] (643, 646, 582). Level 13 also says 611
+  or 612 (0x800b96e0) when the wait ends with the player ahead
+  (0x80084084 mode 7).
+- **Mr. Friend (char 16, level 9).** Hit (0x800834b0) or kicked
+  (0x800833a4): 0x800b96c8[mod 3] (153, 187, 146).
+- **Level 10's hide and seek.** The tag (0x800831a4) by Chuckie
+  (template 2): 0x800b9728[mod 3] (158, 160, 165). Running babies
+  (0x80084084 mode 6) count 0x800c4ce4 down and say Tommy (template 11)
+  0x800b9704, Phil (7) 0x800b9710, Lil (6) 0x800b971c; then
+  (rand & 255) x 16.
+- **Level 12's shadows.** Mode 10 ending (0x80084380, +0x688 bit 0x8000):
+  143 or 21.
+- **Level 7.** Template 931 breaking (0x8004d7c4): 1183.
+- **The hub's Spike.** Barks 0x800b96ec (mode 2, rooms 24, 39-41), the
+  fetch's 191 / 192 (0x80060b44), 193 / 159 / 234 / 235 (0x800601e4) and
+  190 (0x80062ac4) ([level 1](../levels/level-01.md)).
+- **Not yet listed:** level 26's prowler (0x80084084 mode 9: sounds 144,
+  145 or speech 1134 every 1000 dt); 0x8008d654's pending line
+  (0x800c4614).
 
 ## Port
 
@@ -108,4 +120,4 @@ turn). Lines 2041-2046 (the result screens' voices) are in every set.
 - Whether a cine posted in the same frame as a line waits for it. The
   port's cine replaces the line at once.
 - 0x800c4618 and 0x800c45e4 (900).
-- The NPC callbacks' lines above.
+- Level 26's prowler and 0x800c4614.

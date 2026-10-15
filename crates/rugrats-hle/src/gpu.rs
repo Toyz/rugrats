@@ -353,7 +353,7 @@ impl Gpu {
             && verts[..n].iter().any(|v| v.x >= r[0] && v.x < r[2] && v.y >= r[1] && v.y < r[3])
         {
             let xy: Vec<_> = verts[..n].iter().map(|v| (v.x, v.y, v.u, v.v)).collect();
-            eprintln!("gpu poly {op:02x} page {page:04x} clut {clut:04x} {xy:?}");
+            eprintln!("gpu poly {op:02x} page {page:04x} clut {clut:04x} {xy:?} rgb {:?}", verts[0].rgb);
         }
         self.triangle(&verts[0], &verts[1], &verts[2], mode, gouraud);
         if quad {
@@ -363,6 +363,9 @@ impl Gpu {
 
     fn polyline(&mut self, c: &[u32]) {
         let op = c[0] >> 24;
+        if self.trace.is_some() {
+            eprintln!("gpu line {op:02x} {:08x?}", c);
+        }
         let gouraud = op & 0x10 != 0;
         let mut pts = Vec::new();
         let mut at = 1;

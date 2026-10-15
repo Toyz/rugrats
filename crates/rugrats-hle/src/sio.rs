@@ -37,6 +37,9 @@ pub struct Sio {
     irq: bool,
     /// Port 1's buttons, 1 for pressed, in the pad's bit order.
     pub buttons: u16,
+    /// No pad in port 1 either (RUGRATS_NO_PAD): the boot then goes from
+    /// the logos straight to the opening.
+    pub unplugged: bool,
 }
 
 impl Sio {
@@ -86,7 +89,7 @@ impl Sio {
     fn exchange(&mut self, byte: u8) {
         let port1 = self.ctrl & 0x2000 == 0;
         let answer = match self.step {
-            Some(step) if self.selected() && port1 => self.pad(step, byte),
+            Some(step) if self.selected() && port1 && !self.unplugged => self.pad(step, byte),
             _ => None,
         };
         match answer {
@@ -157,7 +160,7 @@ impl Sio {
                 self.ctrl = value as u16;
                 if value & 0x0040 != 0 {
                     // Reset.
-                    *self = Sio { buttons: self.buttons, ..Sio::default() };
+                    *self = Sio { buttons: self.buttons, unplugged: self.unplugged, ..Sio::default() };
                     return;
                 }
                 if value & 0x0010 != 0 {

@@ -3,7 +3,7 @@ title: In-engine cinematics
 status: partial
 discs: US
 covers: US SLUS_006.50:0x8007424c, US SLUS_006.50:0x80073810, US SLUS_006.50:0x8007412c, US SLUS_006.50:0x80019da4, US SLUS_006.50:0x80019c88, US SLUS_006.50:0x800b8bd0, US /DATA/CINEMAT/OPEN.BIN, US SLUS_006.50:0x80073b08, US SLUS_006.50:0x80073c34, US SLUS_006.50:0x80073f08, US SLUS_006.50:0x8001e0f4, US SLUS_006.50:0x8001d218
-worklog: 7, 14, 15
+worklog: 7, 14, 15, 22
 ---
 
 # In-engine cinematics
@@ -73,6 +73,17 @@ Quaternions are (x, y, z, w) = (q0, q1, q2, q3), at any scale. Ids are the
 object registry's, from the database's LP file ([lp](../formats/lp.md)).
 
 ## Timing and sound
+
+The audio sectors are four in five of the stream, yet one stereo 37.8 kHz
+channel at double speed needs one in eight. The encoder repeats each audio
+sector to fill the bandwidth (535 of the first 634 neighbours are byte for
+byte the same). The CD-ROM controller's decoder takes a sector only when
+its output has nearly drained and drops the rest (no flow control; DuckStation
+models it so: more than 10 frames queued, the sector is skipped and leaves
+the ADPCM history alone). The 5643 audio sectors of the opening come out as
+882 played, 47.1 s, matching the 1412 frames at 30 a second. Decoding every
+sector gives 300 s with each piece repeated about six times.
+
 
 The stream's data sectors arrive every 5 sectors at double speed (OPEN.BIN:
 frame 1 at sector 2, frame 1412 at sector 7056), so 30 frames a second;

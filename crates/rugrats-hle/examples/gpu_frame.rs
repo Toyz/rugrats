@@ -23,7 +23,11 @@ fn main() {
         std::fs::write(path, bytes).unwrap();
     }
     hle.m.bus.hw.gpu.trace = Some([-4096, -4096, 4096, 4096]);
-    hle.run_frame().unwrap();
-    hle.run_frame().unwrap();
+    // GPU_TRACE_FRAMES=N: trace N frames, not the next two.
+    let n: u64 = std::env::var("GPU_TRACE_FRAMES").ok().and_then(|s| s.parse().ok()).unwrap_or(2);
+    for _ in 0..n {
+        eprintln!("frame {}", hle.frame);
+        hle.run_frame().unwrap();
+    }
     hle.m.bus.hw.gpu.trace = None;
 }

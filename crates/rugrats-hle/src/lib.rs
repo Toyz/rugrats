@@ -357,6 +357,7 @@ impl Hle {
         // A0:AD set_card_auto_format(flag).
         b.insert(0xa0, 0xad, |_| HookResult::Return(0));
         install_card(&b, card_dir());
+        m.bus.hw.sio.unplugged = std::env::var_os("RUGRATS_NO_PAD").is_some();
         // The kernel's device table (pointer at 0x150, size at 0x154, 80
         // bytes a device): libapi's firstfile (0x8009ac98) looks the device
         // up by name there before calling the BIOS. One device, "bu".
@@ -553,7 +554,10 @@ impl Hle {
             }
             // The BIOS runs its queues first: each entry's func1, and its
             // func2 with what func1 returned when that is not 0.
-            let queue = self.shared.borrow().int_queue.clone();
+            // RUGRATS_NO_PAD also leaves libpad's handler out: then the game
+            // never sees a pad driver at all and plays the opening straight
+            // after the logos, as it did before the oracle had one.
+            let queue = if self.m.bus.hw.sio.unplugged { Vec::new() } else { self.shared.borrow().int_queue.clone() };
             for (_, entry) in queue {
                 let (func2, func1) = (self.m.bus.ram_u32(entry + 4), self.m.bus.ram_u32(entry + 8));
                 if func1 == 0 {

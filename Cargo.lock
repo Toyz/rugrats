@@ -1721,7 +1721,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 [[package]]
 name = "rrt"
 version = "0.1.0"
-source = "git+https://github.com/Toyz/retro_rt#a90c8b6ecf2dfe51abd80dc61c3573631af8e121"
+source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691fb398f2"
 dependencies = [
  "rrt-app",
  "rrt-audio",
@@ -1737,7 +1737,7 @@ dependencies = [
 [[package]]
 name = "rrt-app"
 version = "0.1.0"
-source = "git+https://github.com/Toyz/retro_rt#a90c8b6ecf2dfe51abd80dc61c3573631af8e121"
+source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691fb398f2"
 dependencies = [
  "rrt-gpu",
  "rrt-image",
@@ -1751,7 +1751,7 @@ dependencies = [
 [[package]]
 name = "rrt-audio"
 version = "0.1.0"
-source = "git+https://github.com/Toyz/retro_rt#a90c8b6ecf2dfe51abd80dc61c3573631af8e121"
+source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691fb398f2"
 dependencies = [
  "cpal",
  "tracing",
@@ -1760,17 +1760,17 @@ dependencies = [
 [[package]]
 name = "rrt-dis"
 version = "0.1.0"
-source = "git+https://github.com/Toyz/retro_rt#a90c8b6ecf2dfe51abd80dc61c3573631af8e121"
+source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691fb398f2"
 
 [[package]]
 name = "rrt-disc"
 version = "0.1.0"
-source = "git+https://github.com/Toyz/retro_rt#a90c8b6ecf2dfe51abd80dc61c3573631af8e121"
+source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691fb398f2"
 
 [[package]]
 name = "rrt-emu"
 version = "0.1.0"
-source = "git+https://github.com/Toyz/retro_rt#a90c8b6ecf2dfe51abd80dc61c3573631af8e121"
+source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691fb398f2"
 dependencies = [
  "rrt-dis",
  "rrt-kit",
@@ -1779,7 +1779,7 @@ dependencies = [
 [[package]]
 name = "rrt-gpu"
 version = "0.1.0"
-source = "git+https://github.com/Toyz/retro_rt#a90c8b6ecf2dfe51abd80dc61c3573631af8e121"
+source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691fb398f2"
 dependencies = [
  "glam",
  "pollster",
@@ -1790,7 +1790,7 @@ dependencies = [
 [[package]]
 name = "rrt-image"
 version = "0.1.0"
-source = "git+https://github.com/Toyz/retro_rt#a90c8b6ecf2dfe51abd80dc61c3573631af8e121"
+source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691fb398f2"
 dependencies = [
  "flate2",
 ]
@@ -1798,7 +1798,7 @@ dependencies = [
 [[package]]
 name = "rrt-input"
 version = "0.1.0"
-source = "git+https://github.com/Toyz/retro_rt#a90c8b6ecf2dfe51abd80dc61c3573631af8e121"
+source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691fb398f2"
 dependencies = [
  "gilrs",
  "tracing",
@@ -1808,12 +1808,12 @@ dependencies = [
 [[package]]
 name = "rrt-kit"
 version = "0.1.0"
-source = "git+https://github.com/Toyz/retro_rt#a90c8b6ecf2dfe51abd80dc61c3573631af8e121"
+source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691fb398f2"
 
 [[package]]
 name = "rrt-macros"
 version = "0.1.0"
-source = "git+https://github.com/Toyz/retro_rt#a90c8b6ecf2dfe51abd80dc61c3573631af8e121"
+source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691fb398f2"
 dependencies = [
  "proc-macro2",
  "quote",

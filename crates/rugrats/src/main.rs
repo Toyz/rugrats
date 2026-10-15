@@ -210,9 +210,12 @@ impl Rugrats {
         // The title's setup (0x8003eb28) opens the menu's song set, and
         // its loop (0x8003d884) plays song 0.
         self.song_set(sound::MENU_SET);
-        self.play_song(0, sound::MUSIC_VOLUME);
+        self.play_song(0, self.progress.audio().music);
         match Title::open(&self.disc, now, &mut self.rand) {
-            Ok(title) => Boot::Title { title: Box::new(title) },
+            Ok(mut title) => {
+                title.settings = self.progress.audio();
+                Boot::Title { title: Box::new(title) }
+            }
             Err(e) => {
                 rrt::tracing::error!("the title: {e}");
                 self.front_end()
@@ -356,7 +359,7 @@ impl Rugrats {
                 if let Some((set, song)) = sound::level_set(&self.disc, mode) {
                     self.song_set(set);
                     if let Some(n) = song {
-                        self.play_song(n, sound::MUSIC_VOLUME);
+                        self.play_song(n, self.progress.audio().music);
                     }
                 }
                 Boot::Game { game: Box::new(game) }
@@ -471,7 +474,7 @@ impl Game for Rugrats {
                     let going = screen.frame(&self.pads, &mut self.rand);
                     if let Ok(mut spu) = self.spu.lock() {
                         for &s in &screen.sounds {
-                            spu.effect(&self.effect_table, s as usize, sound::EFFECTS_VOLUME);
+                            spu.effect(&self.effect_table, s as usize, self.progress.audio().effects);
                         }
                     }
                     // Lines from the level's set, as the board runs in it.
@@ -535,9 +538,17 @@ impl Game for Rugrats {
                     // The menu samples the pads at the end of each frame.
                     self.pads.update([Some(&t.pad), None]);
                     let outcome = title.frame(&self.pads, &mut self.rand);
+                    // The Audio menu's settings, and the song's volume
+                    // as they change (0x8006ffa8).
+                    let mut audio = title.settings;
+                    audio.music = audio.music.clamp(0, 100);
+                    self.progress.set_audio(audio);
+                    if let (Some(v), Ok(mut spu)) = (title.song_volume, self.spu.lock()) {
+                        spu.song_volume = v;
+                    }
                     if let Ok(mut spu) = self.spu.lock() {
                         for &s in &title.sounds {
-                            spu.effect(&self.effect_table, s as usize, sound::EFFECTS_VOLUME);
+                            spu.effect(&self.effect_table, s as usize, self.progress.audio().effects);
                         }
                     }
                     if let Some(Outcome::Load(k)) = outcome {
@@ -574,7 +585,7 @@ impl Game for Rugrats {
                     game.frame(&self.pads);
                     if let Ok(mut spu) = self.spu.lock() {
                         for &(e, v) in &game.effects {
-                            spu.effect(&self.effect_table, e as usize, v);
+                            spu.effect(&self.effect_table, e as usize, v * self.progress.audio().effects / sound::EFFECTS_VOLUME);
                         }
                     }
                     // Speech (0x8008da4c): one line at a time; one asked for
@@ -623,7 +634,7 @@ impl Game for Rugrats {
                     if let Some(song) = game.song.take().and_then(|n| self.songs.as_ref().and_then(|l| l.songs.get(n)))
                     {
                         if let Ok(mut spu) = self.spu.lock() {
-                            spu.play(song, 0, sound::MUSIC_VOLUME);
+                            spu.play(song, 0, self.progress.audio().music);
                         }
                     }
                     if game.ending {

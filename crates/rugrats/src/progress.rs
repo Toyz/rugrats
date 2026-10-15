@@ -55,6 +55,17 @@ impl Progress {
         self.block[at..at + 4].copy_from_slice(&v.to_le_bytes());
     }
 
+    /// The audio settings (+0x0c music, +0x10 effects, +0x14 mono).
+    pub fn audio(&self) -> crate::audio_menu::Settings {
+        crate::audio_menu::Settings { music: self.u32(0x0c) as i32, effects: self.u32(0x10) as i32, mono: self.u32(0x14) != 0 }
+    }
+
+    pub fn set_audio(&mut self, s: crate::audio_menu::Settings) {
+        self.set_u32(0x0c, s.music.clamp(0, 100) as u32);
+        self.set_u32(0x10, s.effects.clamp(0, 100) as u32);
+        self.set_u32(0x14, s.mono as u32);
+    }
+
     /// Whether bar `n` of `level` was found (+0x48).
     pub fn bar_found(&self, level: usize, n: usize) -> bool {
         level < 32 && n < 32 && self.u32(0x48 + 4 * level) >> n & 1 != 0

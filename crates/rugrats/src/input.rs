@@ -75,6 +75,11 @@ impl Pads {
         self.port[port].history[button] & 3 == 1
     }
 
+    /// Whether `button` of `port` came up this sample (history & 3 == 2).
+    pub fn released(&self, port: usize, button: usize) -> bool {
+        self.port[port].history[button] & 3 == 2
+    }
+
     /// Whether `button` of `port` is down this sample.
     pub fn held(&self, port: usize, button: usize) -> bool {
         self.port[port].history[button] & 1 != 0

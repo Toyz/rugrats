@@ -194,6 +194,8 @@ pub enum Menu {
     Activities,
     /// The card's records (0x800398bc(8, 1, 0, 0)).
     Load,
+    /// The audio settings (0x80041970).
+    Audio,
 }
 
 /// The Activities menu's items (0x800bb6a4..b0), where they sit, and
@@ -599,6 +601,12 @@ pub struct Title {
     /// Frames since the front end began (0x800c4080).
     pub frames: u32,
     started: u64,
+    /// The audio settings as main has them, the menu editing them, and
+    /// the song volume to set this frame.
+    pub settings: crate::audio_menu::Settings,
+    audio: Option<crate::audio_menu::AudioMenu>,
+    pub song_volume: Option<i32>,
+    audio_strings: [String; 5],
 }
 
 fn words(bytes: &[u8]) -> Vec<u16> {
@@ -803,6 +811,10 @@ impl Title {
             chosen: 0,
             frames: 0,
             started: now,
+            settings: crate::audio_menu::Settings { music: crate::sound::MUSIC_VOLUME, effects: crate::sound::EFFECTS_VOLUME, mono: false },
+            audio: None,
+            song_volume: None,
+            audio_strings: crate::audio_menu::AudioMenu::strings(disc),
         };
         title.draw(true);
         Ok(title)
@@ -848,12 +860,15 @@ impl Title {
                 self.draw_load();
                 return None;
             }
-            rrt::tracing::info!("title: {action:?} is not ported yet");
-            // As if it came back with nothing: the menu again (0x8003d5a0).
-            self.items = menu_items(&self.fonts, self.strings.clone());
-            self.countdown = COUNTDOWN;
+            // Audio (0x80041970).
+            self.menu = Menu::Audio;
+            self.audio = Some(crate::audio_menu::AudioMenu::open(&self.audio_strings, &self.fonts, self.settings));
+            self.items.clear();
             self.draw(true);
             return None;
+        }
+        if self.menu == Menu::Audio {
+            return self.audio_frame(pads);
         }
         if self.menu == Menu::Activities {
             return self.activities_frame(pads, rng);
@@ -1124,6 +1139,71 @@ impl Title {
 
     /// Slide the items away (0x80035a54(items, 3, 150)): down to 150 at 8
     /// a frame, the second and third waiting 5 and 10 frames first.
+    /// A frame of the Audio menu; at its end the title's items slide in
+    /// again with Audio chosen (0x8003d5a0).
+    fn audio_frame(&mut self, pads: &crate::input::Pads) -> Option<Outcome> {
+        self.song_volume = None;
+        let Some(menu) = &mut self.audio else { return None };
+        // The backdrop's fade steps twice a frame here (0x80042294,
+        // 0x800427ec).
+        if self.frames % 30 == 0 {
+            self.backdrop.fading = true;
+        }
+        for _ in 0..2 {
+            if self.backdrop.fading {
+                self.backdrop.fading = self.backdrop.step();
+            }
+        }
+        self.frames += 1;
+        let done = menu.frame(pads);
+        self.sounds.extend(menu.sounds.drain(..));
+        self.song_volume = menu.song_volume;
+        self.settings = menu.settings;
+        for b in &mut self.buttons {
+            b.step();
+        }
+        if done.is_some() {
+            self.audio = None;
+            self.menu = Menu::Main;
+            self.items = menu_items(&self.fonts, self.strings.clone());
+            self.chosen = 2;
+            self.countdown = COUNTDOWN;
+            self.draw(true);
+            return None;
+        }
+        self.draw_audio();
+        None
+    }
+
+    fn draw_audio(&mut self) {
+        let Some(menu) = &self.audio else { return };
+        self.stage.under.clear();
+        self.backdrop.triangles(&mut self.stage.under);
+        self.stage.moving.clear();
+        self.stage.overlay.clear();
+        let shift = rrt::glam::Vec3::from(CAMERA) - rrt::glam::Vec3::from(BUTTON_CAMERA);
+        menu.draw(&self.models, &self.trig, shift, &self.fonts, &mut self.stage.moving, &mut self.stage.overlay);
+        // CANCEL always, ACCEPT once the pads are read.
+        let shown = if menu.accept_shown() { 2 } else { 1 };
+        for t in self.labels.iter().take(shown) {
+            let mut shadow = t.clone();
+            shadow.rgb = [1, 1, 1];
+            shadow.x += 2;
+            shadow.y += 2;
+            shadow.triangles(&self.fonts, &mut self.stage.overlay);
+            t.triangles(&self.fonts, &mut self.stage.overlay);
+        }
+        for b in self.buttons.iter().take(shown) {
+            let m = self.trig.euler(b.angles);
+            let rows = rrt::glam::Mat3::from_cols_array(
+                &m.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap(),
+            )
+            .transpose();
+            let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
+            rugrats_render::models::model_triangles(&self.button_model, rows.transpose(), pos, &mut self.stage.moving);
+        }
+    }
+
     fn leave(&mut self, action: Action, rng: &mut crate::rand::Rand) {
         self.slide_away();
         self.leaving = Some(action);

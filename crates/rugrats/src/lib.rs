@@ -3,6 +3,7 @@
 
 pub mod ambience;
 pub mod animator;
+pub mod audio_menu;
 pub mod progress;
 pub mod npc;
 pub mod level1;

@@ -170,6 +170,8 @@ impl Level2 {
                 first_post: 0,
                 loops: (0, 0),
                 size: 0,
+                reach: 600,
+                bite_wait: 900,
             };
             rider.animator.set(crate::player::anim::IDLE, &g.anims);
             g.npcs.push(rider);

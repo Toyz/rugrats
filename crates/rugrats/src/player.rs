@@ -101,6 +101,9 @@ pub struct Player {
     pub hold: Option<i16>,
     /// Jump ignored (golf, 0x8005d11c).
     pub no_jump: bool,
+    /// Floating (state 21, 0x8005db28): the depth anchor (+0x65c) and the
+    /// bob's phase (+0x660).
+    pub float: Option<(i32, i32)>,
     /// Carrying: the idle is 20 (0x80057244 at the grab).
     pub carrying: bool,
     /// The jump lock after a throw (0x800c4290: 300, less dt a frame).
@@ -138,6 +141,7 @@ impl Player {
             action: None,
             hold: None,
             no_jump: false,
+            float: None,
             carrying: false,
             jump_lock: 0,
         };
@@ -162,6 +166,10 @@ impl Player {
 
     /// One frame of play. `camera_heading` is the camera's (4096 a turn).
     pub fn frame(&mut self, pads: &Pads, camera_heading: i32, col: &Col, boxes: &[Box3], anims: &Anims, trig: &Trig) {
+        if self.float.is_some() {
+            self.float_frame(pads, camera_heading, col, anims, trig);
+            return;
+        }
         self.effects.clear();
         let held = |b: usize| pads.held(0, b);
         let pressed = |b: usize| pads.pressed(0, b);
@@ -328,6 +336,51 @@ impl Player {
             State::Fall => anim::FALL,
             State::Land => anim::LAND,
         };
+        self.animator.set(a, anims);
+        self.animator.step(anims);
+    }
+
+    /// Floating (state 21, 0x8005db28): the stick moves at half speed, no
+    /// gravity; Cross held rises 40 a frame, Circle sinks 40, else a bob of
+    /// 256 about the anchor ((218 dt) >> 6 a frame).
+    fn float_frame(&mut self, pads: &Pads, camera_heading: i32, col: &Col, anims: &Anims, trig: &Trig) {
+        let Some((mut anchor, mut bob)) = self.float else { return };
+        self.effects.clear();
+        let start = self.pos;
+        let held = |b: usize| pads.held(0, b);
+        let sx = if held(input::LEFT) { -4096 } else if held(input::RIGHT) { 4096 } else { 0 };
+        let sz = if held(input::UP) { 4096 } else if held(input::DOWN) { -4096 } else { 0 };
+        if sx != 0 || sz != 0 {
+            let dir = (((sx as f64).atan2(sz as f64) / std::f64::consts::TAU) * 4096.0).round() as i32;
+            self.target = (dir + camera_heading).rem_euclid(4096);
+            self.speed = RUN / 2;
+        } else {
+            self.speed = 0;
+        }
+        let step = self.turn_rate * DT >> 6;
+        let d = wrap(self.target - self.heading);
+        self.heading = (self.heading + d.clamp(-step, step)).rem_euclid(4096);
+        let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
+        self.pos[0] += s * self.speed * DT >> 12;
+        self.pos[2] += c * self.speed * DT >> 12;
+        bob = (bob + (218 * DT >> 6)).rem_euclid(4096);
+        if held(input::CROSS) {
+            self.pos[1] -= 262 * DT >> 6;
+            anchor = self.pos[1];
+        } else if held(input::CIRCLE) {
+            self.pos[1] += 131 * DT >> 5;
+            anchor = self.pos[1];
+        } else if self.speed == 0 {
+            self.pos[1] = anchor + (trig.sin(bob) * 256 >> 12);
+        }
+        // Walls and floors still stop the body.
+        let q = collide::query(col, [self.pos[0], self.pos[1] - self.feet, self.pos[2]]);
+        if q.kind != 0 {
+            self.pos = start;
+        }
+        self.float = Some((anchor, bob));
+        self.state = State::Stand;
+        let a = if self.speed > 0 { anim::RUN } else { anim::STAND };
         self.animator.set(a, anims);
         self.animator.step(anims);
     }

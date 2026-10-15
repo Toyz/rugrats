@@ -116,6 +116,12 @@ pub struct Npc {
     pub loops: (i32, i32),
     /// Half its size (the hierarchy's, which a level may grow).
     pub size: i32,
+    /// How near a guard bites (+0x690; 600 by default, level 5's robots
+    /// 1536).
+    pub reach: i32,
+    /// The time between a guard's bites (dt; the geese 900, level 5's
+    /// robots 230 as seen).
+    pub bite_wait: i32,
 }
 
 /// What a step of the NPCs asks of the level.
@@ -279,11 +285,11 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                     (dx * dx + dz * dz).sqrt() as i32
                 };
                 if from_home < n.range && (p[1] - n.pos[1]).abs() < 2800 {
-                    if n.dist(p) < 600 {
+                    if n.dist(p) < n.reach {
                         n.speed = 0;
-                        if n.cooldown == 0 && (p[1] - n.pos[1]).abs() < 1200 {
+                        if n.cooldown == 0 && (p[1] - n.pos[1]).abs() < 1200.max(n.reach + 200) {
                             events.push(Event::Bite { by: k, target: Target::Player, amount: n.damage });
-                            n.cooldown = 900;
+                            n.cooldown = n.bite_wait;
                         }
                     } else {
                         n.go(p, base, w.col, w.trig);

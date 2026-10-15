@@ -49,6 +49,7 @@ const TOMMY: usize = 1;
 fn player_character(level: usize) -> usize {
     match level {
         4 | 11 => 6,
+        5 => 3,
         _ => TOMMY,
     }
 }
@@ -158,6 +159,10 @@ pub struct Game {
     /// apart (characters, pickables, collectibles).
     hidden: std::collections::HashSet<u16>,
     apart: Vec<bool>,
+    /// Placements hidden one by one (hide_placement).
+    hidden_places: std::collections::HashSet<usize>,
+    /// Collectibles taken this frame: (kind, +0x6d).
+    pub collected: Vec<(u16, i32)>,
     /// Placements whose use was taken away (+0x54 = 0).
     unusable: std::collections::HashSet<usize>,
     /// The moving platforms (template class 11).
@@ -214,6 +219,8 @@ pub struct Mover {
     /// (+0x34, the trigger list 0x80072d38); 0 always.
     radius: i32,
     armed: bool,
+    /// Template flag 0x40000000 (+0xbe bit 64): moves only while ridden.
+    ridden_only: bool,
 }
 
 impl Mover {
@@ -221,8 +228,24 @@ impl Mover {
         Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32)
     }
 
-    fn step(&mut self, player: [i32; 3]) {
+    /// Back where it started, disarmed (0x80049e5c, 0x800487b8).
+    pub fn reset(&mut self) {
+        self.pos = self.start;
+        self.gone = [0; 3];
+        self.out = [true; 3];
+        self.armed = false;
+    }
+
+    /// Its step on axis `axis` (a level's own, as level 5's 60).
+    pub fn set_step(&mut self, axis: usize, step: i32) {
+        self.step[axis] = step;
+    }
+
+    fn step(&mut self, player: [i32; 3], ridden: bool) {
         self.delta = [0; 3];
+        if self.ridden_only && !ridden {
+            return;
+        }
         if !self.armed {
             let (dx, dz) = ((player[0] - self.pos[0]) as i64, (player[2] - self.pos[2]) as i64);
             self.armed = self.radius == 0 || dx * dx + dz * dz < (self.radius as i64).pow(2);
@@ -292,6 +315,9 @@ pub struct Thing {
     pub damage: i32,
     /// Hidden (off in the world, 0x80078bc4 or a level's pool).
     pub hidden: bool,
+    /// Carried but not thrown (class 13: object bit 0x1000000): ACTION
+    /// is the level's (the remote's zap).
+    pub keep: bool,
     pub shape: u32,
     pub pos: Vec3,
     pub rot: Mat3,
@@ -392,9 +418,10 @@ impl Game {
         let hierarchy = set.hierarchies.get(who).cloned().flatten().ok_or("no hierarchy for the player")?;
         let mut player = Player::new(disc, hierarchy.clone(), start, heading, &col, &anims)?;
         if who != TOMMY {
-            // Spike (0x80059328's body, turn 298).
+            // Another body (0x80059328): Spike turns slowly (0x80062eac).
             let a = crate::animator::Animator::load(disc, who as u16)?;
-            player.set_body(hierarchy, a, crate::player::SLOW_TURN, &anims);
+            let turn = if matches!(who, 6 | 21) { crate::player::SLOW_TURN } else { crate::player::TURN };
+            player.set_body(hierarchy, a, turn, &anims);
             player.pos = start;
         }
         let mut stage = Stage::new(set.vram.clone(), set.rooms.clone());
@@ -425,6 +452,7 @@ impl Game {
                     id: p.id,
                     damage: t.raw[0x32] as i32,
                     hidden: false,
+                    keep: t.raw[4] == 13,
                     shape: t.shape as u32,
                     pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
                     rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
@@ -510,6 +538,7 @@ impl Game {
                     delta: [0; 3],
                     radius: u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32,
                     armed: false,
+                    ridden_only: t.flags & 0x4000_0000 != 0,
                 }
             })
             .collect();
@@ -552,6 +581,8 @@ impl Game {
                 first_post: p.post,
                 loops: (p.level as i32, p.level as i32),
                 size: 0,
+                reach: 600,
+                bite_wait: 900,
             };
             // On the floor under it (0x80081bac asks 0x8002b240), the root
             // the hierarchy's offset above the feet.
@@ -609,6 +640,8 @@ impl Game {
             hidden: Default::default(),
             apart,
             unusable: Default::default(),
+            hidden_places: Default::default(),
+            collected: Vec::new(),
             struck: Vec::new(),
             movers,
             fixed: None,
@@ -630,6 +663,7 @@ impl Game {
             2 => Some(Box::new(crate::level2::Level2::start(&mut g, disc)?)),
             3 => Some(Box::new(crate::level3::Level3::start(&mut g, disc)?)),
             4 => Some(Box::new(crate::level4::Level4::start(&mut g, disc)?)),
+            5 => Some(Box::new(crate::level5::Level5::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
         };
@@ -695,6 +729,41 @@ impl Game {
         }
     }
 
+    /// Puts thing `k` in the player's hand (0x8005ff88 mode 0 with no
+    /// pick-up animation).
+    pub fn give(&mut self, k: usize) {
+        if k >= self.things.len() {
+            return;
+        }
+        let parts = self.player.parts(&self.anims, &self.trig);
+        let rot = self.player.rotation(&self.trig);
+        let at = |slot| self.player.slot_part(slot).and_then(|i| parts.get(i)).map(|p| p.1);
+        self.grip = match (at(HAND), at(OTHER_HAND)) {
+            (Some(a), Some(b)) => rot.transpose() * ((a + b) / 2.0 - a),
+            _ => Vec3::new(0.0, -300.0, 200.0),
+        };
+        self.things[k].state = ThingState::Carried;
+        self.carried = Some(k);
+        self.player.carrying = true;
+    }
+
+    /// The thing carried.
+    pub fn carried(&self) -> Option<usize> {
+        self.carried
+    }
+
+    /// Hides or shows placement `k` of the scenery (a level's own doors).
+    pub fn hide_placement(&mut self, k: usize, hidden: bool) {
+        let changed = if hidden { self.hidden_places.insert(k) } else { self.hidden_places.remove(&k) };
+        if changed {
+            let skip = |j: usize| {
+                self.apart[j] || self.hidden.contains(&self.set.placements[j].id) || self.hidden_places.contains(&j)
+            };
+            self.scenery = self.set.objects_except(&Frame::default(), skip);
+            self.boxes = object_boxes(&self.set, skip);
+        }
+    }
+
     /// The mover whose top the player stands on.
     fn mover_under_player(&self) -> Option<usize> {
         let p = self.player.pos;
@@ -727,7 +796,9 @@ impl Game {
         }
         let changed = if hidden { self.hidden.insert(id) } else { self.hidden.remove(&id) };
         if changed {
-            let skip = |k: usize| self.apart[k] || self.hidden.contains(&self.set.placements[k].id);
+            let skip = |k: usize| {
+                self.apart[k] || self.hidden.contains(&self.set.placements[k].id) || self.hidden_places.contains(&k)
+            };
             self.scenery = self.set.objects_except(&Frame::default(), skip);
             self.boxes = object_boxes(&self.set, skip);
         }
@@ -756,7 +827,7 @@ impl Game {
         let me = Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32);
         let rot = p.rotation(&self.trig);
         if let Some(k) = self.carried {
-            let throw = pads.pressed(0, input::TRIANGLE);
+            let throw = pads.pressed(0, input::TRIANGLE) && !self.things[k].keep;
             if throw || pads.pressed(0, input::CIRCLE) {
                 let (dir, speed, anim) = if throw {
                     (rot * Vec3::new(0.0, -384.0, 1024.0), THROW_SPEED, crate::player::anim::THROW)
@@ -808,6 +879,7 @@ impl Game {
     /// Touching collectibles (0x800514b0): taken, with their kind's sound.
     fn touch(&mut self) {
         self.found.clear();
+        self.collected.clear();
         self.bar_shown = (self.bar_shown - crate::player::DT).max(0);
         let me = Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32);
         // Kind 16 has no touch (0x80049244): decoration.
@@ -816,6 +888,7 @@ impl Game {
             let d = g.pos - me;
             if Vec3::new(d.x, 0.0, d.z).length() < r && d.y.abs() < 1200.0 {
                 g.taken = true;
+                self.collected.push((g.kind, g.value));
                 self.effects.push((goodie::sound(g.kind), crate::sound::EFFECTS_VOLUME));
                 // Cookies and bones heal by their +0x6d (0x800514b0).
                 if matches!(g.kind, goodie::COOKIE | goodie::BONE) {
@@ -1018,8 +1091,8 @@ impl Game {
         // Movers step (0x8004ee00), carrying a player who stands on one.
         let standing_on = self.mover_under_player();
         let me = self.player.pos;
-        for m in &mut self.movers {
-            m.step(me);
+        for (k, m) in self.movers.iter_mut().enumerate() {
+            m.step(me, standing_on == Some(k));
         }
         if let Some(k) = standing_on {
             let d = self.movers[k].delta;

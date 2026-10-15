@@ -90,9 +90,15 @@ fn main() -> Result<(), String> {
                         .ok()
                         .map(|v| v.split(',').filter_map(|s| s.parse().ok()).collect())
                         .unwrap_or(vec![11, 1776]);
-                    let npcs: Vec<_> = ids
-                        .iter()
-                        .filter_map(|&id| game.npcs.iter().find(|n| n.id == id))
+                    // CHARS=c: every character of hierarchy c instead.
+                    let chars: Vec<usize> = std::env::var("CHARS").ok().map(|v| v.split(',').filter_map(|s| s.parse().ok()).collect()).unwrap_or_default();
+                    let picked: Vec<&rugrats::npc::Npc> = if chars.is_empty() {
+                        ids.iter().filter_map(|&id| game.npcs.iter().find(|n| n.id == id)).collect()
+                    } else {
+                        game.npcs.iter().filter(|n| chars.contains(&n.character)).collect()
+                    };
+                    let npcs: Vec<_> = picked
+                        .into_iter()
                         .map(|n| (n.id, n.pos, n.health, format!("{:?}", n.mode), n.hidden))
                         .collect();
                     println!("{frame}: phase {} health {} tries {} npcs {npcs:?}", phase, game.player.health, game.tries);

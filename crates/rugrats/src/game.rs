@@ -679,6 +679,7 @@ impl Game {
             9 => Some(Box::new(crate::level9::Level9::start(&mut g, disc)?)),
             10 => Some(Box::new(crate::level10::Level10::start(&mut g, disc)?)),
             12 => Some(Box::new(crate::level12::Level12::start(&mut g, disc)?)),
+            14 => Some(Box::new(crate::level9::Level9::start14(&mut g, disc)?)),
             11 => Some(Box::new(crate::level11::Level11::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,

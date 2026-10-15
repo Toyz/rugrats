@@ -28,6 +28,10 @@ pub struct Level9 {
     pub phase: u8,
     /// 0x800c4cd8: deaths to go.
     counter: i32,
+    /// Level 14 (docs/engine/level-14.md, a cut level the retail game
+    /// never reaches): one Mr. Friend, no aim, no sounds, every hit
+    /// staggers him, his death ends nothing.
+    l14: bool,
 }
 
 fn find(g: &Game, id: u16) -> Option<usize> {
@@ -56,19 +60,36 @@ impl Level9 {
         }
         g.aim = true;
         g.checkpoint = Some((g.player.pos, g.player.heading));
-        Ok(Level9 { phase: 1, counter: 4 })
+        Ok(Level9 { phase: 1, counter: 4, l14: false })
+    }
+
+    /// Level 14's EpisodeStart (0x8007b17c): Mr. Friend follows, the
+    /// counter 1, no aim.
+    pub fn start14(g: &mut Game, _disc: &GameDisc) -> Result<Level9, String> {
+        if let Some(k) = find(g, 46) {
+            let n = &mut g.npcs[k];
+            n.damage = BITE;
+            n.attacks = true;
+            n.bite_wait = 180;
+            n.mode = Mode::Follow(Target::Player);
+        }
+        g.checkpoint = Some((g.player.pos, g.player.heading));
+        Ok(Level9 { phase: 1, counter: 1, l14: true })
     }
 
     /// Mode 1 (0x800841cc): staggered, its callbacks off, 300 + (rand & 3)
     /// x 300 dt after the hit animation.
     fn hit(&mut self, g: &mut Game, k: usize, amount: i32) {
         let wait = 300 + (g.rand.next() & 3) as i32 * 300;
+        let l14 = self.l14;
         let n = &mut g.npcs[k];
-        if matches!(n.mode, Mode::Hit { .. }) || n.hidden {
+        if (matches!(n.mode, Mode::Hit { .. }) && !l14) || n.hidden {
             return;
         }
         n.health = (n.health - amount).max(0);
-        g.effects.push((19, crate::sound::EFFECTS_VOLUME));
+        if !l14 {
+            g.effects.push((19, crate::sound::EFFECTS_VOLUME));
+        }
         if n.health == 0 {
             self.die(g, k);
         } else {
@@ -81,8 +102,11 @@ impl Level9 {
         let id = g.npcs[k].id;
         g.npcs[k].mode = Mode::Idle;
         g.hide(id, true);
-        g.effects.push((100, crate::sound::EFFECTS_VOLUME));
         self.counter = (self.counter - 1).max(0);
+        if self.l14 {
+            return;
+        }
+        g.effects.push((100, crate::sound::EFFECTS_VOLUME));
         match self.counter {
             3 => g.cine = Some(CINE_MORE),
             1 => {
@@ -121,9 +145,11 @@ impl crate::game::Script for Level9 {
                 FRIENDS.contains(&n.id) && !n.hidden && dx * dx + dz * dz < KICK_REACH * KICK_REACH
             });
             if let Some(k) = near {
-                let a = if g.rand.next() & 1 == 0 { 37 } else { 50 };
+                let a = if self.l14 || g.rand.next() & 1 == 0 { 50 } else { 37 };
                 g.player.act(a, &g.anims);
-                g.effects.push((98, crate::sound::EFFECTS_VOLUME));
+                if !self.l14 {
+                    g.effects.push((98, crate::sound::EFFECTS_VOLUME));
+                }
                 self.hit(g, k, KICK);
             }
         }

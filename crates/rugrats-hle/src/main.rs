@@ -6,6 +6,7 @@
 //!             [--press F:BUTTON[+BUTTON][:LEN],...]   hold buttons from frame F (4 frames by default)
 //!             [--peek ADDR:LEN,...]    memory after the run, as words
 //!             [--count ADDR,...]       calls of each function, per frame
+//!             [--poke ADDR=WORD,...]   words written before every frame
 //! ```
 //!
 //! Writes the displayed picture every N frames, and all of VRAM at the end,
@@ -46,6 +47,8 @@ fn main() {
     let mut presses: Vec<(u64, u16, u64)> = Vec::new();
     let mut peeks: Vec<(u32, u32)> = Vec::new();
     let mut counts: Vec<u32> = Vec::new();
+    // --poke ADDR=WORD: written before every frame.
+    let mut pokes_each: Vec<(u32, u32)> = Vec::new();
     while let Some(a) = args.next() {
         match a.as_str() {
             "--shots" => shots = args.next().map(PathBuf::from).unwrap_or(shots),
@@ -59,6 +62,13 @@ fn main() {
                     let buttons = f.get(1).map_or(0, |n| n.split('+').filter_map(rugrats_hle::button::by_name).fold(0, |a, b| a | b));
                     let len = f.get(2).and_then(|s| s.parse().ok()).unwrap_or(4);
                     presses.push((frame, buttons, len));
+                }
+            }
+            "--poke" => {
+                for p in args.next().unwrap_or_default().split(',') {
+                    if let Some((a, v)) = p.split_once('=') {
+                        pokes_each.push((parse_num(a), parse_num(v)));
+                    }
                 }
             }
             "--count" => counts.extend(args.next().unwrap_or_default().split(',').map(parse_num)),
@@ -88,6 +98,9 @@ fn main() {
     let mut last: Vec<u64> = vec![0; counts.len()];
     let started = std::time::Instant::now();
     for f in 1..=frames {
+        for &(a, v) in &pokes_each {
+            hle.m.bus.load_ram(a, &v.to_le_bytes());
+        }
         hle.pad = presses.iter().filter(|(at, _, len)| (*at..at + len).contains(&f)).fold(0, |a, p| a | p.1);
         if let Err(e) = hle.run_frame() {
             tracing::error!("frame {f}: {e}");
@@ -121,6 +134,7 @@ fn main() {
         hle.m.bus.hw.i_stat,
         hle.m.bus.hw.i_mask
     );
+    tracing::info!("display {:?}, {} primitives drawn", hle.m.bus.hw.gpu.display, hle.m.bus.hw.gpu.drawn);
     let cd = &hle.m.bus.hw.cd;
     tracing::info!("CD commands {:?}; {} XA sectors to the sound side", cd.commands, cd.xa_sectors);
     for (addr, n) in &hle.m.bus.hw.unhandled {

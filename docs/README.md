@@ -35,6 +35,7 @@ How the game works, subsystem by subsystem.
 | Page | Status | Discs | Covers |
 | --- | --- | --- | --- |
 | [Boot, main and the start-up calls](engine/boot.md) | partial | US | US SLUS_006.50:0x800977e8, US SLUS_006.50:0x800185f8, US SLUS_006.50:0x800193fc, US SLUS_006.50:0x80019630 |
+| [In-engine cinematics](engine/cinematics.md) | partial | US | US SLUS_006.50:0x8007424c, US SLUS_006.50:0x80073810, US SLUS_006.50:0x8007412c, US SLUS_006.50:0x80019da4, US SLUS_006.50:0x80019c88, US SLUS_006.50:0x800b8bd0, US /DATA/CINEMAT/OPEN.BIN |
 | [The input module](engine/input.md) | partial | US | US SLUS_006.50:0x8001acc0, US SLUS_006.50:0x8001baf8, US SLUS_006.50:0x8001b028, US SLUS_006.50:0x800cda18 |
 | [The PsyQ libraries in the executable](engine/libraries.md) | partial | US | US SLUS_006.50:0x800977e8..0x800b2794 |
 

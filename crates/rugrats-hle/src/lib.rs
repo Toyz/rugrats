@@ -40,6 +40,8 @@ pub mod addr {
     pub const VSYNC: u32 = 0x8009_af48;
     pub const READ_FILE: u32 = 0x8001_9794;
     pub const PRINTF: u32 = 0x800b_1478;
+    /// The game's leveled debug print: debug_print(level, fmt, ...).
+    pub const DEBUG_PRINT: u32 = 0x8002_f284;
     /// libetc's interrupt dispatcher, entered through HookEntryInt's jump
     /// buffer when an interrupt arrives.
     pub const INTR_DISPATCH: u32 = 0x8009_b3d4;
@@ -236,6 +238,12 @@ impl Hle {
             });
         }
 
+        m.hook(addr::DEBUG_PRINT, |c| {
+            let level = c.arg32(0);
+            let text = printf::format_from(c, 1);
+            tracing::debug!(target: "game", "[{level}] {}", text.trim_end());
+            HookResult::Return(0)
+        });
         m.hook(addr::PRINTF, |c| {
             let text = printf::format(c);
             tracing::info!(target: "game", "{}", text.trim_end());

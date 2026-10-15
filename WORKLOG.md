@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-6 entries: audio 2, build 2, content 1, decomp 2, design 1, disc 1, engine 2, format 3, input 1, test 3, tooling 4, video 4.
+7 entries: audio 2, build 2, content 1, decomp 3, design 1, disc 1, engine 3, format 3, input 1, test 3, tooling 5, video 4.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -18,3 +18,4 @@ The [reference](docs/README.md) says what is true now.
 | 4 | [A model of the CD-ROM drive: libcd and the opening stream run natively in the oracle](worklog/0004-a-model-of-the-cd-rom-drive-libcd-and-the-opening-stream.md) | 2026-10-14 | tooling, engine, video, audio |
 | 5 | [The port begins: rugrats on retro_rt shows the legal screen, pixel for pixel](worklog/0005-the-port-begins-rugrats-on-retro-rt-shows-the-legal-screen.md) | 2026-10-14 | build, video, format, test, design |
 | 6 | [The logo movies play in the port: STR, BS version 3, XA sound, the input module](worklog/0006-the-logo-movies-play-in-the-port-str-bs-version-3-xa-sound.md) | 2026-10-14 | video, audio, format, input, test |
+| 7 | [After the logos: the opening is an in-engine cinematic, and the oracle renders it empty](worklog/0007-after-the-logos-the-opening-is-an-in-engine-cinematic-and.md) | 2026-10-14 | engine, decomp, tooling |

@@ -18,9 +18,14 @@ fn cstr(c: &mut Call<'_, R3000, PsxBus>, at: u32) -> String {
 
 /// `printf(fmt, ...)`: %d %i %u %x %X %c %s %p with flags, width and `l`.
 pub fn format(c: &mut Call<'_, R3000, PsxBus>) -> String {
-    let at = c.arg32(0);
+    format_from(c, 0)
+}
+
+/// The same with the format string in argument `first`.
+pub fn format_from(c: &mut Call<'_, R3000, PsxBus>, first: usize) -> String {
+    let at = c.arg32(first);
     let fmt = cstr(c, at);
-    let mut arg = 1;
+    let mut arg = first + 1;
     let mut out = String::new();
     let mut chars = fmt.chars().peekable();
     while let Some(ch) = chars.next() {

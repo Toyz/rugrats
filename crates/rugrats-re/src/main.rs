@@ -23,6 +23,7 @@ const USAGE: &str = "usage: rugrats-re <command> ...
   vab DIR|VH [OUT]          check every VAB (VH with its VB) under DIR, or write one bank's samples as WAV
   exe info FILE             PS-X EXE header
   files                     the executable's file table, each entry against the ISO directory
+  level FILE [--rooms]      a LEVELnn.BIN's sections and rooms
   disasm FILE [--from ADDR] [--to ADDR] [--count N] [--gp ADDR]
                             disassemble a PS-X EXE (or a raw image with --base ADDR),
                             with function labels, BIOS calls, and the strings the code points at
@@ -852,6 +853,30 @@ fn files_cmd(cue: &Option<String>) -> Result<()> {
     Ok(())
 }
 
+/// A LEVELnn.BIN's sections, as the room loader walks them.
+fn level_cmd(args: &mut Args, cue: &Option<String>) -> Result<()> {
+    let file = args.items.first().ok_or("level FILE")?.clone();
+    let bytes = read_input(&file, cue)?;
+    let l = rugrats_data::level::parse(&bytes).map_err(|e| e.to_string())?;
+    let blobs: usize = l.rooms.iter().map(|r| r.blobs.len()).sum();
+    println!(
+        "{file}: {} a, {} quads, {} c, {} rooms ({blobs} blobs), tail count {} + {} bytes",
+        l.a.len(),
+        l.quads.len(),
+        l.c.len(),
+        l.rooms.len(),
+        l.tail_count,
+        l.tail.len()
+    );
+    if args.take_flag("--rooms") {
+        for (i, r) in l.rooms.iter().enumerate() {
+            let sizes: Vec<usize> = r.blobs.iter().map(Vec::len).collect();
+            println!("  room {i:2}: quads {} boxes {} list {:?} blobs {sizes:?}", r.quads(), r.boxes(), r.list);
+        }
+    }
+    Ok(())
+}
+
 fn main() {
     let mut args = Args { items: std::env::args().skip(1).collect() };
     let cue = args.take("--cue");
@@ -860,6 +885,7 @@ fn main() {
         "disc" => disc_cmd(&mut args, &cue),
         "exe" => exe_info(&mut args, &cue),
         "files" => files_cmd(&cue),
+        "level" => level_cmd(&mut args, &cue),
         "tim" => tim_cmd(&mut args, &cue),
         "vab" => vab_cmd(&mut args),
         "disasm" => disasm(&mut args, &cue),

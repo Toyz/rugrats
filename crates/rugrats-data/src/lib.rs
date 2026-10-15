@@ -4,6 +4,7 @@
 
 pub mod bs;
 pub mod files;
+pub mod level;
 pub mod mdec;
 pub mod movie;
 pub mod tim;

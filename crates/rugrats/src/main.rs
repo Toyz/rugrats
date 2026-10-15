@@ -327,6 +327,11 @@ impl Game for Rugrats {
                 if now.is_multiple_of(2) {
                     self.pads.update([Some(&t.pad), None]);
                     game.frame(&self.pads);
+                    if let Ok(mut spu) = self.spu.lock() {
+                        for &(e, v) in &game.effects {
+                            spu.effect(&self.effect_table, e as usize, v);
+                        }
+                    }
                     if let Some(song) = game.song.take().and_then(|n| self.songs.as_ref().and_then(|l| l.songs.get(n))) {
                         if let Ok(mut spu) = self.spu.lock() {
                             spu.play(song, 0, sound::MUSIC_VOLUME);

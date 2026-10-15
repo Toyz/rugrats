@@ -35,6 +35,8 @@ const MOVING: i32 = 100;
 const TURN: i32 = 1025;
 /// The player's character: Tommy (0x800c5680 = 1).
 const TOMMY: u16 = 1;
+/// The jump's take-off sound.
+const TAKE_OFF: u8 = 6;
 /// Gravity (0x80061330): vy += 14 * dt, less 5 while jump is held.
 const GRAVITY: i32 = 14;
 const LIFT: i32 = -5;
@@ -73,6 +75,8 @@ pub struct Player {
     feet: i32,
     hierarchy: Hierarchy,
     pub animator: Animator,
+    /// Sound effects asked for this frame (0x8006f644's numbers).
+    pub effects: Vec<u8>,
 }
 
 impl Player {
@@ -92,6 +96,7 @@ impl Player {
             feet,
             hierarchy,
             animator,
+            effects: Vec::new(),
         };
         let q = collide::query(col, start);
         if q.tile.is_some() {
@@ -114,6 +119,7 @@ impl Player {
 
     /// One frame of play. `camera_heading` is the camera's (4096 a turn).
     pub fn frame(&mut self, pads: &Pads, camera_heading: i32, col: &Col, boxes: &[Box3], anims: &Anims, trig: &Trig) {
+        self.effects.clear();
         let held = |b: usize| pads.held(0, b);
         let pressed = |b: usize| pads.pressed(0, b);
         let start = self.pos;
@@ -154,6 +160,8 @@ impl Player {
                 let along = if self.speed > WALK { 40 } else { 12 } * self.speed;
                 self.v = [s * along >> 12, -1000, c * along >> 12];
                 self.state = State::Jump;
+                // The take-off's sound (0x800562bc: effect 6).
+                self.effects.push(TAKE_OFF);
             }
         } else {
             // The air (0x80061330): gravity 14, less 5 while jump is held

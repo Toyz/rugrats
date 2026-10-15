@@ -59,6 +59,9 @@ pub struct Game {
     /// (RoomChange, 0x80077a54: room flag 128, song at +0x64 less one).
     room: Option<usize>,
     pub song: Option<usize>,
+    /// Sound effects asked for this frame, with their volume (0x8006f644:
+    /// the effects setting, less with distance from the camera).
+    pub effects: Vec<(u8, i32)>,
 }
 
 /// A placed character, standing (its think and AI are not ported).
@@ -132,7 +135,7 @@ impl Game {
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let yaw = heading as f32;
         let boxes = object_boxes(&set, |k| character(k));
-        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None, boxes, npcs, room: None, song: None };
+        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None, boxes, npcs, room: None, song: None, effects: Vec::new() };
         g.eye = g.eye_goal();
         g.draw();
         Ok(g)
@@ -197,6 +200,9 @@ impl Game {
     /// then the draw.
     pub fn frame(&mut self, pads: &Pads) {
         self.player.frame(pads, self.yaw.round() as i32, &self.col, &self.boxes, &self.anims, &self.trig);
+        let d = (self.eye - Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32)).length();
+        let volume = (crate::sound::EFFECTS_VOLUME as f32 * (1.0 - d / 16384.0).max(0.0)) as i32;
+        self.effects = self.player.effects.iter().map(|&e| (e, volume)).collect();
         // Using a door (the stand handler's ACTION, Triangle, on an object
         // whose use is 0x8004f78c): its level next.
         if pads.pressed(0, input::TRIANGLE) {

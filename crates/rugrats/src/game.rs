@@ -882,8 +882,11 @@ impl Game {
         if r.flags & 32 != 0 {
             self.checkpoint = Some((self.player.pos, self.player.heading));
         }
+        // Flag 128: +0x64 below 5 a song, else a speech line.
         if r.flags & 128 != 0 && (1..5).contains(&r.song) {
             self.song = Some(r.song as usize - 1);
+        } else if r.flags & 128 != 0 && r.song >= 5 {
+            self.speech.push(r.song as u16);
         }
         // Flag 4: the room's camera (CameraSwitch, 0x80077c88 into
         // 0x800291f8): kind 3 a fixed camera at post +0x5c; the follow

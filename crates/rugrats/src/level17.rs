@@ -105,7 +105,16 @@ impl crate::game::Script for Level17 {
     }
 
     /// 0x80079b38: all taken wins (cine 26, as Phil); else ForceCry.
+    /// Under 30 taken the baby says so first (0x8007f8a4: Lil 986, Phil
+    /// 859).
     fn timer_expired(&mut self, g: &mut Game) {
+        if self.taken < 30 {
+            match g.character {
+                4 => g.speech.push(986),
+                5 => g.speech.push(859),
+                _ => {}
+            }
+        }
         if self.taken >= NICKELS {
             if self.lil {
                 self.swap_lil(g);

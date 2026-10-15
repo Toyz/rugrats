@@ -607,6 +607,16 @@ impl Game for Rugrats {
                             }
                             None => self.enter(level, now),
                         };
+                    } else if let Some(file) = game.card.take() {
+                        // A hint card the level shows (0x80044434).
+                        match rugrats::front::Card::open(&self.disc, file) {
+                            Ok(card) => {
+                                let Boot::Game { game } = std::mem::replace(&mut self.boot, Boot::FrontEnd) else { unreachable!() };
+                                self.world = None;
+                                self.boot = Boot::Card { card: Box::new(card), n: 0, then: Then::Back(game) };
+                            }
+                            Err(e) => rrt::tracing::error!("card {file}: {e}"),
+                        }
                     } else if bought || game.board || !game.pages.is_empty() {
                         // A bought piece's screens (0x80094a58), the board in
                         // Pickles' Home (use callback 1, 0x8004d3f0), or the

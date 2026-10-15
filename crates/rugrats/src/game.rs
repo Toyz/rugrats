@@ -44,6 +44,15 @@ fn default_eye_up(level: usize) -> f32 {
 /// database's number 1 (0x800450ac).
 const TOMMY: usize = 1;
 
+/// The playable character by level (0x80018598): Spike in levels 4 and
+/// 11, else Tommy.
+fn player_character(level: usize) -> usize {
+    match level {
+        4 | 11 => 6,
+        _ => TOMMY,
+    }
+}
+
 /// A level's own play (its EpisodeStart callback and the level cases of
 /// the event handlers).
 pub trait Script {
@@ -58,6 +67,8 @@ pub trait Script {
     }
     /// A room's Gameplay script (room flag 64, 0x80077ee4).
     fn gameplay(&mut self, _g: &mut Game, _n: u8) {}
+    /// The player entered room `room` (the level's case of 0x8007f498).
+    fn room(&mut self, _g: &mut Game, _room: usize) {}
     /// The level's own models and HUD.
     fn draw(&self, _g: &Game, _moving: &mut Vec<rugrats_render::Vtx>, _overlay: &mut Vec<rugrats_render::Vtx>) {}
     /// The level timer ran out (TimerExpired's level callback).
@@ -170,6 +181,12 @@ pub struct Game {
     pub record: usize,
     /// The puzzle board asked for (its object's use, 0x8004d3f0).
     pub board: bool,
+    /// The playable character (state +0x08).
+    pub character: usize,
+    /// The spawn spots (LP kind 7).
+    pub spots: Vec<rugrats_data::placement::Spot>,
+    /// A hint card the level asks for (0x80044434).
+    pub card: Option<usize>,
     /// Screens a level asks for (the golf box), shown with the level
     /// frozen.
     pub pages: Vec<crate::screens::Page>,
@@ -181,6 +198,8 @@ pub struct Goodie {
     pub number: usize,
     pub shape: u32,
     pub kind: u16,
+    /// +0x6d: what a bone or a cookie heals.
+    pub value: i32,
     pub pos: Vec3,
     pub rot: Mat3,
     pub taken: bool,
@@ -190,6 +209,7 @@ pub struct Goodie {
 pub mod goodie {
     pub const BAR: u16 = 3;
     pub const COOKIE: u16 = 4;
+    pub const BONE: u16 = 14;
     pub fn sound(kind: u16) -> u8 {
         match kind {
             1 => 30,
@@ -279,6 +299,7 @@ impl Game {
     /// player stands at 0x800b8718[from] (16 bytes: x, y, z), as level 1's
     /// EpisodeStart callback (0x80078e7c) puts it, unless from training.
     pub fn open_from(disc: &GameDisc, level: usize, from: Option<usize>, progress: &crate::progress::Progress) -> Result<Game, String> {
+        let who = player_character(level);
         let set = Set::load(disc, level)?;
         let col = Col::parse(&disc.file(COL + level)?)?;
         let anims = Anims::parse(&disc.file(ANM + level)?, &disc.file(FRM + level)?, &disc.file(ROT + level)?)
@@ -292,7 +313,7 @@ impl Game {
         // record whose template is the character's hierarchy, turned by
         // its quaternion (0x8001f684, 0x80059a88).
         let mine = |p: &&rugrats_data::placement::Placement| {
-            p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy() == Some(TOMMY))
+            p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy() == Some(who))
         };
         let (start, heading) = match set.placements.iter().find(mine) {
             Some(p) => {
@@ -311,8 +332,14 @@ impl Game {
             None => start,
         };
         rrt::tracing::info!("level {level}: the player starts at {start:?}, heading {heading}");
-        let hierarchy = set.hierarchies.get(TOMMY).cloned().flatten().ok_or("no hierarchy for Tommy")?;
-        let player = Player::new(disc, hierarchy, start, heading, &col, &anims)?;
+        let hierarchy = set.hierarchies.get(who).cloned().flatten().ok_or("no hierarchy for the player")?;
+        let mut player = Player::new(disc, hierarchy.clone(), start, heading, &col, &anims)?;
+        if who != TOMMY {
+            // Spike (0x80059328's body, turn 298).
+            let a = crate::animator::Animator::load(disc, who as u16)?;
+            player.set_body(hierarchy, a, crate::player::SLOW_TURN, &anims);
+            player.pos = start;
+        }
         let mut stage = Stage::new(set.vram.clone(), set.rooms.clone());
         stage.clear = [0, 0, 0];
         // The placed characters move on their own; the rest stands.
@@ -357,28 +384,47 @@ impl Game {
         // Bars are numbered in the order they are made (0x800c4ba8); a bar
         // found before stays found (+0x48).
         let mut bar = 0usize;
-        let goodies: Vec<Goodie> = (0..set.placements.len())
-            .filter(|&k| collectible(k))
-            .map(|k| {
-                let p = &set.placements[k];
-                let t = &set.templates[p.template as usize];
-                let kind = u16::from_le_bytes([t.raw[0x26], t.raw[0x27]]);
+        // The spawn spots (kind 7); level 4's loader moves entries 1 and 5
+        // (0x80045e08).
+        let mut spots: Vec<rugrats_data::placement::Spot> =
+            set.placements.iter().filter_map(rugrats_data::placement::Spot::of).collect();
+        if level == 4 {
+            if let Some(s) = spots.get_mut(1) {
+                s.pos[1] = 900;
+            }
+            if let Some(s) = spots.get_mut(5) {
+                s.pos[1] = 825;
+            }
+        }
+        let mut rand = crate::rand::Rand::default();
+        // Collectibles: LP +0x46 copies each (0x80049af4), placed at their
+        // spawn group's spots when they have one (0x80045f34).
+        let mut goodies: Vec<Goodie> = Vec::new();
+        for k in (0..set.placements.len()).filter(|&k| collectible(k)) {
+            let p = &set.placements[k];
+            let t = &set.templates[p.template as usize];
+            let kind = u16::from_le_bytes([t.raw[0x26], t.raw[0x27]]);
+            for _ in 0..p.copies.max(1) {
                 let number = if kind == goodie::BAR {
                     bar += 1;
                     bar - 1
                 } else {
                     0
                 };
-                Goodie {
+                // No copies: the one object stays where it is placed.
+                let group = p.group.filter(|_| p.copies > 0);
+                let at = group.and_then(|g| spawn(&mut spots, g as usize, &mut rand)).map_or(p.pos, |i| spots[i].pos);
+                goodies.push(Goodie {
                     number,
                     taken: kind == goodie::BAR && progress.bar_found(level, number),
                     shape: t.shape as u32,
                     kind,
-                    pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
+                    value: t.raw[0x32] as i32,
+                    pos: Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32),
                     rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
-                }
-            })
-            .collect();
+                });
+            }
+        }
         let pickable = |k: usize| pickable(k) && !collectible(k);
         let apart: Vec<bool> = (0..set.placements.len()).map(|k| character(k) || pickable(k) || collectible(k)).collect();
         let scenery = set.objects_except(&Frame::default(), |k| apart[k]);
@@ -455,7 +501,7 @@ impl Game {
             boxes,
             posts,
             npc_events: Vec::new(),
-            rand: crate::rand::Rand::default(),
+            rand,
             npcs,
             room: None,
             song: None,
@@ -487,11 +533,15 @@ impl Game {
             record: level,
             board: false,
             pages: Vec::new(),
+            character: who,
+            spots,
+            card: None,
         };
         g.hazards = hazards(&g.set, &g.apart);
         g.script = match level {
             2 => Some(Box::new(crate::level2::Level2::start(&mut g, disc)?)),
             3 => Some(Box::new(crate::level3::Level3::start(&mut g, disc)?)),
+            4 => Some(Box::new(crate::level4::Level4::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
         };
@@ -515,6 +565,7 @@ impl Game {
         }
         self.room = room;
         let Some(k) = room else { return };
+        self.with_script(|s, g| s.room(g, k));
         let r = self.set.room_info[k];
         // Flag 2: the room's cinematic, once (PostCine, then cleared).
         if r.flags & 2 != 0 && r.cine != 0 {
@@ -658,12 +709,17 @@ impl Game {
         self.found.clear();
         self.bar_shown = (self.bar_shown - crate::player::DT).max(0);
         let me = Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32);
-        for g in self.goodies.iter_mut().filter(|g| !g.taken) {
+        // Kind 16 has no touch (0x80049244): decoration.
+        for g in self.goodies.iter_mut().filter(|g| !g.taken && g.kind != 16) {
             let r = self.set.models.get(g.shape).map_or(256.0, |m| m.radius as f32) + crate::player::RADIUS as f32;
             let d = g.pos - me;
             if Vec3::new(d.x, 0.0, d.z).length() < r && d.y.abs() < 1200.0 {
                 g.taken = true;
                 self.effects.push((goodie::sound(g.kind), crate::sound::EFFECTS_VOLUME));
+                // Cookies and bones heal by their +0x6d (0x800514b0).
+                if matches!(g.kind, goodie::COOKIE | goodie::BONE) {
+                    self.player.health = (self.player.health + g.value).min(255);
+                }
                 if g.kind == goodie::BAR {
                     self.bars += 1;
                     self.bar_shown = COUNTER_TIME;
@@ -805,7 +861,9 @@ impl Game {
 
     fn target(&self) -> Vec3 {
         let p = self.player.pos;
-        Vec3::new(p[0] as f32, p[1] as f32 - AIM_UP, p[2] as f32)
+        // The aim is 400 up for Spike (0x800c3f58).
+        let up = if self.character == 6 { 400.0 } else { AIM_UP };
+        Vec3::new(p[0] as f32, p[1] as f32 - up, p[2] as f32)
     }
 
     fn eye_goal(&self) -> Vec3 {
@@ -1090,6 +1148,34 @@ fn hazards(set: &Set, apart: &[bool]) -> Vec<(crate::player::Box3, i32)> {
         out.extend(world_boxes(m, rot, pos).into_iter().map(|b| (b, damage)));
     }
     out
+}
+
+/// A spot of spawn group `group` (0x8004fe14): the groups are runs of
+/// spots ending at threshold 100; r = (rand & 255) % 100 picks the first
+/// unused spot whose threshold is above it, else retries with r = 0, at
+/// most five rounds. The spot is used.
+pub fn spawn(spots: &mut [rugrats_data::placement::Spot], group: usize, rand: &mut crate::rand::Rand) -> Option<usize> {
+    let (mut start, mut n) = (0, 0);
+    let mut range = None;
+    for (i, s) in spots.iter().enumerate() {
+        if s.threshold >= 100 {
+            if n == group {
+                range = Some(start..i + 1);
+                break;
+            }
+            n += 1;
+            start = i + 1;
+        }
+    }
+    let range = range?;
+    for round in 0..5 {
+        let r = if round == 0 { (rand.next() & 255) % 100 } else { 0 } as u8;
+        if let Some(i) = range.clone().find(|&i| !spots[i].used && spots[i].threshold > r) {
+            spots[i].used = true;
+            return Some(i);
+        }
+    }
+    None
 }
 
 fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate::player::Box3> {

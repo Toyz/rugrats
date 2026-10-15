@@ -71,6 +71,14 @@ impl Animator {
         Ok(Animator { tracks: [Track::default(); 4], remap, entries })
     }
 
+    /// State `a` plays `ids` on its four tracks (0x8008a668).
+    pub fn set_state(&mut self, a: i16, ids: [i16; 4]) {
+        if let Some(r) = self.remap.get_mut(a as usize) {
+            *r = self.entries.len() as i16;
+            self.entries.push(ids);
+        }
+    }
+
     /// The base track: (state, first frame, frames, frame showing, time
     /// left).
     pub fn track(&self) -> (i16, usize, usize, usize, i32) {

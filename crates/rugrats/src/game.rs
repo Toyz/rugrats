@@ -41,11 +41,11 @@ pub struct Game {
     pub anims: Anims,
     pub player: Player,
     pub stage: Stage,
-    trig: Trig,
+    pub trig: Trig,
     focal: f32,
     /// The camera's eye and its heading (4096 a turn).
-    eye: Vec3,
-    yaw: f32,
+    pub eye: Vec3,
+    pub yaw: f32,
     /// The rooms and objects at rest, drawn under the player.
     scenery: Vec<rugrats_render::Vtx>,
     /// Where the level ends: a level to go to (the exit code, 0x800c4918)
@@ -56,10 +56,18 @@ pub struct Game {
     pub cine: Option<usize>,
     /// The last checkpoint reached (position, heading).
     pub checkpoint: Option<([i32; 3], i32)>,
+    /// Level 2's own play, and how a level ended (0x80076d6c's won).
+    pub level2: Option<crate::level2::Level2>,
+    pub won: Option<bool>,
     /// The placed objects' collision boxes in the world.
     pub boxes: Vec<crate::player::Box3>,
     /// The placed characters other than the player.
     pub npcs: Vec<Npc>,
+    /// The posts (LP kind 2), what the NPCs asked for this frame, and the
+    /// level's rand.
+    pub posts: Vec<crate::npc::Post>,
+    pub npc_events: Vec<crate::npc::Event>,
+    pub rand: crate::rand::Rand,
     /// The room the player is in, and a song the room asked for
     /// (RoomChange, 0x80077a54: room flag 128, song at +0x64 less one).
     room: Option<usize>,
@@ -71,7 +79,7 @@ pub struct Game {
     /// pause menu runs (0x8003e05c).
     pub paused: bool,
     pause: Pause,
-    fonts: crate::text::Fonts,
+    pub fonts: crate::text::Fonts,
     /// Quit to the front end (the exit code -1).
     pub quit: bool,
     /// The objects that can be picked up, the one carried, and its grip
@@ -150,13 +158,7 @@ const DROP_SPEED: f32 = 10.0 * 65536.0 / 6000.0;
 /// Thrown objects fall at 13 (flight flags 0x700).
 const THING_GRAVITY: i32 = 13;
 
-/// A placed character, standing (its think and AI are not ported).
-pub struct Npc {
-    pub hierarchy: rugrats_data::hierarchy::Hierarchy,
-    pub animator: crate::animator::Animator,
-    rot: Mat3,
-    pos: Vec3,
-}
+pub use crate::npc::Npc;
 
 /// How near (in x and z, and in y) the player must stand to use a door.
 const USE_REACH: i32 = 1500;
@@ -279,23 +281,42 @@ impl Game {
             let Some(Some(hierarchy)) = set.hierarchies.get(h).cloned() else { continue };
             let mut animator = crate::animator::Animator::load(disc, h as u16)?;
             animator.set(crate::player::anim::IDLE, &anims);
-            let rot = rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose();
-            rrt::tracing::debug!(
-                "npc {} hierarchy {h}: track {:?}, {} parts",
-                p.id,
-                animator.track(),
-                hierarchy.parts.len()
-            );
+            // Template +0x18 health, +0x1a range, +0x1c wait, +0x1e speed
+            // index, +0x32 damage (0x80081bac).
+            let t = &set.templates[p.template as usize];
+            let h16 = |at: usize| u16::from_le_bytes([t.raw[at], t.raw[at + 1]]) as i32;
+            let [_, qy, _, qw] = p.rotation.map(|v| v as f64);
+            let heading = ((2.0 * qy.atan2(qw) / std::f64::consts::TAU * 4096.0).round() as i32).rem_euclid(4096);
+            let mut n = Npc {
+                id: p.id,
+                character: h,
+                hierarchy,
+                animator,
+                pos: p.pos,
+                heading,
+                speed: 0,
+                speed_index: (h16(0x1e) as usize).min(5),
+                range: h16(0x1a),
+                wait: h16(0x1c),
+                damage: t.raw[0x32] as i32,
+                health: h16(0x18),
+                max_health: h16(0x18),
+                mode: crate::npc::Mode::Idle,
+                home: p.pos,
+                hidden: false,
+                attacks: false,
+                cooldown: 0,
+                first_post: p.post,
+            };
             // On the floor under it (0x80081bac asks 0x8002b240), the root
             // the hierarchy's offset above the feet.
-            let q = crate::collide::query(&col, p.pos);
-            let feet = hierarchy.parts.first().map_or(0, |r| r.offset[1]);
-            let y = if q.tile.is_some() { q.floor + feet } else { p.pos[1] };
-            npcs.push(Npc { hierarchy, animator, rot, pos: Vec3::new(p.pos[0] as f32, y as f32, p.pos[2] as f32) });
+            n.place(p.pos, &col);
+            npcs.push(n);
         }
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let yaw = heading as f32;
         let boxes = object_boxes(&set, |k| character(k) || pickable(k) || collectible(k));
+        let posts = crate::npc::posts(&set.placements);
         let mut g = Game {
             level,
             set,
@@ -311,7 +332,12 @@ impl Game {
             exit: None,
             cine: None,
             checkpoint: None,
+            level2: None,
+            won: None,
             boxes,
+            posts,
+            npc_events: Vec::new(),
+            rand: crate::rand::Rand::default(),
             npcs,
             room: None,
             song: None,
@@ -330,6 +356,10 @@ impl Game {
             carried: None,
             grip: Vec3::ZERO,
         };
+        if level == 2 {
+            let l = crate::level2::Level2::start(&mut g, disc)?;
+            g.level2 = Some(l);
+        }
         g.eye = g.eye_goal();
         g.draw();
         Ok(g)
@@ -481,6 +511,10 @@ impl Game {
         self.room = None;
         self.eye = self.eye_goal();
         rrt::tracing::info!("level {}: cine {n} finished", self.level);
+        if let Some(mut l) = self.level2.take() {
+            l.cine_finished(self, n);
+            self.level2 = Some(l);
+        }
     }
 
     /// Puts the camera behind heading `yaw` at once (for tools).
@@ -559,13 +593,13 @@ impl Game {
         // The other characters stand in the way: a box of their radius
         // (object +0x86 is 0x2000 / 8 for a baby, guessed at 200) from the
         // feet up.
-        for n in &self.npcs {
-            let feet = n.pos.y - n.hierarchy.parts.first().map_or(0, |r| r.offset[1]) as f32;
+        for n in self.npcs.iter().filter(|n| !n.hidden && !matches!(n.mode, crate::npc::Mode::Ride { .. })) {
+            let feet = (n.pos[1] - n.feet()) as f32;
             boxes.push(crate::player::Box3 {
                 lo: [-200, 0, -200],
                 hi: [200, 0, 200],
                 rot: Mat3::IDENTITY,
-                pos: n.pos,
+                pos: Vec3::new(n.pos[0] as f32, n.pos[1] as f32, n.pos[2] as f32),
                 min_y: (feet - 700.0) as i32,
                 max_y: feet as i32,
             });
@@ -614,8 +648,18 @@ impl Game {
             self.yaw += d / 16.0;
         }
         self.yaw = self.yaw.rem_euclid(4096.0);
-        for n in &mut self.npcs {
-            n.animator.step(&self.anims);
+        let world = crate::npc::World {
+            player: self.player.pos,
+            player_heading: self.player.heading,
+            col: &self.col,
+            posts: &self.posts,
+            trig: &self.trig,
+            anims: &self.anims,
+        };
+        self.npc_events = crate::npc::step(&mut self.npcs, &world, &mut self.rand);
+        if let Some(mut l) = self.level2.take() {
+            l.frame(self, pads);
+            self.level2 = Some(l);
         }
         self.room_change();
         let goal = self.clear_eye(self.eye_goal());
@@ -646,11 +690,14 @@ impl Game {
             }
         }
         for n in &self.npcs {
-            let locals = n.animator.locals(&n.hierarchy, &self.anims);
-            rugrats_render::models::posed_triangles(&n.hierarchy, &self.set.models, &locals, n.rot, n.pos, &mut moving);
+            crate::npc::triangles(n, &self.set.models, &self.anims, &self.trig, &mut moving);
+        }
+        let mut overlay = Vec::new();
+        if let Some(l) = &self.level2 {
+            l.draw(self, &mut moving, &mut overlay);
         }
         self.stage.set_moving(moving);
-        self.stage.overlay.clear();
+        self.stage.overlay = overlay;
         if self.paused {
             self.pause.triangles(&self.fonts, &mut self.stage.overlay);
         } else if self.bar_shown > 0 {

@@ -29,6 +29,8 @@ pub struct Placement {
     /// (0x8004f78c); 0 for none.
     pub level: i16,
     pub cine: i16,
+    /// A character's first post (+0x40).
+    pub post: u8,
 }
 
 pub fn parse_lp(b: &[u8]) -> Vec<Placement> {
@@ -45,6 +47,7 @@ pub fn parse_lp(b: &[u8]) -> Vec<Placement> {
                 id: (w(r + 0x28)? >> 16) as u16,
                 flags: w(r + 0x14)?,
                 level: (w(r + 0x40)? >> 16) as i16,
+                post: w(r + 0x40)? as u8,
                 cine: w(r + 0x44)? as i16,
             })
         })

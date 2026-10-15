@@ -71,6 +71,28 @@ impl Progress {
         }
     }
 
+    /// Level `level` finished (0x80076d6c): played (+0x34), and won
+    /// (+0x38; levels 2-6 and 8-12 count to +0x22).
+    pub fn finish(&mut self, level: usize, won: bool) {
+        if level >= 32 {
+            return;
+        }
+        let played = self.u32(0x34) | 1 << level;
+        self.set_u32(0x34, played);
+        if won && self.u32(0x38) >> level & 1 == 0 {
+            let done = self.u32(0x38) | 1 << level;
+            self.set_u32(0x38, done);
+            if matches!(level, 2..=6 | 8..=12) {
+                self.block[0x22] = self.block[0x22].saturating_add(1);
+            }
+        }
+    }
+
+    /// Whether level `level` was won (+0x38).
+    pub fn won(&self, level: usize) -> bool {
+        level < 32 && self.u32(0x38) >> level & 1 != 0
+    }
+
     /// The level saved in (+0x00).
     pub fn level(&self) -> usize {
         self.u32(0x00).clamp(1, 31) as usize

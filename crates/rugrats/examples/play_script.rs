@@ -76,6 +76,13 @@ fn main() -> Result<(), String> {
                     println!("{frame}: thing {k} {:?} at {:?}", t.state, t.pos);
                 }
             }
+            if frame % 30 == 0 {
+                if let Some(l) = &game.level2 {
+                    let goose = game.npcs.iter().find(|n| n.id == 11).map(|n| (n.pos, n.health, format!("{:?}", n.mode)));
+                    let chuckie = game.npcs.iter().find(|n| n.id == 1776).map(|n| (n.pos, n.health, format!("{:?}", n.mode)));
+                    println!("{frame}: phase {} health {} goose {goose:?} chuckie {chuckie:?}", l.phase, game.player.health);
+                }
+            }
             if let Some(n) = game.cine.take() {
                 println!("{frame}: the level asks for cine {n}");
                 game.cine_finished(n);

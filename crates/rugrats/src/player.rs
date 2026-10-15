@@ -32,7 +32,9 @@ const DEAD: i32 = 71;
 const SNAP_TURN: i32 = 1024;
 const MOVING: i32 = 100;
 /// The turn rate (0x800c41fc): 1025 * dt >> 6 a frame.
-const TURN: i32 = 1025;
+pub const TURN: i32 = 1025;
+/// Spike's (and char 34's) turn rate (0x800c420c).
+pub const SLOW_TURN: i32 = 298;
 /// The player's character: Tommy (0x800c5680 = 1).
 const TOMMY: u16 = 1;
 /// The jump's take-off sound.
@@ -80,7 +82,13 @@ pub struct Player {
     pub floor: i32,
     /// Feet to origin (hierarchy +0x4c, the root's y offset).
     feet: i32,
-    hierarchy: Hierarchy,
+    pub hierarchy: Hierarchy,
+    /// Health (+0x1a4, 255 at init, 0x80059a88).
+    pub health: i32,
+    /// Frozen (+0x188 bit 1): turning, no moving.
+    pub frozen: bool,
+    /// The turn rate (0x800c41fc; 298 for chars 6 and 34).
+    pub turn_rate: i32,
     pub animator: Animator,
     /// Sound effects asked for this frame (0x8006f644's numbers).
     pub effects: Vec<u8>,
@@ -116,6 +124,9 @@ impl Player {
             floor: start[1],
             feet,
             hierarchy,
+            health: 255,
+            frozen: false,
+            turn_rate: TURN,
             animator,
             effects: Vec::new(),
             action: None,
@@ -192,14 +203,16 @@ impl Player {
             self.speed = 0;
         }
         // Turn toward the wanted heading (0x8005bbf4).
-        let step = TURN * DT >> 6;
+        let step = self.turn_rate * DT >> 6;
         let d = wrap(self.target - self.heading);
         self.heading = (self.heading + d.clamp(-step, step)).rem_euclid(4096);
         let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
         if on_ground {
             // The ground move along the facing (0x8005caac).
-            self.pos[0] += s * self.speed * DT >> 12;
-            self.pos[2] += c * self.speed * DT >> 12;
+            if !self.frozen {
+                self.pos[0] += s * self.speed * DT >> 12;
+                self.pos[2] += c * self.speed * DT >> 12;
+            }
             if pressed(input::CROSS) && !acting && self.jump_lock == 0 {
                 // The launch (0x80060f1c): up 1000, and along the facing
                 // 40 a unit of speed when running, else 12.
@@ -299,6 +312,23 @@ impl Player {
         };
         self.animator.set(a, anims);
         self.animator.step(anims);
+    }
+
+    /// Runs as another body (0x80059328 swaps +0x154 and +0x15c): its
+    /// hierarchy, its animations, its turn rate, the feet kept on the floor.
+    pub fn set_body(&mut self, hierarchy: Hierarchy, animator: Animator, turn_rate: i32, anims: &Anims) {
+        let floor = self.pos[1] - self.feet;
+        self.feet = hierarchy.parts.first().map_or(0, |p| p.offset[1]);
+        self.pos[1] = floor + self.feet;
+        self.hierarchy = hierarchy;
+        self.animator = animator;
+        self.turn_rate = turn_rate;
+        self.animator.set(anim::IDLE, anims);
+    }
+
+    /// The feet's height above the root (the hierarchy's root offset).
+    pub fn feet(&self) -> i32 {
+        self.feet
     }
 
     /// Starts action animation `a`.

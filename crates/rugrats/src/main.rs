@@ -434,6 +434,9 @@ impl Game for Rugrats {
                         self.stop_song();
                         self.boot = self.title(now);
                     } else if let Some((level, cine)) = game.exit {
+                        if let Some(won) = game.won {
+                            self.progress.finish(game.level, won);
+                        }
                         let here = game.level;
                         self.boot = match cine {
                             Some(n) => {

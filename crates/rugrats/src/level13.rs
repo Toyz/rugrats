@@ -55,6 +55,7 @@ impl crate::game::Script for Level13 {
                 if g.npcs[k].id == ANGELICA && !self.raced {
                     self.raced = true;
                     g.effects.push((223, crate::sound::EFFECTS_VOLUME));
+                    g.speech.push(723);
                     g.cine = Some(CINE_LOST);
                 }
             }

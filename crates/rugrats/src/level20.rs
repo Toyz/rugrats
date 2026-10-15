@@ -61,6 +61,14 @@ pub struct Level20 {
     eat_wait: i32,
     lunge: i32,
     ended: bool,
+    /// The round's end lines: lost (level 20 0x800b9220, 5; level 21
+    /// 0x800b922c, 12) and won (level 21 0x800b9244, 6).
+    lost_lines: Vec<u16>,
+    won_lines: Vec<u16>,
+}
+
+fn table(disc: &GameDisc, at: u32, n: usize) -> Vec<u16> {
+    disc.exe_bytes(at, 2 * n).unwrap_or(&[]).chunks_exact(2).map(|w| u16::from_le_bytes([w[0], w[1]])).collect()
 }
 
 fn find(g: &Game, id: u16) -> Option<usize> {
@@ -69,8 +77,9 @@ fn find(g: &Game, id: u16) -> Option<usize> {
 
 impl Level20 {
     /// EpisodeStart (0x80079ff0) and the round start (0x80079cb0).
-    pub fn start(g: &mut Game, _disc: &GameDisc) -> Result<Level20, String> {
-        let mut l = Level20 { rules: RULES_20, cookies: COOKIES, me: 1492, target: None, catcher: None, eat_wait: 0, lunge: 0, ended: false };
+    pub fn start(g: &mut Game, disc: &GameDisc) -> Result<Level20, String> {
+        let (lost_lines, won_lines) = (table(disc, 0x800b_9220, 5), Vec::new());
+        let mut l = Level20 { rules: RULES_20, cookies: COOKIES, me: 1492, target: None, catcher: None, eat_wait: 0, lunge: 0, ended: false, lost_lines, won_lines };
         l.round(g);
         g.checkpoint = Some((g.player.pos, g.player.heading));
         Ok(l)
@@ -78,14 +87,15 @@ impl Level20 {
 
     /// Level 21's EpisodeStart (0x8007a444) and cine 49's end
     /// (0x8007a314): Lil's new home, the grown-ups hidden, the round.
-    pub fn start21(g: &mut Game, _disc: &GameDisc) -> Result<Level20, String> {
+    pub fn start21(g: &mut Game, disc: &GameDisc) -> Result<Level20, String> {
         for id in [13, 15, 16] {
             g.hide(id, true);
         }
         if let Some(k) = find(g, 609) {
             g.npcs[k].home = [10030, 779, 10051];
         }
-        let mut l = Level20 { rules: RULES_21, cookies: 20, me: 1492, target: None, catcher: None, eat_wait: 0, lunge: 0, ended: false };
+        let (lost_lines, won_lines) = (table(disc, 0x800b_922c, 12), table(disc, 0x800b_9244, 6));
+        let mut l = Level20 { rules: RULES_21, cookies: 20, me: 1492, target: None, catcher: None, eat_wait: 0, lunge: 0, ended: false, lost_lines, won_lines };
         l.round(g);
         g.checkpoint = Some((g.player.pos, g.player.heading));
         Ok(l)
@@ -176,6 +186,11 @@ impl Level20 {
         g.tries -= 1;
         g.effects.push((121, crate::sound::EFFECTS_VOLUME));
         g.drop_carried();
+        // 0x80079f5c / 0x8007a388: a line, then the cine.
+        if !self.lost_lines.is_empty() {
+            let k = (g.rand.next() & 255) as usize % self.lost_lines.len();
+            g.speech.push(self.lost_lines[k]);
+        }
         g.cine = Some(self.rules.lost);
     }
 }
@@ -199,6 +214,11 @@ impl crate::game::Script for Level20 {
             g.effects.push((sound, crate::sound::EFFECTS_VOLUME));
             if self.cookies <= 0 {
                 self.ended = true;
+                // 0x8007a504 (level 21): a line, then cine 50.
+                if !self.won_lines.is_empty() {
+                    let k = (g.rand.next() & 255) as usize % self.won_lines.len();
+                    g.speech.push(self.won_lines[k]);
+                }
                 g.cine = Some(self.rules.won);
                 return;
             }

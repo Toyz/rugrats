@@ -36,14 +36,10 @@ fn main() -> Result<(), String> {
     let db: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(1);
     let script = a.next().unwrap_or("up*30".into());
     let dir = a.next().unwrap_or("play".into());
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let every: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(10);
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let mut game = rugrats::game::Game::open(&disc, db)?;
-    for a in [1i16, 2, 3, 4, 15, 17, 28] {
-        let id = game.player.anm(a);
-        let frames = id.map(|i| game.anims.frames_of(i).len());
-        println!("state {a}: anm {id:?}, {frames:?} frames");
-    }
     if let Some(v) = std::env::var("START").ok() {
         let p: Vec<i32> = v.split(',').filter_map(|s| s.parse().ok()).collect();
         if p.len() == 3 {
@@ -54,16 +50,6 @@ fn main() -> Result<(), String> {
         game.player.heading = h;
         game.player.target = h;
         game.set_camera_yaw(h as f32);
-    }
-    if let Some(sp) = &game.sprites {
-        for n in [258u32, 259, 260, 291, 292] {
-            println!("sprite {n}: {:?}", sp.texture(n).map(|t| (t.uv, t.clut, t.tpage)));
-        }
-    }
-    {
-        let w = |x: usize, y: usize| game.stage.vram.words[y * 1024 + x];
-        let nz = (8..32).flat_map(|v| (32..64).map(move |u| (u, v))).filter(|&(u, v)| w(768 + u / 4, 256 + v) != 0).count();
-        println!("sprite 258 texel words nonzero: {nz} of 768; clut row: {:x?}", (0..16).map(|k| w(768 + k, 453)).collect::<Vec<_>>());
     }
     if let Some(h) = std::env::var("HEALTH").ok().and_then(|s| s.parse().ok()) {
         game.player.health = h;

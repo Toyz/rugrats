@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-49 entries: audio 6, bug 2, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 21, render 10, save 2, test 9, tooling 15, ui 8, video 8.
+50 entries: audio 6, bug 2, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 22, render 10, save 2, test 9, tooling 15, ui 8, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -61,3 +61,4 @@ The [reference](docs/README.md) says what is true now.
 | 47 | [Level 21 playable: Touchdown Tommy](worklog/0047-level-21-playable-touchdown-tommy.md) | 2026-10-15 | play |
 | 48 | [Level 17 playable: Gold Rush](worklog/0048-level-17-playable-gold-rush.md) | 2026-10-15 | play |
 | 49 | [Level 13 playable: Cookie Race](worklog/0049-level-13-playable-cookie-race.md) | 2026-10-15 | play |
+| 50 | [Level 18 playable: Egg Hunt](worklog/0050-level-18-playable-egg-hunt.md) | 2026-10-15 | play |

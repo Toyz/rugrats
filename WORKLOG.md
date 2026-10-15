@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-42 entries: audio 6, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 15, render 10, save 2, test 9, tooling 15, ui 8, video 8.
+43 entries: audio 6, bug 2, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 15, render 10, save 2, test 9, tooling 15, ui 8, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -54,3 +54,4 @@ The [reference](docs/README.md) says what is true now.
 | 40 | [Level 9 playable: Mr. Friend](worklog/0040-level-9-playable-mr-friend.md) | 2026-10-15 | play |
 | 41 | [Level 10 playable: hide and seek](worklog/0041-level-10-playable-hide-and-seek.md) | 2026-10-15 | play |
 | 42 | [Level 11 playable: three rings](worklog/0042-level-11-playable-three-rings.md) | 2026-10-15 | play |
+| 43 | [Slopes read as walls; level 11's rings 2 and 3](worklog/0043-slopes-read-as-walls-level-11-s-rings-2-and-3.md) | 2026-10-15 | bug |

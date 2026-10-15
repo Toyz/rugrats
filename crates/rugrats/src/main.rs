@@ -71,6 +71,8 @@ struct Rugrats {
     /// The song set loaded (the menu's, a level's).
     songs: Option<sound::Loaded>,
     effect_table: Vec<[u8; 3]>,
+    /// The level last played (state +0x04), for the hub's return spot.
+    level: Option<usize>,
     /// Levels whose start cinematic has played (state +0x30's bits).
     seen: std::collections::HashSet<usize>,
     /// Kept so the sound plays; None headless or with no device.
@@ -101,6 +103,7 @@ impl Rugrats {
             songs: None,
             effect_table,
             seen: Default::default(),
+            level: None,
             _audio: audio,
             world: None,
             rand: Default::default(),
@@ -199,7 +202,8 @@ impl Rugrats {
     }
 
     fn game(&mut self, mode: usize, _now: u64) -> Boot {
-        match Level::open(&self.disc, mode) {
+        let from = self.level.replace(mode);
+        match Level::open_from(&self.disc, mode, from) {
             Ok(game) => {
                 self.world = None;
                 // The level's song set (0x80017c0c, 0x8006e96c), and for
@@ -358,6 +362,7 @@ impl Game for Rugrats {
                         }
                     }
                     if game.quit {
+                        self.level = None;
                         self.stop_song();
                         self.boot = self.title(now);
                     } else if let Some((level, cine)) = game.exit {

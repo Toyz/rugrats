@@ -155,6 +155,13 @@ pub const HUB: usize = 1;
 
 impl Game {
     pub fn open(disc: &GameDisc, level: usize) -> Result<Game, String> {
+        Game::open_from(disc, level, None)
+    }
+
+    /// Level `level`, come to from level `from`: back in the hub the
+    /// player stands at 0x800b8718[from] (16 bytes: x, y, z), as level 1's
+    /// EpisodeStart callback (0x80078e7c) puts it, unless from training.
+    pub fn open_from(disc: &GameDisc, level: usize, from: Option<usize>) -> Result<Game, String> {
         let set = Set::load(disc, level)?;
         let col = Col::parse(&disc.file(COL + level)?)?;
         let anims = Anims::parse(&disc.file(ANM + level)?, &disc.file(FRM + level)?, &disc.file(ROT + level)?)
@@ -177,6 +184,14 @@ impl Game {
                 (p.pos, yaw.rem_euclid(4096))
             }
             None => (start, heading),
+        };
+        let start = match from.filter(|&f| level == HUB && f != HUB && f != 16) {
+            Some(f) => {
+                let b = disc.exe_bytes(0x800b_8718 + 16 * f as u32, 12)?;
+                let spot = [0, 4, 8].map(|k| i32::from_le_bytes(b[k..k + 4].try_into().unwrap()));
+                if spot == [0; 3] { start } else { spot }
+            }
+            None => start,
         };
         rrt::tracing::info!("level {level}: the player starts at {start:?}, heading {heading}");
         let hierarchy = set.hierarchies.get(TOMMY).cloned().flatten().ok_or("no hierarchy for Tommy")?;

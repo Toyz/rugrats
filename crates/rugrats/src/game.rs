@@ -248,6 +248,10 @@ pub struct Game {
     pub ambience: i32,
     pub ambience_first: bool,
     ambience_lines: std::rc::Rc<crate::ambience::Tables>,
+    /// Level 5's camera hold while floating (0x800c4a50) and its shaft
+    /// camera (kind 3 walking, rooms 15 and 40).
+    cam_hold: bool,
+    shaft: bool,
     /// Damage events are dropped (level 1, 0x800780d8).
     pub no_damage: bool,
     /// The levels won (+0x38), for the hub's signs, and the pieces earned
@@ -1015,6 +1019,8 @@ impl Game {
             ambience_lines: std::rc::Rc::new(crate::ambience::Tables::load(disc)),
             // Damage is dropped in levels 1, 11, 17 and 23-31 (0x800780d8).
             no_damage: matches!(level, 1 | 11 | 17 | 23..=31),
+            cam_hold: false,
+            shaft: false,
             won_levels: (0..32).filter(|&l| progress.won(l)).fold(0, |a, l| a | 1 << l),
             pieces: progress.pieces(),
             strokes: None,
@@ -1374,7 +1380,37 @@ impl Game {
         // 0x800291f8): kind 3 a fixed camera at post +0x5c; the follow
         // kinds set its height (6: 200, 7: 500, 8: 1600, 9: 2000, 11:
         // 500; 1500 means the level's own).
-        if r.flags & 4 != 0 && (!matches!(self.level, 20 | 21) || r.camera == 3) {
+        let floating = self.level == 5 && self.player.float.is_some();
+        if r.flags & 4 != 0 && floating && r.camera == 7 {
+            // Level 5 floating: kind 7 becomes 13, the camera holds where
+            // it is (0x800c4a50 = 1; rooms 73-75).
+            self.cam_hold = true;
+        } else if r.flags & 4 != 0 && self.level == 5 && r.camera == 3 {
+            // Level 5's kind 3 (0x800293c0): floating, only while held, a
+            // fixed post by room; walking, the shaft camera (rooms 15, 40).
+            if floating {
+                if self.cam_hold {
+                    let post = match k {
+                        60 => 5,
+                        62 => 3,
+                        68 => 8,
+                        70 => 2,
+                        71 => 4,
+                        72 => 6,
+                        _ => 1,
+                    };
+                    self.post_camera = Some(post);
+                }
+            } else {
+                self.post_camera = None;
+                self.shaft = true;
+            }
+        } else if r.flags & 4 != 0 && (!matches!(self.level, 20 | 21) || r.camera == 3) {
+            // The follow setup lets go of a level 5 hold (0x80025e90).
+            if r.camera != 3 {
+                self.cam_hold = false;
+                self.shaft = false;
+            }
             match r.camera {
                 3 => self.post_camera = Some(r.camera_post as usize),
                 1 | 6..=13 => {
@@ -1824,7 +1860,13 @@ impl Game {
         let p = self.player.pos;
         // The aim is 400 up for Spike (0x800c3f58).
         let up = if self.character == 6 { 400.0 } else { AIM_UP };
-        Vec3::new(p[0] as f32, p[1] as f32 - up, p[2] as f32)
+        // Floating in level 5 the goal's y is the anchor (+0x65c), not
+        // the bobbing body's (0x80025e90).
+        let y = match (self.level, self.player.float) {
+            (5, Some((anchor, _))) => anchor,
+            _ => p[1],
+        };
+        Vec3::new(p[0] as f32, y as f32 - up, p[2] as f32)
     }
 
     fn eye_goal(&self) -> Vec3 {
@@ -2069,8 +2111,9 @@ impl Game {
         if pads.pressed(0, input::R2) {
             self.yaw += 341.0;
         }
-        // R1: the camera back behind the player (0x80026ddc).
-        if pads.pressed(0, input::R1) {
+        // R1: the camera back behind the player (0x80026ddc); ignored
+        // while level 5's float holds it.
+        if pads.pressed(0, input::R1) && !self.cam_hold {
             self.yaw = self.player.heading as f32;
         }
         // Follow: swing behind the player as it runs, ease 1/8 a frame.
@@ -2130,8 +2173,15 @@ impl Game {
         }
         self.room_change();
         self.talk();
-        let goal = self.clear_eye(self.eye_goal());
-        self.eye += (goal - self.eye) / 8.0;
+        // Level 5: a held camera stays put; the shaft camera stands 5800
+        // along z and AIM_UP + height up (0x80025c64 kind 12).
+        if self.shaft {
+            let t = self.target();
+            self.eye = t + Vec3::new(0.0, -self.eye_up, 5800.0);
+        } else if !self.cam_hold {
+            let goal = self.clear_eye(self.eye_goal());
+            self.eye += (goal - self.eye) / 8.0;
+        }
         self.draw();
     }
 

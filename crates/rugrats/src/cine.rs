@@ -83,6 +83,11 @@ impl Set {
             let words: Vec<u16> = raw.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
             vram.load(x, 256, if x == 0 { 576 } else { 384 }, 256, &words);
         }
+        // The fonts, which boot puts at (960, 256) for good (0x8002ed80).
+        let (fx, fy) = crate::text::FONT_AT;
+        let (fw, fh) = crate::text::FONT_SIZE;
+        let font: Vec<u16> = disc.file(crate::text::FONT_FILE)?.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
+        vram.load(fx, fy, fw, fh, &font);
         Ok(Set {
             vram,
             rooms: rugrats_render::rooms::level_triangles(&level),

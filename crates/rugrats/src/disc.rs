@@ -82,6 +82,13 @@ impl GameDisc {
         self.table.get(index).filter(|e| e.is_used()).map(|e| e.lba).ok_or(format!("File '{index}' not found!"))
     }
 
+    /// The string at `addr` in the executable.
+    pub fn exe_string_at_addr(&self, addr: u32) -> Result<String, String> {
+        let bytes = self.exe_bytes(addr, 64)?;
+        let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+        Ok(String::from_utf8_lossy(&bytes[..end]).into_owned())
+    }
+
     /// The size in bytes of file `index`, as the table gives it.
     pub fn file_size(&self, index: usize) -> Result<u32, String> {
         self.table.get(index).filter(|e| e.is_used()).map(|e| e.size).ok_or(format!("File '{index}' not found!"))

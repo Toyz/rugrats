@@ -62,8 +62,13 @@ pub struct Game {
     /// Sound effects asked for this frame, with their volume (0x8006f644:
     /// the effects setting, less with distance from the camera).
     pub effects: Vec<(u8, i32)>,
-    /// Paused (Start, 0x80018c38 step 13): the world holds still.
+    /// Paused (Start, 0x80018c38 step 13): the world holds still and the
+    /// pause menu runs (0x8003e05c).
     pub paused: bool,
+    pause: Pause,
+    fonts: crate::text::Fonts,
+    /// Quit to the front end (the exit code -1).
+    pub quit: bool,
     /// The objects that can be picked up, the one carried, and its grip
     /// (+0x1f8: in the player's frame from hand slot 15).
     pub things: Vec<Thing>,
@@ -218,6 +223,9 @@ impl Game {
             song: None,
             effects: Vec::new(),
             paused: false,
+            pause: Pause::load(disc)?,
+            fonts: crate::text::Fonts::load(disc)?,
+            quit: false,
             things,
             carried: None,
             grip: Vec3::ZERO,
@@ -375,10 +383,31 @@ impl Game {
     /// One frame of the level (0x80018c38): the player, then the camera,
     /// then the draw.
     pub fn frame(&mut self, pads: &Pads) {
-        if pads.pressed(0, input::START) {
-            self.paused = !self.paused;
+        if !self.paused && pads.pressed(0, input::START) {
+            self.paused = true;
+            self.pause.open();
+            self.effects.clear();
+            self.draw();
+            return;
         }
         if self.paused {
+            self.effects.clear();
+            match self.pause.frame(pads) {
+                Some(PauseEnd::Continue) => self.paused = false,
+                Some(PauseEnd::QuitGame) => self.quit = true,
+                // Quit Level: to Pickles' Home, or the front end from the
+                // hub and training (0x800398bc).
+                Some(PauseEnd::QuitLevel) => {
+                    if matches!(self.level, HUB | 16) {
+                        self.quit = true;
+                    } else {
+                        self.exit = Some((HUB, None));
+                    }
+                }
+                None => {}
+            }
+            self.effects.extend(self.pause.sounds.drain(..).map(|s| (s, crate::sound::EFFECTS_VOLUME)));
+            self.draw();
             return;
         }
         let mut boxes = self.boxes.clone();
@@ -461,6 +490,10 @@ impl Game {
             rugrats_render::models::posed_triangles(&n.hierarchy, &self.set.models, &locals, n.rot, n.pos, &mut moving);
         }
         self.stage.set_moving(moving);
+        self.stage.overlay.clear();
+        if self.paused {
+            self.pause.triangles(&self.fonts, &mut self.stage.overlay);
+        }
         let f = (self.target() - self.eye).normalize_or(Vec3::Z);
         let x = Vec3::Y.cross(f).normalize_or(Vec3::X);
         let y = f.cross(x);
@@ -540,4 +573,128 @@ fn world_boxes(m: &rugrats_data::model::Model, rot: Mat3, pos: Vec3) -> Vec<crat
         });
     }
     out
+}
+
+/// How the pause menu ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PauseEnd {
+    Continue,
+    QuitGame,
+    QuitLevel,
+}
+
+/// The pause menu (0x8003e05c, 0x800398bc mode 0, laid out by
+/// 0x80035fec): "Game Paused" over five items, the cursor 1-5; a quit
+/// asks again (0x80036368) with "No?" first.
+struct Pause {
+    strings: [String; 6],
+    yes: String,
+    no: String,
+    cursor: usize,
+    /// Asking about item 3 or 5: Yes (true) or No.
+    confirm: Option<(usize, bool)>,
+    sounds: Vec<u8>,
+}
+
+/// Where the items sit (0x80035fec), from the screen's centre.
+const PAUSE_AT: [(i16, i16); 5] = [(-185, -30), (-145, -10), (-60, -30), (30, -10), (80, -30)];
+/// The menu's sounds: move 124 and 125, pick 126.
+const MOVE: u8 = 124;
+const MOVE_BACK: u8 = 125;
+const PICK: u8 = 126;
+
+impl Pause {
+    fn load(disc: &GameDisc) -> Result<Pause, String> {
+        let s = |n: u32| crate::front::string(disc, n);
+        Ok(Pause {
+            strings: [s(1), s(2), s(3), s(4), s(5), s(6)],
+            yes: disc.exe_string_at_addr(0x800c_48f0)?,
+            no: disc.exe_string_at_addr(0x800c_48ec)?,
+            cursor: 1,
+            confirm: None,
+            sounds: Vec::new(),
+        })
+    }
+
+    fn open(&mut self) {
+        self.cursor = 1;
+        self.confirm = None;
+    }
+
+    fn frame(&mut self, pads: &Pads) -> Option<PauseEnd> {
+        let pressed = |b: usize| pads.pressed(0, b);
+        if let Some((item, yes)) = &mut self.confirm {
+            if pressed(input::LEFT) || pressed(input::RIGHT) {
+                *yes = !*yes;
+                self.sounds.push(MOVE);
+            }
+            if pressed(input::TRIANGLE) {
+                self.confirm = None;
+                return None;
+            }
+            if pressed(input::CROSS) {
+                self.sounds.push(PICK);
+                let (item, yes) = (*item, *yes);
+                self.confirm = None;
+                if yes {
+                    return Some(if item == 3 { PauseEnd::QuitGame } else { PauseEnd::QuitLevel });
+                }
+            }
+            return None;
+        }
+        if pressed(input::LEFT) && self.cursor > 2 {
+            self.cursor -= 2;
+            self.sounds.push(MOVE_BACK);
+        }
+        if pressed(input::RIGHT) && self.cursor < 4 {
+            self.cursor += 2;
+            self.sounds.push(MOVE);
+        }
+        if pressed(input::UP) || pressed(input::DOWN) {
+            self.cursor = if self.cursor % 2 == 1 { (self.cursor + 1).min(4) } else { self.cursor - 1 };
+            self.sounds.push(MOVE);
+        }
+        if pressed(input::TRIANGLE) || pressed(input::START) {
+            return Some(PauseEnd::Continue);
+        }
+        if pressed(input::CROSS) {
+            self.sounds.push(PICK);
+            match self.cursor {
+                1 => return Some(PauseEnd::Continue),
+                3 | 5 => self.confirm = Some((self.cursor, false)),
+                _ => rrt::tracing::info!("pause: saving and loading are not ported yet"),
+            }
+        }
+        None
+    }
+
+    fn triangles(&self, fonts: &crate::text::Fonts, out: &mut Vec<rugrats_render::Vtx>) {
+        use crate::text::Text;
+        // The heading in font 1, the items in font 0 (0x80035fec).
+        let mut item = |s: &str, x: i16, y: i16, lit: bool, centre: bool| {
+            let mut t = Text { font: if centre { 1 } else { 0 }, spacing: 1, string: s.to_string(), x, y, rgb: if lit { [255, 255, 5] } else { [255, 255, 255] }, ..Default::default() };
+            if centre {
+                fonts.centre(&mut t, true, false);
+            }
+            let mut shadow = t.clone();
+            shadow.rgb = [1, 1, 1];
+            shadow.x += 2;
+            shadow.y += 2;
+            shadow.triangles(fonts, out);
+            t.triangles(fonts, out);
+        };
+        match self.confirm {
+            Some((q, yes)) => {
+                item(&self.strings[q], 0, -60, false, true);
+                item(&self.yes, -60, -20, yes, false);
+                item(&self.no, 40, -20, !yes, false);
+            }
+            None => {
+                item(&self.strings[0], 0, -60, false, true);
+                for (k, &(x, y)) in PAUSE_AT.iter().enumerate() {
+                    item(&self.strings[k + 1], x, y, self.cursor == k + 1, false);
+                }
+            }
+        }
+    }
 }

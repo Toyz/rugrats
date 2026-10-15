@@ -357,7 +357,10 @@ impl Game for Rugrats {
                             spu.play(song, 0, sound::MUSIC_VOLUME);
                         }
                     }
-                    if let Some((level, cine)) = game.exit {
+                    if game.quit {
+                        self.stop_song();
+                        self.boot = self.title(now);
+                    } else if let Some((level, cine)) = game.exit {
                         let here = game.level;
                         self.boot = match cine {
                             Some(n) => {

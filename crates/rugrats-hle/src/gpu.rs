@@ -244,6 +244,10 @@ impl Gpu {
 
     fn execute(&mut self, c: &[u32]) {
         let op = c[0] >> 24;
+        // RUGRATS_GPU_FILLS: print fills and rectangles, to find backdrops.
+        if (op == 0x02 || (0x60..0x80).contains(&op)) && std::env::var_os("RUGRATS_GPU_FILLS").is_some() {
+            eprintln!("gpu {op:02x} {:08x?}", c);
+        }
         match op {
             0x02 => {
                 let rgb = c[0];

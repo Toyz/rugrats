@@ -5,7 +5,8 @@
 //! u32  0xc0de0001
 //! u16  count, u16 pad
 //! u32  at[count]          low 21 bits the model's offset from the table's
-//!                         end, high 11 its index; 0xffffffff for none
+//!                         end, high 11 its id (ascending); 0xffffffff for
+//!                         none
 //! model
 //!   u32  link
 //!   u32  unknown_04       (the loader writes the index here)
@@ -124,24 +125,31 @@ impl Model {
     }
 }
 
-/// A whole MOD file: the models by index (None where the table says none).
+/// A whole MOD file: the models by id (None where there is none), as the
+/// game's lookup (0x80044b74) finds them, by binary search on the table
+/// entries' high 11 bits.
 pub fn parse_file(b: &[u8]) -> Result<Vec<Option<Model>>, Error> {
     if u32_at(b, 0)? != 0xc0de_0001 {
         return Err(Error("MOD: no 0xc0de0001".into()));
     }
     let n = u16_at(b, 4)? as usize;
     let base = 8 + 4 * n;
-    (0..n)
-        .map(|k| {
-            let at = u32_at(b, 8 + 4 * k)?;
-            if at == u32::MAX {
-                return Ok(None);
-            }
-            let start = base + (at & 0x1f_ffff) as usize;
-            let body = b.get(start..).ok_or_else(|| Error(format!("MOD: model {k} past the end")))?;
-            Model::parse(body).map(Some).map_err(|e| Error(format!("MOD model {k}: {}", e.0)))
-        })
-        .collect()
+    let mut models = Vec::new();
+    for k in 0..n {
+        let at = u32_at(b, 8 + 4 * k)?;
+        if at == u32::MAX {
+            continue;
+        }
+        let id = (at >> 21) as usize;
+        let start = base + (at & 0x1f_ffff) as usize;
+        let body = b.get(start..).ok_or_else(|| Error(format!("MOD: model {id} past the end")))?;
+        let m = Model::parse(body).map_err(|e| Error(format!("MOD model {id}: {}", e.0)))?;
+        if models.len() <= id {
+            models.resize(id + 1, None);
+        }
+        models[id] = Some(m);
+    }
+    Ok(models)
 }
 
 #[cfg(test)]

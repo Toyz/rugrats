@@ -4,11 +4,13 @@
 
 pub mod anim;
 pub mod bs;
+pub mod cine;
 pub mod files;
 pub mod hierarchy;
 pub mod level;
 pub mod mdec;
 pub mod model;
+pub mod placement;
 pub mod movie;
 pub mod tim;
 pub mod vab;

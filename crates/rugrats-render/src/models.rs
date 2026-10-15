@@ -65,7 +65,12 @@ pub fn posed_triangles(
     let mut world: Vec<(Mat3, Vec3)> = Vec::with_capacity(h.parts.len());
     for (i, part) in h.parts.iter().enumerate() {
         let rot = local.get(i).copied().flatten().unwrap_or(Mat3::IDENTITY);
-        let offset = Vec3::new(part.offset[0] as f32, part.offset[1] as f32, part.offset[2] as f32);
+        // The root sits at the object's position: the game
+        // (0x8004a5dc) leaves its offset out.
+        let offset = match part.parent {
+            Some(_) => Vec3::new(part.offset[0] as f32, part.offset[1] as f32, part.offset[2] as f32),
+            None => Vec3::ZERO,
+        };
         let (prot, ppos) = part.parent.map_or((Mat3::IDENTITY, pos), |p| world[p]);
         let me = (prot * rot, ppos + prot * offset);
         world.push(me);

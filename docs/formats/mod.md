@@ -2,8 +2,8 @@
 title: DBnnMOD.BIN, a database's models
 status: partial
 discs: US
-covers: US /DATA/DB22/DB22MOD.BIN, US SLUS_006.50:0x80044d00, US SLUS_006.50:0x80044c98, US SLUS_006.50:0x80010000, US SLUS_006.50:0x80031b84
-worklog: 11
+covers: US /DATA/DB22/DB22MOD.BIN, US SLUS_006.50:0x80044b74, US SLUS_006.50:0x80044d00, US SLUS_006.50:0x80044c98, US SLUS_006.50:0x80010000, US SLUS_006.50:0x80031b84
+worklog: 11, 14
 ---
 
 # DBnnMOD.BIN
@@ -21,7 +21,7 @@ Little-endian.
 u32  0xc0de0001
 u16  count, u16 pad
 u32  at[count]          low 21 bits: offset from the table's end;
-                        high 11: the model's own index; 0xffffffff: none
+                        high 11: the model's id, ascending; 0xffffffff: none
 model
   +0x00 u32  link
   +0x04 u32  unknown_04          the loader writes the index here
@@ -43,7 +43,10 @@ faces: sections u16 kind, u16 count, records
 ```
 
 The loader (0x80044c98) turns the four offsets into pointers and writes
-the index at +0x04. The face kinds are the GPU's primitive codes, which the
+the index at +0x04. Everything else names a model by id, not by table
+position: `model(id)` (0x80044b74) binary-searches the table's high 11
+bits. Hierarchy parts (through 0x80044e7c) and templates use it. Ids and
+positions agree in DB22 only up to 78 (position 79 holds id 102). The face kinds are the GPU's primitive codes, which the
 renderer switches on.
 
 ## Measured

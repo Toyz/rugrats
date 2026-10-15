@@ -1,7 +1,7 @@
 //! rugrats-viewer: fly around a database's rooms.
 //!
 //! ```text
-//! rugrats-viewer DB [--cue DISC.cue] [--at X,Y,Z] [--look YAW,PITCH] [--shot OUT.png] [--models] [--hier] [--anim H,A]
+//! rugrats-viewer DB [--cue DISC.cue] [--at X,Y,Z] [--look YAW,PITCH] [--shot OUT.png] [--models] [--hier] [--anim H,A] [--cine F [--transpose]]
 //! ```
 //!
 //! DB is 0-31. Keys: W A S D move, R F up and down, arrows turn, Shift
@@ -34,6 +34,31 @@ const HIE: usize = 370;
 const ANM: usize = 274;
 const FRM: usize = 306;
 const ROT: usize = 338;
+const LP: usize = 402;
+const TEMPLATE: usize = 239;
+
+/// Frame `want` (from 1) of OPEN.BIN, the opening cinematic.
+fn cine_frame(disc: &GameDisc, want: usize) -> Result<rugrats_data::cine::Frame, String> {
+    let start = disc.movies_lba(0)?;
+    let mut seen = 0;
+    for lba in start.. {
+        let s = disc.sector(lba)?;
+        let sub = s.raw[18];
+        if sub & 0x04 != 0 || sub & 0x0e == 0 {
+            continue;
+        }
+        let d = &s.raw[24..24 + 2048];
+        if rugrats_data::cine::header(d).is_some() {
+            continue;
+        }
+        let f = rugrats_data::cine::frame(d).ok_or("the stream ended")?;
+        seen += 1;
+        if seen == want {
+            return Ok(f);
+        }
+    }
+    Err("no such frame".into())
+}
 
 struct Camera {
     pos: Vec3,
@@ -57,10 +82,43 @@ struct Scene {
     vram: Vram,
     triangles: Vec<Vtx>,
     start: Vec3,
+    /// A cinematic frame's camera, when one is shown: its view-projection.
+    cine_camera: Option<Mat4>,
+}
+
+/// The GTE's focal length in cinematics (read from the original), on the
+/// 512 x 240 screen.
+const FOCAL: f32 = 178.0;
+
+/// The original's view and projection for a camera at `pos` whose stream
+/// quaternion gives `rot` (as the parts' 0x8001fc48 does): the camera's
+/// matrix is its transpose (0x80020580), and the view matrix (0x8001e0f4)
+/// scales its x row by 512 / 320 and its y row by 240 / 240 for the
+/// screen's shape. `transpose` undoes the transpose, to compare.
+fn cine_matrix(pos: Vec3, rot: glam::Mat3, transpose: bool) -> Mat4 {
+    let r = if transpose { rot } else { rot.transpose() };
+    let scale = glam::Mat3::from_diagonal(Vec3::new(512.0 / 320.0, 1.0, 1.0));
+    let view = Mat4::from_mat3(scale * r) * Mat4::from_translation(-pos);
+    let (near, far) = (16.0f32, 200_000.0f32);
+    let (a, b) = (far / (far - near), -near * far / (far - near));
+    let proj = Mat4::from_cols_array(&[
+        FOCAL / 256.0, 0.0, 0.0, 0.0,
+        0.0, -FOCAL / 120.0, 0.0, 0.0,
+        0.0, 0.0, a, 1.0,
+        0.0, 0.0, b, 0.0,
+    ]);
+    proj * view
 }
 
 impl Scene {
-    fn load(disc: &GameDisc, db: usize, models: bool, hier: bool, anim: Option<(usize, usize)>) -> Result<Scene, String> {
+    fn load(
+        disc: &GameDisc,
+        db: usize,
+        models: bool,
+        hier: bool,
+        anim: Option<(usize, usize)>,
+        cine: Option<(usize, bool)>,
+    ) -> Result<Scene, String> {
         let level = rugrats_data::level::parse(&disc.file(LEVEL + db)?).map_err(|e| e.to_string())?;
         let raw = disc.file(A_RAW + db)?;
         let mut vram = Vram::new();
@@ -72,7 +130,60 @@ impl Scene {
         let words: Vec<u16> = chars.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
         vram.load(576, 256, 384, 256, &words);
         let mut triangles = Vec::new();
-        if let Some((hn, an)) = anim {
+        let mut cine_camera = None;
+        if let Some((want, transpose)) = cine {
+            // The rooms, and frame `want` of OPEN.BIN (file 0): its
+            // characters posed and its camera.
+            triangles = rugrats_render::rooms::level_triangles(&level);
+            let all = rugrats_data::model::parse_file(&disc.file(MOD + db)?).map_err(|e| e.to_string())?;
+            let hs = rugrats_data::hierarchy::parse_file(&disc.file(HIE + db)?).map_err(|e| e.to_string())?;
+            let lp = rugrats_data::placement::parse_lp(&disc.file(LP + db)?);
+            let templates = rugrats_data::placement::parse_templates(&disc.file(TEMPLATE)?);
+            let frame = cine_frame(disc, want)?;
+            for pose in &frame.poses {
+                rrt::tracing::debug!("pose {} at {:?}, keys {:?}", pose.id, pose.pos, pose.keys);
+                let Some(place) = lp.iter().find(|p| p.kind == 1 && p.id as i16 == pose.id) else { continue };
+                let Some(h) = templates.get(place.template as usize).and_then(|t| t.hierarchy()).and_then(|i| hs.get(i)).and_then(|h| h.as_ref())
+                else {
+                    continue;
+                };
+                let mut local = vec![None; h.parts.len()];
+                for &(channel, q) in &pose.keys {
+                    let part = h.header.get(0x14 + channel as usize).copied().unwrap_or(0xff);
+                    if let Some(slot) = local.get_mut(part as usize) {
+                        *slot = Some(rugrats_render::models::quat_matrix(q));
+                    }
+                }
+                let at = Vec3::new(pose.pos[0] as f32, pose.pos[1] as f32, pose.pos[2] as f32);
+                rugrats_render::models::posed_triangles(h, &all, &local, at, &mut triangles);
+            }
+            // The placed objects built on one model, where the stream's
+            // actors move them or where the LP file puts them.
+            for place in lp.iter().filter(|p| p.kind == 1) {
+                let Some(t) = templates.get(place.template as usize) else { continue };
+                if t.hierarchy().is_some() {
+                    continue;
+                }
+                let Some(Some(m)) = all.get(t.shape as usize) else { continue };
+                let (pos, rot) = match frame.actors.iter().find(|a| a.id == place.id as i16) {
+                    Some(a) => (a.pos, rugrats_render::models::quat_matrix(a.q)),
+                    None => {
+                        let r = place.rotation.map(|v| v as i16);
+                        (place.pos, rugrats_render::models::quat_matrix(r))
+                    }
+                };
+                let at = Vec3::new(pos[0] as f32, pos[1] as f32, pos[2] as f32);
+                rrt::tracing::debug!("object {} template {} model {} at {pos:?}", place.id, place.template, t.shape);
+                rugrats_render::models::model_triangles(m, rot, at, &mut triangles);
+            }
+            let p = frame.camera_pos;
+            cine_camera = Some(cine_matrix(
+                Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32),
+                rugrats_render::models::quat_matrix(frame.camera_q),
+                transpose,
+            ));
+            rrt::tracing::info!("cine frame {}: camera at {p:?}, {} poses", frame.number, frame.poses.len());
+        } else if let Some((hn, an)) = anim {
             // Hierarchy hn at each key frame of animation an, in a row.
             let all = rugrats_data::model::parse_file(&disc.file(MOD + db)?).map_err(|e| e.to_string())?;
             let hs = rugrats_data::hierarchy::parse_file(&disc.file(HIE + db)?).map_err(|e| e.to_string())?;
@@ -124,12 +235,13 @@ impl Scene {
             Vec3::new(lo[0] as f32 + 512.0, hi[1] as f32 - 1024.0, (lo[2] + hi[2]) as f32 / 2.0)
         });
         rrt::tracing::info!("database {db}: {} rooms, {} triangles", level.rooms.len(), triangles.len() / 3);
-        Ok(Scene { vram, triangles, start })
+        Ok(Scene { vram, triangles, start, cine_camera })
     }
 
     fn renderer(&self, device: &rrt::wgpu::Device, queue: &rrt::wgpu::Queue, format: rrt::wgpu::TextureFormat) -> Renderer {
         let mut r = Renderer::new(device, queue, format, &self.vram, &self.triangles);
-        r.clear = [64, 64, 80];
+        // The cinematic's backdrop: play_cine (0x8007475c) sets it.
+        r.clear = if self.cine_camera.is_some() { [217, 175, 141] } else { [64, 64, 80] };
         r
     }
 
@@ -244,6 +356,8 @@ fn run() -> Result<(), String> {
     let mut models = false;
     let mut hier = false;
     let mut anim = None;
+    let mut cine = None;
+    let mut transpose = false;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--cue" => cue = args.next().map(PathBuf::from),
@@ -252,6 +366,8 @@ fn run() -> Result<(), String> {
             "--shot" => out = args.next().map(PathBuf::from),
             "--models" => models = true,
             "--hier" => hier = true,
+            "--cine" => cine = args.next().and_then(|s| s.parse().ok()),
+            "--transpose" => transpose = true,
             "--anim" => {
                 anim = args.next().and_then(|s| {
                     let (h, a) = s.split_once(',')?;
@@ -266,7 +382,7 @@ fn run() -> Result<(), String> {
         Some(c) => c,
         None => rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?,
     };
-    let scene = Scene::load(&GameDisc::open(&cue)?, db, models, hier, anim)?;
+    let scene = Scene::load(&GameDisc::open(&cue)?, db, models, hier, anim, cine.map(|f| (f, transpose)))?;
     let mut camera = Camera { pos: scene.start, yaw: 0.0, pitch: 0.0 };
     if let Some(p) = at.filter(|p| p.len() == 3) {
         camera.pos = Vec3::new(p[0], p[1], p[2]);
@@ -277,7 +393,8 @@ fn run() -> Result<(), String> {
     }
     if let Some(out) = out {
         let (w, h) = (1280, 960);
-        let rgba = scene.shot(w, h, camera.matrix(w as f32 / h as f32))?;
+        let mvp = scene.cine_camera.unwrap_or_else(|| camera.matrix(w as f32 / h as f32));
+        let rgba = scene.shot(w, h, mvp)?;
         std::fs::write(&out, rrt::image::png::encode(w, h, &rgba)).map_err(|e| e.to_string())?;
         rrt::tracing::info!("-> {}", out.display());
         return Ok(());

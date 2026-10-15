@@ -2,8 +2,8 @@
 title: In-engine cinematics
 status: partial
 discs: US
-covers: US SLUS_006.50:0x8007424c, US SLUS_006.50:0x80073810, US SLUS_006.50:0x8007412c, US SLUS_006.50:0x80019da4, US SLUS_006.50:0x80019c88, US SLUS_006.50:0x800b8bd0, US /DATA/CINEMAT/OPEN.BIN
-worklog: 7
+covers: US SLUS_006.50:0x8007424c, US SLUS_006.50:0x80073810, US SLUS_006.50:0x8007412c, US SLUS_006.50:0x80019da4, US SLUS_006.50:0x80019c88, US SLUS_006.50:0x800b8bd0, US /DATA/CINEMAT/OPEN.BIN, US SLUS_006.50:0x80073b08, US SLUS_006.50:0x80073c34, US SLUS_006.50:0x80073f08, US SLUS_006.50:0x8001e0f4, US SLUS_006.50:0x8001d218
+worklog: 7, 14
 ---
 
 # In-engine cinematics
@@ -51,13 +51,60 @@ first sector (header)
   u8   setup[setup_size]   copied to a fresh block (0x800c43d8)
 each later data sector: one frame
   u16  frame          from 1
-  ...                 camera and actor values; +0x10 and +0x14 carry
-                      counts in their top 6 bits (0x80073c34, 0x80073f08 per item)
+  u16  unknown_02
+  s32  camera position[3]
+  u32  a              bits 0-12 q0, 13-25 q1 (signed), 26-31 actors
+  u32  b              bits 0-12 q2, 13-25 q3 (signed), 26-31 poses
+  actor[actors]       24 bytes (0x80073c34)
+    u32  bits 0-12 q0, 13-25 q1, 26-29 animation, 30-31 state
+    u32  bits 0-12 q2, 13-25 q3
+    s32  position[3]
+    s16  id, u16 unknown_16
+  pose[poses]         16 bytes and 8 a key (0x80073f08)
+    s32  position[3]
+    u32  bits 0-15 id, 16-23 keys, 24-27 animation, 28-29 state
+    key[keys]
+      u32  bits 0-12 q0, 13-25 q1, 26-31 channel
+      u32  bits 0-12 q2, 13-25 q3
   0xdddddddd          as the first word: the stream's end
 ```
 
+Quaternions are (x, y, z, w) = (q0, q1, q2, q3), at any scale. Ids are the
+object registry's, from the database's LP file ([lp](../formats/lp.md)).
+
+## Applying a frame
+
+- The camera (0x80073b08): position to 0x800e5648, the quaternion through
+  0x80020580 (the transpose of the parts' 0x8001fc48) to the camera matrix
+  at 0x800e5428, and 0x8001e0f4 makes the view matrix (0x800e5448) from it
+  by scaling its x row by (s16 0x800c4a14) / 320 and its y row by (s16
+  0x800c4a16) / 240: 512 and 240 here, so x by 1.6. A point p is seen at
+  view (p - camera) (0x8001eb4c), projected with H 178 and no offset
+  onto the 512 x 240 screen.
+- An actor (0x80073c34) is a single-model object: its rotation goes
+  through 0x8001f9fc to object +0x04, its position to object +0x18. Ids
+  510 and 511 are special: the actor is moved 0x2000 down with +0x24 set
+  to 1024, and object 602 (601 for 511) takes the record's rotation and
+  position instead, its +0x24 growing by 50 a frame to 1024 once
+  0x800c43d0 passes 50 (a swap, or a fade in; not yet seen).
+- A pose (0x80073f08) is a hierarchy object: position to object +0x18,
+  angles at +0x24 cleared, and each key's quaternion to the part its
+  channel maps to (hierarchy +0x14 + channel, 0xff for none).
+
+The backdrop is a fill of (217, 175, 141): play_cine's setup (0x8007475c)
+calls `set_backdrop(view, r, g, b)` (0x8001d218, view 3 at 0x800cdf18)
+with it, which turns on the view's DRAWENV isbg.
+
+## Measured
+
+`rugrats-viewer 22 --cine 199` (rooms, LP props, stream actors and poses,
+this camera) against the oracle's picture when the counter at 0x800c4c34
+reads 200 (oracle frame 2039; the picture shows the frame before): the
+camera position equals the oracle's, every pose's keys equal the
+oracle's part quaternions, and rooms, props and characters line up. The
+original's wall shading (depth cue and lighting) is not drawn yet.
+
 ## Unknown
 
-- The per-frame record's fields, the setup block, and the 16-byte table entries.
-- Why the oracle's opening renders nothing: the stream arrives, but the
-  camera is "outside room" every frame and every room yields 0 polygons.
+- `unknown_02`, the actors' and poses' animation and state fields
+  (0x80074ec0, 0x80075304), the setup block, the 16-byte table entries.

@@ -36,3 +36,26 @@ fn quaternion_matrices_match_the_original() {
         }
     }
 }
+
+/// The camera's quaternion-to-matrix (0x80020580), used by the cinematic
+/// stream, gives the transpose of the parts' (0x8001fc48).
+#[test]
+fn camera_quaternion_matrices() {
+    let Some(exe) = exe() else {
+        eprintln!("skipped: no work/fs");
+        return;
+    };
+    let mut m = machine_with_exe(&exe).unwrap();
+    m.cpu.r[28] = 0x800c_3e80;
+    let (q_at, out_at) = (0x8010_0000u32, 0x8010_0100u32);
+    for q in [[1000i16, 0, 0, 1800], [300, 700, -900, 1500]] {
+        for (k, v) in q.iter().enumerate() {
+            m.bus.write_u32(q_at + 4 * k as u32, *v as i32 as u32).unwrap();
+        }
+        m.call(0x8002_0580, &[q_at as u64, out_at as u64]).unwrap();
+        let theirs: Vec<i16> = (0..9).map(|k| m.bus.read_u16(out_at + 2 * k).unwrap() as i16).collect();
+        let ours = rugrats_render::models::quat_matrix(q);
+        let transposed = (0..9).all(|k| ((ours.col(k / 3)[k % 3] * 4096.0).round() as i32 - theirs[k] as i32).abs() <= 8);
+        assert!(transposed, "q {q:?}: theirs {theirs:?}");
+    }
+}

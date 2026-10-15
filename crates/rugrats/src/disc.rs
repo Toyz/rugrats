@@ -51,6 +51,11 @@ impl GameDisc {
         Ok(GameDisc { image, table, movies, mdec })
     }
 
+    /// The first sector of file `index` (the streams are read by sector).
+    pub fn movies_lba(&self, index: usize) -> Result<u32, String> {
+        self.table.get(index).filter(|e| e.is_used()).map(|e| e.lba).ok_or(format!("File '{index}' not found!"))
+    }
+
     /// One raw sector, for the streams.
     pub fn sector(&self, lba: u32) -> Result<rrt::disc::Sector, String> {
         self.image.sector(lba).map_err(|e| e.to_string())

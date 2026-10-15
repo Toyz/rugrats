@@ -19,6 +19,8 @@ const GAUGE: (i16, i16) = (-172, 73);
 /// (guess).
 const REACH: f32 = 4096.0;
 const WIDTH: f32 = 700.0;
+/// The light mesh's width (0x80090e70: scale 15000).
+const LIGHT_WIDTH: f32 = 15000.0;
 /// Shadow monsters (3333-3340, template 934): guard 10000, reach 1024,
 /// bite 20; light-struck, away for 18 frames, then a group 10 spot.
 const SHADOWS: [u16; 8] = [3333, 3334, 3335, 3336, 3337, 3338, 3339, 3340];
@@ -46,6 +48,7 @@ pub struct Level12 {
     fridge_done: bool,
     spike_waiting: bool,
     shining: bool,
+    mesh: Option<crate::fx::Mesh>,
 }
 
 fn find(g: &Game, id: u16) -> Option<usize> {
@@ -54,7 +57,7 @@ fn find(g: &Game, id: u16) -> Option<usize> {
 
 impl Level12 {
     /// Cine 66's end and EpisodeStart (0x8007b7c8).
-    pub fn start(g: &mut Game, _disc: &GameDisc) -> Result<Level12, String> {
+    pub fn start(g: &mut Game, disc: &GameDisc) -> Result<Level12, String> {
         g.hide(SPIKE, true);
         // The refrigerator's use is its cine, not the doors' swing.
         for id in DOORS {
@@ -75,7 +78,8 @@ impl Level12 {
                 n.bite_wait = 230;
             }
         }
-        Ok(Level12 { charge: CHARGE, max: CHARGE, away: Vec::new(), fridge_done: false, spike_waiting: false, shining: false })
+        let mesh = crate::fx::Mesh::load(disc, &crate::fx::LIGHT).ok();
+        Ok(Level12 { charge: CHARGE, max: CHARGE, away: Vec::new(), fridge_done: false, spike_waiting: false, shining: false, mesh })
     }
 
     fn holding(&self, g: &Game) -> bool {
@@ -203,7 +207,20 @@ impl crate::game::Script for Level12 {
         self.fridge_done as i32
     }
 
-    fn draw(&self, g: &Game, _moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+        // The light (0x80090e70): this frame's ray from hand bone 15 +
+        // (0, 0, 350) (table 0x800bb28c entry 1), 4096 along the facing,
+        // the cone's point at the hand (guess: the code's axis was not
+        // traced).
+        if let (true, Some(mesh)) = (self.shining, &self.mesh) {
+            let parts = g.player.parts(&g.anims, &g.trig);
+            let rot = g.player.rotation(&g.trig);
+            if let Some(hand) = g.player.slot_part(15).and_then(|i| parts.get(i)) {
+                let from = hand.1 + rot * rrt::glam::Vec3::new(0.0, 0.0, 350.0);
+                let ahead = rot * rrt::glam::Vec3::new(0.0, 0.0, REACH);
+                mesh.along(from + ahead, from, LIGHT_WIDTH, moving);
+            }
+        }
         // The gauge (0x8008c7f0: 360 over 361) while the light is held.
         if self.holding(g) {
             if let Some(s) = &g.sprites {

@@ -42,6 +42,19 @@ pub const BEAM: Tables = Tables {
     palette_len: 6,
 };
 
+/// The flashlight (0x80090e70): 12 faces over 13 vertices, an additive
+/// grey cone, scale 15000.
+pub const LIGHT: Tables = Tables {
+    faces: 12,
+    vertices: 13,
+    flags: 0x800b_b25c,
+    corners: 0x800b_b1fc,
+    at: 0x800b_b194,
+    colours: 0x800b_b22c,
+    palette: 0x800b_b17c,
+    palette_len: 6,
+};
+
 impl Mesh {
     pub fn load(disc: &GameDisc, t: &Tables) -> Result<Mesh, String> {
         let words = |at: u32, n: usize| -> Result<Vec<u32>, String> {

@@ -45,6 +45,8 @@ enum Then {
     Pages(Vec<Page>, Box<Then>),
     /// Cinematic n on database db, then more.
     Scene(usize, usize, Box<Then>),
+    /// The title menu.
+    Title,
 }
 
 /// The boot as main runs it (SLUS_006.50:0x800185f8).
@@ -304,6 +306,7 @@ impl Rugrats {
                 Boot::Game { game }
             }
             Then::Scene(n, db, then) => self.scene(n, db, *then, now),
+            Then::Title => self.title(now),
             Then::Pages(pages, then) => {
                 let db = self.level.unwrap_or(1);
                 self.screen(pages, db, *then, None, now)
@@ -560,16 +563,19 @@ impl Game for Rugrats {
                         }
                     }
                     if game.quit {
+                        // "Returning to / Main Menus / Loading" (0x8003e05c).
                         self.level = None;
                         self.stop_song();
-                        self.boot = self.title(now);
+                        let page = screens::message::returning(&self.disc, self.progress.activity());
+                        self.boot = self.screen(vec![page], 1, Then::Title, None, now);
                     } else if let Some((mut level, mut cine)) = game.exit {
                         if self.progress.activity() && level == rugrats::game::HUB {
                             // "Returning to the Activities Menu"; golf goes
                             // hole to hole first.
                             self.level = None;
                             self.stop_song();
-                            self.boot = self.title(now);
+                            let page = screens::message::returning(&self.disc, true);
+                            self.boot = self.screen(vec![page], 1, Then::Title, None, now);
                             return;
                         }
                         if let Some(won) = game.won {

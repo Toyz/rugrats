@@ -170,6 +170,14 @@ pub mod message {
         )
     }
 
+    /// The pause's "Returning to / Main Menus / Loading", or in activity
+    /// play "Returning to the / Activities Menu / Loading" (0x8003e05c).
+    pub fn returning(disc: &GameDisc, activity: bool) -> Page {
+        let s = |n: u32| crate::front::string(disc, n);
+        let (a, b) = if activity { (71, 72) } else { (73, 74) };
+        Page::Loading(vec![(s(a), LIGHT_BLUE, 0, -55), (s(b), PINK, 1, -35), (s(24), PINK, 0, -5)])
+    }
+
     /// "You have already / earned the puzzle / piece in this level."
     pub fn had_piece(disc: &GameDisc) -> Page {
         Page::Message { lines: lines(disc, [97, 98, 99], [YELLOW; 3]), bars: None, blink: false }

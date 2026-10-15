@@ -238,7 +238,8 @@ impl crate::game::Script for Level20 {
                     ((q[2] - p[2]) as f64 / frames * per) as i32,
                 ];
                 g.player.act(crate::player::anim::THROW, &g.anims);
-                g.effects.push((if g.rand.next() & 1 == 0 { 159 } else { 167 }, crate::sound::EFFECTS_VOLUME));
+                // 0x8005d11c: speech 1159 or 1167.
+                g.speech.push(if g.rand.next() & 1 != 0 { 1159 } else { 1167 });
                 g.throw_carried(v);
                 if self.rules.throw_costs {
                     self.cookies = (self.cookies - 1).max(0);

@@ -903,10 +903,12 @@ impl Game {
             ambience: crate::ambience::setup(level).0,
             ambience_first: crate::ambience::setup(level).1,
             ambience_lines: std::rc::Rc::new(crate::ambience::Tables::load(disc)),
-            no_damage: false,
+            // Damage is dropped in levels 1, 11, 17 and 23-31 (0x800780d8).
+            no_damage: matches!(level, 1 | 11 | 17 | 23..=31),
             won_levels: (0..32).filter(|&l| progress.won(l)).fold(0, |a, l| a | 1 << l),
         };
         g.talkers = talkers(&g.set, level);
+        g.player.falls_hurt = !g.no_damage;
         g.hazards = hazards(&g.set, &g.apart);
         g.script = match level {
             2 => Some(Box::new(crate::level2::Level2::start(&mut g, disc)?)),
@@ -1833,7 +1835,11 @@ impl Game {
                     && (d.pos[2] - p[2]).abs() < USE_REACH
                     && self.use_dy(d, p[1]) < USE_REACH_Y
             }) {
-                if d.template == BOARD_OBJECT {
+                if d.template == BOARD_OBJECT && self.flags & 512 != 0 {
+                    // 0x8004d3f0: once Reptar 2010 has begun (+0x30 bit
+                    // 512), the board goes back to it.
+                    self.exit = Some((7, None));
+                } else if d.template == BOARD_OBJECT {
                     self.board = true;
                 } else if mirror(&d) {
                     // The mirror (0x800478bc): Mirrorland, with bit 16.

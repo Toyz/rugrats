@@ -32,6 +32,7 @@ pub mod disc;
 pub mod face;
 pub mod front;
 pub mod game;
+pub mod fx;
 pub mod gte;
 pub mod input;
 pub mod movie;

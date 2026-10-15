@@ -40,15 +40,26 @@ const DUCT_ROOM: usize = 28;
 const GARAGE_ROOM: usize = 38;
 const FLOAT_AT: [i32; 3] = [92984, -27, 57036];
 const CINE_FLOAT: usize = 38;
-/// The beam (0x80091834, 0x80090fac): its speed and life are guesses.
-const BEAM_SPEED: i32 = 600;
-const BEAM_LIFE: i32 = 40;
+/// The beam (0x80091834, 0x80090fac, table 0x800bb28c entry 0): speed
+/// +0x44 = 10 + 2048, so (speed x dt) >> 12 of the direction a frame
+/// (20580 at dt 10); life 1000 less 33 a frame (0x800b44d4[dt]); tested
+/// along the way in steps (0x80090860 tests the segment).
+const BEAM_SPEED: i32 = (10 + 2048) * crate::player::DT;
+const BEAM_LIFE: i32 = 1000;
+const BEAM_DECAY: i32 = 33;
+const BEAM_STEP: i32 = 256;
 const BEAM_HIT: i64 = 700;
+/// The beam mesh's width (0x80090d34: scale 5000).
+const BEAM_WIDTH: f32 = 5000.0;
 
 struct Beam {
+    /// Where it was and is (+0x14.., +0x04..), its direction (4096 a
+    /// unit), its life, and whether it has stopped against something.
+    from: [i32; 3],
     pos: [i32; 3],
-    v: [i32; 2],
+    dir: [i32; 2],
     life: i32,
+    done: bool,
 }
 
 pub struct Level5 {
@@ -57,11 +68,12 @@ pub struct Level5 {
     charge: i32,
     doors: Vec<(usize, [i32; 3], bool)>,
     beams: Vec<Beam>,
+    mesh: Option<crate::fx::Mesh>,
 }
 
 impl Level5 {
     /// EpisodeStart (0x8007b214) and cine 37's end (0x8007b280).
-    pub fn start(g: &mut Game, _disc: &GameDisc) -> Result<Level5, String> {
+    pub fn start(g: &mut Game, disc: &GameDisc) -> Result<Level5, String> {
         for id in CINE_ACTORS {
             g.hide(id, true);
         }
@@ -83,7 +95,8 @@ impl Level5 {
         let doors = g.set.placements.iter().enumerate().filter(|(_, p)| p.kind == 1 && p.template == DOOR).map(|(k, p)| (k, p.pos, false)).collect();
         let respawn = (START, START_HEADING);
         g.checkpoint = Some(respawn);
-        Ok(Level5 { phase: 1, respawn, charge: CHARGE, doors, beams: Vec::new() })
+        let mesh = crate::fx::Mesh::load(disc, &crate::fx::BEAM).ok();
+        Ok(Level5 { phase: 1, respawn, charge: CHARGE, doors, beams: Vec::new(), mesh })
     }
 
     fn set_phase(&mut self, g: &mut Game, phase: u8, at: [i32; 3], heading: i32) {
@@ -122,34 +135,49 @@ impl Level5 {
         g.effects.push((68, crate::sound::EFFECTS_VOLUME));
         let (s, c) = (g.trig.sin(g.player.heading), g.trig.cos(g.player.heading));
         let p = g.player.pos;
-        self.beams.push(Beam { pos: [p[0], p[1] - 500, p[2]], v: [s * BEAM_SPEED >> 12, c * BEAM_SPEED >> 12], life: BEAM_LIFE });
+        let at = [p[0], p[1] - 500, p[2]];
+        self.beams.push(Beam { from: at, pos: at, dir: [s, c], life: BEAM_LIFE, done: false });
     }
 
     fn beams(&mut self, g: &mut Game) {
         let mut opened = Vec::new();
         let mut beams = std::mem::take(&mut self.beams);
         beams.retain_mut(|b| {
-            b.life -= 1;
-            b.pos[0] += b.v[0];
-            b.pos[2] += b.v[1];
-            let q = crate::collide::query(&g.col, b.pos);
-            if b.life <= 0 || q.kind != 0 {
+            b.life -= BEAM_DECAY;
+            if b.life <= 0 || b.done {
                 return false;
             }
-            let near = |p: [i32; 3]| {
-                let (dx, dz) = ((p[0] - b.pos[0]) as i64, (p[2] - b.pos[2]) as i64);
-                dx * dx + dz * dz < BEAM_HIT * BEAM_HIT && (p[1] - b.pos[1]).abs() < 2500
-            };
-            // A robot (0x800511a8 case 33): stunned 20 s, sound 63.
-            if let Some(n) = g.npcs.iter_mut().find(|n| n.character == ROBOT && !n.hidden && near(n.pos)) {
-                n.mode = Mode::Hit { left: STUN, then: Box::new(Mode::Guard) };
-                g.effects.push((63, crate::sound::EFFECTS_VOLUME));
-                return false;
-            }
-            // A door (0x80051d44): it opens.
-            if let Some(i) = self.doors.iter().position(|d| !d.2 && near(d.1)) {
-                opened.push(i);
-                return false;
+            b.from = b.pos;
+            // The segment this frame, in steps: the first wall or thing
+            // stops it there.
+            let mut gone = 0;
+            while gone < BEAM_SPEED {
+                let step = BEAM_STEP.min(BEAM_SPEED - gone);
+                gone += step;
+                let next = [b.pos[0] + (b.dir[0] * step >> 12), b.pos[1], b.pos[2] + (b.dir[1] * step >> 12)];
+                let q = crate::collide::query(&g.col, next);
+                if q.kind != 0 {
+                    b.done = true;
+                    break;
+                }
+                b.pos = next;
+                let near = |p: [i32; 3]| {
+                    let (dx, dz) = ((p[0] - b.pos[0]) as i64, (p[2] - b.pos[2]) as i64);
+                    dx * dx + dz * dz < BEAM_HIT * BEAM_HIT && (p[1] - b.pos[1]).abs() < 2500
+                };
+                // A robot (0x800511a8 case 33): stunned 20 s, sound 63.
+                if let Some(n) = g.npcs.iter_mut().find(|n| n.character == ROBOT && !n.hidden && near(n.pos)) {
+                    n.mode = Mode::Hit { left: STUN, then: Box::new(Mode::Guard) };
+                    g.effects.push((63, crate::sound::EFFECTS_VOLUME));
+                    b.done = true;
+                    break;
+                }
+                // A door (0x80051d44): it opens.
+                if let Some(i) = self.doors.iter().position(|d| !d.2 && near(d.1)) {
+                    opened.push(i);
+                    b.done = true;
+                    break;
+                }
             }
             true
         });
@@ -238,12 +266,12 @@ impl crate::game::Script for Level5 {
     }
 
     fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
-        // The beams: the remote's own model is not the beam; a small
-        // marker (the battery's model) along the path (guess).
-        if let Some(m) = g.goodies.iter().find(|x| x.kind == 12).and_then(|x| g.set.models.get(x.shape)) {
+        // The beams (0x80090d34): the mesh stretched over this frame's
+        // segment.
+        if let Some(mesh) = &self.mesh {
             for b in &self.beams {
-                let pos = Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32);
-                rugrats_render::models::model_triangles(m, rrt::glam::Mat3::from_diagonal(Vec3::splat(0.4)), pos, moving);
+                let at = |p: [i32; 3]| Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32);
+                mesh.along(at(b.from), at(b.pos), BEAM_WIDTH, moving);
             }
         }
         // The charge gauge (0x8008c7f0: 360 over 361).
@@ -259,6 +287,7 @@ impl crate::game::Script for Level5 {
     }
 
     fn describe(&self) -> String {
-        format!("phase {} charge {} beams {} doors open {}", self.phase, self.charge, self.beams.len(), self.doors.iter().filter(|d| d.2).count())
+        let b: Vec<_> = self.beams.iter().map(|b| (b.from, b.pos, b.done)).collect();
+        format!("phase {} charge {} beams {:?} doors open {}", self.phase, self.charge, b, self.doors.iter().filter(|d| d.2).count())
     }
 }

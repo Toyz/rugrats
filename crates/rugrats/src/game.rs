@@ -277,6 +277,21 @@ pub struct Door {
     /// +0x3c bit 2, and the think scheduled (+0xcc).
     pub open: bool,
     pub moving: bool,
+    /// Class 8 (0x80048714): swinging by itself while the player is
+    /// within the trigger radius.
+    swing: Option<Swing>,
+}
+
+/// A class 8 door's own state: the easing (+0xb8), the waits at the ends
+/// (+0xbe: 8 open, 16 shut), the wait left (+0xd2), the trigger radius,
+/// the damage when blocked (+0x6d) and the time to the next.
+struct Swing {
+    ease: i32,
+    waits: u8,
+    wait: i32,
+    radius: i32,
+    damage: i32,
+    hurt: i32,
 }
 
 impl Door {
@@ -710,7 +725,7 @@ impl Game {
             p.kind == 1
                 && !character(k)
                 && !matches!(p.template, 843 | 770)
-                && set.templates.get(p.template as usize).is_some_and(|t| matches!(t.raw[4], 3 | 4) && set.models.has(t.shape as u32))
+                && set.templates.get(p.template as usize).is_some_and(|t| matches!(t.raw[4], 3 | 4 | 8) && set.models.has(t.shape as u32))
         };
         let doors: Vec<Door> = (0..set.placements.len())
             .filter(|&k| door(k))
@@ -724,7 +739,7 @@ impl Game {
                     placement: k,
                     template: p.template as u16,
                     shape: t.shape as u32,
-                    hinged: t.raw[4] == 4,
+                    hinged: t.raw[4] != 3,
                     start: p.pos,
                     placed: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
                     heading,
@@ -732,11 +747,19 @@ impl Game {
                     speed: [h(0x18), h(0x1a), h(0x1c)],
                     shut: h(0x1e),
                     open_end: h(0x20),
-                    target: 0,
+                    target: if t.raw[4] == 8 { h(0x20) } else { 0 },
                     either: h(0x26) != 0,
                     sound: t.raw[0x24],
                     open: false,
                     moving: false,
+                    swing: (t.raw[4] == 8).then(|| Swing {
+                        ease: h(0x18),
+                        waits: if t.flags & 0x1000_0000 != 0 { 16 } else { 0 } | if t.flags & 0x2000_0000 != 0 { 8 } else { 0 },
+                        wait: 0,
+                        radius: u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32,
+                        damage: t.raw[0x32] as i32,
+                        hurt: 0,
+                    }),
                 }
             })
             .collect();
@@ -952,9 +975,35 @@ impl Game {
 
     /// The doors' thinks, one a game frame (0x8004f868, 0x8004e458).
     fn door_thinks(&mut self) {
+        let me = self.player.pos;
         for k in 0..self.doors.len() {
+            // Class 8 runs while the player is within its radius (enter
+            // 0x80049e18, leave 0x80049e5c).
+            if let Some(s) = &mut self.doors[k].swing {
+                s.hurt = (s.hurt - crate::player::DT).max(0);
+                let d = &self.doors[k];
+                let (dx, dz) = ((d.start[0] - me[0]) as i64, (d.start[2] - me[2]) as i64);
+                let near = dx * dx + dz * dz < (self.doors[k].swing.as_ref().map_or(0, |s| s.radius) as i64).pow(2);
+                self.doors[k].moving = near;
+            }
             if !self.doors[k].moving {
                 continue;
+            }
+            // The wait at an end (+0xd2, 136 a think).
+            if let Some(s) = &mut self.doors[k].swing {
+                if s.wait > 0 {
+                    s.wait = (s.wait - 136).max(0);
+                    continue;
+                }
+            }
+            // The easing: 256 + ease x sin(how far along, half a turn).
+            if let Some(s) = &self.doors[k].swing {
+                let d = &self.doors[k];
+                let span = d.open_end - d.shut;
+                if s.ease != 0 && span != 0 {
+                    let along = ((d.offset[0] - d.shut) << 11) / span;
+                    self.doors[k].speed[0] = 256 + s.ease * self.trig.sin(along) / 4096;
+                }
             }
             let d = &self.doors[k];
             let mut next = d.offset;
@@ -981,8 +1030,15 @@ impl Game {
                 stop = if d.open { sum >= d.shut } else { sum <= d.open_end };
             }
             if self.door_blocked(k, next) {
-                // Level 16: message 24.
+                // Level 16: message 24. A hurting door (class 8, +0x6d)
+                // hurts every 51 VSyncs (25 frames).
                 self.training.show(24);
+                if let Some(s) = &mut self.doors[k].swing {
+                    if s.damage > 0 && s.hurt == 0 && !self.no_damage {
+                        s.hurt = 250;
+                        self.player.health = (self.player.health - s.damage).max(0);
+                    }
+                }
                 continue;
             }
             let d = &mut self.doors[k];
@@ -993,7 +1049,15 @@ impl Game {
                     self.effects.push((54, crate::sound::EFFECTS_VOLUME));
                 }
                 d.open = !d.open;
-                d.moving = false;
+                if let Some(s) = &mut d.swing {
+                    // Back the other way; wait at an end its flags name.
+                    d.target = if d.target == d.open_end { d.shut } else { d.open_end };
+                    if (s.waits & 8 != 0 && d.open) || (s.waits & 16 != 0 && !d.open) {
+                        s.wait = 4096;
+                    }
+                } else {
+                    d.moving = false;
+                }
             }
         }
     }
@@ -1005,7 +1069,8 @@ impl Game {
         let feet = p[1] - self.player.feet();
         let touched = (0..self.doors.len()).find(|&k| {
             let d = &self.doors[k];
-            !self.unusable.contains(&d.placement)
+            d.swing.is_none()
+                && !self.unusable.contains(&d.placement)
                 && self.set.models.get(d.shape).is_some_and(|m| {
                     let (rot, pos) = d.pose(d.offset, &self.trig);
                     world_boxes(m, rot, pos)

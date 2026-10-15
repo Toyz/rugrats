@@ -20,6 +20,7 @@ use rugrats::stage::Stage;
 use rugrats::disc::GameDisc;
 use rugrats::input::{self, Pads, Query};
 use rugrats::movie::{Movie, Soundtrack};
+use rugrats::sound::{self, Spu};
 use rugrats::still;
 use rugrats_render::Renderer;
 
@@ -57,6 +58,11 @@ struct Rugrats {
     pads: Pads,
     screen: Picture,
     soundtrack: Arc<Mutex<Soundtrack>>,
+    /// The SPU's voices: music and effects.
+    spu: Arc<Mutex<Spu>>,
+    /// The song set loaded (the menu's, a level's).
+    songs: Option<sound::Loaded>,
+    effect_table: Vec<[u8; 3]>,
     /// Kept so the sound plays; None headless or with no device.
     _audio: Option<Output>,
     /// The game's rand, which the babies and the chooser share.
@@ -70,8 +76,10 @@ impl Rugrats {
     fn new(disc: GameDisc, with_audio: bool) -> Result<Rugrats, String> {
         let screen = still::picture(&disc.file(LEGAL512_BS)?, &disc.mdec).map_err(|e| e.to_string())?;
         let soundtrack: Arc<Mutex<Soundtrack>> = Default::default();
+        let spu: Arc<Mutex<Spu>> = Default::default();
+        let effect_table = sound::effect_table(&disc)?;
         let audio = with_audio
-            .then(|| Output::open(soundtrack.clone()))
+            .then(|| Output::open(Arc::new(Mutex::new(sound::Mix { track: soundtrack.clone(), spu: spu.clone() }))))
             .and_then(|r| r.map_err(|e| rrt::tracing::warn!("no audio: {e}")).ok());
         Ok(Rugrats {
             disc,
@@ -79,6 +87,9 @@ impl Rugrats {
             pads: Pads::default(),
             screen,
             soundtrack,
+            spu,
+            songs: None,
+            effect_table,
             _audio: audio,
             world: None,
             rand: Default::default(),
@@ -107,7 +118,41 @@ impl Rugrats {
         }
     }
 
+    /// Loads song set `set` (0x8006e96c) unless it is the one loaded.
+    fn song_set(&mut self, set: sound::SongSet) {
+        if self.songs.as_ref().is_some_and(|l| l.set == set) {
+            return;
+        }
+        match sound::Loaded::load(&self.disc, set) {
+            Ok(l) => {
+                if let Ok(mut spu) = self.spu.lock() {
+                    spu.set_banks(l.music.clone(), l.effects.clone());
+                }
+                self.songs = Some(l);
+            }
+            Err(e) => rrt::tracing::error!("song set {set:?}: {e}"),
+        }
+    }
+
+    /// Song `n` of the set loaded (MidiPlaySong, 0x8006eac4), forever.
+    fn play_song(&mut self, n: usize, volume: i32) {
+        let Some(song) = self.songs.as_ref().and_then(|l| l.songs.get(n)) else { return };
+        if let Ok(mut spu) = self.spu.lock() {
+            spu.play(song, 0, volume);
+        }
+    }
+
+    fn stop_song(&mut self) {
+        if let Ok(mut spu) = self.spu.lock() {
+            spu.stop_song();
+        }
+    }
+
     fn title(&mut self, now: u64) -> Boot {
+        // The title's setup (0x8003eb28) opens the menu's song set, and
+        // its loop (0x8003d884) plays song 0.
+        self.song_set(sound::MENU_SET);
+        self.play_song(0, sound::MUSIC_VOLUME);
         match Title::open(&self.disc, now, &mut self.rand) {
             Ok(title) => Boot::Title { title: Box::new(title) },
             Err(e) => {
@@ -195,10 +240,13 @@ impl Game for Rugrats {
                     // The menu samples the pads at the end of each frame.
                     self.pads.update([Some(&t.pad), None]);
                     let outcome = title.frame(&self.pads, &mut self.rand);
-                    for s in &title.sounds {
-                        rrt::tracing::debug!("title: sound {s}");
+                    if let Ok(mut spu) = self.spu.lock() {
+                        for &s in &title.sounds {
+                            spu.effect(&self.effect_table, s as usize, sound::EFFECTS_VOLUME);
+                        }
                     }
                     if outcome == Some(Outcome::Idle) {
+                        self.stop_song();
                         self.boot = self.demo(now);
                     }
                 }

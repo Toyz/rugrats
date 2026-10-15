@@ -45,6 +45,7 @@ How the game works, subsystem by subsystem.
 | [The input module](engine/input.md) | partial | US | US SLUS_006.50:0x8001acc0, US SLUS_006.50:0x8001baf8, US SLUS_006.50:0x8001b028, US SLUS_006.50:0x800cda18 |
 | [The PsyQ libraries in the executable](engine/libraries.md) | partial | US | US SLUS_006.50:0x800977e8..0x800b2794 |
 | [The memory card and the save file](engine/memory-card.md) | partial | US | US SLUS_006.50:0x80072730, US SLUS_006.50:0x8007146c, US SLUS_006.50:0x80071ee0, US SLUS_006.50:0x80070e84, US SLUS_006.50:0x80070fa0, US SLUS_006.50:0x80072498, US SLUS_006.50:0x80072320, US SLUS_006.50:0x800721a4, US SLUS_006.50:0x8007062c, US SLUS_006.50:0x80070234, US SLUS_006.50:0x800707a8, US SLUS_006.50:0x8009ac98 |
+| [Music and sound effects](engine/sound.md) | partial | US | US SLUS_006.50:0x8006e96c, US SLUS_006.50:0x8006eac4, US SLUS_006.50:0x8006e74c, US SLUS_006.50:0x8006f26c, US SLUS_006.50:0x800b8030, US SLUS_006.50:0x800b84fc, US /DATA/SOUND/SEPS/RUGRATS.SEP, US /DATA/SOUND/VAB/MENU.VH |
 | [The text system](engine/text.md) | partial | US | US SLUS_006.50:0x8002ed80, US SLUS_006.50:0x8002e144, US SLUS_006.50:0x8002e67c, US SLUS_006.50:0x8002e2b4, US SLUS_006.50:0x800b78c8, US /DATA/FONTS/PHOUSE.FNT |
 
 ## Cut and missing content

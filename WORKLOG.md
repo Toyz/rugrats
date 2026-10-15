@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-25 entries: audio 4, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 7, format 9, input 4, play 2, render 9, save 1, test 9, tooling 15, ui 4, video 7.
+26 entries: audio 5, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 7, format 9, input 4, play 2, render 9, save 1, test 9, tooling 15, ui 4, video 7.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -37,3 +37,4 @@ The [reference](docs/README.md) says what is true now.
 | 23 | [Faces, the milk spray and the lens splash in the opening](worklog/0023-faces-the-milk-spray-and-the-lens-splash-in-the-opening.md) | 2026-10-15 | video, tooling |
 | 24 | [rugrats-re on rrt-dis, and XA through rrt-kit's Player](worklog/0024-rugrats-re-on-rrt-dis-and-xa-through-rrt-kit-s-player.md) | 2026-10-15 | tooling, audio |
 | 25 | [Two-sided model faces, and hunting the trash can](worklog/0025-two-sided-model-faces-and-hunting-the-trash-can.md) | 2026-10-15 | video, tooling |
+| 26 | [Music and menu effects: a software SPU playing libsnd's songs](worklog/0026-music-and-menu-effects-a-software-spu-playing-libsnd-s-songs.md) | 2026-10-15 | audio |

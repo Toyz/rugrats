@@ -165,6 +165,24 @@ impl Game {
         self.draw();
     }
 
+    /// The eye pulled in front of walls: walked from the aim point toward
+    /// `goal` and stopped short of the first point not in the open (as
+    /// 0x8002cd7c's "vectorwalk" keeps the camera inside).
+    fn clear_eye(&self, goal: Vec3) -> Vec3 {
+        let from = self.target();
+        let steps = 32;
+        let mut last = from;
+        for k in 1..=steps {
+            let p = from + (goal - from) * (k as f32 / steps as f32);
+            let q = crate::collide::query(&self.col, [p.x as i32, p.y as i32, p.z as i32]);
+            if q.kind != 0 {
+                return from + (last - from) * 0.9;
+            }
+            last = p;
+        }
+        goal
+    }
+
     fn target(&self) -> Vec3 {
         let p = self.player.pos;
         Vec3::new(p[0] as f32, p[1] as f32 - AIM_UP, p[2] as f32)
@@ -210,7 +228,7 @@ impl Game {
             n.animator.step(&self.anims);
         }
         self.room_change();
-        let goal = self.eye_goal();
+        let goal = self.clear_eye(self.eye_goal());
         self.eye += (goal - self.eye) / 8.0;
         self.draw();
     }

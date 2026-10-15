@@ -119,6 +119,16 @@ pub mod message {
         Page::Message { lines: lines(disc, [228, 230, 231], [YELLOW, PINK, PINK]), bars: None, blink: false }
     }
 
+    /// "You have already / earned the puzzle / piece in this level."
+    pub fn had_piece(disc: &GameDisc) -> Page {
+        Page::Message { lines: lines(disc, [97, 98, 99], [YELLOW; 3]), bars: None, blink: false }
+    }
+
+    /// "You have already / earned the reptar bars / for this level."
+    pub fn had_bars(disc: &GameDisc) -> Page {
+        Page::Message { lines: lines(disc, [97, 223, 224], [YELLOW; 3]), bars: None, blink: false }
+    }
+
     /// "Great Job! / You have earned / n Reptar bar(s)!" with the bars
     /// available.
     pub fn bars(disc: &GameDisc, n: u32, available: u32) -> Page {

@@ -232,6 +232,13 @@ impl Progress {
         true
     }
 
+    /// Whether `level`'s own piece was given (0x80094bc0: level 25 reads
+    /// as 8).
+    pub fn piece_given(&self, level: usize) -> bool {
+        let level = if level == 25 { 8 } else { level };
+        matches!(level, 1..=6 | 8..=12 | 15) && self.u32(0x40) >> level & 1 != 0
+    }
+
     /// The pieces a finished level gives (0x80094bfc): one bought with
     /// bars, and the level's own (levels 1-6, 8-12 and 15, 0x800919b4)
     /// once (+0x40). Whether the puzzle screen shows.

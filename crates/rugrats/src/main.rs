@@ -43,6 +43,8 @@ enum Then {
     Back(Box<Level>),
     /// Screens, then more.
     Pages(Vec<Page>, Box<Then>),
+    /// Cinematic n on database db, then more.
+    Scene(usize, usize, Box<Then>),
 }
 
 /// The boot as main runs it (SLUS_006.50:0x800185f8).
@@ -237,9 +239,27 @@ impl Rugrats {
                 then = Then::Pages(piece_pages(&self.disc, &self.progress, 1), Box::new(then));
             }
         }
-        match cine {
-            Some(n) => self.scene(n, level, then, now),
-            None => self.after(then, 0, now),
+        // The "already earned" notes (0x80017c0c): coming from another
+        // level into one whose piece was given, or into Cookie Race or Egg
+        // Hunt with their bars won.
+        let mut notes = Vec::new();
+        if level != 1 && self.level != Some(level) && self.progress.piece_given(level) {
+            notes.push(screens::message::had_piece(&self.disc));
+        }
+        if matches!(level, 13 | 18) && self.progress.won(level) && !self.progress.activity() {
+            notes.push(screens::message::had_bars(&self.disc));
+        }
+        match (cine, notes.is_empty()) {
+            (Some(n), true) => self.scene(n, level, then, now),
+            (None, true) => self.after(then, 0, now),
+            (cine, false) => {
+                // The notes come before the start cinematic.
+                let next = match cine {
+                    Some(n) => Then::Scene(n, level, Box::new(then)),
+                    None => then,
+                };
+                self.screen(notes, level, next, None, now)
+            }
         }
     }
 
@@ -283,6 +303,7 @@ impl Rugrats {
                 self.world = None;
                 Boot::Game { game }
             }
+            Then::Scene(n, db, then) => self.scene(n, db, *then, now),
             Then::Pages(pages, then) => {
                 let db = self.level.unwrap_or(1);
                 self.screen(pages, db, *then, None, now)

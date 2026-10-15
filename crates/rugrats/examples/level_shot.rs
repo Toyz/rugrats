@@ -13,7 +13,28 @@ fn main() -> Result<(), String> {
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let game = rugrats::game::Game::open(&disc, db)?;
     println!("player at {:?}, heading {}", game.player.pos, game.player.heading);
-    for p in game.set.placements.iter().filter(|p| p.level != 0) {
+    println!("{} boxes", game.boxes.len());
+    for z in [20148] {
+        for b in game.boxes.iter().filter(|b| (b.pos.x - 7570.0).abs() < 10.0 && b.pos.y > 0.0) {
+            for k in 0..22 {
+                let p = [5775 + 157 * k, 0, 19403 + 65 * k];
+                println!("    {p:?} depth {}", b.depth(p, 160));
+            }
+            let c = b.pos + b.rot * rrt::glam::Vec3::new(0.0, 0.0, -802.0);
+            let e = b.pos + b.rot * rrt::glam::Vec3::new(1524.0, 0.0, -802.0);
+            println!("    plane centre {c:?} end {e:?}");
+            println!("  z {z}: box lo {:?} hi {:?} at {:?} y {}..{}", b.lo, b.hi, b.pos, b.min_y, b.max_y);
+        }
+    }
+    for b in game.boxes.iter().filter(|b| (b.pos.x as i32 - 5775).abs() < 4000 && (b.pos.z as i32 - 19403).abs() < 4000) {
+        println!("  box {b:?}");
+    }
+    for p in game.set.placements.iter().filter(|p| p.kind == 1 && (p.pos[0] - 5775).abs() < 4000 && (p.pos[2] - 19403).abs() < 4000) {
+        let t = game.set.templates.get(p.template as usize);
+        let boxes = t.and_then(|t| game.set.models.get(t.shape as u32)).map(|m| m.boxes.len());
+        println!("  near {p:?} {t:?} boxes {boxes:?}");
+    }
+    for p in game.set.placements.iter().filter(|p| p.level != 0 && false) {
         println!("  door {p:?} template {:?}", game.set.templates.get(p.template as usize));
     }
     for p in game.set.placements.iter().filter(|p| game.set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy().is_some()) && (p.pos[0] - 5775).abs() < 3000 && (p.pos[2] - 19403).abs() < 3000) {

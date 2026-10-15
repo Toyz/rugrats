@@ -11,8 +11,8 @@
 //!   u32  link
 //!   u32  unknown_04       (the loader writes the index here)
 //!   u16  radius           the culling test's (0x80031834)
-//!   u16  unknown_0a
-//!   u32  bounds_at        16 bytes: s16 centre[3], pad, s16 extent[3]?, pad
+//!   u16  boxes
+//!   u32  boxes_at         16 bytes each: s16 min[3], pad, s16 max[3], pad
 //!   u16  vertices
 //!   u16  colours
 //!   u32  vertices_at      s16 x, y, z, w each
@@ -53,6 +53,10 @@ pub struct Model {
     pub vertices: Vec<[i16; 4]>,
     pub palette: Vec<[u8; 3]>,
     pub faces: Vec<Face>,
+    /// Collision boxes (`unknown_0a` of them at `bounds_at`, 16 bytes each:
+    /// s16 min[3], pad, s16 max[3], pad), in the model's space; the object
+    /// code (0x80046570, 0x8006a714) tests against them.
+    pub boxes: Vec<([i16; 3], [i16; 3])>,
 }
 
 fn u16_at(b: &[u8], at: usize) -> Result<u16, Error> {
@@ -121,7 +125,16 @@ impl Model {
                 p += size;
             }
         }
-        Ok(Model { radius, vertices, palette, faces })
+        let (nb, ba) = (u16_at(b, 0x0a)? as usize, u32_at(b, 0x0c)? as usize);
+        let boxes = (0..nb)
+            .map(|k| -> Option<([i16; 3], [i16; 3])> {
+                let at = ba + 16 * k;
+                let h = |o: usize| b.get(at + o..at + o + 2).map(|s| i16::from_le_bytes([s[0], s[1]]));
+                Some(([h(0)?, h(2)?, h(4)?], [h(8)?, h(10)?, h(12)?]))
+            })
+            .collect::<Option<Vec<_>>>()
+            .unwrap_or_default();
+        Ok(Model { radius, vertices, palette, faces, boxes })
     }
 }
 

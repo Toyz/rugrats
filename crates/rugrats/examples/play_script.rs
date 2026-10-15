@@ -44,6 +44,11 @@ fn main() -> Result<(), String> {
         let frames = id.map(|i| game.anims.frames_of(i).len());
         println!("state {a}: anm {id:?}, {frames:?} frames");
     }
+    if let Some(h) = std::env::var("HEADING").ok().and_then(|s| s.parse().ok()) {
+        game.player.heading = h;
+        game.player.target = h;
+        game.set_camera_yaw(h as f32);
+    }
     let gpu = Gpu::headless().map_err(|e| e.to_string())?;
     let (w, h) = (512, 240);
     let target = Target::new(&gpu.device, w, h);

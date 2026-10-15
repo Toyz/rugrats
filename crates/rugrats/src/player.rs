@@ -211,7 +211,7 @@ impl Player {
     }
 
     /// One frame of play. `camera_heading` is the camera's (4096 a turn).
-    pub fn frame(&mut self, pads: &Pads, camera_heading: i32, col: &Col, anims: &Anims, trig: &Trig) {
+    pub fn frame(&mut self, pads: &Pads, camera_heading: i32, col: &Col, boxes: &[Box3], anims: &Anims, trig: &Trig) {
         let held = |b: usize| pads.held(0, b);
         let pressed = |b: usize| pads.pressed(0, b);
         let start = self.pos;
@@ -281,6 +281,27 @@ impl Player {
         } else {
             self.floor = q.floor;
         }
+        // Objects' boxes (0x80065210 against 0x8006a714): one the body
+        // runs into sends it back across; one whose top is within a step
+        // of the feet (or below them, falling) is floor.
+        let start_feet = start[1] - self.feet;
+        let feet_y = self.pos[1] - self.feet;
+        for b in boxes {
+            if !b.covers(self.pos, RADIUS) {
+                continue;
+            }
+            let top = b.min_y;
+            let head = feet_y - HEIGHT;
+            if top >= start_feet.min(feet_y) - STEP_UP {
+                // Standing room on it: a floor if higher than the one found.
+                if top < self.floor {
+                    self.floor = top;
+                }
+            } else if b.max_y > head && b.depth(self.pos, RADIUS) > b.depth(start, RADIUS) {
+                self.pos[0] = start[0];
+                self.pos[2] = start[2];
+            }
+        }
         let feet_y = self.pos[1] - self.feet;
         if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
             if self.floor - feet_y > STEP_DOWN {
@@ -325,8 +346,45 @@ impl Player {
     }
 }
 
-/// How far below the feet a floor may drop and still be walked onto.
+/// How far below the feet a floor may drop and still be walked onto, and
+/// how far above them a box's top may stand and still be stepped onto
+/// (0x80066014 tests 384).
 const STEP_DOWN: i32 = 384;
+const STEP_UP: i32 = 384;
+/// The body's radius and height for the object test.
+const RADIUS: i32 = 160;
+const HEIGHT: i32 = 600;
+
+/// An object's collision box: its model box (`lo`, `hi`) in the object's
+/// space, the object's rotation and position, and the world heights it
+/// spans (y down: `min_y` its top).
+#[derive(Clone, Copy, Debug)]
+pub struct Box3 {
+    pub lo: [i32; 3],
+    pub hi: [i32; 3],
+    pub rot: Mat3,
+    pub pos: Vec3,
+    pub min_y: i32,
+    pub max_y: i32,
+}
+
+impl Box3 {
+    /// Whether a circle of radius `r` at `p` (x, z) overlaps the box seen
+    /// from above.
+    pub fn covers(&self, p: [i32; 3], r: i32) -> bool {
+        self.depth(p, r) > 0.0
+    }
+
+    /// How deep a circle of radius `r` at `p` is in the box seen from above:
+    /// the distance to the nearest side, negative outside.
+    pub fn depth(&self, p: [i32; 3], r: i32) -> f32 {
+        let local = self.rot.transpose() * (Vec3::new(p[0] as f32, self.pos.y, p[2] as f32) - self.pos);
+        let r = r as f32;
+        let x = (local.x - (self.lo[0] as f32 - r)).min(self.hi[0] as f32 + r - local.x);
+        let z = (local.z - (self.lo[2] as f32 - r)).min(self.hi[2] as f32 + r - local.z);
+        x.min(z)
+    }
+}
 
 /// An angle difference in -2048..2048.
 fn wrap(a: i32) -> i32 {

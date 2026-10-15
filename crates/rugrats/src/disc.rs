@@ -82,6 +82,11 @@ impl GameDisc {
         self.table.get(index).filter(|e| e.is_used()).map(|e| e.lba).ok_or(format!("File '{index}' not found!"))
     }
 
+    /// The size in bytes of file `index`, as the table gives it.
+    pub fn file_size(&self, index: usize) -> Result<u32, String> {
+        self.table.get(index).filter(|e| e.is_used()).map(|e| e.size).ok_or(format!("File '{index}' not found!"))
+    }
+
     /// One raw sector, for the streams.
     pub fn sector(&self, lba: u32) -> Result<rrt::disc::Sector, String> {
         self.image.sector(lba).map_err(|e| e.to_string())

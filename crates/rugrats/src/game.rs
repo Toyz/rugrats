@@ -50,6 +50,8 @@ pub struct Game {
     scenery: Vec<rugrats_render::Vtx>,
     /// Where the level ends: a level to go to (the exit code, 0x800c4918).
     pub exit: Option<usize>,
+    /// The placed objects' collision boxes in the world.
+    pub boxes: Vec<crate::player::Box3>,
 }
 
 /// How near (in x and z, and in y) the player must stand to use a door.
@@ -92,10 +94,18 @@ impl Game {
         let scenery = set.objects_except(&Frame::default(), player_place);
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let yaw = heading as f32;
-        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None };
+        let boxes = object_boxes(&set, player_place);
+        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None, boxes };
         g.eye = g.eye_goal();
         g.draw();
         Ok(g)
+    }
+
+    /// Puts the camera behind heading `yaw` at once (for tools).
+    pub fn set_camera_yaw(&mut self, yaw: f32) {
+        self.yaw = yaw;
+        self.eye = self.eye_goal();
+        self.draw();
     }
 
     fn target(&self) -> Vec3 {
@@ -111,7 +121,7 @@ impl Game {
     /// One frame of the level (0x80018c38): the player, then the camera,
     /// then the draw.
     pub fn frame(&mut self, pads: &Pads) {
-        self.player.frame(pads, self.yaw.round() as i32, &self.col, &self.anims, &self.trig);
+        self.player.frame(pads, self.yaw.round() as i32, &self.col, &self.boxes, &self.anims, &self.trig);
         // Using a door (the stand handler's ACTION, Triangle, on an object
         // whose use is 0x8004f78c): its level next.
         if pads.pressed(0, input::TRIANGLE) {
@@ -155,4 +165,45 @@ impl Game {
         let rows = Mat3::from_cols(x, y, f).transpose();
         self.stage.camera = crate::stage::view(self.eye, rows, self.focal);
     }
+}
+
+/// The world boxes of the placed models (the player's placement left out):
+/// each model box with the placement's rotation and position, and the
+/// heights its corners span.
+fn object_boxes(set: &Set, skip: Option<usize>) -> Vec<crate::player::Box3> {
+    let mut out = Vec::new();
+    for (k, place) in set.placements.iter().enumerate() {
+        if place.kind != 1 || Some(k) == skip {
+            continue;
+        }
+        let Some(t) = set.templates.get(place.template as usize) else { continue };
+        if t.hierarchy().is_some() || set.models.find(t.shape as u32) == 0 {
+            continue;
+        }
+        let Some(m) = set.models.get(t.shape as u32) else { continue };
+        let rot = rugrats_render::models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
+        let pos = Vec3::new(place.pos[0] as f32, place.pos[1] as f32, place.pos[2] as f32);
+        for &(lo, hi) in &m.boxes {
+            let (mut a, mut b) = (f32::MAX, f32::MIN);
+            for c in 0..8 {
+                let v = Vec3::new(
+                    if c & 1 == 0 { lo[0] } else { hi[0] } as f32,
+                    if c & 2 == 0 { lo[1] } else { hi[1] } as f32,
+                    if c & 4 == 0 { lo[2] } else { hi[2] } as f32,
+                );
+                let y = (rot * v + pos).y;
+                a = a.min(y);
+                b = b.max(y);
+            }
+            out.push(crate::player::Box3 {
+                lo: lo.map(|v| v as i32),
+                hi: hi.map(|v| v as i32),
+                rot,
+                pos,
+                min_y: a as i32,
+                max_y: b as i32,
+            });
+        }
+    }
+    out
 }

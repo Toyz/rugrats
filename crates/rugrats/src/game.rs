@@ -195,6 +195,8 @@ pub struct Game {
     pub spots: Vec<rugrats_data::placement::Spot>,
     /// A hint card the level asks for (0x80044434).
     pub card: Option<usize>,
+    /// Throws aim at characters (level 9's case of 0x80061c98).
+    pub aim: bool,
     /// Screens a level asks for (the golf box), shown with the level
     /// frozen.
     pub pages: Vec<crate::screens::Page>,
@@ -658,6 +660,7 @@ impl Game {
             character: who,
             spots,
             card: None,
+            aim: false,
         };
         g.hazards = hazards(&g.set, &g.apart);
         g.script = match level {
@@ -666,6 +669,7 @@ impl Game {
             4 => Some(Box::new(crate::level4::Level4::start(&mut g, disc)?)),
             5 => Some(Box::new(crate::level5::Level5::start(&mut g, disc)?)),
             6 => Some(Box::new(crate::level6::Level6::start(&mut g, disc)?)),
+            9 => Some(Box::new(crate::level9::Level9::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
         };
@@ -729,6 +733,25 @@ impl Game {
             self.set.room_info[k].flags &= !64;
             self.with_script(|s, g| s.gameplay(g, r.script));
         }
+    }
+
+    /// The throw's direction at the aim target (0x80059b34, 0x80061c98):
+    /// the nearest character within 512 of the player's heading.
+    fn aim_at(&self) -> Option<Vec3> {
+        let p = self.player.pos;
+        let h = self.player.heading;
+        let target = self
+            .npcs
+            .iter()
+            .filter(|n| !n.hidden && !matches!(n.mode, crate::npc::Mode::Ride { .. }))
+            .filter(|n| {
+                let (dx, dz) = ((n.pos[0] - p[0]) as f64, (n.pos[2] - p[2]) as f64);
+                let yaw = ((dx.atan2(dz) / std::f64::consts::TAU) * 4096.0).round() as i32;
+                ((yaw - h + 2048).rem_euclid(4096) - 2048).abs() < 513
+            })
+            .min_by_key(|n| (n.pos[0] - p[0]) as i64 * (n.pos[0] - p[0]) as i64 + (n.pos[2] - p[2]) as i64 * (n.pos[2] - p[2]) as i64)?;
+        let d = Vec3::new((target.pos[0] - p[0]) as f32, 0.0, (target.pos[2] - p[2]) as f32).normalize_or(Vec3::Z);
+        Some(Vec3::new(d.x, -300.0 / 4096.0, d.z))
     }
 
     /// Puts thing `k` in the player's hand (0x8005ff88 mode 0 with no
@@ -831,12 +854,17 @@ impl Game {
         if let Some(k) = self.carried {
             let throw = pads.pressed(0, input::TRIANGLE) && !self.things[k].keep;
             if throw || pads.pressed(0, input::CIRCLE) {
-                let (dir, speed, anim) = if throw {
+                // Level 9 aims (0x80061c98): at the nearest visible character
+                // within 512 of the facing, the direction's y -300.
+                let aimed = if throw && self.aim { self.aim_at() } else { None };
+                let (dir, speed, anim) = if let Some(d) = aimed {
+                    (d, THROW_SPEED, crate::player::anim::THROW)
+                } else if throw {
                     (rot * Vec3::new(0.0, -384.0, 1024.0), THROW_SPEED, crate::player::anim::THROW)
                 } else {
                     (rot * Vec3::new(0.0, 0.0, 4096.0), DROP_SPEED, crate::player::anim::PUT_DOWN)
                 };
-                let v = dir.normalize() * speed;
+                let v = if aimed.is_some() { dir * speed } else { dir.normalize() * speed };
                 self.things[k].state = ThingState::Flying([v.x as i32, v.y as i32, v.z as i32]);
                 self.carried = None;
                 self.player.carrying = false;

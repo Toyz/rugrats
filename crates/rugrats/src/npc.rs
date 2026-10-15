@@ -235,7 +235,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                     n.speed = 0;
                     if n.attacks && n.cooldown == 0 && (p[1] - n.pos[1]).abs() < 1200 {
                         events.push(Event::Bite { by: k, target: t, amount: n.damage });
-                        n.cooldown = 600;
+                        n.cooldown = n.bite_wait.min(600);
                     }
                 }
             }

@@ -80,6 +80,13 @@ fn main() -> Result<(), String> {
     for (bits, n) in steps {
         for _ in 0..n {
             pads.push_bits(0, bits);
+            // TP=frame:x,y,z: a teleport at that frame.
+            if let Some((f, at)) = std::env::var("TP").ok().as_deref().and_then(|v| v.split_once(':')) {
+                let p: Vec<i32> = at.split(',').filter_map(|s| s.parse().ok()).collect();
+                if f.parse() == Ok(frame) && p.len() == 3 {
+                    game.player.pos = [p[0], p[1], p[2]];
+                }
+            }
             let before = game.player.pos;
             game.frame(&pads);
             for (k, t) in game.things.iter().enumerate() {

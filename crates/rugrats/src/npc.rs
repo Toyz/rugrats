@@ -59,6 +59,8 @@ pub fn posts(placements: &[Placement]) -> Vec<Post> {
 pub enum Target {
     Player,
     Npc(usize),
+    /// A place (a thing lying there, a home).
+    Point([i32; 3]),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -218,6 +220,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
     let at = |t: Target| match t {
         Target::Player => (w.player, w.player_heading),
         Target::Npc(k) => places.get(k).copied().unwrap_or((w.player, 0)),
+        Target::Point(p) => (p, 0),
     };
     for (k, n) in npcs.iter_mut().enumerate() {
         n.cooldown = (n.cooldown - DT).max(0);

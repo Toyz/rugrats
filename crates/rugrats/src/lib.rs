@@ -5,6 +5,7 @@ pub mod ambience;
 pub mod animator;
 pub mod progress;
 pub mod npc;
+pub mod level1;
 pub mod level2;
 pub mod level3;
 pub mod level4;

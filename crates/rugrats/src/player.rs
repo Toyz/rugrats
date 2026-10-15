@@ -126,6 +126,8 @@ pub struct Player {
     /// slip's sound (169 in level 16, else 56).
     slipping: bool,
     pub slip_sound: u8,
+    /// A long fall hurts (not in the hub, 0x8005b6e0).
+    pub falls_hurt: bool,
 }
 
 impl Player {
@@ -168,6 +170,7 @@ impl Player {
             air: 0,
             slipping: false,
             slip_sound: 56,
+            falls_hurt: true,
         };
         let q = collide::query(col, start);
         if q.tile.is_some() {
@@ -389,7 +392,7 @@ impl Player {
             self.v = [0; 3];
             self.state = State::Land;
             // A long fall (state 10, 0x8005b2d8): Damage 5, message 31.
-            if self.air >= LONG_FALL {
+            if self.air >= LONG_FALL && self.falls_hurt {
                 self.health = (self.health - FALL_DAMAGE).max(0);
                 self.hints.push(31);
             }

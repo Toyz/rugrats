@@ -243,6 +243,10 @@ pub struct Game {
     pub ambience: i32,
     pub ambience_first: bool,
     ambience_lines: std::rc::Rc<crate::ambience::Tables>,
+    /// Damage events are dropped (level 1, 0x800780d8).
+    pub no_damage: bool,
+    /// The levels won (+0x38), for the hub's signs.
+    pub won_levels: u32,
 }
 
 /// A moving platform (0x80048804, think 0x8004ee00): per axis it steps by
@@ -775,11 +779,14 @@ impl Game {
             ambience: crate::ambience::setup(level).0,
             ambience_first: crate::ambience::setup(level).1,
             ambience_lines: std::rc::Rc::new(crate::ambience::Tables::load(disc)),
+            no_damage: false,
+            won_levels: (0..32).filter(|&l| progress.won(l)).fold(0, |a, l| a | 1 << l),
         };
-        g.talkers = talkers(&g.set);
+        g.talkers = talkers(&g.set, level);
         g.hazards = hazards(&g.set, &g.apart);
         g.script = match level {
             2 => Some(Box::new(crate::level2::Level2::start(&mut g, disc)?)),
+            HUB => Some(Box::new(crate::level1::Level1::start(&mut g, disc)?)),
             3 => Some(Box::new(crate::level3::Level3::start(&mut g, disc)?)),
             16 => Some(Box::new(crate::level16::Level16::start(&mut g, disc)?)),
             4 => Some(Box::new(crate::level4::Level4::start(&mut g, disc)?)),
@@ -831,7 +838,7 @@ impl Game {
     }
 
     /// The room holding `p` (0x8002b660, by the rooms' bounds).
-    fn room_of(&self, p: [i32; 3]) -> Option<usize> {
+    pub fn room_of(&self, p: [i32; 3]) -> Option<usize> {
         (0..self.set.room_info.len()).find(|&k| {
             let r = &self.set.room_info[k];
             (0..3).all(|i| r.min[i] <= p[i] && p[i] <= r.max[i])
@@ -1459,6 +1466,7 @@ impl Game {
             // do nothing else.
             let hint = self.set.placements.iter().find(|d| {
                 d.kind == 1
+                    && !self.hidden.contains(&d.id)
                     && (EPISODE_OBJECTS.contains(&d.template) || LOCKED_OBJECTS.contains(&d.template))
                     && (d.pos[0] - p[0]).abs() < USE_REACH
                     && (d.pos[2] - p[2]).abs() < USE_REACH
@@ -1554,7 +1562,7 @@ impl Game {
         // costs its +0x6d; the next only after 300 dt (guess).
         self.hurt_wait = (self.hurt_wait - crate::player::DT).max(0);
         let walking = matches!(self.player.state, crate::player::State::Walk | crate::player::State::Run);
-        if self.hurt_wait == 0 && self.crying == 0 && walking && !self.player.frozen {
+        if self.hurt_wait == 0 && self.crying == 0 && walking && !self.player.frozen && !self.no_damage {
             let p = self.player.pos;
             let (feet, head) = (p[1] - self.player.feet(), p[1] - self.player.feet() - crate::player::HEIGHT);
             let hurt = self
@@ -1722,11 +1730,12 @@ pub fn hit_line(character: usize, level: usize, r: u32) -> Option<u16> {
 
 /// The placements with a speech line (LP +0x4c; template 613 says 194,
 /// 0x80046d04) and their trigger radius (template +0x34).
-fn talkers(set: &Set) -> Vec<(usize, u16, i32, bool)> {
+/// The hub's doors lose theirs to the sign's enter (0x800481c8).
+fn talkers(set: &Set, level: usize) -> Vec<(usize, u16, i32, bool)> {
     set.placements
         .iter()
         .enumerate()
-        .filter(|(_, p)| p.kind == 1)
+        .filter(|(_, p)| p.kind == 1 && !(level == HUB && p.level > 0))
         .filter_map(|(k, p)| {
             let line = if p.template == 613 { 194 } else { p.speech };
             let t = set.templates.get(p.template as usize)?;

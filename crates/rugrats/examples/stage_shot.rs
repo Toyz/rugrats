@@ -26,6 +26,7 @@ fn main() -> Result<(), String> {
     let mut r = Renderer::new(&gpu.device, &gpu.queue, Target::FORMAT, &stage.vram, &stage.fixed);
     r.clear = stage.clear;
     r.set_moving(&gpu.device, &gpu.queue, &stage.moving);
+    r.set_semi(&gpu.device, &gpu.queue, &stage.semi);
     r.set_under(&gpu.device, &gpu.queue, &stage.under);
     r.set_overlay(&gpu.device, &gpu.queue, &stage.overlay);
     let cmd = r.draw(&gpu.device, &gpu.queue, &target.view, (w, h), stage.camera);

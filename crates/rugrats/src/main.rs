@@ -61,9 +61,9 @@ struct Rugrats {
     _audio: Option<Output>,
     /// The game's rand, which the babies and the chooser share.
     rand: rugrats::rand::Rand,
-    /// What draws a 3D screen, made for its stage's generation, and the
-    /// 4:3 picture it draws into.
-    world: Option<(Renderer, Target, u64)>,
+    /// What draws a 3D screen, made for its stage's generation, the 4:3
+    /// picture it draws into, and the VRAM revision it holds.
+    world: Option<(Renderer, Target, u64, u64)>,
 }
 
 impl Rugrats {
@@ -219,14 +219,19 @@ impl Game for Rugrats {
         let (w, h) = (d.height * 4 / 3, d.height);
         if self.world.as_ref().is_none_or(|w| w.2 != stage.generation) {
             let r = Renderer::new(&d.gpu.device, &d.gpu.queue, Target::FORMAT, &stage.vram, &stage.fixed);
-            self.world = Some((r, Target::new(&d.gpu.device, w, h), stage.generation));
+            self.world = Some((r, Target::new(&d.gpu.device, w, h), stage.generation, stage.vram_rev));
         }
-        let (renderer, target, _) = self.world.as_mut().unwrap();
+        let (renderer, target, _, rev) = self.world.as_mut().unwrap();
+        if *rev != stage.vram_rev {
+            renderer.load_vram_rect(&d.gpu.queue, 0, 0, 1024, 512, &stage.vram.words);
+            *rev = stage.vram_rev;
+        }
         if (target.width, target.height) != (w, h) {
             *target = Target::new(&d.gpu.device, w, h);
         }
         renderer.clear = stage.clear;
         renderer.set_moving(&d.gpu.device, &d.gpu.queue, &stage.moving);
+        renderer.set_semi(&d.gpu.device, &d.gpu.queue, &stage.semi);
         renderer.set_under(&d.gpu.device, &d.gpu.queue, &stage.under);
         renderer.set_overlay(&d.gpu.device, &d.gpu.queue, &stage.overlay);
         let cmd = renderer.draw(&d.gpu.device, &d.gpu.queue, &target.view, (w, h), stage.camera);

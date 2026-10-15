@@ -3,7 +3,7 @@ title: DBnnMOD.BIN, a database's models
 status: partial
 discs: US
 covers: US /DATA/DB22/DB22MOD.BIN, US SLUS_006.50:0x80044b74, US SLUS_006.50:0x80044d00, US SLUS_006.50:0x80044c98, US SLUS_006.50:0x80010000, US SLUS_006.50:0x80031b84
-worklog: 11, 14
+worklog: 11, 14, 23
 ---
 
 # DBnnMOD.BIN
@@ -72,9 +72,18 @@ the projected vertices go to the scratchpad when the model has fewer than
 126, to a buffer otherwise. Character textures are in `CHARACTR.RAW`,
 which main loads to VRAM (576, 256), 384 x 256, beside the database's A.RAW.
 
+The renderer (0x80010000, hand-written) builds each packet's code from
+the face kind, ORs in `(flags & 0x80) << 18` (bit 7 makes the face
+semi-transparent) and the word at context +0x48, and ORs the word at
++0x4c into the tpage word. An untextured semi-transparent face is
+preceded by a draw mode (0x800106c0), E1 0x200 | (flags & 0x60), whose
+blend is the flags' bits 5-6. A textured one blends by its page. Flags
+bits 8-9 pick the face's culling (0x800101dc). The opening's lens splash
+(model 1039, flags 0x80) is the case seen.
+
 ## Unknown
 
 - The vertex's fourth halfword, the bounds block, `unknown_0a`, the face
-  flags word (0 or 1 seen).
+  flags' other bits and the culling modes of bits 8-9.
 - How GT faces' colours and the lighting combine (the renderer was not read
   past the vertex pass).

@@ -11,8 +11,12 @@ pub struct Stage {
     /// Bumped whenever `vram` or `fixed` change.
     pub generation: u64,
     pub vram: Vram,
+    /// Bumped when `vram` changes in place (a LoadImage mid-scene).
+    pub vram_rev: u64,
     pub fixed: Vec<Vtx>,
     pub moving: Vec<Vtx>,
+    /// The semi-transparent triangles of `moving`, blended over it.
+    pub semi: Vec<Vtx>,
     /// In screen pixels, drawn in order under the world.
     pub under: Vec<Vtx>,
     /// In screen pixels, drawn over the world.
@@ -22,13 +26,21 @@ pub struct Stage {
 }
 
 impl Stage {
+    /// Replaces the moving triangles, picking out the semi-transparent.
+    pub fn set_moving(&mut self, tris: Vec<Vtx>) {
+        self.semi = tris.chunks_exact(3).filter(|t| t[0].mode & Vtx::SEMI != 0).flatten().copied().collect();
+        self.moving = tris;
+    }
+
     pub fn new(vram: Vram, fixed: Vec<Vtx>) -> Stage {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         Stage {
             generation: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             vram,
+            vram_rev: 0,
             fixed,
             moving: Vec::new(),
+            semi: Vec::new(),
             under: Vec::new(),
             overlay: Vec::new(),
             camera: Mat4::IDENTITY,

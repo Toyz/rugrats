@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-22 entries: audio 3, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 7, format 9, input 4, play 2, render 9, save 1, test 9, tooling 12, ui 4, video 5.
+23 entries: audio 3, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 7, format 9, input 4, play 2, render 9, save 1, test 9, tooling 13, ui 4, video 6.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -34,3 +34,4 @@ The [reference](docs/README.md) says what is true now.
 | 20 | [The title menu answers the pad, and the attract cycle runs](worklog/0020-the-title-menu-answers-the-pad-and-the-attract-cycle-runs.md) | 2026-10-14 | ui, input, play |
 | 21 | [The title's peeking babies, in step with the original's rand](worklog/0021-the-title-s-peeking-babies-in-step-with-the-original-s-rand.md) | 2026-10-14 | ui, decomp, test |
 | 22 | [The opening's sound: the drive drops the repeated audio sectors](worklog/0022-the-opening-s-sound-the-drive-drops-the-repeated-audio.md) | 2026-10-15 | audio, video, tooling |
+| 23 | [Faces, the milk spray and the lens splash in the opening](worklog/0023-faces-the-milk-spray-and-the-lens-splash-in-the-opening.md) | 2026-10-15 | video, tooling |

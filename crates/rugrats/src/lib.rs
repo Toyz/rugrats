@@ -6,6 +6,7 @@ pub mod still;
 pub mod input;
 pub mod movie;
 pub mod cine;
+pub mod face;
 pub mod card;
 pub mod text;
 pub mod stage;

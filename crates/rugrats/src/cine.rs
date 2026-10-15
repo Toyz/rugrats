@@ -19,6 +19,7 @@ use rugrats_render::models::{model_triangles, posed_triangles, quat_matrix};
 use rugrats_render::{Vram, Vtx};
 
 use crate::disc::GameDisc;
+use crate::face::{Blinks, Faces};
 use crate::stage::Stage;
 use crate::movie::Soundtrack;
 
@@ -56,6 +57,7 @@ pub struct Set {
     hierarchies: Vec<Option<Hierarchy>>,
     placements: Vec<Placement>,
     templates: Vec<Template>,
+    faces: Faces,
 }
 
 impl Set {
@@ -78,7 +80,39 @@ impl Set {
             hierarchies: rugrats_data::hierarchy::parse_file(&disc.file(HIE + db)?).map_err(|e| e.to_string())?,
             placements: rugrats_data::placement::parse_lp(&disc.file(LP + db)?),
             templates: rugrats_data::placement::parse_templates(&disc.file(TEMPLATE)?),
+            faces: Faces::load(disc, Faces::mask(disc, db)?)?,
         })
+    }
+
+    /// Whether `id` names an object the LP loader made (0x800461f4 finds it).
+    fn exists(&self, id: i16) -> bool {
+        self.placements.iter().any(|p| p.kind == 1 && p.id as i16 == id && !SKIPPED.contains(&p.template))
+    }
+
+    /// Frame `f`'s faces into `vram`, in the order its records come: an
+    /// actor's mouth and eyes go back to frame 0, then take the stream's
+    /// (0x80073c34); a pose blinks, then takes the stream's (0x80073f08).
+    pub fn faces(&self, f: &Frame, blinks: &mut Blinks, vram: &mut Vram) {
+        for a in f.actors.iter().filter(|a| self.exists(a.id)) {
+            self.faces.mouth(a.id, 0, vram);
+            self.faces.eyes(a.id, 0, vram);
+            if a.mouth != 0 {
+                self.faces.mouth(a.id, a.mouth, vram);
+            }
+            if a.eyes != 0 {
+                self.faces.eyes(a.id, a.eyes - 1, vram);
+            }
+        }
+        for p in f.poses.iter().filter(|p| self.exists(p.id)) {
+            let blink = blinks.step(p.id);
+            self.faces.eyes(p.id, blink, vram);
+            if p.mouth != 0 {
+                self.faces.mouth(p.id, p.mouth, vram);
+            }
+            if p.eyes != 0 {
+                self.faces.eyes(p.id, p.eyes - 1, vram);
+            }
+        }
     }
 
     /// The objects as frame `f` leaves them: placed models where the
@@ -203,6 +237,7 @@ pub struct Cine {
     stream: Stream,
     started: u64,
     shown: Option<usize>,
+    blinks: Blinks,
     /// What the frame shown leaves on screen: the rooms, the objects, the
     /// camera, the backdrop.
     pub stage: Stage,
@@ -218,7 +253,7 @@ impl Cine {
         }
         let mut stage = Stage::new(set.vram.clone(), set.rooms.clone());
         stage.clear = BACKDROP;
-        Ok(Cine { set, stream, started: now, shown: None, stage })
+        Ok(Cine { set, stream, started: now, shown: None, blinks: Blinks::new(n as u32), stage })
     }
 
     /// The stream frame shown, from 1.
@@ -232,8 +267,14 @@ impl Cine {
         let t = now - self.started;
         let due = self.stream.frames.iter().take_while(|(d, _)| *d <= t).count();
         let Some(k) = due.checked_sub(1).filter(|&k| Some(k) != self.shown) else { return false };
+        // The original reads every record, so faces and blinks take each
+        // frame passed over too.
+        for (_, f) in &self.stream.frames[self.shown.map_or(0, |s| s + 1)..=k] {
+            self.set.faces(f, &mut self.blinks, &mut self.stage.vram);
+        }
+        self.stage.vram_rev += 1;
         let f = &self.stream.frames[k].1;
-        self.stage.moving = self.set.objects(f);
+        self.stage.set_moving(self.set.objects(f));
         self.stage.camera = camera(f);
         self.shown = Some(k);
         true

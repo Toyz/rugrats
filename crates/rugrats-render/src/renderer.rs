@@ -333,6 +333,12 @@ impl Renderer {
     /// Replaces VRAM along one row from (`x`, `y`) with `words` (a
     /// LoadImage of one line, as for a palette).
     pub fn load_vram(&self, queue: &wgpu::Queue, x: u16, y: u16, words: &[u16]) {
+        self.load_vram_rect(queue, x, y, words.len() as u16, 1, words);
+    }
+
+    /// Replaces the `w` x `h` words of VRAM at (`x`, `y`) with `words`, row
+    /// by row (a LoadImage).
+    pub fn load_vram_rect(&self, queue: &wgpu::Queue, x: u16, y: u16, w: u16, h: u16, words: &[u16]) {
         let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -342,8 +348,8 @@ impl Renderer {
                 aspect: wgpu::TextureAspect::All,
             },
             &bytes,
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(bytes.len() as u32), rows_per_image: None },
-            wgpu::Extent3d { width: words.len() as u32, height: 1, depth_or_array_layers: 1 },
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(2 * w as u32), rows_per_image: None },
+            wgpu::Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
         );
     }
 

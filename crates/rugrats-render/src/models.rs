@@ -10,17 +10,26 @@ fn rgb(c: [u8; 3]) -> u32 {
     c[0] as u32 | (c[1] as u32) << 8 | (c[2] as u32) << 16
 }
 
+/// A face flag: semi-transparent.
+pub const FACE_SEMI: u32 = 1 << 7;
+
 /// The model's faces, each vertex turned by `rot` and moved to `pos`.
 /// Untextured faces are their colour as it is; textured ones modulate the
 /// texel by it. Winding as the rooms': front where NCLIP is positive.
+///
+/// The model renderer (hand-written, SLUS_006.50:0x80010000) makes a
+/// face's packet semi-transparent with its flags' bit 7 ((flags & 0x80)
+/// << 18 into the code); an untextured one also gets a draw mode whose
+/// blend is the flags' bits 5-6 (0x800106c0), a textured one its page's.
 pub fn model_triangles(m: &Model, rot: Mat3, pos: Vec3, out: &mut Vec<Vtx>) {
     for f in &m.faces {
+        let semi = if f.flags & FACE_SEMI != 0 { Vtx::SEMI } else { 0 };
         let corner = |i: usize| {
             let v = m.vertices[f.v[i] as usize];
             let p = rot * Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32) + pos;
             let (uv, mode) = match f.texture {
-                Some((uv, clut, tpage)) => (uv[i][0] as u32 | (uv[i][1] as u32) << 8, clut as u32 | (tpage as u32) << 16),
-                None => (0, Vtx::FLAT),
+                Some((uv, clut, tpage)) => (uv[i][0] as u32 | (uv[i][1] as u32) << 8, clut as u32 | (tpage as u32) << 16 | semi),
+                None => (0, Vtx::FLAT | semi | (f.flags >> 5 & 3) << 21),
             };
             Vtx { pos: p.to_array(), colour: rgb(f.rgb[i]), uv, mode, window: Vtx::WHOLE }
         };

@@ -23,6 +23,8 @@ pub struct Placement {
     pub pos: [i32; 3],
     pub rotation: [i32; 4],
     pub id: u16,
+    /// The object's flags (+0x14), which it starts with (0x8004691c).
+    pub flags: u32,
 }
 
 pub fn parse_lp(b: &[u8]) -> Vec<Placement> {
@@ -37,6 +39,7 @@ pub fn parse_lp(b: &[u8]) -> Vec<Placement> {
                 pos: [w(r + 8)? as i32, w(r + 12)? as i32, w(r + 16)? as i32],
                 rotation: [w(r + 0x18)? as i32, w(r + 0x1c)? as i32, w(r + 0x20)? as i32, w(r + 0x24)? as i32],
                 id: (w(r + 0x28)? >> 16) as u16,
+                flags: w(r + 0x14)?,
             })
         })
         .collect()

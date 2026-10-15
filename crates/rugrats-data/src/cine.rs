@@ -12,31 +12,37 @@
 //!   u32 a: bits 0-12 q0, 13-25 q1 (signed), 26-31 actors
 //!   u32 b: bits 0-12 q2, 13-25 q3 (signed), 26-31 poses
 //!   actor[actors], 24 bytes
-//!     u32 bits 0-12 q0, 13-25 q1, 26-29 animation, 30-31 state
+//!     u32 bits 0-12 q0, 13-25 q1, 26-29 mouth, 30-31 eyes
 //!     u32 bits 0-12 q2, 13-25 q3
 //!     s32 position[3]
 //!     s16 id, u16 unknown_16
 //!   pose[poses], 16 bytes and 8 a key
 //!     s32 position[3]
-//!     u32 bits 0-15 id, 16-23 keys, 24-27 animation, 28-29 state
+//!     u32 bits 0-15 id, 16-23 keys, 24-27 mouth, 28-29 eyes
 //!     key[keys]: u32 bits 0-12 q0, 13-25 q1, 26-31 channel;
 //!                u32 bits 0-12 q2, 13-25 q3
 //! ```
 //!
 //! Quaternions are (x, y, z, w) = (q0, q1, q2, q3) at any scale. Ids are
-//! the object registry's (placed by the database's LP file).
+//! the object registry's (placed by the database's LP file). A mouth is a
+//! frame of the face's mouth block and eyes one more than a frame of its
+//! eye block, 0 for neither.
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Placed {
     pub id: i16,
     pub q: [i16; 4],
     pub pos: [i32; 3],
+    pub mouth: u8,
+    pub eyes: u8,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pose {
     pub id: i16,
     pub pos: [i32; 3],
+    pub mouth: u8,
+    pub eyes: u8,
     /// (channel, quaternion)
     pub keys: Vec<(u8, [i16; 4])>,
 }
@@ -95,7 +101,7 @@ pub fn frame(d: &[u8]) -> Option<Frame> {
             let pos = [w(d, p + 8)? as i32, w(d, p + 12)? as i32, w(d, p + 16)? as i32];
             let id = w(d, p + 20)? as i16;
             p += 24;
-            Some(Placed { id, q: quat(x, y), pos })
+            Some(Placed { id, q: quat(x, y), pos, mouth: (x >> 26 & 15) as u8, eyes: (x >> 30) as u8 })
         })
         .collect::<Option<Vec<_>>>()?;
     let poses = (0..b >> 26)
@@ -111,7 +117,7 @@ pub fn frame(d: &[u8]) -> Option<Frame> {
                     Some(((x >> 26) as u8, quat(x, y)))
                 })
                 .collect::<Option<Vec<_>>>()?;
-            Some(Pose { id: h as u16 as i16, pos, keys })
+            Some(Pose { id: h as u16 as i16, pos, mouth: (h >> 24 & 15) as u8, eyes: (h >> 28 & 3) as u8, keys })
         })
         .collect::<Option<Vec<_>>>()?;
     Some(Frame { number, camera_pos, camera_q: quat(a, b), actors, poses })

@@ -2525,8 +2525,9 @@ struct Pause {
     yes: String,
     no: String,
     cursor: usize,
-    /// Asking about item 3 or 5: Yes (true) or No.
-    confirm: Option<(usize, bool)>,
+    /// Asking about item 3 or 5 (0x80036368): its cursor, 1 Yes?, 2
+    /// Save Game?, 3 No? (the default), 4 Load Game?.
+    confirm: Option<(usize, usize)>,
     sounds: Vec<u8>,
     /// The card pages (Save Game?, Load Game?), their strings, the
     /// footer's texts, the card's art, the hub's spot of this level.
@@ -2596,13 +2597,19 @@ impl Pause {
             return None;
         }
         let pressed = |b: usize| pads.pressed(0, b);
-        if let Some((item, yes)) = &mut self.confirm {
-            if pressed(input::LEFT) && !*yes {
-                *yes = true;
+        if let Some((item, c)) = &mut self.confirm {
+            // Two columns: Yes? over Save Game?, No? over Load Game?.
+            if pressed(input::LEFT) && *c > 2 {
+                *c -= 2;
                 self.sounds.push(MOVE);
-            }
-            if pressed(input::RIGHT) && *yes {
-                *yes = false;
+            } else if pressed(input::RIGHT) && *c < 3 {
+                *c += 2;
+                self.sounds.push(MOVE_ON);
+            } else if pressed(input::UP) && *c % 2 == 0 {
+                *c -= 1;
+                self.sounds.push(MOVE);
+            } else if pressed(input::DOWN) && *c % 2 == 1 {
+                *c += 1;
                 self.sounds.push(MOVE_ON);
             }
             if pressed(input::TRIANGLE) {
@@ -2612,10 +2619,12 @@ impl Pause {
             }
             if pressed(input::CROSS) {
                 self.sounds.push(PICK);
-                let (item, yes) = (*item, *yes);
+                let (item, c) = (*item, *c);
                 self.confirm = None;
-                if yes {
-                    return Some(if item == 3 { PauseEnd::QuitGame } else { PauseEnd::QuitLevel });
+                match c {
+                    1 => return Some(if item == 3 { PauseEnd::QuitGame } else { PauseEnd::QuitLevel }),
+                    2 | 4 => self.card = Some(crate::card_menu::CardMenu::open(c == 2, false, self.art.clone(), *state, self.spot)),
+                    _ => self.cursor = item,
                 }
             }
             return None;
@@ -2646,7 +2655,7 @@ impl Pause {
             self.sounds.push(PICK);
             match self.cursor {
                 1 => return Some(PauseEnd::Continue),
-                3 | 5 => self.confirm = Some((self.cursor, false)),
+                3 | 5 => self.confirm = Some((self.cursor, 3)),
                 // Save Game? (state 3) or Load Game? (9): the card pages.
                 c => self.card = Some(crate::card_menu::CardMenu::open(c == 2, false, self.art.clone(), *state, self.spot)),
             }
@@ -2677,10 +2686,12 @@ impl Pause {
             t.triangles(fonts, out);
         };
         match self.confirm {
-            Some((q, yes)) => {
+            Some((q, c)) => {
                 item(&self.strings[q], 0, -60, false, true);
-                item(&self.yes, -60, -20, yes, false);
-                item(&self.no, 40, -20, !yes, false);
+                item(&self.yes, -125, -30, c == 1, false);
+                item(&self.strings[2], -145, -10, c == 2, false);
+                item(&self.no, 35, -30, c == 3, false);
+                item(&self.strings[4], 35, -10, c == 4, false);
             }
             None => {
                 item(&self.strings[0], 0, -60, false, true);

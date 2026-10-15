@@ -1480,16 +1480,26 @@ impl Game {
                 .placements
                 .iter()
                 .enumerate()
-                .filter(|(k, d)| {
+                // A door object that can be picked up (the hub's doors to
+                // 4, 5, 6, 11, 13) works where it lies.
+                .map(|(k, d)| {
+                    let thing = self.things.iter().find(|t| t.placement == k);
+                    let mut d = *d;
+                    if let Some(t) = thing {
+                        d.pos = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
+                    }
+                    (k, d, thing.map(|t| t.state == ThingState::Rest && !t.hidden))
+                })
+                .filter(|(k, d, thing)| {
                     d.kind == 1
-                        && !self.apart[*k]
+                        && (!self.apart[*k] || *thing == Some(true))
                         && !training_object(d)
                         && (d.level > 0 || cine_of(d) > 0 || d.template == BOARD_OBJECT || mirror(d))
                         && (!mirror(d) || flag16)
                         && !self.unusable.contains(k)
                         && !self.hidden.contains(&d.id)
                 })
-                .map(|(_, d)| d)
+                .map(|(_, d, _)| d)
                 .min_by_key(|d| (d.pos[0] - p[0]).pow(2) as i64 + (d.pos[2] - p[2]).pow(2) as i64);
             if let Some(d) = near.filter(|d| {
                 (d.pos[0] - p[0]).abs() < USE_REACH
@@ -1498,7 +1508,7 @@ impl Game {
             }) {
                 if d.template == BOARD_OBJECT {
                     self.board = true;
-                } else if mirror(d) {
+                } else if mirror(&d) {
                     // The mirror (0x800478bc): Mirrorland, with bit 16.
                     self.exit = Some((15, (d.cine > 0).then_some(d.cine as usize)));
                 } else if d.level > 0 && matches!(d.level, 3 | 4 | 6) && !flag16 {
@@ -1508,8 +1518,8 @@ impl Game {
                     rrt::tracing::info!("level {}: a door to level {} (cine {})", self.level, d.level, d.cine);
                     self.exit = Some((d.level as usize, (d.cine > 0).then_some(d.cine as usize)));
                 } else {
-                    rrt::tracing::info!("level {}: object {} plays cine {}", self.level, d.id, cine_of(d));
-                    self.cine = Some(cine_of(d));
+                    rrt::tracing::info!("level {}: object {} plays cine {}", self.level, d.id, cine_of(&d));
+                    self.cine = Some(cine_of(&d));
                 }
             }
         }

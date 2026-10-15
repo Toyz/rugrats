@@ -31,10 +31,13 @@ pub struct Placement {
     pub cine: i16,
     /// A character's first post (+0x40).
     pub post: u8,
-    /// Copies made (+0x46, collectibles), and the spawn group they are
-    /// placed by (+0x48, used when +0x4a is set; 0x80045f34).
+    /// Copies made (+0x46, collectibles), the spawn group they are placed
+    /// by (+0x48), and whether they are placed at load (+0x4a,
+    /// 0x80045f34; level 15's balloons are not).
     pub copies: u16,
     pub group: Option<u16>,
+    pub spawn_group: u16,
+    pub placed_at_load: bool,
 }
 
 /// A spawn spot (LP kind 7, kept 16 bytes each at 0x800c4bac): x in the
@@ -76,6 +79,8 @@ pub fn parse_lp(b: &[u8]) -> Vec<Placement> {
                 cine: w(r + 0x44)? as i16,
                 copies: (w(r + 0x44)? >> 16) as u16,
                 group: (w(r + 0x48)? >> 16 != 0).then_some(w(r + 0x48)? as u16),
+                spawn_group: w(r + 0x48)? as u16,
+                placed_at_load: w(r + 0x48)? >> 16 != 0,
             })
         })
         .collect()

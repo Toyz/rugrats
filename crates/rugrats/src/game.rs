@@ -191,6 +191,9 @@ pub struct Game {
     pub record: usize,
     /// The puzzle board asked for (its object's use, 0x8004d3f0).
     pub board: bool,
+    /// The last frame's camera: eye and world-to-camera rows; frames run.
+    pub view: (Vec3, Mat3),
+    pub frames: u32,
     /// The playable character (state +0x08).
     pub character: usize,
     /// The spawn spots (LP kind 7).
@@ -199,6 +202,10 @@ pub struct Game {
     pub card: Option<usize>,
     /// Throws aim at characters (level 9's case of 0x80061c98).
     pub aim: bool,
+    /// The progress flags (+0x30) when the level opened: bit 16
+    /// (Mirrorland entered) opens the hub's doors to 3, 4 and 6 and the
+    /// mirror.
+    pub flags: u32,
     /// Screens a level asks for (the golf box), shown with the level
     /// frozen.
     pub pages: Vec<crate::screens::Page>,
@@ -283,6 +290,9 @@ pub struct Goodie {
     pub number: usize,
     pub shape: u32,
     pub kind: u16,
+    /// Its template and spawn group (LP +0x48).
+    pub template: u16,
+    pub group: u16,
     /// +0x6d: what a bone or a cookie heals.
     pub value: i32,
     pub pos: Vec3,
@@ -369,6 +379,10 @@ const THING_GRAVITY: i32 = 13;
 
 pub use crate::npc::Npc;
 
+/// The hub mirror (templates 836, 881) and the locked door's card.
+const MIRROR_A: u32 = 836;
+const MIRROR_B: u32 = 881;
+const LOCKED_CARD: usize = 712;
 /// The puzzle board's object (template 581, model 905; use callback 1,
 /// 0x8004d3f0).
 const BOARD_OBJECT: u32 = 581;
@@ -503,12 +517,17 @@ impl Game {
                 } else {
                     0
                 };
-                // No copies: the one object stays where it is placed.
+                // No copies: the one object stays where it is placed. Many
+                // copies not placed at load (+0x4a 0) wait for the level
+                // (level 15's balloons).
                 let group = p.group.filter(|_| p.copies > 0);
+                let held = !p.placed_at_load && p.copies > 1;
                 let at = group.and_then(|g| spawn(&mut spots, g as usize, &mut rand)).map_or(p.pos, |i| spots[i].pos);
                 goodies.push(Goodie {
                     number,
-                    taken: kind == goodie::BAR && progress.bar_found(level, number),
+                    template: p.template as u16,
+                    group: p.spawn_group,
+                    taken: held || kind == goodie::BAR && progress.bar_found(level, number),
                     shape: t.shape as u32,
                     kind,
                     value: t.raw[0x32] as i32,
@@ -663,11 +682,14 @@ impl Game {
             timer: None,
             record: level,
             board: false,
+            view: (Vec3::ZERO, Mat3::IDENTITY),
+            frames: 0,
             pages: Vec::new(),
             character: who,
             spots,
             card: None,
             aim: false,
+            flags: progress.flags(),
         };
         g.hazards = hazards(&g.set, &g.apart);
         g.script = match level {
@@ -680,6 +702,7 @@ impl Game {
             10 => Some(Box::new(crate::level10::Level10::start(&mut g, disc)?)),
             12 => Some(Box::new(crate::level12::Level12::start(&mut g, disc)?)),
             14 => Some(Box::new(crate::level9::Level9::start14(&mut g, disc)?)),
+            15 => Some(Box::new(crate::level15::Level15::start(&mut g, disc)?)),
             11 => Some(Box::new(crate::level11::Level11::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
@@ -849,6 +872,21 @@ impl Game {
             self.scenery = self.set.objects_except(&Frame::default(), skip);
             self.boxes = object_boxes(&self.set, skip);
         }
+    }
+
+    /// A world point in the camera's frame (x right, y down, z ahead).
+    pub fn to_view(&self, p: Vec3) -> Vec3 {
+        self.view.1 * (p - self.view.0)
+    }
+
+    /// Whether id `id` is hidden.
+    pub fn is_hidden(&self, id: u16) -> bool {
+        self.hidden.contains(&id)
+    }
+
+    /// The room the player is in.
+    pub fn current_room(&self) -> Option<usize> {
+        self.room
     }
 
     /// Takes the use away from the objects with id `id` (+0x54 = 0).
@@ -1100,6 +1138,7 @@ impl Game {
     /// One frame of the level (0x80018c38): the player, then the camera,
     /// then the draw.
     pub fn frame(&mut self, pads: &Pads) {
+        self.frames = self.frames.wrapping_add(1);
         if !self.paused && pads.pressed(0, input::START) {
             self.paused = true;
             self.pause.open();
@@ -1196,6 +1235,8 @@ impl Game {
         // 0x8004691c: 16 is played as 14, template 567 is 8) plays it.
         if pads.pressed(0, input::TRIANGLE) && !self.player.carrying && self.carried.is_none() {
             let p = self.player.pos;
+            let mirror = |d: &rugrats_data::placement::Placement| matches!(d.template, MIRROR_A | MIRROR_B);
+            let flag16 = self.flags & 16 != 0;
             let cine_of = |d: &rugrats_data::placement::Placement| match (d.cine, d.template) {
                 (16, _) => 14,
                 (0, 567) => 8,
@@ -1209,7 +1250,8 @@ impl Game {
                 .filter(|(k, d)| {
                     d.kind == 1
                         && !self.apart[*k]
-                        && (d.level > 0 || cine_of(d) > 0 || d.template == BOARD_OBJECT)
+                        && (d.level > 0 || cine_of(d) > 0 || d.template == BOARD_OBJECT || mirror(d))
+                        && (!mirror(d) || flag16)
                         && !self.unusable.contains(k)
                         && !self.hidden.contains(&d.id)
                 })
@@ -1222,6 +1264,12 @@ impl Game {
             }) {
                 if d.template == BOARD_OBJECT {
                     self.board = true;
+                } else if mirror(d) {
+                    // The mirror (0x800478bc): Mirrorland, with bit 16.
+                    self.exit = Some((15, (d.cine > 0).then_some(d.cine as usize)));
+                } else if d.level > 0 && matches!(d.level, 3 | 4 | 6) && !flag16 {
+                    // 0x8004f78c: "you'll need more puzzle pieces" (HINT41).
+                    self.card = Some(LOCKED_CARD);
                 } else if d.level > 0 {
                     rrt::tracing::info!("level {}: a door to level {} (cine {})", self.level, d.level, d.cine);
                     self.exit = Some((d.level as usize, (d.cine > 0).then_some(d.cine as usize)));
@@ -1324,7 +1372,9 @@ impl Game {
                 rugrats_render::models::model_triangles(model, m.rot, m.world(), &mut moving);
             }
         }
-        for g in self.goodies.iter().filter(|g| !g.taken) {
+        // Level 15's balloons (kinds 6-11) are sprites its script draws.
+        let sprites_only = |g: &&Goodie| self.level == 15 && (6..=11).contains(&g.kind);
+        for g in self.goodies.iter().filter(|g| !g.taken).filter(|g| !sprites_only(g)) {
             if let Some(m) = self.set.models.get(g.shape) {
                 rugrats_render::models::model_triangles(m, g.rot, g.pos, &mut moving);
             }
@@ -1379,6 +1429,7 @@ impl Game {
         let y = f.cross(x);
         // World to camera: rows x (right), y (down), z (ahead).
         let rows = Mat3::from_cols(x, y, f).transpose();
+        self.view = (eye, rows);
         self.stage.camera = crate::stage::view(eye, rows, self.focal);
     }
 }

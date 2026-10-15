@@ -216,6 +216,10 @@ impl Rugrats {
     /// "Reptar Puzzle" once (+0x30 bit 4), giving the first piece; level
     /// 2's until its checkpoint (bit 2).
     fn enter(&mut self, level: usize, now: u64) -> Boot {
+        // Cine 73's start (0x800731ec): Mirrorland entered, +0x30 bit 16.
+        if level == 15 {
+            self.progress.set_flags(self.progress.flags() | 16);
+        }
         // A new level starts without its checkpoint (+0x30 bits 1, 2).
         if self.level != Some(level) {
             self.progress.set_flags(self.progress.flags() & !3);

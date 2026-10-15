@@ -59,6 +59,21 @@ impl Sprites {
         }
     }
 
+    /// Sprite `n` as a quad in the world facing the camera: centre `at`,
+    /// half-size `w` x `h` along the camera's `right` and `down`.
+    pub fn billboard(&self, n: u32, at: rrt::glam::Vec3, w: f32, h: f32, right: rrt::glam::Vec3, down: rrt::glam::Vec3, out: &mut Vec<Vtx>) {
+        let Some(t) = self.texture(n) else { return };
+        let mode = t.clut as u32 | (t.tpage as u32) << 16;
+        let window = Vtx::window_of([t.uv[0][0], t.uv[1][0], t.uv[2][0], t.uv[3][0]], [t.uv[0][1], t.uv[1][1], t.uv[2][1], t.uv[3][1]]);
+        let corners = [(-w, -h), (w, -h), (-w, h), (w, h)];
+        let v = |k: usize| {
+            let p = at + right * corners[k].0 + down * corners[k].1;
+            Vtx { pos: p.to_array(), colour: 0x80_8080, uv: Vtx::uv_of(t.uv[k][0] as u32, t.uv[k][1] as u32), mode, window }
+        };
+        // Wound for the world pass, which culls back faces.
+        out.extend([v(0), v(2), v(1), v(1), v(2), v(3)]);
+    }
+
     /// Sprite `n` at screen `at` (from the centre), half-size `w` x `h` at
     /// depth `z`, seen at projection `focal`; `top` lowers its top edge by
     /// that much (a meter's fill).

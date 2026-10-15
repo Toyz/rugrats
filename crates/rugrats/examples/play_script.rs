@@ -100,6 +100,14 @@ fn main() -> Result<(), String> {
             if std::env::var_os("GOODIES").is_some() && frame == 0 {
                 println!("goodies {:?}", game.goodies.iter().map(|g| (g.kind, g.pos, g.taken)).collect::<Vec<_>>());
             }
+            if std::env::var_os("DOORS").is_some() && frame == 0 {
+                for d in &game.doors {
+                    println!("door {}", d.describe(&game.set.models, &game.trig));
+                }
+            }
+            if std::env::var_os("DOORS").is_some() && frame % 10 == 0 {
+                println!("{frame}: doors {:?}", game.doors.iter().filter(|d| d.moving || d.open).map(|d| (d.template, d.open, d.moving)).collect::<Vec<_>>());
+            }
             if std::env::var_os("MOVERS").is_some() && frame % 30 == 0 {
                 println!("{frame}: movers {:?}", game.movers.iter().map(|m| (m.id, m.pos)).collect::<Vec<_>>());
             }

@@ -186,6 +186,8 @@ pub struct Game {
     pub movers: Vec<Mover>,
     /// The breakables (template class 14: level 7's buildings).
     pub breakables: Vec<Breakable>,
+    /// The hinged and sliding doors (classes 4 and 3).
+    pub doors: Vec<Door>,
     /// Thrown objects that struck a character this frame (0x80086ef0):
     /// (character, thing, the thing's +0x6d).
     pub struck: Vec<(usize, usize, i32)>,
@@ -247,6 +249,63 @@ pub struct Game {
     pub no_damage: bool,
     /// The levels won (+0x38), for the hub's signs.
     pub won_levels: u32,
+}
+
+/// A door (docs/engine/doors.md): class 4 hinged (0x8004860c, think
+/// 0x8004f868, use 0x8004f4a0) turns about its origin; class 3 sliding
+/// (0x8004845c, think 0x8004e458, use 0x8004f6d8) slides along its own
+/// axes. Shut at the start; each use moves it to its other end.
+pub struct Door {
+    pub placement: usize,
+    pub template: u16,
+    pub shape: u32,
+    hinged: bool,
+    /// The placed position, rotation and heading (+0xc0).
+    start: [i32; 3],
+    placed: Mat3,
+    heading: i32,
+    /// The swing angle (+0xa8) or the slide offset (+0xa8..+0xac).
+    offset: [i32; 3],
+    /// Speed (+0xb0..), shut and open ends (+0xae, +0xb6), the target
+    /// (+0xba), either way (+0xbc), the sound kind (+0xd0).
+    speed: [i32; 3],
+    shut: i32,
+    open_end: i32,
+    target: i32,
+    either: bool,
+    sound: u8,
+    /// +0x3c bit 2, and the think scheduled (+0xcc).
+    pub open: bool,
+    pub moving: bool,
+}
+
+impl Door {
+    /// Its placed heading and the world corners of its first box (for
+    /// tools).
+    pub fn describe(&self, models: &rugrats_data::model::Models, trig: &Trig) -> String {
+        let (rot, pos) = self.pose(self.offset, trig);
+        let corners = models.get(self.shape).and_then(|m| m.boxes.first().copied()).map(|(lo, hi)| {
+            [(lo[0], lo[2]), (hi[0], lo[2]), (hi[0], hi[2]), (lo[0], hi[2])].map(|(x, z)| {
+                let w = pos + rot * Vec3::new(x as f32, 0.0, z as f32);
+                (w.x as i32, w.z as i32)
+            })
+        });
+        format!("{} heading {} at {:?}: {:?}", self.template, self.heading, self.start, corners)
+    }
+
+    /// The door's pose for an offset or angle.
+    fn pose(&self, offset: [i32; 3], trig: &Trig) -> (Mat3, Vec3) {
+        let start = Vec3::new(self.start[0] as f32, self.start[1] as f32, self.start[2] as f32);
+        if self.hinged {
+            let e = trig.euler([offset[0] as i16, 0, 0]);
+            let cols: Vec<f32> = e.concat().into_iter().map(|v| v as f32 / 4096.0).collect();
+            let turn = Mat3::from_cols_slice(&cols);
+            (self.placed * turn, start)
+        } else {
+            let o = Vec3::new(offset[0] as f32, offset[1] as f32, offset[2] as f32);
+            (self.placed, start - self.placed * o)
+        }
+    }
 }
 
 /// A moving platform (0x80048804, think 0x8004ee00): per axis it steps by
@@ -644,8 +703,46 @@ impl Game {
                 }
             })
             .collect();
-        let apart: Vec<bool> =
-            (0..set.placements.len()).map(|k| character(k) || pickable(k) || collectible(k) || mover(k) || breakable(k)).collect();
+        // Doors: template class 3 and 4 (not level 5's 843 or golf's
+        // automatic 770).
+        let door = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1
+                && !character(k)
+                && !matches!(p.template, 843 | 770)
+                && set.templates.get(p.template as usize).is_some_and(|t| matches!(t.raw[4], 3 | 4) && set.models.has(t.shape as u32))
+        };
+        let doors: Vec<Door> = (0..set.placements.len())
+            .filter(|&k| door(k))
+            .map(|k| {
+                let p = &set.placements[k];
+                let t = &set.templates[p.template as usize];
+                let h = |at: usize| i16::from_le_bytes([t.raw[at], t.raw[at + 1]]) as i32;
+                let [_, qy, _, qw] = p.rotation.map(|v| v as f64);
+                let heading = ((2.0 * qy.atan2(qw) / std::f64::consts::TAU * 4096.0).round() as i32).rem_euclid(4096);
+                Door {
+                    placement: k,
+                    template: p.template as u16,
+                    shape: t.shape as u32,
+                    hinged: t.raw[4] == 4,
+                    start: p.pos,
+                    placed: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    heading,
+                    offset: [0; 3],
+                    speed: [h(0x18), h(0x1a), h(0x1c)],
+                    shut: h(0x1e),
+                    open_end: h(0x20),
+                    target: 0,
+                    either: h(0x26) != 0,
+                    sound: t.raw[0x24],
+                    open: false,
+                    moving: false,
+                }
+            })
+            .collect();
+        let apart: Vec<bool> = (0..set.placements.len())
+            .map(|k| character(k) || pickable(k) || collectible(k) || mover(k) || breakable(k) || door(k))
+            .collect();
         let scenery = set.objects_except(&Frame::default(), |k| apart[k]);
         let mut npcs = Vec::new();
         for (k, p) in set.placements.iter().enumerate() {
@@ -754,6 +851,7 @@ impl Game {
             struck: Vec::new(),
             movers,
             breakables,
+            doors,
             fixed: None,
             eye_up: default_eye_up(level),
             behind: if level == 7 { 6400.0 } else { BEHIND },
@@ -830,6 +928,128 @@ impl Game {
         } else {
             0
         }
+    }
+
+    /// Whether a door at offset `offset` would cut through the player or
+    /// an NPC (0x8006baa8, the box against their bodies).
+    fn door_blocked(&self, k: usize, offset: [i32; 3]) -> bool {
+        let d = &self.doors[k];
+        if self.set.templates.get(d.template as usize).is_some_and(|t| t.flags & 8 != 0) {
+            return false;
+        }
+        let Some(model) = self.set.models.get(d.shape) else { return false };
+        let (rot, pos) = d.pose(offset, &self.trig);
+        let boxes = world_boxes(model, rot, pos);
+        let p = self.player.pos;
+        let (feet, head) = (p[1] - self.player.feet(), p[1] - self.player.feet() - crate::player::HEIGHT);
+        let body = |at: [i32; 3], r: i32, lo: i32, hi: i32| boxes.iter().any(|b| b.covers(at, r) && b.min_y <= lo && b.max_y >= hi);
+        body(p, crate::player::RADIUS, feet, head)
+            || self.npcs.iter().filter(|n| !n.hidden).any(|n| {
+                let f = n.pos[1] - n.feet();
+                body(n.pos, 200, f, f - 600)
+            })
+    }
+
+    /// The doors' thinks, one a game frame (0x8004f868, 0x8004e458).
+    fn door_thinks(&mut self) {
+        for k in 0..self.doors.len() {
+            if !self.doors[k].moving {
+                continue;
+            }
+            let d = &self.doors[k];
+            let mut next = d.offset;
+            let stop;
+            if d.hinged {
+                // Step = trunc(speed x 136 / 4096); stop on passing the
+                // target (to 0: a sign change), then snap.
+                let step = d.speed[0] * 136 / 4096;
+                let a = d.offset[0];
+                let b = if a < d.target { a + step } else { a - step };
+                stop = match d.target {
+                    0 => (a >= 0) != (b >= 0),
+                    t if t > 0 => b > t,
+                    t => b < t,
+                };
+                next[0] = if stop { d.target } else { b };
+            } else {
+                // 2 x step a think toward the end, no snap.
+                let sign = if d.open { 1 } else { -1 };
+                for i in 0..3 {
+                    next[i] += sign * 2 * d.speed[i];
+                }
+                let sum: i32 = next.iter().sum();
+                stop = if d.open { sum >= d.shut } else { sum <= d.open_end };
+            }
+            if self.door_blocked(k, next) {
+                // Level 16: message 24.
+                self.training.show(24);
+                continue;
+            }
+            let d = &mut self.doors[k];
+            d.offset = next;
+            if stop {
+                // A hinged close ends with sound 54 (not 1216, 672).
+                if d.hinged && d.open && !matches!(d.template, 1216 | 672) {
+                    self.effects.push((54, crate::sound::EFFECTS_VOLUME));
+                }
+                d.open = !d.open;
+                d.moving = false;
+            }
+        }
+    }
+
+    /// Triangle on the door Tommy is touching (0x8004f4a0, 0x8004f6d8):
+    /// refused while it moves; a hinged door by the player's facing.
+    fn use_door(&mut self) -> bool {
+        let p = self.player.pos;
+        let feet = p[1] - self.player.feet();
+        let touched = (0..self.doors.len()).find(|&k| {
+            let d = &self.doors[k];
+            !self.unusable.contains(&d.placement)
+                && self.set.models.get(d.shape).is_some_and(|m| {
+                    let (rot, pos) = d.pose(d.offset, &self.trig);
+                    world_boxes(m, rot, pos)
+                        .iter()
+                        .any(|b| b.covers(p, crate::player::RADIUS + 150) && b.min_y <= feet && b.max_y >= feet - crate::player::HEIGHT)
+                })
+        });
+        let Some(k) = touched else { return false };
+        let level16 = self.level == 16;
+        let hp = self.player.heading;
+        let d = &mut self.doors[k];
+        if d.moving {
+            return true;
+        }
+        if d.hinged {
+            // local_18 = 4096 cos(h_p - h_d), h_d the door's heading now.
+            let facing = self.trig.cos(hp - (d.heading + d.offset[0]));
+            let a = d.offset[0];
+            if !d.open {
+                if d.either {
+                    d.target = if facing > 0 { d.open_end } else { -d.open_end };
+                } else if facing >= 0 {
+                    return true;
+                } else {
+                    d.target = d.open_end;
+                }
+                if d.sound == 1 {
+                    self.effects.push((if level16 { 170 } else { 14 }, crate::sound::EFFECTS_VOLUME));
+                }
+            } else {
+                let ok = a != 0 && facing != 0 && if d.open_end > 0 { (a > 0) != (facing > 0) } else { (a > 0) == (facing > 0) };
+                if !ok {
+                    return true;
+                }
+                d.target = d.shut;
+                if d.sound == 1 {
+                    self.effects.push((if level16 { 170 } else { 15 }, crate::sound::EFFECTS_VOLUME));
+                }
+            }
+        } else if d.sound == 2 {
+            self.effects.push((if d.open { 17 } else { 16 }, crate::sound::EFFECTS_VOLUME));
+        }
+        d.moving = true;
+        true
     }
 
     /// Sets the player's room without entering it (a level moving the
@@ -1416,6 +1636,14 @@ impl Game {
                 boxes.extend(world_boxes(model, m.rot, m.world()));
             }
         }
+        // Doors are solid where they are drawn (0x80069c40).
+        self.door_thinks();
+        for d in &self.doors {
+            if let Some(model) = self.set.models.get(d.shape) {
+                let (rot, pos) = d.pose(d.offset, &self.trig);
+                boxes.extend(world_boxes(model, rot, pos));
+            }
+        }
         for t in self.things.iter().filter(|t| t.state == ThingState::Rest && !t.hidden) {
             if let Some(m) = self.set.models.get(t.shape) {
                 let climb = self.set.templates.get(t.template as usize).is_some_and(|tp| tp.flags & 64 != 0);
@@ -1461,7 +1689,8 @@ impl Game {
         // touched object): a door (use 0x8004f78c, LP +0x42) goes to its
         // level; one with only a cinematic (0x8004f83c, LP +0x44, made by
         // 0x8004691c: 16 is played as 14, template 567 is 8) plays it.
-        if pads.pressed(0, input::TRIANGLE) && !self.player.carrying && self.carried.is_none() {
+        let used_door = pads.pressed(0, input::TRIANGLE) && !self.player.carrying && self.carried.is_none() && self.use_door();
+        if pads.pressed(0, input::TRIANGLE) && !self.player.carrying && self.carried.is_none() && !used_door {
             let p = self.player.pos;
             // Messages 34 and 33 (0x8004d49c); in training these objects
             // do nothing else.
@@ -1624,6 +1853,12 @@ impl Game {
         for m in &self.movers {
             if let Some(model) = self.set.models.get(m.shape) {
                 rugrats_render::models::model_triangles(model, m.rot, m.world(), &mut moving);
+            }
+        }
+        for d in &self.doors {
+            if let Some(model) = self.set.models.get(d.shape) {
+                let (rot, pos) = d.pose(d.offset, &self.trig);
+                rugrats_render::models::model_triangles(model, rot, pos, &mut moving);
             }
         }
         for b in self.breakables.iter().filter(|b| !b.gone) {

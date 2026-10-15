@@ -56,6 +56,10 @@ impl Level12 {
     /// Cine 66's end and EpisodeStart (0x8007b7c8).
     pub fn start(g: &mut Game, _disc: &GameDisc) -> Result<Level12, String> {
         g.hide(SPIKE, true);
+        // The refrigerator's use is its cine, not the doors' swing.
+        for id in DOORS {
+            g.disable_use(id);
+        }
         g.player.pos = START;
         g.player.heading = 1024;
         g.player.target = 1024;

@@ -50,6 +50,11 @@ fn flags_probe(disc: &GameDisc) -> Result<(), String> {
     let t = rugrats_data::placement::parse_templates(&disc.file(239)?);
     let models = rugrats_data::model::Models::parse(&disc.file(242 + 22)?).map_err(|e| e.to_string())?;
     let raw = disc.file(239)?;
+    let lp = rugrats_data::placement::parse_lp(&disc.file(402 + 22)?);
+    for p in lp.iter().filter(|p| matches!(p.template, 1149 | 1130)) {
+        println!("lp {p:?} model found {}", models.find(t[p.template as usize].shape as u32));
+    }
+    println!("1130 shape {} found {}, 1149 shape {} found {}", t[1130].shape, models.find(t[1130].shape as u32), t[1149].shape, models.find(t[1149].shape as u32));
     for tid in [626usize, 704] {
         let tm = t[tid];
         println!("raw {:02x?}", &raw.get(4 + 56 * tid..4 + 56 * tid + 56));

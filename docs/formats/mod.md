@@ -3,7 +3,7 @@ title: DBnnMOD.BIN, a database's models
 status: partial
 discs: US
 covers: US /DATA/DB22/DB22MOD.BIN, US SLUS_006.50:0x80044b74, US SLUS_006.50:0x80044d00, US SLUS_006.50:0x80044c98, US SLUS_006.50:0x80010000, US SLUS_006.50:0x80031b84
-worklog: 11, 14, 23
+worklog: 11, 14, 23, 25
 ---
 
 # DBnnMOD.BIN
@@ -77,13 +77,23 @@ the face kind, ORs in `(flags & 0x80) << 18` (bit 7 makes the face
 semi-transparent) and the word at context +0x48, and ORs the word at
 +0x4c into the tpage word. An untextured semi-transparent face is
 preceded by a draw mode (0x800106c0), E1 0x200 | (flags & 0x60), whose
-blend is the flags' bits 5-6. A textured one blends by its page. Flags
-bits 8-9 pick the face's culling (0x800101dc). The opening's lens splash
-(model 1039, flags 0x80) is the case seen.
+blend is the flags' bits 5-6. A textured one blends by its page. The
+opening's lens splash (model 1039, flags 0x80) is the case seen.
+
+The face test (0x80010174 and kin):
+
+- A face whose three projected vertices share an outside flag (the AND
+  of their words, bits 16-20) is dropped.
+- Flags bits 8-9 pick the depth that sorts it into the ordering table:
+  neither, the average (AVSZ3, kept under 16000); bit 8, the farthest
+  vertex; bit 9 alone, the nearest. The depth is then shifted right 2.
+- Flag bit 0 skips the back-face test (NCLIP), so the face shows from
+  both sides. The opening's milk spray (model 953) and hair strands use
+  it.
 
 ## Unknown
 
-- The vertex's fourth halfword, the bounds block, `unknown_0a`, the face
-  flags' other bits and the culling modes of bits 8-9.
+- The vertex's fourth halfword, the bounds block, `unknown_0a`, and the
+  face flags' other bits.
 - How GT faces' colours and the lighting combine (the renderer was not read
   past the vertex pass).

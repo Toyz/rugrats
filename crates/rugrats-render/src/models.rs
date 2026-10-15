@@ -10,6 +10,8 @@ fn rgb(c: [u8; 3]) -> u32 {
     c[0] as u32 | (c[1] as u32) << 8 | (c[2] as u32) << 16
 }
 
+/// A face flag: drawn from both sides (the renderer skips NCLIP).
+pub const FACE_TWO_SIDED: u32 = 1;
 /// A face flag: semi-transparent.
 pub const FACE_SEMI: u32 = 1 << 7;
 
@@ -21,6 +23,8 @@ pub const FACE_SEMI: u32 = 1 << 7;
 /// face's packet semi-transparent with its flags' bit 7 ((flags & 0x80)
 /// << 18 into the code); an untextured one also gets a draw mode whose
 /// blend is the flags' bits 5-6 (0x800106c0), a textured one its page's.
+/// A face with bit 0 skips the back-face test (0x800102b4), so it goes in
+/// both windings.
 pub fn model_triangles(m: &Model, rot: Mat3, pos: Vec3, out: &mut Vec<Vtx>) {
     for f in &m.faces {
         let semi = if f.flags & FACE_SEMI != 0 { Vtx::SEMI } else { 0 };
@@ -36,6 +40,12 @@ pub fn model_triangles(m: &Model, rot: Mat3, pos: Vec3, out: &mut Vec<Vtx>) {
         out.extend([corner(0), corner(2), corner(1)]);
         if f.quad {
             out.extend([corner(1), corner(2), corner(3)]);
+        }
+        if f.flags & FACE_TWO_SIDED != 0 {
+            out.extend([corner(0), corner(1), corner(2)]);
+            if f.quad {
+                out.extend([corner(1), corner(3), corner(2)]);
+            }
         }
     }
 }

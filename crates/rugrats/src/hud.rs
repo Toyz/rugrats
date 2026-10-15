@@ -1,5 +1,5 @@
 //! The HUD's pieces (SLUS_006.50:0x8008f8f4, drawn by 0x8008f5d8): a
-//! texture from the database's TEXPOS.DAT (file 0x800b9b20[db], 428
+//! texture from the database's TEXPOS.DAT (file 0x800b9b20[db + 1], 428
 //! 12-byte entries, looked up by 0x80089fa4 / 0x800895ac) on a quad of
 //! half-size (w, h) at depth z, turned by an angle, its x scaled for the
 //! 512-wide screen (0x800c4a04 / 320), projected by the GTE and moved to
@@ -24,7 +24,9 @@ pub struct Sprites {
 
 impl Sprites {
     pub fn load(disc: &GameDisc, db: usize) -> Result<Sprites, String> {
-        let file = disc.exe_u32(TEXPOS + 4 * db as u32)? as usize;
+        // 0x8008a328 is called with db + 1; entry 0 is the menu's.
+        let k = if db < 32 { db + 1 } else { 0 };
+        let file = disc.exe_u32(TEXPOS + 4 * k as u32)? as usize;
         let raw = disc.file(file)?;
         Ok(Sprites { textures: raw.chunks_exact(12).take(ENTRIES).map(Texture::parse).collect() })
     }
@@ -78,4 +80,16 @@ pub fn meter(s: &Sprites, health: i32, max: i32, focal: f32, out: &mut Vec<Vtx>)
     // not read yet: the cap sits on the body here.
     let up = ((60.0 + 24.0) * focal / METER_DEPTH) as i16;
     s.draw(METER_FRAME, (METER_AT.0, METER_AT.1 - up), 32.0, 24.0, METER_DEPTH, 0.0, focal, out);
+}
+
+/// A gauge's back (0x8008c5e0's last sprite, 282 in level 2).
+pub const GAUGE_BACK: u32 = 282;
+
+/// A gauge (0x8008c5e0, drawn by 0x8008c394): its back, then its fill
+/// sprite, half-size 64 x 64 at depth 1024, at `at`; the fill's top
+/// lowered as `value` falls from `max`.
+pub fn gauge(s: &Sprites, fill: u32, at: (i16, i16), value: i32, max: i32, focal: f32, out: &mut Vec<Vtx>) {
+    let top = if max > 0 { 2.0 * 64.0 * (max - value).clamp(0, max) as f32 / max as f32 } else { 0.0 };
+    s.draw(GAUGE_BACK, at, 64.0, 64.0, 1024.0, 0.0, focal, out);
+    s.draw(fill, at, 64.0, 64.0, 1024.0, top, focal, out);
 }

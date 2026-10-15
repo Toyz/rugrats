@@ -375,11 +375,15 @@ impl Level2 {
         };
         if self.phase == 3 {
             text(format!("{}", (self.timer + 299) / 300), -12, -100);
-            if let Some(k) = find(g, GOOSE) {
-                text(format!("{}", g.npcs[k].health), -200, 88);
-            }
-            if let Some(k) = find(g, CHUCKIE) {
-                text(format!("{}", g.npcs[k].health), 160, 88);
+            // The two gauges (0x8008c5e0 in 0x8007c6e0): the goose's (278)
+            // bottom left, Chuckie's (279) bottom right.
+            if let Some(s) = &g.sprites {
+                if let Some(k) = find(g, GOOSE) {
+                    crate::hud::gauge(s, 278, (-200, 88), g.npcs[k].health, g.npcs[k].max_health, g.focal(), overlay);
+                }
+                if let Some(k) = find(g, CHUCKIE) {
+                    crate::hud::gauge(s, 279, (200, 88), g.npcs[k].health, g.npcs[k].max_health, g.focal(), overlay);
+                }
             }
         }
     }

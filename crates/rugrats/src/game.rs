@@ -524,6 +524,11 @@ impl Game {
         }
     }
 
+    /// The projection distance in play.
+    pub fn focal(&self) -> f32 {
+        self.focal
+    }
+
     /// Puts the camera behind heading `yaw` at once (for tools).
     pub fn set_camera_yaw(&mut self, yaw: f32) {
         self.yaw = yaw;

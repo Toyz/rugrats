@@ -10,6 +10,7 @@ pub mod level4;
 pub mod level5;
 pub mod level6;
 pub mod level9;
+pub mod level10;
 pub mod golf;
 pub mod screens;
 pub mod hud;

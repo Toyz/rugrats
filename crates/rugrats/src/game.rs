@@ -586,6 +586,7 @@ impl Game {
                 size: 0,
                 reach: 600,
                 bite_wait: 900,
+                run_speed: None,
             };
             // On the floor under it (0x80081bac asks 0x8002b240), the root
             // the hierarchy's offset above the feet.
@@ -670,6 +671,7 @@ impl Game {
             5 => Some(Box::new(crate::level5::Level5::start(&mut g, disc)?)),
             6 => Some(Box::new(crate::level6::Level6::start(&mut g, disc)?)),
             9 => Some(Box::new(crate::level9::Level9::start(&mut g, disc)?)),
+            10 => Some(Box::new(crate::level10::Level10::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
         };

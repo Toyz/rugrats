@@ -122,6 +122,9 @@ pub struct Npc {
     /// The time between a guard's bites (dt; the geese 900, level 5's
     /// robots 230 as seen).
     pub bite_wait: i32,
+    /// A run speed other than the table's row 0 (levels 9 and 10 use row
+    /// 1: index 4 is 11).
+    pub run_speed: Option<i32>,
 }
 
 /// What a step of the NPCs asks of the level.
@@ -214,7 +217,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
     };
     for (k, n) in npcs.iter_mut().enumerate() {
         n.cooldown = (n.cooldown - DT).max(0);
-        let base = SPEEDS[n.speed_index.min(5)];
+        let base = n.run_speed.unwrap_or(SPEEDS[n.speed_index.min(5)]);
         let mode = n.mode.clone();
         match mode {
             Mode::Idle => n.speed = 0,

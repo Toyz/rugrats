@@ -23,7 +23,7 @@ u32 n; quad[n]               48 bytes each
   u8 [16]                    unknown
 u32 n; u8 [n][24]            only LEVEL04 has any (63)
 u32 rooms; room[rooms]       112 bytes each (kept at 0x800c4a8c, count 0x800c4a9c)
-per room: u8 count; u8 [count]   each kept one less (-1 = 0xff - 1 + 1 ...)
+per room: u8 count; u8 [count]   each kept one less than stored
 4 - (list bytes % 4) bytes   a whole word when the lists end on one
 u32 size[rooms]              bytes of each room's geometry section
 per room: u32 n; u32 len[n]; n blobs of len bytes

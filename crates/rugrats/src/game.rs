@@ -79,6 +79,8 @@ pub trait Script {
     fn phase(&self) -> u8 {
         0
     }
+    /// Jumps to phase `phase` as the level would set it up (for tools).
+    fn skip_to(&mut self, _g: &mut Game, _phase: u8) {}
     /// The level's own state in words, for tools.
     fn describe(&self) -> String {
         String::new()
@@ -1419,7 +1421,9 @@ fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate::player::B
             continue;
         }
         let Some(t) = set.templates.get(place.template as usize) else { continue };
-        if t.hierarchy().is_some() || set.models.find(t.shape as u32) == 0 {
+        // Template flag 8: skipped by the object collision tests
+        // (0x80063d3c, 0x80065210 ..).
+        if t.hierarchy().is_some() || set.models.find(t.shape as u32) == 0 || t.flags & 8 != 0 {
             continue;
         }
         let Some(m) = set.models.get(t.shape as u32) else { continue };

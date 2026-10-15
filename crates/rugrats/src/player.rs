@@ -106,6 +106,9 @@ pub struct Player {
     /// The moving jump's lift and factor (0x80060f1c case 25: -1000 and
     /// 40; Spike in level 11 -1700 and 20).
     pub moving_jump: (i32, i32),
+    /// The stick's run and walk factors (0x8005be24: 17 and 8; Spike 20
+    /// and 10; the tricycle runs at 20, as seen).
+    pub gait: (i32, i32),
     /// Floating (state 21, 0x8005db28): the depth anchor (+0x65c) and the
     /// bob's phase (+0x660).
     pub float: Option<(i32, i32)>,
@@ -147,6 +150,7 @@ impl Player {
             hold: None,
             no_jump: false,
             moving_jump: (-1000, 40),
+            gait: (RUN, WALK),
             float: None,
             carrying: false,
             jump_lock: 0,
@@ -211,7 +215,7 @@ impl Player {
         if magnitude >= DEAD {
             let dir = (((sx as f64).atan2(sz as f64) / std::f64::consts::TAU) * 4096.0).round() as i32;
             let want = (dir + camera_heading).rem_euclid(4096);
-            let factor = if held(input::SQUARE) { WALK } else { RUN };
+            let factor = if held(input::SQUARE) { self.gait.1 } else { self.gait.0 };
             let turn = wrap(want - self.heading);
             if self.frozen {
                 // Held in place (+0x188 bit 1): only the turn runs, so the
@@ -268,7 +272,10 @@ impl Player {
         }
         // The floor (0x800627a0): the feet on it, or back where the frame
         // began when the point is not in the open.
-        let probe = [self.pos[0], self.pos[1] - self.feet - 1, self.pos[2]];
+        // Asked from a step's height above the feet, so a slope or a
+        // step up within STEP_UP is floor, not wall.
+        let lift = if on_ground { STEP_UP } else { 1 };
+        let probe = [self.pos[0], self.pos[1] - self.feet - lift, self.pos[2]];
         let q = collide::query(col, probe);
         // Climbing (state 6, 0x8005f310): walking into a ledge or a
         // climbable object up to 1033 above the feet (521 carrying,

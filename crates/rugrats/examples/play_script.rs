@@ -40,6 +40,17 @@ fn main() -> Result<(), String> {
     let every: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(10);
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let mut game = rugrats::game::Game::open(&disc, db)?;
+    // BOXAT=x,z: the object boxes covering that point.
+    if let Some(v) = std::env::var("BOXAT").ok() {
+        let p: Vec<i32> = v.split(',').filter_map(|s| s.parse().ok()).collect();
+        for b in game.boxes.iter().filter(|b| b.covers([p[0], 0, p[1]], 160)) {
+            println!("box at {:?}: y {}..{} climb {}", b.pos, b.min_y, b.max_y, b.climb);
+        }
+    }
+    // PHASE=n: the level's set-up for phase n (Script::skip_to).
+    if let Some(n) = std::env::var("PHASE").ok().and_then(|s| s.parse().ok()) {
+        game.with_script(|s, g| s.skip_to(g, n));
+    }
     if let Some(v) = std::env::var("START").ok() {
         let p: Vec<i32> = v.split(',').filter_map(|s| s.parse().ok()).collect();
         if p.len() == 3 {

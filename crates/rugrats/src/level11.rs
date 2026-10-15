@@ -114,6 +114,11 @@ impl Level11 {
         g.player.v = [0; 3];
         g.player.frozen = false;
         g.player.moving_jump = if c == 6 { (-1700, 20) } else { (-1000, 40) };
+        g.player.gait = match c {
+            6 => (20, 10),
+            34 => (20, 8),
+            _ => (17, 8),
+        };
         g.set_camera_yaw(heading as f32);
     }
 
@@ -219,8 +224,9 @@ impl crate::game::Script for Level11 {
                         6001..=7499 => 10,
                         _ => 16,
                     };
-                    let factor = if g.player.speed > 8 { 40 } else { 12 };
-                    let along = factor * g.player.speed * mult;
+                    // State 26 keeps the ground speed and adds 12 x speed x
+                    // the band (fitted to the oracle's three landings).
+                    let along = g.player.speed * (64 + 12 * mult);
                     g.player.launch(TAKE_OFF, -1000, along, &g.trig);
                     g.player.no_jump = false;
                     self.step = Step::Flying;
@@ -415,6 +421,21 @@ impl crate::game::Script for Level11 {
                     let x = ((105.0 - half) * f / 512.0 * (512.0 / 320.0)) as i16;
                     s.draw(358, (x, 76), half, 8.0, 512.0, 0.0, f, overlay);
                 }
+            }
+            _ => {}
+        }
+    }
+
+    fn skip_to(&mut self, g: &mut Game, phase: u8) {
+        match phase {
+            2 => {
+                self.cine_finished(g, WIN1);
+                self.cine_finished(g, TRIKE_INTRO);
+                g.cine = None;
+            }
+            3 => {
+                g.hide(TRIKE, true);
+                self.ring3(g);
             }
             _ => {}
         }

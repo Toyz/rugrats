@@ -5,6 +5,8 @@ date: 2026-10-14
 area: video, audio, format, input, test
 files: crates/rugrats/src/movie.rs, crates/rugrats/src/input.rs, crates/rugrats/src/main.rs, crates/rugrats-data/src/movie.rs, crates/rugrats-data/src/bs.rs, crates/rugrats-hle/src/gpu.rs, crates/rugrats-hle/src/lib.rs
 resolves: 5.2
+started: 2026-10-14T19:31:55-07:00
+took: 10m
 ---
 
 # 6. The logo movies play in the port: STR, BS version 3, XA sound, the input module

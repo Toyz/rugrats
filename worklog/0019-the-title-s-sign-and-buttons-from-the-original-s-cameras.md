@@ -4,6 +4,9 @@ title: The title's sign and buttons, from the original's cameras
 date: 2026-10-14
 area: ui, render, decomp, test
 files: crates/rugrats/src/front.rs, crates/rugrats/src/gte.rs, crates/rugrats/src/stage.rs, crates/rugrats/src/cine.rs, crates/rugrats/tests/gte.rs, crates/rugrats/examples/stage_shot.rs, docs/engine/front-end.md
+resolves: 18.1, 18.3
+started: 2026-10-14T23:19:48-06:00
+took: 6m
 ---
 
 # 19. The title's sign and buttons, from the original's cameras
@@ -30,4 +33,7 @@ not on screen in the compared frame.
 `stage_shot` renders the title headless after a number of ticks. A zoom
 on the top strip against the oracle's frame lines up to the pixel row.
 
-**Still unknown:** the babies; the menu's input, sounds and submenus; whether MatrixNormal changes the cubes
+**Still unknown:**
+- the babies
+- the menu's input, sounds and submenus
+- whether MatrixNormal changes the cubes

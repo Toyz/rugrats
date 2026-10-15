@@ -4,6 +4,8 @@ title: The title menu answers the pad, and the attract cycle runs
 date: 2026-10-14
 area: ui, input, play
 files: crates/rugrats/src/front.rs, crates/rugrats/src/main.rs, crates/rugrats/src/input.rs, crates/rugrats/examples/stage_shot.rs, docs/engine/front-end.md
+started: 2026-10-14T23:25:55-06:00
+took: 2m
 ---
 
 # 20. The title menu answers the pad, and the attract cycle runs
@@ -25,4 +27,7 @@ The program now runs main's chooser cycle: title, then a demo movie
 is the game's own LCG from its seed. The original's babies call rand every
 frame and are not ported yet, so the demo picked can differ.
 
-**Still unknown:** the Start Game menu, Load Game and Audio screens; the menu's sounds; the babies, whose rand calls the demo pick depends on
+**Still unknown:**
+- the Start Game menu, Load Game and Audio screens
+- the menu's sounds
+- the babies, whose rand calls the demo pick depends on

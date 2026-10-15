@@ -5,6 +5,8 @@ date: 2026-10-14
 area: save, decomp, tooling, test
 files: crates/rugrats/src/card.rs, crates/rugrats/src/disc.rs, crates/rugrats/tests/card.rs, crates/rugrats-hle/src/card.rs, crates/rugrats-hle/src/lib.rs, crates/rugrats-hle/examples/card_save.rs, docs/engine/memory-card.md
 resolves: 16.2
+started: 2026-10-14T21:32:37-07:00
+took: 12m
 ---
 
 # 17. Memory cards as folders, the save file byte for byte
@@ -35,4 +37,7 @@ byte-identical (test). The Shift-JIS conversion (all 256 bytes), the
 title frame, and the sums are each checked against the original's
 functions in rrt-emu.
 
-**Still unknown:** the game state's 328 bytes; where play saves; the load path
+**Still unknown:**
+- the game state's 328 bytes
+- where play saves
+- the load path

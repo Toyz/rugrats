@@ -51,4 +51,7 @@ the oracle's part quaternions, and the composed transform (CompMatrix at
 transposed back by 0x8001eb4c) is the port's. Transposing the parts'
 rotations instead turns Chuckie around, so that is not it.
 
-**Still unknown:** the actors' and poses' animation and state fields; the LP kinds 6 and 99; the wall shading (depth cue, lighting) the port does not draw yet
+**Still unknown:**
+- the actors' and poses' animation and state fields
+- the LP kinds 6 and 99
+- the wall shading (depth cue, lighting) the port does not draw yet

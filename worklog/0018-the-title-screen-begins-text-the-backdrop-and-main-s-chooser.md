@@ -44,4 +44,9 @@ camera, clear colour) that the cinematic and the title both fill, and
 that main draws; the executable's strings and tables through `GameDisc`;
 a `gpu_frame` oracle example that lists every primitive of a frame.
 
-**Still unknown:** the sign (model 1038) and its camera; the babies; CANCEL/ACCEPT's button icons and the TM; the submenus; the front end's sounds
+**Still unknown:**
+- the sign (model 1038) and its camera
+- the babies
+- CANCEL/ACCEPT's button icons and the TM
+- the submenus
+- the front end's sounds

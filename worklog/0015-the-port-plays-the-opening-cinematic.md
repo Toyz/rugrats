@@ -4,8 +4,8 @@ title: The port plays the opening cinematic
 date: 2026-10-14
 area: engine, render, play, decomp, test, input
 files: crates/rugrats/src/cine.rs, crates/rugrats/src/main.rs, crates/rugrats/src/input.rs, crates/rugrats/src/movie.rs, crates/rugrats/src/disc.rs, crates/rugrats/examples/cine_objects.rs, crates/rugrats/examples/find_texture.rs, crates/rugrats-data/src/model.rs, crates/rugrats-render/src/models.rs, crates/rugrats-render/tests/against_original.rs, crates/rugrats-viewer/src/main.rs, crates/rugrats-hle/examples/cine_shot.rs, crates/rugrats-hle/src/gpu.rs, crates/rugrats-hle/src/lib.rs
-started: 2026-10-14T21:19:13-07:00
-took: 1h 10m
+started: 2026-10-14T20:50:47-07:00
+took: 28m
 ---
 
 # 15. The port plays the opening cinematic
@@ -52,4 +52,8 @@ The oracle cannot check the skip: the game drives the pads through
 libpad's direct serial driver (0x80099e08), which the oracle does not
 model, so its receive buffers never fill.
 
-**Still unknown:** the Euler round trip for turns about more than one axis; whether Triangle skips (the oracle cannot take input: libpad drives the serial port directly); the title card (text system 0x8002e144); wall shading
+**Still unknown:**
+- the Euler round trip for turns about more than one axis
+- whether Triangle skips (the oracle cannot take input: libpad drives the serial port directly)
+- the title card (text system 0x8002e144)
+- wall shading

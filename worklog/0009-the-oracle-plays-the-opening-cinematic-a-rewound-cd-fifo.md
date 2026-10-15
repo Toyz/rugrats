@@ -5,6 +5,8 @@ date: 2026-10-14
 area: bug, tooling, engine, render
 files: crates/rugrats-hle/src/cdrom.rs, crates/rugrats-hle/src/lib.rs, crates/rugrats-hle/src/bus.rs, crates/rugrats-hle/src/main.rs, crates/rugrats-hle/src/hw.rs
 resolves: 7.1
+started: 2026-10-14T19:56:57-07:00
+took: 9m
 ---
 
 # 9. The oracle plays the opening cinematic: a rewound CD FIFO and a lost load delay

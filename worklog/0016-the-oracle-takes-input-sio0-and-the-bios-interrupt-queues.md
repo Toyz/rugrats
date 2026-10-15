@@ -4,6 +4,8 @@ title: The oracle takes input: SIO0 and the BIOS interrupt queues
 date: 2026-10-14
 area: tooling, input, engine
 files: crates/rugrats-hle/src/sio.rs, crates/rugrats-hle/src/hw.rs, crates/rugrats-hle/src/lib.rs, docs/engine/input.md
+started: 2026-10-14T21:19:13-07:00
+took: 13m
 ---
 
 # 16. The oracle takes input: SIO0 and the BIOS interrupt queues
@@ -32,4 +34,6 @@ Without a pad it had gone from the logos straight to the opening
 cinematic, which is the order the port follows today. That order has to
 change once the front end is ported.
 
-**Still unknown:** where the opening cinematic plays with a pad in (after Main Game?); the memory card's BIOS calls, which the oracle answers as no card
+**Still unknown:**
+- where the opening cinematic plays with a pad in (after Main Game?)
+- the memory card's BIOS calls, which the oracle answers as no card

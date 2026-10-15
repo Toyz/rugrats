@@ -24,6 +24,7 @@ pub mod level17;
 pub mod level18;
 pub mod level20;
 pub mod golf;
+pub mod golf_setup;
 pub mod screens;
 pub mod hud;
 pub mod card;

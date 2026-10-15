@@ -100,6 +100,37 @@ const CREDITS: usize = 6;
 const OPENING: usize = 0;
 const OPENING_DB: usize = 22;
 
+/// An activity mini-golf round (0x80096a30): each player's face slot,
+/// strokes by hole, the hole and player in play.
+struct GolfRound {
+    slots: Vec<usize>,
+    strokes: Vec<[u32; 9]>,
+    hole: usize,
+    player: usize,
+}
+
+impl GolfRound {
+    fn new(slots: Vec<usize>) -> GolfRound {
+        let n = slots.len();
+        GolfRound { slots, strokes: vec![[0; 9]; n], hole: 0, player: 0 }
+    }
+
+    fn character(&self) -> usize {
+        rugrats::golf::FACES[self.slots[self.player] % 6]
+    }
+
+    /// The turn banner (0x800965e8): "Player %d" / "Hole %d" in pink.
+    fn banner(&self, disc: &GameDisc) -> Page {
+        let s = |n: u32, v: usize| rugrats::front::string(disc, n).replace("%d", &v.to_string());
+        Page::Message { lines: vec![(s(203, self.player + 1), screens::PINK), (s(204, self.hole + 1), screens::PINK)], bars: None, blink: false }
+    }
+
+    /// The score card (0x80095768): a row a player with his face.
+    fn card(&self, press: bool) -> Page {
+        Page::Scores { rows: self.slots.iter().copied().zip(self.strokes.iter().copied()).collect(), press }
+    }
+}
+
 struct Rugrats {
     disc: GameDisc,
     boot: Boot,
@@ -120,8 +151,8 @@ struct Rugrats {
     _audio: Option<Output>,
     /// The game's rand, which the babies and the chooser share.
     rand: rugrats::rand::Rand,
-    /// Activity mini-golf's strokes by hole (0x800c46d0 +0x81c).
-    golf_scores: [u32; 9],
+    /// Activity mini-golf's round (0x80096a30).
+    golf_round: Option<GolfRound>,
     /// What draws a 3D screen, made for its stage's generation, the 4:3
     /// picture it draws into, and the VRAM revision it holds.
     world: Option<(Renderer, Target, u64, u64)>,
@@ -150,7 +181,7 @@ impl Rugrats {
             _audio: audio,
             world: None,
             rand: Default::default(),
-            golf_scores: [0; 9],
+            golf_round: None,
         })
     }
 
@@ -351,7 +382,12 @@ impl Rugrats {
         let from = self.level.replace(mode);
         self.progress.enter(mode);
         match Level::open_from(&self.disc, mode, from, &self.progress) {
-            Ok(game) => {
+            Ok(mut game) => {
+                // Activity golf: the turn's player and body (0x80096a30).
+                if let Some(r) = &self.golf_round {
+                    let (p, c) = (r.player, r.character());
+                    game.with_script(|s, g| s.activity_turn(g, p, c));
+                }
                 self.world = None;
                 // The level's song set (0x80017c0c, 0x8006e96c), and for
                 // levels 22 and up its song at once (0x8006fea8).
@@ -558,6 +594,13 @@ impl Game for Rugrats {
                         self.level = Some(self.progress.level());
                         self.stop_song();
                         self.boot = self.enter(rugrats::game::HUB, now);
+                    } else if let Some(Outcome::Golf(slots)) = &outcome {
+                        // Mini-golf's round (0x80096a30) after its setup.
+                        self.progress = Default::default();
+                        self.progress.set_activity(true);
+                        self.golf_round = Some(GolfRound::new(slots.clone()));
+                        self.stop_song();
+                        self.boot = self.enter(rugrats::golf::LEVELS[0], now);
                     } else if let Some(Outcome::Play(mode)) = outcome {
                         if mode == rugrats::front::MAIN_GAME {
                             self.progress = Default::default();
@@ -567,6 +610,11 @@ impl Game for Rugrats {
                         }
                         self.stop_song();
                         rrt::tracing::info!("title: game mode {mode}");
+                        // Mini-golf from the Activities menu: one player,
+                        // Tommy, until the setup screen gives more.
+                        if mode as usize == rugrats::golf::LEVELS[0] && self.progress.activity() {
+                            self.golf_round = Some(GolfRound::new(vec![0]));
+                        }
                         self.boot = self.enter(mode as usize, now);
                     } else if outcome == Some(Outcome::Idle) {
                         self.stop_song();
@@ -641,39 +689,54 @@ impl Game for Rugrats {
                     }
                     if game.quit {
                         // "Returning to / Main Menus / Loading" (0x8003e05c).
+                        self.golf_round = None;
                         self.level = None;
                         self.stop_song();
                         let page = screens::message::returning(&self.disc, self.progress.activity());
                         self.boot = self.screen(vec![page], 1, Then::Title, None, now);
                     } else if let Some((mut level, mut cine)) = game.exit {
-                        // Activity golf (0x80096a30): each hole's strokes
-                        // kept for the score card.
-                        if let Some(n) = game.strokes {
-                            if let Some(k) = rugrats::golf::LEVELS.iter().position(|&l| l == game.level) {
-                                if k == 0 {
-                                    self.golf_scores = [0; 9];
-                                }
-                                self.golf_scores[k] = n;
+                        // Activity golf (0x80096a30): a holed ball ends the turn;
+                        // the next player plays the hole from the tee, after
+                        // the last the score card and the next hole.
+                        if let (Some(n), Some(r)) = (game.strokes.take(), self.golf_round.as_mut()) {
+                            let (hole, p) = (r.hole, r.player);
+                            r.strokes[p][hole] = n;
+                            if p + 1 < r.slots.len() {
+                                r.player += 1;
+                                let (pl, ch) = (r.player, r.character());
+                                game.exit = None;
+                                game.with_script(|s, g| s.activity_turn(g, pl, ch));
+                                // The banner (0x800965e8) until Cross.
+                                let banner = r.banner(&self.disc);
+                                let db = game.level;
+                                let Boot::Game { game } = std::mem::replace(&mut self.boot, Boot::FrontEnd) else { unreachable!() };
+                                self.boot = self.screen(vec![banner], db, Then::Back(game), None, now);
+                                return;
                             }
-                        }
-                        // The card before each next hole (0x80095c2c).
-                        if game.strokes.is_some() && self.progress.activity() && level != rugrats::game::HUB {
-                            let page = Page::Scores(vec![self.golf_scores]);
-                            self.boot = self.screen(vec![page], 1, Then::Enter(level), None, now);
+                            r.player = 0;
+                            if hole < 8 {
+                                r.hole += 1;
+                                let next = rugrats::golf::LEVELS[r.hole];
+                                let card = r.card(true);
+                                self.boot = self.screen(vec![card], 1, Then::Enter(next), None, now);
+                            } else {
+                                // After hole nine: the card, then the Activities
+                                // menu (no "Returning to").
+                                let card = r.card(true);
+                                self.golf_round = None;
+                                self.level = None;
+                                self.stop_song();
+                                self.boot = self.screen(vec![card], 1, Then::Title, None, now);
+                            }
                             return;
                         }
                         if self.progress.activity() && level == rugrats::game::HUB {
-                            // "Returning to the Activities Menu"; golf goes
-                            // hole to hole first, then its score card.
-                            let golf = game.strokes.is_some();
+                            // "Returning to the Activities Menu".
+                            self.golf_round = None;
                             self.level = None;
                             self.stop_song();
-                            let mut pages = Vec::new();
-                            if golf {
-                                pages.push(Page::Scores(vec![self.golf_scores]));
-                            }
-                            pages.push(screens::message::returning(&self.disc, true));
-                            self.boot = self.screen(pages, 1, Then::Title, None, now);
+                            let page = screens::message::returning(&self.disc, true);
+                            self.boot = self.screen(vec![page], 1, Then::Title, None, now);
                             return;
                         }
                         if let Some(won) = game.won {

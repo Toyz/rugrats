@@ -33,6 +33,11 @@ const FOV: i32 = 512;
 /// The PRESS X TO CONTINUE line (string 67) and its cube (0x80035798).
 pub const PRESS: u32 = 67;
 const BUTTON_MODEL: u32 = 334;
+/// The faces' heads by slot (0x800bb47c).
+pub const HEADS: [u32; 6] = [2, 17, 32, 64, 49, 1173];
+/// The heads' size on the card (seen: Tommy's about 51 pixels across at
+/// depth 7000; the original's GTE H here is not traced).
+const HEAD_SCALE: f32 = 0.54;
 const DB00_MOD: usize = 242;
 /// The second camera the cubes are seen by (0x80040010).
 const BUTTON_CAMERA: Vec3 = Vec3::new(0.0, 0.0, -500.0);
@@ -101,9 +106,9 @@ pub enum Page {
     /// The loading screen (0x8003eefc): lines (string, colour, font, y),
     /// held a moment once the burst arrives.
     Loading(Vec<(String, [u8; 3], u8, i16)>),
-    /// Mini-golf's score card (0x80095768): each player's strokes by
-    /// hole, until Cross.
-    Scores(Vec<[u32; 9]>),
+    /// Mini-golf's score card (0x80095768): each player's face slot and
+    /// strokes by hole; with PRESS X until Cross, else one frame.
+    Scores { rows: Vec<(usize, [u32; 9])>, press: bool },
 }
 
 /// The messages (0x800930c8 and its siblings), by kind.
@@ -246,6 +251,8 @@ pub struct Screen {
     frames: u32,
     burst: Option<rugrats_data::model::Model>,
     button_model: Option<rugrats_data::model::Model>,
+    /// The six faces' heads (0x800bb47c: models 2, 17, 32, 64, 49, 1173).
+    heads: Vec<Option<rugrats_data::model::Model>>,
     cube: Button,
     z: i32,
     fly: Fly,
@@ -310,7 +317,9 @@ impl Screen {
         if burst.is_none() {
             rrt::tracing::warn!("BURST2.CMD: not read as a model");
         }
-        let button_model = rugrats_data::model::Models::parse(&disc.file(DB00_MOD)?).ok().and_then(|m| m.get(BUTTON_MODEL).cloned());
+        let db00 = rugrats_data::model::Models::parse(&disc.file(DB00_MOD)?).ok();
+        let button_model = db00.as_ref().and_then(|m| m.get(BUTTON_MODEL).cloned());
+        let heads = HEADS.iter().map(|&id| db00.as_ref().and_then(|m| m.has(id).then(|| m.get(id).cloned()).flatten())).collect();
         let mut s = Screen {
             stage,
             pages,
@@ -322,6 +331,7 @@ impl Screen {
             frames: 0,
             burst,
             button_model,
+            heads,
             cube: Button { pos: [-60, 414, 1298], angles: [0; 3], targets: [1024, 0, 0], speed: 128 },
             z: FAR,
             fly: Fly::In,
@@ -380,10 +390,10 @@ impl Screen {
         let done = match page {
             Page::Message { .. } => self.message_frame(pads),
             Page::Restart => self.restart_frame(pads),
-            Page::Scores(_) => {
+            Page::Scores { press, .. } => {
                 self.z = NEAR;
                 self.fly = Fly::Hold;
-                let done = pads.pressed(0, input::CROSS);
+                let done = !press || pads.pressed(0, input::CROSS);
                 if done {
                     self.sounds.push(OK);
                 }
@@ -670,7 +680,7 @@ impl Screen {
                     }
                 }
             }
-            (Some(Page::Scores(players)), _) => {
+            (Some(Page::Scores { rows: players, .. }), _) => {
                 // 0x80095768: "Hole" (-200, -95) and the hole numbers from
                 // x -124 by 27 in 0x5d17c6's colour, "Par" (-200, -75) and
                 // the pars in light blue, "Total" at x 169 in yellow; each
@@ -685,8 +695,19 @@ impl Screen {
                     self.text_at(&crate::golf::PAR[k].to_string(), at(k), -75, blue, &mut overlay);
                 }
                 self.text_at(&crate::golf::PAR.iter().sum::<u32>().to_string(), 169, -75, yellow, &mut overlay);
-                for (p, row) in players.iter().enumerate() {
+                for (p, (slot, row)) in players.iter().enumerate() {
                     let y = -40 + 30 * p as i16;
+                    // The player's head at (-200, -20 + 30 p), depth 7000,
+                    // turned to face the camera (0x80094e90).
+                    if let Some(Some(m)) = self.heads.get(*slot) {
+                        let d = 7000.0;
+                        let at = eye + Vec3::new(-200.0 * d / (self.focal * 1.6), (-20.0 + 30.0 * p as f32) * d / self.focal, d);
+                        // Upright and facing the camera (the part's own axes have y
+                        // along the face; chosen by eye against the oracle's
+                        // pictures).
+                        let r = Mat3::from_rotation_x(std::f32::consts::FRAC_PI_2);
+                        rugrats_render::models::model_triangles(m, r * HEAD_SCALE, at, &mut moving);
+                    }
                     for (k, &n) in row.iter().enumerate().filter(|(_, n)| **n > 0) {
                         self.text_at(&n.to_string(), at(k), y, WHITE, &mut overlay);
                     }

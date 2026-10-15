@@ -91,6 +91,9 @@ pub trait Script {
     fn describe(&self) -> String {
         String::new()
     }
+    /// Activity golf: player `player` (0-3) takes the turn as `character`
+    /// (0x80096a30 step 6).
+    fn activity_turn(&mut self, _g: &mut Game, _player: usize, _character: usize) {}
     /// What the level's ambience reads (crate::ambience): level 2 and 3
     /// +0x30 bit 8, level 9 the deaths to go, level 11 the ring step,
     /// level 12 the refrigerator opened, golf 15 in the stroke.

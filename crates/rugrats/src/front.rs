@@ -190,6 +190,8 @@ pub enum Menu {
     Load,
     /// The audio settings (0x80041970).
     Audio,
+    /// Mini-golf's setup (0x80096134).
+    GolfSetup,
 }
 
 /// The Activities menu's items (0x800bb6a4..b0), where they sit, and
@@ -530,6 +532,8 @@ pub enum Outcome {
     Play(u8),
     /// Load Game (0x800398bc(8, 1, 0, 0)): the state a record held.
     Load(Box<[u8; crate::card::STATE_SIZE]>),
+    /// Mini-golf set up: each player's face slot.
+    Golf(Vec<usize>),
 }
 
 /// What a chosen item leads to, once its items have slid away.
@@ -601,6 +605,15 @@ pub struct Title {
     card: Option<crate::card_menu::CardMenu>,
     card_strings: crate::card_menu::Strings,
     press: String,
+    /// Mini-golf's setup, the count kept between visits (0x800c46cc),
+    /// the menu's sprites (TEXPOS entry 0), the heads, the projection
+    /// and the setup's strings.
+    golf: Option<crate::golf_setup::GolfSetup>,
+    golf_count: usize,
+    sprites: Option<crate::hud::Sprites>,
+    heads: Vec<Option<rugrats_data::model::Model>>,
+    focal: f32,
+    golf_strings: Vec<String>,
 }
 
 fn words(bytes: &[u8]) -> Vec<u16> {
@@ -809,7 +822,14 @@ impl Title {
             card: None,
             card_strings: crate::card_menu::Strings::load(disc),
             press: string(disc, crate::screens::PRESS),
+            golf: None,
+            golf_count: 1,
+            sprites: crate::hud::Sprites::load(disc, 99).ok(),
+            heads: Vec::new(),
+            focal: projection,
+            golf_strings: [87u32, 86, 199, 200, 120, 121, 122, 201].iter().map(|&n| string(disc, n)).collect(),
         };
+        title.heads = crate::screens::HEADS.iter().map(|&id| title.models.has(id).then(|| title.models.get(id).cloned()).flatten()).collect();
         title.draw(true);
         Ok(title)
     }
@@ -863,6 +883,9 @@ impl Title {
         }
         if self.menu == Menu::Audio {
             return self.audio_frame(pads);
+        }
+        if self.menu == Menu::GolfSetup {
+            return self.golf_frame(pads);
         }
         if self.menu == Menu::Activities {
             return self.activities_frame(pads, rng);
@@ -1003,6 +1026,14 @@ impl Title {
             }
             self.start_leaving = None;
             return match end {
+                // Mini-golf goes to its setup first (0x80096134).
+                Some(25) => {
+                    self.menu = Menu::GolfSetup;
+                    self.golf = Some(crate::golf_setup::GolfSetup::with_strings(self.golf_strings.clone(), self.golf_count));
+                    self.items.clear();
+                    self.draw_golf();
+                    None
+                }
                 Some(level) => Some(Outcome::Play(level)),
                 None => {
                     self.menu = Menu::StartGame;
@@ -1121,6 +1152,82 @@ impl Title {
         }
         self.draw_audio();
         None
+    }
+
+    /// A frame of mini-golf's setup: Triangle at the count goes back to
+    /// the Activities menu; the last pick plays.
+    fn golf_frame(&mut self, pads: &crate::input::Pads) -> Option<Outcome> {
+        let Some(setup) = &mut self.golf else { return None };
+        let out = setup.frame(pads);
+        self.sounds.extend(setup.sounds.drain(..));
+        self.golf_count = setup.count();
+        self.frames += 1;
+        if self.frames % 30 == 0 {
+            self.backdrop.fading = true;
+        }
+        if self.backdrop.fading {
+            self.backdrop.fading = self.backdrop.step();
+        }
+        for b in &mut self.buttons {
+            b.step();
+        }
+        match out {
+            Some(crate::golf_setup::Outcome::Back) => {
+                self.golf = None;
+                self.activities();
+                self.draw(true);
+                None
+            }
+            Some(crate::golf_setup::Outcome::Play(slots)) => {
+                self.golf = None;
+                Some(Outcome::Golf(slots))
+            }
+            None => {
+                self.draw_golf();
+                None
+            }
+        }
+    }
+
+    fn draw_golf(&mut self) {
+        let Some(setup) = &self.golf else { return };
+        self.stage.under.clear();
+        self.backdrop.triangles(&mut self.stage.under);
+        self.stage.moving.clear();
+        self.stage.overlay.clear();
+        setup.draw(
+            &self.fonts,
+            &self.heads,
+            self.sprites.as_ref(),
+            rrt::glam::Vec3::from(CAMERA),
+            self.focal,
+            &mut self.stage.under,
+            &mut self.stage.moving,
+            &mut self.stage.overlay,
+        );
+        self.draw_labels(2);
+    }
+
+    /// CANCEL and ACCEPT (`shown` of them) with their cubes.
+    fn draw_labels(&mut self, shown: usize) {
+        let shift = rrt::glam::Vec3::from(CAMERA) - rrt::glam::Vec3::from(BUTTON_CAMERA);
+        for t in self.labels.iter().take(shown) {
+            let mut shadow = t.clone();
+            shadow.rgb = [1, 1, 1];
+            shadow.x += 2;
+            shadow.y += 2;
+            shadow.triangles(&self.fonts, &mut self.stage.overlay);
+            t.triangles(&self.fonts, &mut self.stage.overlay);
+        }
+        for b in self.buttons.iter().take(shown) {
+            let m = self.trig.euler(b.angles);
+            let rows = rrt::glam::Mat3::from_cols_array(
+                &m.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap(),
+            )
+            .transpose();
+            let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
+            rugrats_render::models::model_triangles(&self.button_model, rows.transpose(), pos, &mut self.stage.moving);
+        }
     }
 
     fn draw_audio(&mut self) {

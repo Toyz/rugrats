@@ -111,7 +111,19 @@ pub struct Golf {
     strings: [String; 5],
     /// The holing-out line tables (0x8007a9d8), by address.
     lines: Vec<(u32, Vec<u16>)>,
+    /// Activity play: the bodies a turn may take (characters 1-5 and
+    /// Susie, 37), the ball's tee, and "Player %d" / "Hole %d" (203, 204)
+    /// with the turn's player and colour.
+    bodies: Vec<(usize, rugrats_data::hierarchy::Hierarchy, crate::animator::Animator)>,
+    tee: [i32; 3],
+    turn_strings: [String; 2],
+    turn: Option<(usize, [u8; 3])>,
 }
+
+/// Activity play's characters, by face slot (0x800bb4ac).
+pub const FACES: [usize; 6] = [1, 2, 3, 5, 4, 37];
+/// The players' colours (0x800bb494): red, green, blue, yellow.
+pub const PLAYER_COLOURS: [[u8; 3]; 4] = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0]];
 
 /// The holing-out tables: over par by character, the last try, the
 /// last hole, under par by character.
@@ -151,8 +163,11 @@ impl Golf {
                 g.player.set_body(h, a, crate::player::TURN, &g.anims);
             }
         }
-        for id in OTHERS {
-            g.hide(id, true);
+        // In activity play only holes 0 and 8 hide the others (0x80096a30).
+        if !g.activity || matches!(hole, 0 | 8) {
+            for id in OTHERS {
+                g.hide(id, true);
+            }
         }
         g.player.pos = STARTS[hole];
         g.player.no_jump = true;
@@ -172,7 +187,33 @@ impl Golf {
                 (at, b.chunks_exact(2).map(|w| u16::from_le_bytes([w[0], w[1]])).collect())
             })
             .collect();
-        let mut golf = Golf { hole, strokes: 0, stage: Stage::Free, ball, roll: None, lipped: false, cup, ball_thing, strings, lines };
+        let mut bodies = Vec::new();
+        if g.activity {
+            for c in FACES {
+                if let Some(Some(h)) = g.set.hierarchies.get(c).cloned() {
+                    if let Ok(a) = crate::animator::Animator::load(disc, c as u16) {
+                        bodies.push((c, h, a));
+                    }
+                }
+            }
+        }
+        let turn_strings = [string(203), string(204)];
+        let mut golf = Golf {
+            hole,
+            strokes: 0,
+            stage: Stage::Free,
+            ball,
+            roll: None,
+            lipped: false,
+            cup,
+            ball_thing,
+            strings,
+            lines,
+            bodies,
+            tee: ball,
+            turn_strings,
+            turn: None,
+        };
         golf.settle(g);
         Ok(golf)
     }
@@ -376,12 +417,13 @@ impl Golf {
     /// Holing out (0x8007a9d8).
     fn holed(&mut self, g: &mut Game) {
         g.fixed = None;
-        // Activity play (0x8007a9d8 step 1): the turn ends, nothing judged
-        // or recorded; the round driver takes the next hole.
+        // Activity play (0x8007a9d8 step 1): the turn ends (SwitchEpisode
+        // to this level), nothing judged or recorded; the round driver
+        // takes the next player or hole.
         if g.activity {
             self.stage = Stage::Done;
             g.strokes = Some(self.strokes);
-            g.exit = Some((LEVELS.get(self.hole + 1).copied().unwrap_or(crate::game::HUB), None));
+            g.exit = Some((g.level, None));
             return;
         }
         self.say(g);
@@ -574,7 +616,44 @@ impl crate::game::Script for Golf {
         true
     }
 
+    /// A turn of activity play (0x80096a30 step 6): player `player`'s
+    /// pick plays the hole from the tee with an untouched ball.
+    fn activity_turn(&mut self, g: &mut Game, player: usize, character: usize) {
+        if let Some((_, h, a)) = self.bodies.iter().find(|b| b.0 == character).cloned() {
+            g.player.set_body(h, a, crate::player::TURN, &g.anims);
+        }
+        g.character = character;
+        g.player.pos = STARTS[self.hole];
+        g.player.v = [0; 3];
+        g.player.speed = 0;
+        g.player.frozen = false;
+        g.player.hold = None;
+        g.fixed = None;
+        self.strokes = 0;
+        self.stage = Stage::Free;
+        self.ball = self.tee;
+        self.roll = None;
+        self.lipped = false;
+        self.settle(g);
+        let h = g.player.heading;
+        g.set_camera_yaw(h as f32);
+        self.turn = Some((player, PLAYER_COLOURS[player % 4]));
+    }
+
     fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+        // "Player %d" (-230, 60) and "Hole %d" (-230, 80), font 0, the
+        // player's colour, all turn long (0x80090004).
+        if let Some((p, rgb)) = self.turn {
+            for (k, (form, n)) in [(&self.turn_strings[0], p + 1), (&self.turn_strings[1], self.hole + 1)].into_iter().enumerate() {
+                let t = crate::text::Text { font: 0, spacing: 1, rgb, x: -230, y: 60 + 20 * k as i16, string: form.replace("%d", &n.to_string()), ..Default::default() };
+                let mut shadow = t.clone();
+                shadow.rgb = [0, 1, 0];
+                shadow.x += 2;
+                shadow.y += 2;
+                shadow.triangles(&g.fonts, overlay);
+                t.triangles(&g.fonts, overlay);
+            }
+        }
         if let Some(t) = self.ball_thing.map(|k| &g.things[k]) {
             if let Some(m) = g.set.models.get(t.shape) {
                 let pos = Vec3::new(self.ball[0] as f32, self.ball[1] as f32, self.ball[2] as f32);

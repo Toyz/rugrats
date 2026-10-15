@@ -35,7 +35,7 @@ fn main() -> Result<(), String> {
     let pages = match std::env::var("BARS").ok().and_then(|v| v.parse().ok()) {
         Some(n) => vec![message::bars(&disc, n, 7)],
         None if std::env::var_os("RESTART").is_some() => vec![Page::Restart],
-        None if std::env::var_os("SCORES").is_some() => vec![Page::Scores(vec![[3, 5, 4, 6, 5, 4, 0, 0, 0]])],
+        None if std::env::var_os("SCORES").is_some() => vec![Page::Scores { rows: vec![(0, [3, 5, 4, 6, 5, 4, 0, 0, 0]), (2, [5, 4, 6, 0, 0, 0, 0, 0, 0])], press: true }],
         None if std::env::var("LOADING").is_ok() => {
             let l = std::env::var("LOADING").unwrap().parse().unwrap_or(2);
             vec![message::loading(&disc, l, false, false)]

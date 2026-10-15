@@ -8,7 +8,6 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace.dependencies]
-rugrats-psx = { path = "crates/rugrats-psx" }
 rugrats-data = { path = "crates/rugrats-data" }
 rugrats-hle = { path = "crates/rugrats-hle" }
 rugrats-render = { path = "crates/rugrats-render" }

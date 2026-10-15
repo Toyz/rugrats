@@ -7,6 +7,5 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-rrt = { workspace = true, features = ["disc"] }
-rugrats-psx.workspace = true
+rrt = { workspace = true, features = ["disc", "dis"] }
 rugrats-data.workspace = true

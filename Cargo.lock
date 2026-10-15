@@ -1725,6 +1725,7 @@ source = "git+https://github.com/Toyz/retro_rt#719d0fa7ca9340553e241d48e96649691
 dependencies = [
  "rrt-app",
  "rrt-audio",
+ "rrt-dis",
  "rrt-disc",
  "rrt-emu",
  "rrt-gpu",
@@ -1845,16 +1846,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "rugrats-psx"
-version = "0.1.0"
-
-[[package]]
 name = "rugrats-re"
 version = "0.1.0"
 dependencies = [
  "rrt",
  "rugrats-data",
- "rugrats-psx",
 ]
 
 [[package]]

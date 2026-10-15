@@ -95,7 +95,7 @@ impl Game {
                 self.effects.push(Effect::new(goodie::sound(g.kind)));
                 // Cookies and bones heal by their +0x6d (0x800514b0).
                 if matches!(g.kind, goodie::COOKIE | goodie::BONE) {
-                    self.player.health = (self.player.health + g.value).min(255);
+                    self.player.heal(g.value);
                 }
                 // Messages 3 (a bar) and 7 (a cookie).
                 match g.kind {

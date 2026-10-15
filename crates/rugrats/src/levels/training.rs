@@ -142,7 +142,7 @@ impl Training {
             let r = g.rand.next() & 1;
             g.speech.extend(game::hit_line(3, Level::TRAINING, r));
             let n = &mut g.npcs[k];
-            n.health = (n.health - PIE_DAMAGE).max(0);
+            n.hurt(PIE_DAMAGE);
             if n.health == 0 {
                 n.health = n.max_health;
                 n.mode = Mode::Idle;
@@ -164,7 +164,7 @@ impl Script for Training {
             if let Event::Bite { by, target: Target::Player, amount } = e
                 && amount > 0
             {
-                g.player.health = (g.player.health - amount).max(0);
+                g.player.hurt(amount);
                 g.play(52);
                 if g.npcs[by].id == LOBSTER {
                     g.training.show(13);
@@ -178,7 +178,7 @@ impl Script for Training {
             }
             g.play(44);
             let n = &mut g.npcs[k];
-            n.health = (n.health - amount).max(0);
+            n.hurt(amount);
             if n.health == 0 {
                 n.mode = Mode::Idle;
                 g.hide(LOBSTER, true);

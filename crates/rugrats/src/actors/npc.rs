@@ -168,6 +168,11 @@ fn wrap(a: i32) -> i32 {
 }
 
 impl Npc {
+    /// Loses `amount` health, to 0 at least.
+    pub fn hurt(&mut self, amount: i32) {
+        self.health = (self.health - amount).max(0);
+    }
+
     pub fn feet(&self) -> i32 {
         self.hierarchy.parts.first().map_or(0, |r| r.offset[1])
     }

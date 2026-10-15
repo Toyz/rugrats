@@ -311,7 +311,7 @@ impl GrandpasTeeth {
         for e in std::mem::take(&mut g.npc_events) {
             match e {
                 Event::Bite { target: Target::Player, amount, .. } if amount > 0 => {
-                    g.player.health = (g.player.health - amount).max(0);
+                    g.player.hurt(amount);
                     g.play(30);
                 }
                 _ => {}
@@ -348,7 +348,7 @@ impl GrandpasTeeth {
             let gone = p.travelled > PUCK_RANGE;
             if let Some(k) = hit {
                 let n = &mut g.npcs[k];
-                n.health = (n.health - PUCK_DAMAGE).max(0);
+                n.hurt(PUCK_DAMAGE);
                 let then = match &n.mode {
                     Mode::Hit { then, .. } => then.clone(),
                     m => Box::new(m.clone()),

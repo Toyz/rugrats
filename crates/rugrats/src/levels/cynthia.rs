@@ -112,7 +112,7 @@ impl Script for Cynthia {
             if let Event::Bite { target: Target::Player, amount, .. } = e
                 && amount > 0
             {
-                g.player.health = (g.player.health - amount).max(0);
+                g.player.hurt(amount);
                 g.play(BITE_SOUND);
             }
         }
@@ -130,7 +130,7 @@ impl Script for Cynthia {
                 if self.hurt[k] == 0 {
                     self.hurt[k] = HURT_EVERY;
                     let d = if moving { MOVE_HURT } else { STAND_HURT };
-                    g.player.health = (g.player.health - d).max(0);
+                    g.player.hurt(d);
                 }
             }
         }

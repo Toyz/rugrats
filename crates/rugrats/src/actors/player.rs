@@ -145,6 +145,16 @@ pub struct Player {
 }
 
 impl Player {
+    /// Loses `amount` health, to 0 at least.
+    pub fn hurt(&mut self, amount: i32) {
+        self.health = (self.health - amount).max(0);
+    }
+
+    /// Gains `amount` health, to 255 at most.
+    pub fn heal(&mut self, amount: i32) {
+        self.health = (self.health + amount).min(255);
+    }
+
     /// Where it stands and faces now.
     pub fn pose(&self) -> Pose {
         Pose::new(self.pos, self.heading)
@@ -249,7 +259,7 @@ impl Player {
                 // The slip's fall ends (state 18): Damage 5, message 30.
                 if self.slipping {
                     self.slipping = false;
-                    self.health = (self.health - SLIP_DAMAGE).max(0);
+                    self.hurt(SLIP_DAMAGE);
                     self.hints.push(30);
                 }
             }
@@ -414,7 +424,7 @@ impl Player {
             self.state = State::Land;
             // A long fall (state 10, 0x8005b2d8): Damage 5, message 31.
             if self.air >= LONG_FALL && self.falls_hurt {
-                self.health = (self.health - FALL_DAMAGE).max(0);
+                self.hurt(FALL_DAMAGE);
                 self.hints.push(31);
             }
         } else if self.v[1] > 0 {

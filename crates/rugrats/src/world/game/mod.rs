@@ -1177,7 +1177,7 @@ impl Game {
                 .map(|h| h.damage)
                 .max();
             if let Some(d) = hurt {
-                self.player.health = (self.player.health - d).max(0);
+                self.player.hurt(d);
                 self.hurt_wait = 300;
             }
         }

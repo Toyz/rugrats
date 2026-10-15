@@ -86,7 +86,7 @@ impl MrFriend {
         if (matches!(n.mode, Mode::Hit { .. }) && !l14) || n.hidden {
             return;
         }
-        n.health = (n.health - amount).max(0);
+        n.hurt(amount);
         if !l14 {
             g.effects.push(Effect::new(19));
             // His line (0x800833a4 / 0x800834b0 in level 9: 0x800b96c8).
@@ -129,7 +129,7 @@ impl Script for MrFriend {
             if let Event::Bite { target: Target::Player, amount, .. } = e
                 && amount > 0
             {
-                g.player.health = (g.player.health - amount).max(0);
+                g.player.hurt(amount);
             }
         }
         // Things thrown at him (0x800834b0 and Damage with the thing's

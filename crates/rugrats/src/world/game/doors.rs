@@ -174,7 +174,7 @@ impl Game {
                     && !self.no_damage
                 {
                     s.hurt = 250;
-                    self.player.health = (self.player.health - s.damage).max(0);
+                    self.player.hurt(s.damage);
                 }
                 continue;
             }

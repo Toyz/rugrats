@@ -146,7 +146,7 @@ impl Script for ToyPalace {
             if let Event::Bite { target: Target::Player, amount, .. } = e
                 && amount > 0
             {
-                g.player.health = (g.player.health - amount).max(0);
+                g.player.hurt(amount);
             }
         }
         let p = g.player.pos;
@@ -165,7 +165,7 @@ impl Script for ToyPalace {
         match self.scary.iter().find(|s| d2(s.pos) < s.radius * s.radius) {
             Some(s) if !self.scared => {
                 self.scared = true;
-                g.player.health = (g.player.health - s.damage).max(0);
+                g.player.hurt(s.damage);
                 g.play(72);
             }
             Some(_) => {}
@@ -175,7 +175,7 @@ impl Script for ToyPalace {
         self.clock += 1;
         for &Burst { at, period, reach } in &self.bursts {
             if self.clock % period == 0 && d2(at) <= reach * reach {
-                g.player.health = (g.player.health - BURST_HURT).max(0);
+                g.player.hurt(BURST_HURT);
                 g.play(79);
             }
         }
@@ -194,7 +194,7 @@ impl Script for ToyPalace {
                 g.play(173);
                 let h = g.player.heading;
                 g.player.launch(h, -2000, 0, &g.trig);
-                g.player.health = (g.player.health - 5).max(0);
+                g.player.hurt(5);
             }
         }
     }

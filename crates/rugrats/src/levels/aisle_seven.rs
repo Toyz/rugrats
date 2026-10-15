@@ -225,7 +225,7 @@ impl AisleSeven {
             for id in [LARRY, STEVE] {
                 if let Some(k) = find(g, id) {
                     let n = &mut g.npcs[k];
-                    n.health = (n.health - PIE_DAMAGE).max(0);
+                    n.hurt(PIE_DAMAGE);
                     left = n.health;
                     let then = Box::new(n.mode.clone());
                     if !matches!(n.mode, Mode::Hit { .. }) {
@@ -247,7 +247,7 @@ impl Script for AisleSeven {
         for e in std::mem::take(&mut g.npc_events) {
             match e {
                 Event::Bite { target: Target::Player, amount, .. } if amount > 0 => {
-                    g.player.health = (g.player.health - amount).max(0);
+                    g.player.hurt(amount);
                     g.play(52);
                 }
                 // GoalPost (0x80077ff0): one of them reached post 39.
@@ -274,7 +274,7 @@ impl Script for AisleSeven {
             if id == BOSS {
                 n.mode = Mode::Hit { left: STUN, then: Box::new(back) };
             } else if LOBSTERS.contains(&id) {
-                n.health = (n.health - amount).max(0);
+                n.hurt(amount);
                 if n.health == 0 {
                     n.mode = Mode::Idle;
                     g.hide(id, true);

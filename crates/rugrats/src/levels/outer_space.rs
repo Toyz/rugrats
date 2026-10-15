@@ -213,7 +213,7 @@ impl Script for OuterSpace {
             if let Event::Bite { target: Target::Player, amount, .. } = e
                 && amount > 0
             {
-                g.player.health = (g.player.health - amount).max(0);
+                g.player.hurt(amount);
             }
         }
         // Batteries (kind 12, 0x80051c68): +30 charge, sound 69.

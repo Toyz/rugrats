@@ -126,7 +126,7 @@ impl Script for LetThereBeLight {
             if let Event::Bite { target: Target::Player, amount, .. } = e
                 && amount > 0
             {
-                g.player.health = (g.player.health - amount).max(0);
+                g.player.hurt(amount);
             }
         }
         // Shining (0x8005a6f4): Triangle held, 1 a frame, sound 161 on the

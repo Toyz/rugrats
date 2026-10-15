@@ -11,7 +11,7 @@ use crate::actors::npc::{Event, Mode, Target};
 use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::{Exit, Game};
+use crate::world::game::{Collected, Exit, Game};
 
 /// Hidden by cine 37's end (0x800732d4 case 37) and 0x8007b280.
 const CINE_ACTORS: [u16; 11] = [1776, 608, 609, 1492, 130, 132, 131, 134, 514, 524, 8801];
@@ -206,7 +206,7 @@ impl crate::world::game::Script for OuterSpace {
             }
         }
         // Batteries (kind 12, 0x80051c68): +30 charge, sound 69.
-        for (kind, value) in std::mem::take(&mut g.collected) {
+        for Collected { kind, value } in std::mem::take(&mut g.collected) {
             if kind == 12 {
                 self.charge = (self.charge + value).min(CHARGE);
                 g.play(69);

@@ -2,25 +2,18 @@
 //! database's rooms and objects on a stage, the collision under them, the
 //! player, and the follow camera.
 
-pub use crate::actors::player::Pose;
 use rrt::glam::{Mat3, Vec3};
-
 use rugrats_data::anim::Anims;
-
 use rugrats_data::cine::Frame;
-
 use rugrats_data::col::Col;
 
+pub use crate::actors::npc::Npc;
 use crate::actors::player::Player;
-
+pub use crate::actors::player::Pose;
 use crate::disc::GameDisc;
-
 use crate::gte::Trig;
-
 use crate::input::{self, Pads};
-
 use crate::media::cine::Set;
-
 use crate::stage::Stage;
 
 mod boxes;
@@ -38,7 +31,7 @@ use boxes::*;
 use camera::*;
 pub use doors::Door;
 use doors::*;
-pub use goodies::{Goodie, goodie, spawn};
+pub use goodies::{Collected, Goodie, goodie, spawn};
 pub use movers::Mover;
 pub use pause::PauseEnd;
 use pause::*;
@@ -46,7 +39,7 @@ use rooms::*;
 use story::*;
 pub use story::{hit_line, start_cine};
 use things::*;
-pub use things::{Breakable, Thing, ThingState};
+pub use things::{Breakable, Strike, Thing, ThingState};
 pub use toys::{Spinner, Walker};
 
 const COL: usize = 466;
@@ -239,8 +232,8 @@ pub struct Game {
     apart: Vec<bool>,
     /// Placements hidden one by one (hide_placement).
     hidden_places: std::collections::HashSet<usize>,
-    /// Collectibles taken this frame: (kind, +0x6d).
-    pub collected: Vec<(u16, i32)>,
+    /// Collectibles taken this frame.
+    pub collected: Vec<Collected>,
     /// Placements whose use was taken away (+0x54 = 0).
     unusable: std::collections::HashSet<usize>,
     /// The moving platforms (template class 11).
@@ -252,9 +245,8 @@ pub struct Game {
     /// Spinning toys (class 2) and post walkers (class 15).
     pub spinners: Vec<Spinner>,
     pub walkers: Vec<Walker>,
-    /// Thrown objects that struck a character this frame (0x80086ef0):
-    /// (character, thing, the thing's +0x6d).
-    pub struck: Vec<(usize, usize, i32)>,
+    /// Thrown objects that struck a character this frame (0x80086ef0).
+    pub struck: Vec<Strike>,
     /// A fixed camera (eye, look-at) a level sets (0x800291f8 kind 4).
     pub fixed: Option<(Vec3, Vec3)>,
     /// The follow camera's height (0x800c3f5c) and distance (0x800c4a4c),
@@ -265,7 +257,7 @@ pub struct Game {
     /// Objects that hurt on touch (not pickable, not characters, +0x6d
     /// over 0: Damage(player, 0, +0x6d), 0x8005e1f4), and the time until
     /// the next hurt.
-    hazards: Vec<(crate::actors::player::Box3, i32)>,
+    hazards: Vec<Hazard>,
     hurt_wait: i32,
     /// The level timer (0x800c4430, dt left), set by a level.
     pub timer: Option<i32>,
@@ -302,8 +294,8 @@ pub struct Game {
     pub speech: Vec<u16>,
     pub lines: crate::audio::speech::Speech,
     /// Placements that speak when the player comes near (LP +0x4c, the
-    /// trigger list 0x80072d38): placement, line, radius, inside.
-    talkers: Vec<(usize, u16, i32, bool)>,
+    /// trigger list 0x80072d38).
+    talkers: Vec<Talker>,
     /// The ambience countdown (0x800c4cc0), its first-line flag
     /// (0x800c4cc4) and its line tables.
     pub ambience: i32,
@@ -340,8 +332,6 @@ pub fn shadowed(fonts: &crate::ui::text::Fonts, x: i16, y: i16, string: String, 
     shadow.triangles(fonts, out);
     t.triangles(fonts, out);
 }
-
-pub use crate::actors::npc::Npc;
 
 /// The hub mirror (templates 836, 881) and the locked door's card.
 const MIRROR_A: u32 = 836;
@@ -1186,10 +1176,11 @@ impl Game {
             let hurt = self
                 .hazards
                 .iter()
-                .filter(|(b, _)| {
+                .filter(|h| {
+                    let b = &h.area;
                     b.covers(p, crate::actors::player::RADIUS + 40) && b.min_y <= feet + 40 && b.max_y >= head
                 })
-                .map(|&(_, d)| d)
+                .map(|h| h.damage)
                 .max();
             if let Some(d) = hurt {
                 self.player.health = (self.player.health - d).max(0);

@@ -7,7 +7,7 @@
 use crate::actors::npc::Mode;
 use crate::disc::GameDisc;
 use crate::input::Pads;
-use crate::world::game::{Exit, Game};
+use crate::world::game::{Collected, Exit, Game};
 
 /// The nickels (template 446, kind 2, group 1) and the gold coin (1218,
 /// kind 15, group 0).
@@ -92,7 +92,7 @@ impl GoldRush {
 impl crate::world::game::Script for GoldRush {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         g.npc_events.clear();
-        for (kind, _) in std::mem::take(&mut g.collected) {
+        for Collected { kind, .. } in std::mem::take(&mut g.collected) {
             if kind == GOLD_KIND {
                 self.gold = true;
                 g.fourth_bar = true;

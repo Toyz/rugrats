@@ -5,7 +5,7 @@
 
 use crate::disc::GameDisc;
 use crate::input::Pads;
-use crate::world::game::Game;
+use crate::world::game::{Collected, Game};
 
 /// The eggs (template 496, kind 1) and the gold egg (1219, kind 17).
 const EGG: u16 = 496;
@@ -46,7 +46,7 @@ impl EggHunt {
 
 impl crate::world::game::Script for EggHunt {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
-        for (kind, _) in std::mem::take(&mut g.collected) {
+        for Collected { kind, .. } in std::mem::take(&mut g.collected) {
             if kind == GOLD_KIND {
                 self.gold = true;
                 g.fourth_bar = true;

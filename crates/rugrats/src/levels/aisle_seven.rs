@@ -13,7 +13,7 @@ use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
-use crate::world::game::{Exit, Game};
+use crate::world::game::{Exit, Game, Strike};
 
 /// Registry ids (LP +0x2a).
 const LARRY: u16 = 75;
@@ -259,7 +259,7 @@ impl crate::world::game::Script for AisleSeven {
         }
         // Thrown objects (0x800511a8): a lobster loses the thing's +0x6d
         // and at 0 is gone (0x8007ebd4); the boss is stunned 600 dt.
-        for (k, _, amount) in std::mem::take(&mut g.struck) {
+        for Strike { npc: k, damage: amount, .. } in std::mem::take(&mut g.struck) {
             let id = g.npcs[k].id;
             g.play(44);
             let n = &mut g.npcs[k];

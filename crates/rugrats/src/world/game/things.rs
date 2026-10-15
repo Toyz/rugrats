@@ -62,6 +62,15 @@ pub(super) const STRIKE: i32 = 450;
 /// Thrown objects fall at 13 (flight flags 0x700).
 pub(super) const THING_GRAVITY: i32 = 13;
 
+/// A thrown thing that struck a character: the NPC, the thing and its
+/// +0x6d.
+#[derive(Clone, Copy, Debug)]
+pub struct Strike {
+    pub npc: usize,
+    pub thing: usize,
+    pub damage: i32,
+}
+
 impl Game {
     /// The throw's direction at the aim target (0x80059b34, 0x80061c98):
     /// the nearest character within 512 of the player's heading.
@@ -236,7 +245,7 @@ impl Game {
                         && (t.pos.y - (n.pos[1] - n.feet() / 2) as f32).abs() < 900.0
                 });
                 if let Some(n) = hit {
-                    self.struck.push((n, k, t.damage));
+                    self.struck.push(Strike { npc: n, thing: k, damage: t.damage });
                     let c = self.npcs[n].character;
                     let r = self.rand.next() & 1;
                     self.speech.extend(hit_line(c, self.level, r));

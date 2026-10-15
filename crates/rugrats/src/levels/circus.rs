@@ -13,7 +13,7 @@ use crate::actors::npc::Mode;
 use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::{Exit, Game};
+use crate::world::game::{Collected, Exit, Game};
 
 /// Ids: the tricycle, Angelica, Chuckie, Tommy, the net, the board.
 const TRIKE: u16 = 508;
@@ -213,7 +213,7 @@ impl crate::world::game::Script for Circus {
             Step::Bones => {
                 // 0x800514b0's level 11 path: each bone moves the next to the
                 // next stand; the twelfth wins the ring.
-                for (kind, _) in std::mem::take(&mut g.collected) {
+                for Collected { kind, .. } in std::mem::take(&mut g.collected) {
                     if kind == crate::world::game::goodie::BONE {
                         self.bones += 1;
                         if self.bones >= BONES {

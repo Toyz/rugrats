@@ -5,8 +5,15 @@ use super::*;
 /// The world boxes of the placed models (the player's placement left out):
 /// each model box with the placement's rotation and position, and the
 /// heights its corners span.
-/// The boxes of the objects that hurt on touch, with their +0x6d.
-pub(super) fn hazards(set: &Set, apart: &[bool]) -> Vec<(crate::actors::player::Box3, i32)> {
+/// An object's box that hurts on touch by its +0x6d.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Hazard {
+    pub area: crate::actors::player::Box3,
+    pub damage: i32,
+}
+
+/// The boxes of the objects that hurt on touch.
+pub(super) fn hazards(set: &Set, apart: &[bool]) -> Vec<Hazard> {
     let mut out = Vec::new();
     for (k, place) in set.placements.iter().enumerate() {
         let Some(t) = set.templates.get(place.template as usize) else { continue };
@@ -17,7 +24,7 @@ pub(super) fn hazards(set: &Set, apart: &[bool]) -> Vec<(crate::actors::player::
         let Some(m) = set.models.get(t.shape as u32).filter(|_| set.models.has(t.shape as u32)) else { continue };
         let rot = rugrats_render::models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
         let pos = Vec3::new(place.pos[0] as f32, place.pos[1] as f32, place.pos[2] as f32);
-        out.extend(world_boxes(m, rot, pos).into_iter().map(|b| (b, damage)));
+        out.extend(world_boxes(m, rot, pos).into_iter().map(|area| Hazard { area, damage }));
     }
     out
 }

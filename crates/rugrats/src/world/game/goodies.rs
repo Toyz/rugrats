@@ -67,6 +67,13 @@ pub fn spawn(spots: &mut [rugrats_data::placement::Spot], group: usize, rand: &m
     None
 }
 
+/// A collectible taken this frame: its kind and +0x6d.
+#[derive(Clone, Copy, Debug)]
+pub struct Collected {
+    pub kind: u16,
+    pub value: i32,
+}
+
 impl Game {
     /// Touching collectibles (0x800514b0): taken, with their kind's sound.
     pub(super) fn touch(&mut self) {
@@ -81,7 +88,7 @@ impl Game {
             let d = g.pos - me;
             if Vec3::new(d.x, 0.0, d.z).length() < r && d.y.abs() < 1200.0 {
                 g.taken = true;
-                self.collected.push((g.kind, g.value));
+                self.collected.push(Collected { kind: g.kind, value: g.value });
                 self.effects.push(Effect::new(goodie::sound(g.kind)));
                 // Cookies and bones heal by their +0x6d (0x800514b0).
                 if matches!(g.kind, goodie::COOKIE | goodie::BONE) {

@@ -8,7 +8,7 @@
 use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::Game;
+use crate::world::game::{Collected, Game};
 
 /// The boxes (template 1102, ids 207-212) and the room each stands in;
 /// the room's (group, slot) (0x8007d02c).
@@ -146,7 +146,7 @@ impl Mirrorland {
 impl crate::world::game::Script for Mirrorland {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         // Balloons taken (0x800514b0 kinds 6-11): sound 113, the count.
-        for (kind, _) in std::mem::take(&mut g.collected) {
+        for Collected { kind, .. } in std::mem::take(&mut g.collected) {
             if BALLOON_KINDS.contains(&kind) && self.running.is_some() {
                 g.play(113);
                 self.taken += 1;

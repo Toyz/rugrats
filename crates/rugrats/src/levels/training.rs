@@ -10,7 +10,7 @@ use crate::actors::npc::{Event, Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
-use crate::world::game::Game;
+use crate::world::game::{Game, Strike};
 
 const ANGELICA: u16 = 600;
 /// The lobster (template 495, id 0): posts 10-19, bites 15.
@@ -168,7 +168,7 @@ impl crate::world::game::Script for Training {
             }
         }
         // A thrown can kills the lobster (Damage 50 on 50).
-        for (k, _, amount) in std::mem::take(&mut g.struck) {
+        for Strike { npc: k, damage: amount, .. } in std::mem::take(&mut g.struck) {
             if g.npcs[k].id != LOBSTER {
                 continue;
             }

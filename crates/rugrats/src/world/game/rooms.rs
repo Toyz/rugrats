@@ -6,7 +6,7 @@ use super::*;
 /// The placements with a speech line (LP +0x4c; template 613 says 194,
 /// 0x80046d04) and their trigger radius (template +0x34).
 /// The hub's doors lose theirs to the sign's enter (0x800481c8).
-pub(super) fn talkers(set: &Set, level: usize) -> Vec<(usize, u16, i32, bool)> {
+pub(super) fn talkers(set: &Set, level: usize) -> Vec<Talker> {
     set.placements
         .iter()
         .enumerate()
@@ -15,9 +15,19 @@ pub(super) fn talkers(set: &Set, level: usize) -> Vec<(usize, u16, i32, bool)> {
             let line = if p.template == 613 { 194 } else { p.speech };
             let t = set.templates.get(p.template as usize)?;
             let radius = u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32;
-            (line != 0 && radius > 0).then_some((k, line, radius, false))
+            (line != 0 && radius > 0).then_some(Talker { placement: k, line, radius, inside: false })
         })
         .collect()
+}
+
+/// A placement that speaks when the player comes within `radius` (2D).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Talker {
+    placement: usize,
+    line: u16,
+    radius: i32,
+    /// The player was inside last frame.
+    inside: bool,
 }
 
 impl Game {
@@ -41,14 +51,14 @@ impl Game {
         let p = self.player.pos;
         let room = self.room;
         for k in 0..self.talkers.len() {
-            let (i, line, radius, was) = self.talkers[k];
-            let d = &self.set.placements[i];
+            let Talker { placement, line, radius, inside: was } = self.talkers[k];
+            let d = &self.set.placements[placement];
             let (dx, dz) = ((d.pos[0] - p[0]) as i64, (d.pos[2] - p[2]) as i64);
             let inside = dx * dx + dz * dz < (radius as i64) * (radius as i64);
             if inside && !was && !self.hidden.contains(&d.id) && room.is_some() && self.room_of(d.pos) == room {
                 self.speech.push(line);
             }
-            self.talkers[k].3 = inside;
+            self.talkers[k].inside = inside;
         }
     }
 

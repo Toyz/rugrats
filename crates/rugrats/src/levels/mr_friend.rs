@@ -7,7 +7,7 @@
 use crate::actors::npc::{Event, Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::Game;
+use crate::world::game::{Game, Strike};
 
 /// The Mr. Friends (char 16): 46 first, 91 and 800 after cine 18.
 const FRIENDS: [u16; 3] = [46, 91, 800];
@@ -134,7 +134,7 @@ impl crate::world::game::Script for MrFriend {
         }
         // Things thrown at him (0x800834b0 and Damage with the thing's
         // +0x6d).
-        for (k, _, amount) in std::mem::take(&mut g.struck) {
+        for Strike { npc: k, damage: amount, .. } in std::mem::take(&mut g.struck) {
             if FRIENDS.contains(&g.npcs[k].id) && amount > 0 {
                 self.hit(g, k, amount);
             }

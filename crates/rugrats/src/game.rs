@@ -160,6 +160,8 @@ pub struct Game {
     apart: Vec<bool>,
     /// Placements whose use was taken away (+0x54 = 0).
     unusable: std::collections::HashSet<usize>,
+    /// The moving platforms (template class 11).
+    pub movers: Vec<Mover>,
     /// Thrown objects that struck a character this frame (0x80086ef0):
     /// (character, thing, the thing's +0x6d).
     pub struck: Vec<(usize, usize, i32)>,
@@ -190,6 +192,61 @@ pub struct Game {
     /// Screens a level asks for (the golf box), shown with the level
     /// frozen.
     pub pages: Vec<crate::screens::Page>,
+}
+
+/// A moving platform (0x80048804, think 0x8004ee00): per axis it steps by
+/// the template's +0x18.. until it has gone +0x1e.. and, with template
+/// flag 0x10000000, back again, over and over; else it stops there.
+pub struct Mover {
+    pub id: u16,
+    pub shape: u32,
+    pub start: [i32; 3],
+    pub pos: [i32; 3],
+    pub rot: Mat3,
+    step: [i32; 3],
+    range: [i32; 3],
+    gone: [i32; 3],
+    out: [bool; 3],
+    back_and_forth: bool,
+    /// This frame's move.
+    pub delta: [i32; 3],
+    /// Armed once the player comes within the template's trigger radius
+    /// (+0x34, the trigger list 0x80072d38); 0 always.
+    radius: i32,
+    armed: bool,
+}
+
+impl Mover {
+    fn world(&self) -> Vec3 {
+        Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32)
+    }
+
+    fn step(&mut self, player: [i32; 3]) {
+        self.delta = [0; 3];
+        if !self.armed {
+            let (dx, dz) = ((player[0] - self.pos[0]) as i64, (player[2] - self.pos[2]) as i64);
+            self.armed = self.radius == 0 || dx * dx + dz * dz < (self.radius as i64).pow(2);
+            if !self.armed {
+                return;
+            }
+        }
+        for i in 0..3 {
+            if self.range[i] == 0 {
+                continue;
+            }
+            let done = if self.out[i] { self.gone[i].abs() >= self.range[i].abs() } else { self.gone[i] == 0 };
+            if done {
+                if self.back_and_forth {
+                    self.out[i] = !self.out[i];
+                }
+                continue;
+            }
+            let d = if self.out[i] { self.step[i] } else { -self.step[i] };
+            self.gone[i] += d;
+            self.pos[i] += d;
+            self.delta[i] = d;
+        }
+    }
 }
 
 /// A collectible (0x80048a44, touched by 0x800514b0).
@@ -426,7 +483,37 @@ impl Game {
             }
         }
         let pickable = |k: usize| pickable(k) && !collectible(k);
-        let apart: Vec<bool> = (0..set.placements.len()).map(|k| character(k) || pickable(k) || collectible(k)).collect();
+        // Movers: template class 11 (0x80049ab0, 0x80048804).
+        let mover = |k: usize| {
+            let p = &set.placements[k];
+            p.kind == 1
+                && !character(k)
+                && set.templates.get(p.template as usize).is_some_and(|t| t.raw[4] == 11 && set.models.find(t.shape as u32) != 0)
+        };
+        let movers: Vec<Mover> = (0..set.placements.len())
+            .filter(|&k| mover(k))
+            .map(|k| {
+                let p = &set.placements[k];
+                let t = &set.templates[p.template as usize];
+                let h = |at: usize| i16::from_le_bytes([t.raw[at], t.raw[at + 1]]) as i32;
+                Mover {
+                    id: p.id,
+                    shape: t.shape as u32,
+                    start: p.pos,
+                    pos: p.pos,
+                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    step: [h(0x18), h(0x1a), h(0x1c)],
+                    range: [h(0x1e), h(0x20), h(0x22)],
+                    gone: [0; 3],
+                    out: [true; 3],
+                    back_and_forth: t.flags & 0x1000_0000 != 0,
+                    delta: [0; 3],
+                    radius: u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32,
+                    armed: false,
+                }
+            })
+            .collect();
+        let apart: Vec<bool> = (0..set.placements.len()).map(|k| character(k) || pickable(k) || collectible(k) || mover(k)).collect();
         let scenery = set.objects_except(&Frame::default(), |k| apart[k]);
         let mut npcs = Vec::new();
         for (k, p) in set.placements.iter().enumerate() {
@@ -523,6 +610,7 @@ impl Game {
             apart,
             unusable: Default::default(),
             struck: Vec::new(),
+            movers,
             fixed: None,
             eye_up: default_eye_up(level),
             behind: if level == 7 { 6400.0 } else { BEHIND },
@@ -605,6 +693,19 @@ impl Game {
             self.set.room_info[k].flags &= !64;
             self.with_script(|s, g| s.gameplay(g, r.script));
         }
+    }
+
+    /// The mover whose top the player stands on.
+    fn mover_under_player(&self) -> Option<usize> {
+        let p = self.player.pos;
+        let feet = p[1] - self.player.feet();
+        self.movers.iter().position(|m| {
+            self.set.models.get(m.shape).is_some_and(|model| {
+                world_boxes(model, m.rot, m.world())
+                    .iter()
+                    .any(|b| b.covers(p, crate::player::RADIUS) && (b.min_y - feet).abs() <= 48)
+            })
+        })
     }
 
     /// Runs `f` on the level's script, if any.
@@ -914,7 +1015,24 @@ impl Game {
             self.draw();
             return;
         }
+        // Movers step (0x8004ee00), carrying a player who stands on one.
+        let standing_on = self.mover_under_player();
+        let me = self.player.pos;
+        for m in &mut self.movers {
+            m.step(me);
+        }
+        if let Some(k) = standing_on {
+            let d = self.movers[k].delta;
+            for i in 0..3 {
+                self.player.pos[i] += d[i];
+            }
+        }
         let mut boxes = self.boxes.clone();
+        for m in &self.movers {
+            if let Some(model) = self.set.models.get(m.shape) {
+                boxes.extend(world_boxes(model, m.rot, m.world()));
+            }
+        }
         for t in self.things.iter().filter(|t| t.state == ThingState::Rest) {
             if let Some(m) = self.set.models.get(t.shape) {
                 boxes.extend(world_boxes(m, t.rot, t.pos));
@@ -1069,6 +1187,11 @@ impl Game {
         for t in self.things.iter().filter(|t| !t.hidden) {
             if let Some(m) = self.set.models.get(t.shape) {
                 rugrats_render::models::model_triangles(m, t.rot, t.pos, &mut moving);
+            }
+        }
+        for m in &self.movers {
+            if let Some(model) = self.set.models.get(m.shape) {
+                rugrats_render::models::model_triangles(model, m.rot, m.world(), &mut moving);
             }
         }
         for g in self.goodies.iter().filter(|g| !g.taken) {

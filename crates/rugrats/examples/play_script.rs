@@ -76,7 +76,8 @@ fn main() -> Result<(), String> {
                 }
             }
             if frame % 30 == 0 {
-                if let Some(l) = &game.script {
+                {
+                    let phase = game.script.as_ref().map_or(0, |l| l.phase());
                     // NPCS=id,id: the characters to show (level 2's goose and
                     // Chuckie by default).
                     let ids: Vec<u16> = std::env::var("NPCS")
@@ -88,7 +89,7 @@ fn main() -> Result<(), String> {
                         .filter_map(|&id| game.npcs.iter().find(|n| n.id == id))
                         .map(|n| (n.id, n.pos, n.health, format!("{:?}", n.mode), n.hidden))
                         .collect();
-                    println!("{frame}: phase {} health {} tries {} npcs {npcs:?}", l.phase(), game.player.health, game.tries);
+                    println!("{frame}: phase {} health {} tries {} npcs {npcs:?}", phase, game.player.health, game.tries);
                 }
             }
             if let Some(n) = game.cine.take() {

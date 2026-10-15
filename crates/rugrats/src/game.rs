@@ -48,7 +48,15 @@ pub struct Game {
     yaw: f32,
     /// The rooms and objects at rest, drawn under the player.
     scenery: Vec<rugrats_render::Vtx>,
+    /// Where the level ends: a level to go to (the exit code, 0x800c4918).
+    pub exit: Option<usize>,
 }
+
+/// How near (in x and z, and in y) the player must stand to use a door.
+const USE_REACH: i32 = 1500;
+const USE_REACH_Y: i32 = 1500;
+/// The hub, Pickles' home.
+pub const HUB: usize = 1;
 
 impl Game {
     pub fn open(disc: &GameDisc, level: usize) -> Result<Game, String> {
@@ -84,7 +92,7 @@ impl Game {
         let scenery = set.objects_except(&Frame::default(), player_place);
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let yaw = heading as f32;
-        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery };
+        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None };
         g.eye = g.eye_goal();
         g.draw();
         Ok(g)
@@ -104,6 +112,20 @@ impl Game {
     /// then the draw.
     pub fn frame(&mut self, pads: &Pads) {
         self.player.frame(pads, self.yaw.round() as i32, &self.col, &self.anims, &self.trig);
+        // Using a door (the stand handler's ACTION, Triangle, on an object
+        // whose use is 0x8004f78c): its level next.
+        if pads.pressed(0, input::TRIANGLE) {
+            let p = self.player.pos;
+            let near = self.set.placements.iter().filter(|d| d.kind == 1 && d.level > 0).min_by_key(|d| (d.pos[0] - p[0]).pow(2) as i64 + (d.pos[2] - p[2]).pow(2) as i64);
+            if let Some(d) = near.filter(|d| (d.pos[0] - p[0]).abs() < USE_REACH && (d.pos[2] - p[2]).abs() < USE_REACH && (d.pos[1] - p[1]).abs() < USE_REACH_Y) {
+                rrt::tracing::info!("level {}: a door to level {} (cine {})", self.level, d.level, d.cine);
+                self.exit = Some(d.level as usize);
+            }
+        }
+        // Select: the restart menu (0x80043d58); for now, back to the hub.
+        if pads.pressed(0, input::SELECT) {
+            self.exit = Some(if self.level == HUB { HUB } else { HUB });
+        }
         // The camera buttons turn it by an eighth (L2, R2: 341 a press).
         if pads.pressed(0, input::L2) {
             self.yaw -= 341.0;

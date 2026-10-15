@@ -25,6 +25,10 @@ pub struct Placement {
     pub id: u16,
     /// The object's flags (+0x14), which it starts with (0x8004691c).
     pub flags: u32,
+    /// A door's level (+0x42) and the cinematic its use plays (+0x44)
+    /// (0x8004f78c); 0 for none.
+    pub level: i16,
+    pub cine: i16,
 }
 
 pub fn parse_lp(b: &[u8]) -> Vec<Placement> {
@@ -40,6 +44,8 @@ pub fn parse_lp(b: &[u8]) -> Vec<Placement> {
                 rotation: [w(r + 0x18)? as i32, w(r + 0x1c)? as i32, w(r + 0x20)? as i32, w(r + 0x24)? as i32],
                 id: (w(r + 0x28)? >> 16) as u16,
                 flags: w(r + 0x14)?,
+                level: (w(r + 0x40)? >> 16) as i16,
+                cine: w(r + 0x44)? as i16,
             })
         })
         .collect()

@@ -276,6 +276,9 @@ impl Game for Rugrats {
                 if now.is_multiple_of(2) {
                     self.pads.update([Some(&t.pad), None]);
                     game.frame(&self.pads);
+                    if let Some(level) = game.exit {
+                        self.boot = self.game(level, now);
+                    }
                 }
             }
             Boot::FrontEnd => {}

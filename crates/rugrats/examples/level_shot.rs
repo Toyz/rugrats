@@ -13,6 +13,9 @@ fn main() -> Result<(), String> {
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let game = rugrats::game::Game::open(&disc, db)?;
     println!("player at {:?}, heading {}", game.player.pos, game.player.heading);
+    for p in game.set.placements.iter().filter(|p| p.level != 0) {
+        println!("  door {p:?} template {:?}", game.set.templates.get(p.template as usize));
+    }
     for p in game.set.placements.iter().filter(|p| game.set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy().is_some()) && (p.pos[0] - 5775).abs() < 3000 && (p.pos[2] - 19403).abs() < 3000) {
         println!("  {p:?} hier {:?}", game.set.templates[p.template as usize].hierarchy());
     }

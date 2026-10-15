@@ -76,6 +76,14 @@ impl Mdec {
         let bytes: Vec<u8> = self.params.iter().flat_map(|w| w.to_le_bytes()).collect();
         match self.cmd >> 29 {
             1 => {
+                // RUGRATS_MDEC_DUMP=DIR keeps every decode command's input,
+                // for checking a port's VLC decoder against libpress.
+                if let Ok(dir) = std::env::var("RUGRATS_MDEC_DUMP") {
+                    let n = std::fs::read_dir(&dir).map_or(0, |d| d.count());
+                    let mut out = self.cmd.to_le_bytes().to_vec();
+                    out.extend(&bytes);
+                    let _ = std::fs::write(format!("{dir}/{n:05}.mdec"), out);
+                }
                 let halves: Vec<u16> = bytes.chunks(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
                 let depth = Depth::from_command(self.cmd);
                 let signed = self.cmd & (1 << 26) != 0;

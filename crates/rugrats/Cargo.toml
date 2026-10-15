@@ -1,0 +1,15 @@
+[package]
+name = "rugrats"
+version = "0.1.0"
+description = "Rugrats: Search for Reptar, ported to the PC: the game's systems rewritten in Rust on retro_rt's loop."
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rrt = { workspace = true, features = ["app", "disc"] }
+rugrats-data.workspace = true
+
+[dev-dependencies]
+rugrats-hle.workspace = true
+rrt = { workspace = true, features = ["app", "disc", "emu"] }

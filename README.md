@@ -4,8 +4,10 @@ A native PC port of Rugrats: Search for Reptar for the PlayStation (n-Space /
 THQ, 1998, `SLUS-00650`), written in Rust from a reverse engineering of the
 game, on [retro_rt](https://github.com/Toyz/retro_rt). It plays your own disc.
 
-**Status: starting.** The disc is mapped and the reverse engineering tools
-run. Nothing of the game is ported yet.
+**Status: starting.** `rugrats` boots on retro_rt and shows the legal
+screen, decoded natively and identical to the original's, then stops where
+the port ends (the opening cinematic). `rugrats-hle` runs the original as
+the oracle the port is checked against.
 
 ## Not an emulator
 
@@ -20,7 +22,9 @@ BIOS is needed.
 | path | what |
 | --- | --- |
 | `crates/rugrats-psx` | the PS-X EXE format, an R3000A + GTE disassembler, static analysis |
-| `crates/rugrats-data` | readers for the game's data: the file table, TIM, VAB |
+| `crates/rugrats-data` | readers for the game's data: the file table, BS stills, the MDEC's decoding, TIM, VAB |
+| `crates/rugrats` | the port: the game's systems in Rust (`lib`), and the program on retro_rt's loop |
+| `crates/rugrats-hle` | the oracle: the original run in rrt-emu with the console's I/O modelled; tests only, never the program |
 | `crates/rugrats-re` | the reverse engineering command line |
 | `docs/` | the [reference](docs/README.md): what is true about the disc, formats and engine |
 | `docs/cut/` | cut, missing and unreachable content, one page each |
@@ -37,6 +41,9 @@ cargo run -q -p rugrats-re -- disc info      # track, volume, sector kinds
 cargo run -q -p rugrats-re -- disc extract   # files -> work/fs
 cargo run -q -p rugrats-re -- files          # the game's file table against the ISO
 cargo run -q -p rugrats-re -- funcs work/fs/SLUS_006.50
+cargo run -p rugrats                          # the port
+cargo run -p rugrats-hle -- 600 --every 30    # the original, frames to work/hle
+cargo test --workspace                        # ports checked against the original
 ```
 
 ## License

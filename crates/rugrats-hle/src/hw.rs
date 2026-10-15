@@ -23,6 +23,8 @@ pub const IRQ_DMA: u32 = 1 << 3;
 pub struct Hw {
     pub gpu: Gpu,
     pub cd: Cdrom,
+    /// The drive's interrupt line as last seen: IRQ 2 is its rising edge.
+    cd_line: bool,
     pub mdec: Mdec,
     /// A DMA 1 (MDEC out) started before its words were there: where and
     /// how many still to move.
@@ -49,6 +51,7 @@ impl Default for Hw {
         Hw {
             gpu: Gpu::default(),
             cd: Cdrom::default(),
+            cd_line: false,
             mdec: Mdec::default(),
             mdec_out: None,
             now: 0,
@@ -134,9 +137,8 @@ impl Hw {
     /// channel's DICR flag, and IRQ 3 when DICR lets it through.
     pub fn advance(&mut self, now: u64) {
         self.now = now;
-        if self.cd.tick(now) {
-            self.i_stat |= IRQ_CDROM;
-        }
+        self.cd.tick(now);
+        self.cd_edge();
         for ch in 0..7 {
             if self.dma_due[ch].is_some_and(|t| t <= now) {
                 self.dma_due[ch] = None;
@@ -147,6 +149,14 @@ impl Hw {
             }
         }
         self.update_dicr();
+    }
+
+    fn cd_edge(&mut self) {
+        let line = self.cd.line();
+        if line && !self.cd_line {
+            self.i_stat |= IRQ_CDROM;
+        }
+        self.cd_line = line;
     }
 
     /// DICR bit 31 follows the enabled flags; it raising sets IRQ 3.
@@ -373,9 +383,8 @@ impl Hw {
                         self.cd.write(now, reg, (value >> (8 * k)) as u8);
                     }
                 }
-                if self.cd.tick(self.now) {
-                    self.i_stat |= IRQ_CDROM;
-                }
+                self.cd.tick(self.now);
+                self.cd_edge();
             }
             0x1f80_1810 => self.gpu.gp0(value),
             0x1f80_1814 => self.gpu.gp1(value),

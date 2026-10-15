@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-4 entries: audio 1, build 1, content 1, decomp 2, disc 1, engine 2, format 1, test 1, tooling 4, video 2.
+5 entries: audio 1, build 2, content 1, decomp 2, design 1, disc 1, engine 2, format 2, test 2, tooling 4, video 3.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -16,3 +16,4 @@ The [reference](docs/README.md) says what is true now.
 | 2 | [The image puts its rodata between hand-written asm and the compiled code](worklog/0002-the-image-puts-its-rodata-between-hand-written-asm-and-the.md) | 2026-10-14 | decomp, tooling |
 | 3 | [The original boots in a harness on rrt-emu, to the legal screen](worklog/0003-the-original-boots-in-a-harness-on-rrt-emu-to-the-legal.md) | 2026-10-14 | tooling, engine, decomp, video, test |
 | 4 | [A model of the CD-ROM drive: libcd and the opening stream run natively in the oracle](worklog/0004-a-model-of-the-cd-rom-drive-libcd-and-the-opening-stream.md) | 2026-10-14 | tooling, engine, video, audio |
+| 5 | [The port begins: rugrats on retro_rt shows the legal screen, pixel for pixel](worklog/0005-the-port-begins-rugrats-on-retro-rt-shows-the-legal-screen.md) | 2026-10-14 | build, video, format, test, design |

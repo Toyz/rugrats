@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod bs;
 pub mod files;
 pub mod mdec;
 pub mod tim;

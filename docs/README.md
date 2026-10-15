@@ -24,6 +24,7 @@ The containers and record layouts.
 
 | Page | Status | Discs | Covers |
 | --- | --- | --- | --- |
+| [BS still pictures](formats/bs.md) | partial | US | US /DATA/MENU/TIMS/LEGAL512.BS, US /DATA/MENU/TIMS/THQ512.BS, US /DATA/MENU/TIMS/NICK512.BS, US /DATA/MENU/TIMS/NSPAC512.BS, US /DATA/MENU/TIMS/E3SCR512.BS, US SLUS_006.50:0x80030010, US SLUS_006.50:0x800c1f20 |
 | [The file table in the executable](formats/file-table.md) | partial | US | US SLUS_006.50:0x800b2c40, US SLUS_006.50:0x80019794, US SLUS_006.50:0x80019a04 |
 
 ## Engine

@@ -32,7 +32,6 @@ struct Pending {
     sector: Option<Vec<u8>>,
 }
 
-#[derive(Default)]
 pub struct Cdrom {
     pub disc: Option<Rc<Image>>,
     index: u8,
@@ -59,6 +58,35 @@ pub struct Cdrom {
     pub commands: std::collections::BTreeMap<u8, u64>,
     /// Real-time audio sectors passed to the sound side.
     pub xa_sectors: u64,
+}
+
+impl Default for Cdrom {
+    /// The drive as the BIOS leaves it for the game: all five interrupts
+    /// enabled, motor on.
+    fn default() -> Self {
+        Cdrom {
+            disc: None,
+            index: 0,
+            params: Vec::new(),
+            response: VecDeque::new(),
+            data: Vec::new(),
+            data_pos: 0,
+            sector: Vec::new(),
+            int_enable: 0x1f,
+            int_flag: 0,
+            pending: VecDeque::new(),
+            mode: 0,
+            filter: (0, 0),
+            setloc: 0,
+            setloc_fresh: false,
+            pos: 0,
+            reading: false,
+            next_read: 0,
+            motor: true,
+            commands: Default::default(),
+            xa_sectors: 0,
+        }
+    }
 }
 
 fn bcd(v: u32) -> u8 {
@@ -143,6 +171,7 @@ impl Cdrom {
 
     fn command(&mut self, now: u64, cmd: u8) {
         *self.commands.entry(cmd).or_default() += 1;
+        tracing::debug!("cd {now}: command {cmd:#04x} params {:02x?} (flag {} enable {:#x})", self.params, self.int_flag, self.int_enable);
         let p = std::mem::take(&mut self.params);
         let ack = now + ACK_STEPS;
         let stat = self.stat();
@@ -260,9 +289,13 @@ impl Cdrom {
         }
     }
 
-    /// Reads due sectors and delivers due responses. Returns whether an
-    /// interrupt was raised (IRQ 2).
-    pub fn tick(&mut self, now: u64) -> bool {
+    /// The interrupt line: a flagged response the CPU has enabled.
+    pub fn line(&self) -> bool {
+        self.int_flag & self.int_enable != 0
+    }
+
+    /// Reads due sectors and delivers due responses.
+    pub fn tick(&mut self, now: u64) {
         while self.reading && now >= self.next_read {
             let lba = self.pos;
             self.pos += 1;
@@ -286,19 +319,19 @@ impl Cdrom {
             self.pending.push_back(Pending { due: now, int: 1, bytes: vec![stat], sector: Some(raw) });
         }
         if self.int_flag != 0 {
-            return false;
+            return;
         }
-        let Some(front) = self.pending.front() else { return false };
+        let Some(front) = self.pending.front() else { return };
         if front.due > now {
-            return false;
+            return;
         }
         let p = self.pending.pop_front().unwrap();
         if let Some(s) = p.sector {
             self.sector = s;
         }
+        tracing::debug!("cd {now}: INT{} {:02x?} (enable {:#x})", p.int, p.bytes, self.int_enable);
         self.response = p.bytes.into();
         self.int_flag = p.int;
-        self.int_flag & self.int_enable != 0
     }
 
     /// The bytes the data FIFO serves for the last sector, by mode bit 5.
@@ -359,6 +392,7 @@ impl Cdrom {
                 }
             }
             (3, 1) => {
+                tracing::debug!("cd {now}: ack {v:#04x}");
                 self.int_flag &= !(v & 0x1f);
                 if v & 0x40 != 0 {
                     self.params.clear();

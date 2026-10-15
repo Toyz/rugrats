@@ -1,0 +1,262 @@
+//! The in-engine cinematics (`play_cine`, SLUS_006.50:0x8007424c): a
+//! database's rooms and objects, moved frame by frame by a stream of data
+//! sectors with the XA soundtrack interleaved.
+//!
+//! The original streams at double speed and draws a frame as each data
+//! sector arrives: one in five sectors, 30 frames a second. The port reads
+//! the stream whole and keeps that schedule.
+
+use std::sync::{Arc, Mutex};
+
+use rrt::glam::{Mat3, Mat4, Vec3};
+use rrt::kit::adpcm::xa;
+use rugrats_data::cine::{self, Frame};
+use rugrats_data::hierarchy::Hierarchy;
+use rugrats_data::level::Level;
+use rugrats_data::model::Models;
+use rugrats_data::placement::{Placement, Template};
+use rugrats_render::models::{model_triangles, posed_triangles, quat_matrix};
+use rugrats_render::{Vram, Vtx};
+
+use crate::disc::GameDisc;
+use crate::movie::Soundtrack;
+
+/// A database's files, by the game's numbering (file + db).
+const MOD: usize = 242;
+const LEVEL: usize = 434;
+const A_RAW: usize = 499;
+const HIE: usize = 370;
+const LP: usize = 402;
+/// Shared by every database.
+const CHARACTR_RAW: usize = 498;
+const TEMPLATE: usize = 239;
+
+/// Sectors a second at double speed, and ticks a second.
+const SECTORS_PER_SECOND: u64 = 150;
+const TICKS_PER_SECOND: u64 = 60;
+
+/// Templates the LP loader (0x800454dc) passes over.
+const SKIPPED: [u32; 6] = [1242, 1041, 1267, 834, 382, 625];
+
+/// The cinematics' backdrop, which play_cine's setup (0x8007475c) asks for
+/// with `set_backdrop` (0x8001d218).
+pub const BACKDROP: [u8; 3] = [217, 175, 141];
+
+/// The GTE's projection distance in cinematics, on the 512 x 240 screen.
+const FOCAL: f32 = 178.0;
+
+/// A database as a cinematic sees it: rooms, models, skeletons, and the
+/// objects its LP file places.
+pub struct Set {
+    pub vram: Vram,
+    /// The rooms, which do not move.
+    pub rooms: Vec<Vtx>,
+    models: Models,
+    hierarchies: Vec<Option<Hierarchy>>,
+    placements: Vec<Placement>,
+    templates: Vec<Template>,
+}
+
+impl Set {
+    /// Database `db`'s files, as the loaders read them (rooms 0x8002a208,
+    /// models 0x80044d00, hierarchies 0x80044e7c, placements 0x800454dc).
+    pub fn load(disc: &GameDisc, db: usize) -> Result<Set, String> {
+        let level: Level = rugrats_data::level::parse(&disc.file(LEVEL + db)?).map_err(|e| e.to_string())?;
+        let mut vram = Vram::new();
+        // load_rooms uploads A.RAW to (0, 256), 576 x 256; main loads the
+        // characters' image at boot (0x800186d8) to (576, 256), 384 x 256.
+        for (file, x) in [(A_RAW + db, 0), (CHARACTR_RAW, 576)] {
+            let raw = disc.file(file)?;
+            let words: Vec<u16> = raw.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
+            vram.load(x, 256, if x == 0 { 576 } else { 384 }, 256, &words);
+        }
+        Ok(Set {
+            vram,
+            rooms: rugrats_render::rooms::level_triangles(&level),
+            models: Models::parse(&disc.file(MOD + db)?).map_err(|e| e.to_string())?,
+            hierarchies: rugrats_data::hierarchy::parse_file(&disc.file(HIE + db)?).map_err(|e| e.to_string())?,
+            placements: rugrats_data::placement::parse_lp(&disc.file(LP + db)?),
+            templates: rugrats_data::placement::parse_templates(&disc.file(TEMPLATE)?),
+        })
+    }
+
+    /// The objects as frame `f` leaves them: placed models where the
+    /// stream's actors move them (0x80073c34) or where LP put them, and the
+    /// posed skeletons (0x80073f08).
+    pub fn objects(&self, f: &Frame) -> Vec<Vtx> {
+        let mut out = Vec::new();
+        for place in self.placements.iter().filter(|p| p.kind == 1 && !SKIPPED.contains(&p.template)) {
+            let Some(t) = self.templates.get(place.template as usize) else { continue };
+            // A placed object's rotation is LP's quaternion inverted
+            // (0x8001f684) and kept as angles (0x800202b8); the matrix made
+            // from them is quat_matrix(q) for the single-axis turns LP
+            // holds, which the object transform (0x8001eb4c) transposes.
+            let placed = quat_matrix(place.rotation.map(|v| v as i16)).transpose();
+            if let Some(h) = t.hierarchy() {
+                // A jointed object the stream does not pose stays at rest.
+                let Some(Some(h)) = self.hierarchies.get(h) else { continue };
+                if f.poses.iter().all(|p| p.id != place.id as i16) {
+                    posed_triangles(h, &self.models, &[], placed, vec3(place.pos), &mut out);
+                }
+                continue;
+            }
+            // A model the search misses comes back as offset 0, and the
+            // constructor (0x800494d8) then clears the object's draw.
+            if self.models.find(t.shape as u32) == 0 {
+                continue;
+            }
+            let Some(m) = self.models.get(t.shape as u32) else { continue };
+            // An actor's quaternion goes to the object as 0x8001f9fc's
+            // matrix, the transpose of quat_matrix, so it draws as
+            // quat_matrix.
+            let (pos, rot) = match f.actors.iter().find(|a| a.id == place.id as i16) {
+                Some(a) => (a.pos, quat_matrix(a.q)),
+                None => (place.pos, placed),
+            };
+            model_triangles(m, rot, vec3(pos), &mut out);
+        }
+        for pose in &f.poses {
+            let Some(place) = self.placements.iter().find(|p| p.kind == 1 && p.id as i16 == pose.id) else { continue };
+            let hierarchy = self.templates.get(place.template as usize).and_then(|t| t.hierarchy());
+            let Some(Some(h)) = hierarchy.and_then(|i| self.hierarchies.get(i)) else { continue };
+            let mut local = vec![None; h.parts.len()];
+            for &(channel, q) in &pose.keys {
+                // The hierarchy maps channels to parts (+0x14, 0xff none).
+                let part = h.header.get(0x14 + channel as usize).copied().unwrap_or(0xff);
+                if let Some(slot) = local.get_mut(part as usize) {
+                    *slot = Some(quat_matrix(q));
+                }
+            }
+            posed_triangles(h, &self.models, &local, Mat3::IDENTITY, vec3(pose.pos), &mut out);
+        }
+        out
+    }
+}
+
+fn vec3(p: [i32; 3]) -> Vec3 {
+    Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32)
+}
+
+/// The view and projection of frame `f`'s camera. The stream's quaternion
+/// goes through 0x80020580, the transpose of the parts' matrix; the view
+/// matrix (0x8001e0f4) scales its x row by 512 / 320 for the screen; a
+/// point is seen at view (p - camera) (0x8001eb4c), projected at FOCAL.
+pub fn camera(f: &Frame) -> Mat4 {
+    let r = quat_matrix(f.camera_q).transpose();
+    let view = Mat4::from_mat3(Mat3::from_diagonal(Vec3::new(512.0 / 320.0, 1.0, 1.0)) * r)
+        * Mat4::from_translation(-vec3(f.camera_pos));
+    let (near, far) = (16.0f32, 200_000.0f32);
+    let (a, b) = (far / (far - near), -near * far / (far - near));
+    #[rustfmt::skip]
+    let proj = Mat4::from_cols_array(&[
+        FOCAL / 256.0, 0.0, 0.0, 0.0,
+        0.0, -FOCAL / 120.0, 0.0, 0.0,
+        0.0, 0.0, a, 1.0,
+        0.0, 0.0, b, 0.0,
+    ]);
+    proj * view
+}
+
+/// A cinematic's stream: its frames, each with the tick (from the start)
+/// it is due, and its soundtrack.
+pub struct Stream {
+    pub frames: Vec<(u64, Frame)>,
+    pub sound: Vec<(i16, i16)>,
+}
+
+/// The cinematic table's stream channels (0x800b4290, 4 bytes a cine; +1
+/// the channel, -1 for none). With one, the stream starts 2 sectors a
+/// channel in and its data sectors carry a channel byte (the data is at
+/// +16, not +12); without, the XA filter is file 1 channel 1.
+const XA_FILE: u8 = 1;
+const XA_CHANNEL: u8 = 1;
+
+impl Stream {
+    /// Cinematic `n`'s stream (file `n`, as 0x80019da4 finds it): only
+    /// the opening's (no channel) is read so far.
+    pub fn read(disc: &GameDisc, n: usize) -> Result<Stream, String> {
+        let start = disc.file_lba(n)?;
+        let mut frames = Vec::new();
+        let mut sound = Vec::new();
+        let mut decoder = xa::Decoder::new();
+        let mut total = None;
+        for lba in start.. {
+            let s = disc.sector(lba)?;
+            let raw = &s.raw[..];
+            let at = u64::from(lba - start);
+            let (file, channel, sub) = (raw[16], raw[17], raw[18]);
+            // XA audio: Form 2, audio, real time; the filter picks one.
+            if sub & 0x64 == 0x64 {
+                if (file, channel) == (XA_FILE, XA_CHANNEL) {
+                    if sound.is_empty() {
+                        sound.resize((at * 44100 / SECTORS_PER_SECOND) as usize, (0, 0));
+                    }
+                    decoder.decode(xa::Coding(raw[19]), &raw[24..24 + xa::SECTOR_AUDIO], &mut sound);
+                }
+                continue;
+            }
+            if sub & 0x08 == 0 {
+                continue;
+            }
+            let d = &raw[24..24 + 2048];
+            if total.is_none() {
+                let h = cine::header(d).ok_or(format!("cine {n}: no stream header"))?;
+                total = Some(h.frames as usize);
+                continue;
+            }
+            let Some(f) = cine::frame(d) else { break };
+            frames.push(((at + 1) * TICKS_PER_SECOND / SECTORS_PER_SECOND + 1, f));
+            if Some(frames.len()) == total {
+                break;
+            }
+        }
+        Ok(Stream { frames, sound })
+    }
+}
+
+/// A cinematic playing.
+pub struct Cine {
+    pub set: Set,
+    stream: Stream,
+    started: u64,
+    shown: Option<usize>,
+    /// What the frame shown leaves on screen: the objects, the camera.
+    pub objects: Vec<Vtx>,
+    pub camera: Mat4,
+}
+
+impl Cine {
+    /// Cinematic `n` on database `db`, its soundtrack handed to `audio`.
+    pub fn open(disc: &GameDisc, n: usize, db: usize, now: u64, audio: &Arc<Mutex<Soundtrack>>) -> Result<Cine, String> {
+        let set = Set::load(disc, db)?;
+        let mut stream = Stream::read(disc, n)?;
+        if let Ok(mut a) = audio.lock() {
+            *a = Soundtrack::new(std::mem::take(&mut stream.sound));
+        }
+        Ok(Cine { set, stream, started: now, shown: None, objects: Vec::new(), camera: Mat4::IDENTITY })
+    }
+
+    /// The stream frame shown, from 1.
+    pub fn frame(&self) -> Option<u16> {
+        self.shown.map(|k| self.stream.frames[k].1.number)
+    }
+
+    /// Advances to tick `now`; true when it shows a new frame, the point
+    /// where play_cine samples the pads (0x8001d3e8) and tests for a skip.
+    pub fn tick(&mut self, now: u64) -> bool {
+        let t = now - self.started;
+        let due = self.stream.frames.iter().take_while(|(d, _)| *d <= t).count();
+        let Some(k) = due.checked_sub(1).filter(|&k| Some(k) != self.shown) else { return false };
+        let f = &self.stream.frames[k].1;
+        self.objects = self.set.objects(f);
+        self.camera = camera(f);
+        self.shown = Some(k);
+        true
+    }
+
+    /// Whether the last frame has been shown: play_cine stops when the
+    /// stream's counter reaches the header's frame count.
+    pub fn over(&self) -> bool {
+        self.shown.is_some_and(|k| k + 1 >= self.stream.frames.len())
+    }
+}

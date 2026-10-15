@@ -25,6 +25,9 @@ pub struct Display {
 
 pub struct Gpu {
     pub vram: Vec<u16>,
+    /// A rectangle of the drawing area (x0, y0, x1, y1) whose polygons
+    /// are printed as they are drawn.
+    pub trace: Option<[i32; 4]>,
     /// GP0 words of the command being assembled.
     cmd: Vec<u32>,
     /// A CPU-to-VRAM transfer in progress: rectangle and halfwords done.
@@ -50,6 +53,7 @@ impl Default for Gpu {
     fn default() -> Self {
         Gpu {
             vram: vec![0; VRAM_W * VRAM_H],
+            trace: None,
             cmd: Vec::new(),
             upload: None,
             download: None,
@@ -336,6 +340,14 @@ impl Gpu {
             }
         }
         let mode = Mode { textured, raw: op & 0x01 != 0, semi: op & 0x02 != 0, texpage: page, clut };
+        // `trace`: print the polygons with a corner in that part of the
+        // drawing area, to find what draws something.
+        if let Some(r) = self.trace
+            && verts[..n].iter().any(|v| v.x >= r[0] && v.x < r[2] && v.y >= r[1] && v.y < r[3])
+        {
+            let xy: Vec<_> = verts[..n].iter().map(|v| (v.x, v.y, v.u, v.v)).collect();
+            eprintln!("gpu poly {op:02x} page {page:04x} clut {clut:04x} {xy:?}");
+        }
         self.triangle(&verts[0], &verts[1], &verts[2], mode, gouraud);
         if quad {
             self.triangle(&verts[1], &verts[2], &verts[3], mode, gouraud);

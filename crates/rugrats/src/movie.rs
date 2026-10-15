@@ -37,6 +37,13 @@ pub struct Soundtrack {
     pos: usize,
 }
 
+impl Soundtrack {
+    /// 44100 Hz stereo samples, from the start.
+    pub fn new(samples: Vec<(i16, i16)>) -> Soundtrack {
+        Soundtrack { samples, pos: 0 }
+    }
+}
+
 impl rrt::audio::Source for Soundtrack {
     fn rate(&self) -> u32 {
         44100

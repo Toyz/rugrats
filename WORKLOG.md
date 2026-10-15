@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-14 entries: audio 2, bug 1, build 3, content 1, decomp 9, design 1, disc 1, engine 5, format 9, input 1, render 6, test 4, tooling 8, video 4.
+15 entries: audio 2, bug 1, build 3, content 1, decomp 10, design 1, disc 1, engine 6, format 9, input 2, play 1, render 7, test 5, tooling 8, video 4.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -26,3 +26,4 @@ The [reference](docs/README.md) says what is true now.
 | 12 | [Characters assembled: hierarchies (HIE) as depth-first skeletons](worklog/0012-characters-assembled-hierarchies-hie-as-depth-first.md) | 2026-10-14 | format, render, decomp |
 | 13 | [Animation: quaternion keys by channel, pinned to the original's matrix](worklog/0013-animation-quaternion-keys-by-channel-pinned-to-the-original.md) | 2026-10-14 | format, render, decomp, test |
 | 14 | [The opening cinematic's frame matches the oracle's: camera, props, characters](worklog/0014-the-opening-cinematic-s-frame-matches-the-oracle-s-camera.md) | 2026-10-14 | format, render, decomp, engine |
+| 15 | [The port plays the opening cinematic](worklog/0015-the-port-plays-the-opening-cinematic.md) | 2026-10-14 | engine, render, play, decomp, test, input |

@@ -53,12 +53,13 @@ pub fn quat_matrix(q: [i16; 4]) -> Mat3 {
 }
 
 /// A hierarchy posed: each part's rotation `local[i]` (None at rest),
-/// composed from the root down as UpdatePartRotations (0x8004a5dc) does,
-/// the whole at `pos`.
+/// composed from the object's rotation `base` down as UpdatePartRotations
+/// (0x8004a5dc) does, the whole at `pos`.
 pub fn posed_triangles(
     h: &rugrats_data::hierarchy::Hierarchy,
-    models: &[Option<Model>],
+    models: &rugrats_data::model::Models,
     local: &[Option<Mat3>],
+    base: Mat3,
     pos: Vec3,
     out: &mut Vec<Vtx>,
 ) {
@@ -71,10 +72,10 @@ pub fn posed_triangles(
             Some(_) => Vec3::new(part.offset[0] as f32, part.offset[1] as f32, part.offset[2] as f32),
             None => Vec3::ZERO,
         };
-        let (prot, ppos) = part.parent.map_or((Mat3::IDENTITY, pos), |p| world[p]);
+        let (prot, ppos) = part.parent.map_or((base, pos), |p| world[p]);
         let me = (prot * rot, ppos + prot * offset);
         world.push(me);
-        if let Some(Some(m)) = models.get(part.model as usize) {
+        if let Some(m) = models.get(part.model) {
             model_triangles(m, me.0, me.1, out);
         }
     }

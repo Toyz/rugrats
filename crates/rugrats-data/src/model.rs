@@ -125,31 +125,90 @@ impl Model {
     }
 }
 
-/// A whole MOD file: the models by id (None where there is none), as the
-/// game's lookup (0x80044b74) finds them, by binary search on the table
-/// entries' high 11 bits.
-pub fn parse_file(b: &[u8]) -> Result<Vec<Option<Model>>, Error> {
-    if u32_at(b, 0)? != 0xc0de_0001 {
-        return Err(Error("MOD: no 0xc0de0001".into()));
-    }
-    let n = u16_at(b, 4)? as usize;
-    let base = 8 + 4 * n;
-    let mut models = Vec::new();
-    for k in 0..n {
-        let at = u32_at(b, 8 + 4 * k)?;
-        if at == u32::MAX {
-            continue;
+/// A whole MOD file: its table and its models by offset.
+#[derive(Clone, Debug)]
+pub struct Models {
+    /// The table's entries, and the word after them, which the search can
+    /// read; and the word before (count and pad), which it can too.
+    table: Vec<u32>,
+    before: u32,
+    by_offset: std::collections::BTreeMap<u32, Model>,
+}
+
+impl Models {
+    pub fn parse(b: &[u8]) -> Result<Models, Error> {
+        if u32_at(b, 0)? != 0xc0de_0001 {
+            return Err(Error("MOD: no 0xc0de0001".into()));
         }
-        let id = (at >> 21) as usize;
-        let start = base + (at & 0x1f_ffff) as usize;
-        let body = b.get(start..).ok_or_else(|| Error(format!("MOD: model {id} past the end")))?;
-        let m = Model::parse(body).map_err(|e| Error(format!("MOD model {id}: {}", e.0)))?;
-        if models.len() <= id {
-            models.resize(id + 1, None);
+        let n = u16_at(b, 4)? as usize;
+        let base = 8 + 4 * n;
+        let table = (0..=n).map(|k| u32_at(b, 8 + 4 * k)).collect::<Result<Vec<_>, _>>()?;
+        let mut by_offset = std::collections::BTreeMap::new();
+        for &at in table.iter().take(n).filter(|&&at| at != u32::MAX) {
+            let off = at & 0x1f_ffff;
+            let body = b.get(base + off as usize..).ok_or_else(|| Error(format!("MOD: model {} past the end", at >> 21)))?;
+            let m = Model::parse(body).map_err(|e| Error(format!("MOD model {}: {}", at >> 21, e.0)))?;
+            by_offset.insert(off, m);
         }
-        models[id] = Some(m);
+        Ok(Models { table, before: u32_at(b, 4)?, by_offset })
     }
-    Ok(models)
+
+    /// Model `id` as `model(id)` (0x80044b74) finds it: a binary search on
+    /// the entries' high 11 bits, its upper bound the count (so it can read
+    /// the word after the table), ending on a look at the last two
+    /// candidates. An id it misses gets offset 0, the first model stored.
+    pub fn get(&self, id: u32) -> Option<&Model> {
+        self.by_offset.get(&self.find(id))
+    }
+
+    /// The offset `model(id)` gives (0, the first model stored, for an id
+    /// it misses).
+    pub fn find(&self, id: u32) -> u32 {
+        let entry = |i: i32| if i < 0 { self.before } else { self.table.get(i as usize).copied().unwrap_or(0) };
+        let (mut lo, mut hi) = (0i32, self.table.len() as i32 - 1);
+        let mut seen = u32::MAX;
+        let mut found = 0;
+        if hi >= 2 {
+            while seen != id {
+                let mid = (lo + hi) / 2;
+                let e = entry(mid);
+                seen = e >> 21;
+                if seen == id {
+                    found = e & 0x1f_ffff;
+                } else if seen < id {
+                    lo = mid + 1;
+                } else {
+                    hi = mid - 1;
+                }
+                if hi - lo < 2 {
+                    break;
+                }
+            }
+        }
+        if hi - lo < 2 {
+            for e in [entry(lo), entry(hi)] {
+                if e >> 21 == id {
+                    found = e & 0x1f_ffff;
+                    break;
+                }
+            }
+        }
+        found
+    }
+
+    /// The model stored at `offset` from the table's end.
+    pub fn at_offset(&self, offset: u32) -> Option<&Model> {
+        self.by_offset.get(&offset)
+    }
+
+    /// Each model the table names, with its id.
+    pub fn iter(&self) -> impl Iterator<Item = (u32, &Model)> {
+        let n = self.table.len() - 1;
+        self.table[..n]
+            .iter()
+            .filter(|&&at| at != u32::MAX)
+            .filter_map(|&at| self.by_offset.get(&(at & 0x1f_ffff)).map(|m| (at >> 21, m)))
+    }
 }
 
 #[cfg(test)]
@@ -171,8 +230,12 @@ mod tests {
                 continue;
             }
             let Ok(bytes) = std::fs::read(db.path().join(format!("DB{n}MOD.BIN"))) else { continue };
-            let all = super::parse_file(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-            models += all.iter().flatten().count();
+            let all = super::Models::parse(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+            models += all.iter().count();
+            // The search finds every model by its own id.
+            for (id, m) in all.iter() {
+                assert!(std::ptr::eq(all.get(id).unwrap(), m), "{name}: model {id}");
+            }
         }
         assert_eq!(models, 6286);
     }

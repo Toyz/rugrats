@@ -7,8 +7,9 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-rrt = { workspace = true, features = ["app", "audio", "disc"] }
+rrt = { workspace = true, features = ["app", "audio", "disc", "gpu"] }
 rugrats-data.workspace = true
+rugrats-render.workspace = true
 
 [dev-dependencies]
 rugrats-hle.workspace = true

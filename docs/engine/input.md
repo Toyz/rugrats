@@ -33,6 +33,14 @@ one of six controller maps at 0x800b44ac ("Controller Map %d"): each starts
 with a pad type byte (0x41 digital), then a slot index per action; the
 action pointers land at 0x800c496c onward.
 
+## The pad driver
+
+The game uses libpad's direct driver, not the BIOS's InitPAD/StartPAD:
+0x80099e08 installs its handlers and the two receive buffers (0x800cdbb0,
+0x800cdbbc) and talks to the pads through the serial port at each
+vertical blank. The oracle models no serial port, so the buffers never
+fill and it cannot be given input yet.
+
 ## Unknown
 
 - The action list and the six maps' contents.

@@ -3,7 +3,7 @@ title: In-engine cinematics
 status: partial
 discs: US
 covers: US SLUS_006.50:0x8007424c, US SLUS_006.50:0x80073810, US SLUS_006.50:0x8007412c, US SLUS_006.50:0x80019da4, US SLUS_006.50:0x80019c88, US SLUS_006.50:0x800b8bd0, US /DATA/CINEMAT/OPEN.BIN, US SLUS_006.50:0x80073b08, US SLUS_006.50:0x80073c34, US SLUS_006.50:0x80073f08, US SLUS_006.50:0x8001e0f4, US SLUS_006.50:0x8001d218
-worklog: 7, 14
+worklog: 7, 14, 15
 ---
 
 # In-engine cinematics
@@ -72,6 +72,25 @@ each later data sector: one frame
 Quaternions are (x, y, z, w) = (q0, q1, q2, q3), at any scale. Ids are the
 object registry's, from the database's LP file ([lp](../formats/lp.md)).
 
+## Timing and sound
+
+The stream's data sectors arrive every 5 sectors at double speed (OPEN.BIN:
+frame 1 at sector 2, frame 1412 at sector 7056), so 30 frames a second;
+the XA between them is filtered to file 1, channel 1 (cine 0 has no
+channel byte in the table at 0x800b4290; one with a channel starts 2
+sectors a channel in and its data sectors are read from +16). The CD
+volume is the cine table's byte +0x0d (100 for the opening).
+
+Each frame play_cine samples the pads after drawing (0x8001d3e8 calls
+0x8001acc0), and stops when the first port's Triangle history reads "pressed"
+(0x800cda4c & 3 == 1), or when the counter reaches the frame count. With
+the entry's flag 0x01 clear it fades out over the last 13 frames (25 a
+frame into 0x800c3f2c); the opening has it set.
+
+The opening's one timed call (frames 1184 to 1413, 0x8008ea70) is the
+title card: the logo object moved by the frame, and "Search For Reptar"
+and "Loading" drawn through the text system (0x8002e144).
+
 ## Applying a frame
 
 - The camera (0x80073b08): position to 0x800e5648, the quaternion through
@@ -106,5 +125,8 @@ original's wall shading (depth cue and lighting) is not drawn yet.
 
 ## Unknown
 
-- `unknown_02`, the actors' and poses' animation and state fields
-  (0x80074ec0, 0x80075304), the setup block, the 16-byte table entries.
+- `unknown_02` (1380, the setup's size, in every OPEN.BIN frame), the
+  actors' and poses' animation and state fields (0x80074ec0, 0x80075304),
+  the setup block, the rest of the 16-byte table entries.
+- Whether Triangle really skips: the oracle has no input during the
+  cinematic (see [input](input.md)).

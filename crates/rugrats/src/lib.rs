@@ -5,3 +5,4 @@ pub mod disc;
 pub mod still;
 pub mod input;
 pub mod movie;
+pub mod cine;

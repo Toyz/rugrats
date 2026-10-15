@@ -52,7 +52,7 @@ impl GameDisc {
     }
 
     /// The first sector of file `index` (the streams are read by sector).
-    pub fn movies_lba(&self, index: usize) -> Result<u32, String> {
+    pub fn file_lba(&self, index: usize) -> Result<u32, String> {
         self.table.get(index).filter(|e| e.is_used()).map(|e| e.lba).ok_or(format!("File '{index}' not found!"))
     }
 

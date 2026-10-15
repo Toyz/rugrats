@@ -166,16 +166,19 @@ impl Hle {
         {
             let sh = shared.clone();
             b.insert(0xb0, 0x12, move |c| {
+                tracing::debug!("InitPAD({:#x}, {:#x})", c.arg32(0), c.arg32(2));
                 sh.borrow_mut().pad_buffers = Some((c.arg32(0), c.arg32(2)));
                 HookResult::Return(1)
             });
             let sh = shared.clone();
             b.insert(0xb0, 0x13, move |_| {
+                tracing::debug!("StartPAD");
                 sh.borrow_mut().pad_started = true;
                 HookResult::Return(1)
             });
             let sh = shared.clone();
             b.insert(0xb0, 0x14, move |_| {
+                tracing::debug!("StopPAD");
                 sh.borrow_mut().pad_started = false;
                 HookResult::Return(1)
             });

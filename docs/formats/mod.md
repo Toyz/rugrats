@@ -46,7 +46,15 @@ The loader (0x80044c98) turns the four offsets into pointers and writes
 the index at +0x04. Everything else names a model by id, not by table
 position: `model(id)` (0x80044b74) binary-searches the table's high 11
 bits. Hierarchy parts (through 0x80044e7c) and templates use it. Ids and
-positions agree in DB22 only up to 78 (position 79 holds id 102). The face kinds are the GPU's primitive codes, which the
+positions agree in DB22 only up to 78 (position 79 holds id 102).
+
+The search's upper bound starts at the count, not the count less one, and
+it ends by looking at its last two candidates; an id it misses gives
+offset 0, the first model stored. `Models::get` follows it and is checked
+against the original for every id 0-2047 of every MOD file. DB22's LP
+names models 519, 761, 818, 819 and 905, which only other databases have;
+those objects get offset 0 and the class-0 constructor hides them (see
+[lp](lp.md)). The face kinds are the GPU's primitive codes, which the
 renderer switches on.
 
 ## Measured

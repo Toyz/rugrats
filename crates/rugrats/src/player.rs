@@ -89,7 +89,9 @@ pub struct Player {
     /// Feet to origin (hierarchy +0x4c, the root's y offset).
     feet: i32,
     hierarchy: Hierarchy,
-    track: Track,
+    /// The four tracks (+0xa8, +0xb4, +0xc0, +0xcc): each plays its column
+    /// of the state's entry, a later one over the parts it keys.
+    tracks: [Track; 4],
     remap: Vec<i16>,
     entries: Vec<[i16; 4]>,
 }
@@ -114,7 +116,7 @@ impl Player {
             floor: start[1],
             feet,
             hierarchy,
-            track: Track::default(),
+            tracks: [Track::default(); 4],
             remap,
             entries,
         };
@@ -127,65 +129,83 @@ impl Player {
         Ok(p)
     }
 
-    /// The ANM animation of state `a` on the base track.
-    fn anm(&self, a: i16) -> Option<usize> {
+    /// The base track: (state, first frame, frames, frame showing, time
+    /// left), for tools.
+    pub fn track(&self) -> (i16, usize, usize, usize, i32) {
+        let t = &self.tracks[0];
+        (t.anim, t.first, t.count, t.cur, t.left)
+    }
+
+    /// The ANM animation of state `a` on track `k` (0x80055f7c: -1 none).
+    pub fn anm(&self, a: i16) -> Option<usize> {
+        self.anm_on(a, 0)
+    }
+
+    fn anm_on(&self, a: i16, k: usize) -> Option<usize> {
         let e = *self.remap.get(a as usize)?;
-        let id = self.entries.get(e as usize)?[0];
+        let id = self.entries.get(e as usize)?[k];
         (id >= 0).then_some(id as usize)
     }
 
     fn set_anim(&mut self, a: i16, anims: &Anims) {
-        if self.track.anim == a && self.track.count > 0 {
+        if self.tracks[0].anim == a && self.tracks[0].count > 0 {
             return;
         }
-        let Some(id) = self.anm(a) else { return };
-        let Some((first, count)) = anims.index.get(id).copied().flatten() else { return };
-        let (first, count) = (first as usize, count as usize);
-        // Blend from the frame showing into the new animation's first.
-        let prev = if self.track.count > 0 { self.track.cur } else { first };
-        let left = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
-        self.track = Track { anim: a, first, count, prev, cur: first, left };
+        for k in 0..4 {
+            let old = self.tracks[k];
+            let Some((first, count)) = self.anm_on(a, k).and_then(|id| anims.index.get(id).copied().flatten()) else {
+                self.tracks[k] = Track { anim: a, ..Track::default() };
+                continue;
+            };
+            let (first, count) = (first as usize, count as usize);
+            // Blend from the frame showing into the new animation's first.
+            let prev = if old.count > 0 { old.cur } else { first };
+            let left = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
+            self.tracks[k] = Track { anim: a, first, count, prev, cur: first, left };
+        }
     }
 
     fn step_anim(&mut self, anims: &Anims) {
-        let t = &mut self.track;
-        if t.count == 0 {
-            return;
-        }
-        t.left -= DT;
-        while t.left <= 0 {
-            t.prev = t.cur;
-            t.cur = if t.cur + 1 < t.first + t.count { t.cur + 1 } else { t.first };
-            let d = anims.frames.get(t.cur).map_or(1, |f| f.duration.max(1) as i32);
-            t.left += d;
+        for t in &mut self.tracks {
+            if t.count == 0 {
+                continue;
+            }
+            t.left -= DT;
+            while t.left <= 0 {
+                t.prev = t.cur;
+                t.cur = if t.cur + 1 < t.first + t.count { t.cur + 1 } else { t.first };
+                let d = anims.frames.get(t.cur).map_or(1, |f| f.duration.max(1) as i32);
+                t.left += d;
+            }
         }
     }
 
-    /// The parts' rotations, blended from the frame before into the frame
-    /// showing (0x800552bc, 0x800202ec).
+    /// The parts' rotations, each track blended from the frame before
+    /// into the frame showing (0x800552bc, 0x800202ec).
     fn locals(&self, anims: &Anims) -> Vec<Option<Mat3>> {
         let mut out = vec![None; self.hierarchy.parts.len()];
-        let t = &self.track;
-        let (Some(cur), Some(prev)) = (anims.frames.get(t.cur), anims.frames.get(t.prev)) else { return out };
-        let dur = cur.duration.max(1) as f32;
-        let f = ((dur - t.left as f32) / dur).clamp(0.0, 1.0);
         let quat = |q: [i16; 4]| rrt::glam::Quat::from_xyzw(q[0] as f32, q[1] as f32, q[2] as f32, q[3] as f32).normalize();
-        for key in anims.keys_of(cur) {
-            let Key::Rotation { channel, q } = *key else { continue };
-            let part = self.hierarchy.header.get(0x14 + channel as usize).copied().unwrap_or(0xff);
-            let Some(slot) = out.get_mut(part as usize) else { continue };
-            let from = anims.keys_of(prev).iter().find_map(|k| match *k {
-                Key::Rotation { channel: c, q } if c == channel => Some(q),
-                _ => None,
-            });
-            let q = match from {
-                Some(p) => {
-                    let s = quat(p).slerp(quat(q), f);
-                    [(s.x * 4096.0) as i16, (s.y * 4096.0) as i16, (s.z * 4096.0) as i16, (s.w * 4096.0) as i16]
-                }
-                None => q,
-            };
-            *slot = Some(quat_matrix(q));
+        for t in self.tracks.iter().filter(|t| t.count > 0) {
+            let (Some(cur), Some(prev)) = (anims.frames.get(t.cur), anims.frames.get(t.prev)) else { continue };
+            let dur = cur.duration.max(1) as f32;
+            let f = ((dur - t.left as f32) / dur).clamp(0.0, 1.0);
+            for key in anims.keys_of(cur) {
+                let Key::Rotation { channel, q } = *key else { continue };
+                let part = self.hierarchy.header.get(0x14 + channel as usize).copied().unwrap_or(0xff);
+                let Some(slot) = out.get_mut(part as usize) else { continue };
+                let from = anims.keys_of(prev).iter().find_map(|k| match *k {
+                    Key::Rotation { channel: c, q } if c == channel => Some(q),
+                    _ => None,
+                });
+                let q = match from {
+                    Some(p) => {
+                        let s = quat(p).slerp(quat(q), f);
+                        [(s.x * 4096.0) as i16, (s.y * 4096.0) as i16, (s.z * 4096.0) as i16, (s.w * 4096.0) as i16]
+                    }
+                    None => q,
+                };
+                *slot = Some(quat_matrix(q));
+            }
         }
         out
     }
@@ -278,7 +298,7 @@ impl Player {
         }
         if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
             self.state = match self.speed {
-                0 if self.state == State::Land && self.track.anim == anim::LAND && self.track.cur + 1 < self.track.first + self.track.count => State::Land,
+                0 if self.state == State::Land && self.tracks[0].anim == anim::LAND && self.tracks[0].cur + 1 < self.tracks[0].first + self.tracks[0].count => State::Land,
                 0 => State::Stand,
                 s if s <= WALK => State::Walk,
                 _ => State::Run,

@@ -39,6 +39,11 @@ fn main() -> Result<(), String> {
     let every: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(10);
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let mut game = rugrats::game::Game::open(&disc, db)?;
+    for a in [1i16, 2, 3, 4, 15, 28] {
+        let id = game.player.anm(a);
+        let frames = id.map(|i| game.anims.frames_of(i).len());
+        println!("state {a}: anm {id:?}, {frames:?} frames");
+    }
     let gpu = Gpu::headless().map_err(|e| e.to_string())?;
     let (w, h) = (512, 240);
     let target = Target::new(&gpu.device, w, h);
@@ -56,7 +61,7 @@ fn main() -> Result<(), String> {
             let before = game.player.pos;
             game.frame(&pads);
             if game.player.pos != before {
-                println!("{frame}: {:?} heading {} state {:?} v {:?} floor {}", game.player.pos, game.player.heading, game.player.state, game.player.v, game.player.floor);
+                println!("{frame}: {:?} heading {} state {:?} v {:?} floor {} track {:?}", game.player.pos, game.player.heading, game.player.state, game.player.v, game.player.floor, game.player.track());
             }
             if frame.is_multiple_of(every) {
                 let stage = &game.stage;

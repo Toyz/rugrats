@@ -56,3 +56,27 @@ fn euler_matrices_match_the_original() {
         assert_eq!(ours, theirs, "angles {angles:?}");
     }
 }
+
+/// What the parts' quaternion matrix (0x8001fc48) makes of a zero
+/// quaternion, which hierarchy copies hold until animated.
+#[test]
+fn zero_quaternion_matrix() {
+    let root = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+    let Ok(bytes) = std::fs::read(root.join("work/fs/SLUS_006.50")) else {
+        eprintln!("skipped: no work/fs");
+        return;
+    };
+    let mut m = machine_with_exe(&PsxExe::parse(&bytes).unwrap()).unwrap();
+    m.cpu.r[28] = 0x800c_3e80;
+    let (q, out) = (0x8010_0000u32, 0x8010_0100u32);
+    for k in 0..4 {
+        m.bus.write_u32(q + 4 * k, 0).unwrap();
+    }
+    for k in 0..9 {
+        m.bus.write_u16(out + 2 * k, 0x7777).unwrap();
+    }
+    m.call(0x8001_fc48, &[q as u64, out as u64]).unwrap();
+    let theirs: Vec<i16> = (0..9).map(|k| m.bus.read_u16(out + 2 * k).unwrap() as i16).collect();
+    eprintln!("zero quaternion -> {theirs:?}");
+    assert_eq!(theirs, vec![4096, 0, 0, 0, 4096, 0, 0, 0, 4096]);
+}

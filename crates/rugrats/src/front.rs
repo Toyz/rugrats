@@ -233,6 +233,225 @@ impl Button {
     }
 }
 
+/// Database 0's hierarchies (file 370 + 0): the babies are 1-5.
+const DB00_HIE: usize = 370;
+
+/// The corners a baby peeks from (0x80043098): where it starts, where it
+/// slides to, and its turn about z.
+const CORNERS: [([i32; 2], [i32; 2], i16); 4] = [
+    ([-3000, -2500], [-1800, -1300], -1536),
+    ([3000, -2500], [1800, -1300], 1536),
+    ([3000, 2500], [1800, 1300], 512),
+    ([-3000, 2500], [-1800, 1300], -512),
+];
+
+/// A peeking baby (0x800c4b20, 0x800c4b24: made by 0x80035d44, run by
+/// 0x80043098, moved by 0x80042f34).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Baby {
+    /// +0x5b2.
+    pub state: i16,
+    /// +0x5b4: the corner (0-3; 4-7 sit out), or a count while waiting.
+    pub corner: i16,
+    /// +0x5b8: which of the five babies.
+    pub kind: i16,
+    /// Which hierarchy copy (an index into 0x800e2440): hierarchy n + 1.
+    pub hierarchy: usize,
+    /// +0x18, its target +0x19c, the steps toward it +0x5aa.
+    pub pos: [i32; 3],
+    pub target: [i32; 3],
+    pub speed: [i16; 3],
+    /// +0x24, the targets +0x2c, the step +0x5b0.
+    pub angles: [i16; 3],
+    pub turn_to: [i16; 3],
+    pub turn: i16,
+}
+
+impl Default for Baby {
+    /// As 0x80035d44 makes one.
+    fn default() -> Baby {
+        Baby {
+            state: 0,
+            corner: 0,
+            kind: 0,
+            hierarchy: 0,
+            pos: [3000, 2500, 4000],
+            target: [3000, 2500, 4000],
+            speed: [20, 20, 500],
+            angles: [0; 3],
+            turn_to: [2048, 0, 0],
+            turn: 1024,
+        }
+    }
+}
+
+/// The corners and babies in use, shared by the two (0x800c4090,
+/// 0x800c4094).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InUse {
+    pub corners: u32,
+    pub kinds: u32,
+}
+
+impl Baby {
+    /// One frame of 0x80043098.
+    pub fn think(&mut self, used: &mut InUse, rng: &mut crate::rand::Rand) {
+        match self.state {
+            0 => {
+                self.corner = (rng.next() & 7) as i16;
+                let mut kind = 0;
+                if self.corner < 5 {
+                    while used.corners & (1 << self.corner) != 0 {
+                        self.corner = (rng.next() % 5) as i16;
+                    }
+                    used.corners |= 1 << self.corner;
+                    kind = rng.next() % 5;
+                    while used.kinds & (1 << kind) != 0 {
+                        kind = rng.next() % 5;
+                    }
+                    self.hierarchy = kind as usize;
+                    used.kinds |= 1 << kind;
+                }
+                self.kind = kind as i16;
+                // Kinds 1-5 also set an object's animation by registry id
+                // (0x80075304: 1492, 1776, 600, 608): none here.
+                self.speed[0] = 80;
+                self.speed[1] = 80;
+                self.state = 1;
+                self.turn = 1024;
+                self.angles = [2176, 64, 512];
+                self.turn_to = [2176, 64, 512];
+                match CORNERS.get(self.corner as usize) {
+                    Some(&(from, to, z)) => {
+                        self.turn_to[0] = 2048;
+                        self.turn_to[2] = z;
+                        self.pos[0] = from[0];
+                        self.pos[1] = from[1];
+                        self.target[0] = to[0];
+                        self.target[1] = to[1];
+                    }
+                    None => self.state = 7,
+                }
+            }
+            1 => {
+                self.speed[0] -= 2;
+                self.speed[1] -= 2;
+                if self.pos[0] == self.target[0] && self.pos[1] == self.target[1] {
+                    self.state = 2;
+                }
+            }
+            2 => {
+                // A giggle (0x80070064), drawing on rand twice.
+                rng.next();
+                rng.next();
+                self.speed[0] = 0;
+                self.speed[1] = 0;
+                self.state = 3;
+                if let Some(&(from, to, _)) = CORNERS.get(self.corner as usize) {
+                    self.pos[0] = to[0];
+                    self.pos[1] = to[1];
+                    self.target[0] = from[0];
+                    self.target[1] = from[1];
+                }
+            }
+            3 => {
+                self.speed[0] += 2;
+                self.speed[1] += 2;
+                if self.pos[0] == self.target[0] && self.pos[1] == self.target[1] {
+                    self.state = 0;
+                    used.kinds &= !(1 << self.kind);
+                    used.corners &= !(1 << self.corner);
+                }
+            }
+            4 => {
+                self.turn += 1;
+                if self.turn_to[1] == self.angles[1] {
+                    self.turn_to[1] = -2304;
+                    self.state = 5;
+                }
+            }
+            5 => {
+                self.turn -= 2;
+                if self.turn <= 0 {
+                    self.turn = 1;
+                }
+                if self.turn_to[1] == self.angles[1] {
+                    self.turn_to[1] = 0;
+                    self.turn = 0;
+                    self.state = 6;
+                }
+            }
+            6 => {
+                self.turn += 1;
+                if self.turn_to[1] == self.angles[1] {
+                    self.turn = 32;
+                    self.state = 0;
+                    used.kinds &= !(1 << self.kind);
+                    used.corners &= !(1 << self.corner);
+                }
+            }
+            7 => {
+                // Sitting out: the count runs to 31, then a new pick. The
+                // corner and baby it marked stay marked.
+                let waited = self.corner >= 31;
+                self.corner += 1;
+                if waited {
+                    self.state = 0;
+                }
+            }
+            8 => {
+                match self.corner {
+                    0..=3 => {
+                        let (from, _, z) = CORNERS[self.corner as usize];
+                        self.turn_to[0] = 2048;
+                        self.turn_to[2] = z;
+                        self.target[0] = from[0];
+                        self.target[1] = from[1];
+                    }
+                    4 => {
+                        self.target[1] = -1700;
+                        self.pos[1] = -1700;
+                        self.turn_to = [0; 3];
+                        self.target[0] = 0;
+                        self.pos[0] = 0;
+                    }
+                    _ => return,
+                }
+                self.state = 9;
+            }
+            9 => {
+                self.speed[0] += 4;
+                self.turn += 4;
+                self.speed[1] += 4;
+            }
+            _ => {}
+        }
+    }
+
+    /// One frame of 0x80042f34: the angles, then the position, each
+    /// stepping toward its target without passing it.
+    pub fn step(&mut self) {
+        for (a, t) in self.angles.iter_mut().zip(self.turn_to.iter_mut()) {
+            if *t < *a {
+                *a = (*a).wrapping_sub(self.turn).max(*t);
+            } else if *a < *t {
+                *a = (*a).wrapping_add(self.turn).min(*t);
+            } else if a.unsigned_abs() == 4096 && t.unsigned_abs() == 4096 {
+                *a = 0;
+                *t = 0;
+            }
+        }
+        for ((p, &t), &s) in self.pos.iter_mut().zip(&self.target).zip(&self.speed) {
+            let s = s as i32;
+            if t < *p {
+                *p = if *p - s < t { t } else { *p - s };
+            } else if *p < t {
+                *p = if t < *p + s { t } else { *p + s };
+            }
+        }
+    }
+}
+
 /// What the title menu ends with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
@@ -267,6 +486,11 @@ pub mod sound {
 
 /// The title menu as it stands (0x8003d884).
 pub struct Title {
+    /// The two peeking babies and what they have taken.
+    pub babies: [Baby; 2],
+    pub in_use: InUse,
+    hierarchies: Vec<rugrats_data::hierarchy::Hierarchy>,
+    models: rugrats_data::model::Models,
     /// The items sliding away before an action.
     pub leaving: Option<Action>,
     strings: [String; 3],
@@ -295,7 +519,10 @@ fn words(bytes: &[u8]) -> Vec<u16> {
 }
 
 impl Title {
-    pub fn open(disc: &crate::disc::GameDisc, now: u64) -> Result<Title, String> {
+    /// The front end's setup, which also draws on rand once (an object it
+    /// makes, through 0x80048a44, the call at 0x80048b78).
+    pub fn open(disc: &crate::disc::GameDisc, now: u64, rng: &mut crate::rand::Rand) -> Result<Title, String> {
+        rng.next();
         let mut vram = rugrats_render::Vram::new();
         vram.load(0, 256, 576, 256, &words(&disc.file(MENU_TEX)?));
         let mut chars = words(&disc.file(CHARACTR_RAW)?);
@@ -324,6 +551,9 @@ impl Title {
         let mut stage = crate::stage::Stage::new(vram, Vec::new());
         stage.camera = crate::stage::view(CAMERA.into(), rrt::glam::Mat3::IDENTITY, projection);
         let button_model = models.get(BUTTON_MODEL).ok_or("no button model in DB00")?.clone();
+        // The five babies' skeletons: hierarchy copies 1-5 (0x800e2440).
+        let all = rugrats_data::hierarchy::parse_file(&disc.file(DB00_HIE)?).map_err(|e| e.to_string())?;
+        let hierarchies = (1..=5).map(|k| all.get(k).cloned().flatten().ok_or(format!("no hierarchy {k} in DB00"))).collect::<Result<Vec<_>, _>>()?;
         // The labels (0x80035550, 0x80035674): font 2, as they are, over
         // shadows two pixels down and right.
         let label = |addr: u32, x: i16| Text {
@@ -341,6 +571,10 @@ impl Title {
         let button = |x: i32, target: i16| Button { pos: [x, -400, 1298], angles: [0; 3], targets: [target, 0, 0], speed: 128 };
         let buttons = [button(-600, 2048), button(600, 1024)];
         let mut title = Title {
+            babies: [Baby::default(), Baby::default()],
+            in_use: InUse::default(),
+            hierarchies,
+            models,
             leaving: None,
             strings,
             countdown: COUNTDOWN,
@@ -369,12 +603,12 @@ impl Title {
 
     /// One frame of the menu (0x8003d884's loop), the pads as sampled at
     /// the end of the last.
-    pub fn frame(&mut self, pads: &crate::input::Pads) -> Option<Outcome> {
+    pub fn frame(&mut self, pads: &crate::input::Pads, rng: &mut crate::rand::Rand) -> Option<Outcome> {
         use crate::input::*;
         self.sounds.clear();
         if let Some(action) = self.leaving {
             // The items slide away (0x80035a54), drawn by the menu's draw.
-            self.menu_frame();
+            self.menu_frame(rng);
             if self.items.iter().any(|t| t.flags & text::SLIDE_Y != 0) {
                 return None;
             }
@@ -394,7 +628,12 @@ impl Title {
         let sliding = self.items.iter().any(|t| t.flags & text::SLIDE_Y != 0);
         let pressed = |b: usize| pads.pressed(0, b);
         if pressed(START) && !sliding {
-            self.leave(Action::StartGame);
+            // The babies go too (0x5b2 = 8).
+            for b in &mut self.babies {
+                b.state = 8;
+            }
+            self.in_use = InUse::default();
+            self.leave(Action::StartGame, rng);
             return None;
         }
         if pressed(DOWN) || pressed(SELECT) {
@@ -413,10 +652,10 @@ impl Title {
             if self.chosen > 0 {
                 self.sounds.push(sound::PICK);
             }
-            self.leave([Action::StartGame, Action::LoadGame, Action::Audio][self.chosen]);
+            self.leave([Action::StartGame, Action::LoadGame, Action::Audio][self.chosen], rng);
             return None;
         }
-        self.menu_frame();
+        self.menu_frame(rng);
         self.countdown -= FRAME_TIME;
         if pressed(TRIANGLE) || self.countdown < 0 {
             self.sounds.push(sound::LEAVE);
@@ -427,7 +666,7 @@ impl Title {
 
     /// Slide the items away (0x80035a54(items, 3, 150)): down to 150 at 8
     /// a frame, the second and third waiting 5 and 10 frames first.
-    fn leave(&mut self, action: Action) {
+    fn leave(&mut self, action: Action, rng: &mut crate::rand::Rand) {
         for (k, t) in self.items.iter_mut().enumerate() {
             t.target.1 = 150;
             t.rest.1 = 150;
@@ -440,11 +679,11 @@ impl Title {
             }
         }
         self.leaving = Some(action);
-        self.menu_frame();
+        self.menu_frame(rng);
     }
 
     /// The menu's draw (0x80035ab8) and what runs with it each frame.
-    fn menu_frame(&mut self) {
+    fn menu_frame(&mut self, rng: &mut crate::rand::Rand) {
         if self.backdrop.fading {
             self.backdrop.fading = self.backdrop.step();
         }
@@ -454,6 +693,10 @@ impl Title {
             }
         }
         self.sign.step();
+        for b in &mut self.babies {
+            b.think(&mut self.in_use, rng);
+            b.step();
+        }
         for b in &mut self.buttons {
             b.step();
         }
@@ -467,6 +710,17 @@ impl Title {
         self.backdrop.triangles(&mut self.stage.under);
         self.stage.moving.clear();
         rugrats_render::models::model_triangles(&self.sign.model, rrt::glam::Mat3::IDENTITY, rrt::glam::Vec3::ZERO, &mut self.stage.moving);
+        // The babies, seen by the buttons' camera (draw_character,
+        // 0x8003205c): at rest, turned by their angles (0x80020d10, the
+        // transpose of 0x80020ee0's matrix).
+        let shift = rrt::glam::Vec3::from(CAMERA) - rrt::glam::Vec3::from(BUTTON_CAMERA);
+        for b in &self.babies {
+            let Some(h) = self.hierarchies.get(b.hierarchy) else { continue };
+            let e = self.trig.euler(b.angles);
+            let rows = rrt::glam::Mat3::from_cols_array(&e.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap()).transpose();
+            let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
+            rugrats_render::models::posed_triangles(h, &self.models, &[], rows.transpose(), pos, &mut self.stage.moving);
+        }
         self.stage.overlay.clear();
         menu_triangles(&self.fonts, &self.items, self.chosen, &mut self.stage.overlay);
         trademark(&mut self.stage.overlay);

@@ -3,7 +3,7 @@ title: The front end
 status: partial
 discs: US
 covers: US SLUS_006.50:0x80030158, US SLUS_006.50:0x8003eb28, US SLUS_006.50:0x8003d884, US SLUS_006.50:0x8003d5a0, US SLUS_006.50:0x80035ab8, US SLUS_006.50:0x80034fdc, US SLUS_006.50:0x8003528c, US SLUS_006.50:0x80034e80, US SLUS_006.50:0x8008b100, US SLUS_006.50:0x8002fb7c, US SLUS_006.50:0x80040194, US SLUS_006.50:0x8003f200, US SLUS_006.50:0x8003f7f0, US SLUS_006.50:0x8001dfb8, US SLUS_006.50:0x80020ee0
-worklog: 18, 19
+worklog: 18, 19, 21
 ---
 
 # The front end
@@ -101,7 +101,42 @@ so the cubes turn to show the triangle and the cross. The block's matrix
 comes from its angles (flag 0x20, 0x80020ee0; checked against the
 original before its MatrixNormal pass).
 
+## The babies (0x80035d44, 0x80043098, 0x80042f34)
+
+Two character objects (0x800c4b20, 0x800c4b24), each holding one of five
+hierarchy copies (0x800e2440: DB00 hierarchies 1-5). Their parts' quaternions
+stay zero, which 0x8001fc48 turns into the identity, so they are at rest,
+turned by their base angles (+0x24; 0x80020d10, the transpose of 0x80020ee0's
+matrix) and drawn with the second camera at z 4000. Each frame, in the menu's
+draw: the first's AI (0x80043098), then its move (0x80042f34), then the
+second's.
+
+The AI, by state (+0x5b2):
+
+- 0: corner = rand() & 7. Below 5, it takes a free corner (re-drawing
+  rand() % 5 while the corner's bit in 0x800c4090 is set) and a free baby
+  (rand() % 5 against 0x800c4094) and marks both. Angles (2176, 64, 512)
+  with targets (2048, 64, z) by corner; speeds 80, 80; turn step 1024.
+  Corners 0-3 start at (+/-3000, +/-2500) and head for (+/-1800, +/-1300)
+  with z turns -1536, 1536, 512, -512. Corners 4-7 go to state 7.
+- 1: speeds less 2 a frame; arrived: 2.
+- 2: a giggle (0x80070064, two rand calls); back out from the inner point
+  to the outer; speeds 0; 3.
+- 3: speeds plus 2 a frame; arrived: 0, the corner and baby freed.
+- 4-6: a lean (the y angle to -2304 and back), set from outside.
+- 7: sitting out: the corner number counts to 31, then 0. What it marked
+  stays marked.
+- 8-9: leaving, set when the menu goes (Start), speeds plus 4 a frame.
+
+The move eases each angle toward its target by the turn step, a whole turn
+reading as none, and each coordinate by its speed, never past the target.
+
+rand is drawn once before the title's first frame, by an object the front
+end makes (0x80048a44, the call at 0x80048b78). From there the port's rand
+and babies match the original's frame by frame (test, 150 frames; 860
+compared by hand).
+
 ## Unknown
 
-- The babies' motion, the submenus, the sounds' ids.
+- The submenus, the sounds' ids.
 - Whether MatrixNormal (0x8009f398) changes the cubes' matrices.

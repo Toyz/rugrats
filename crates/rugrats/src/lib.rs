@@ -10,4 +10,5 @@ pub mod card;
 pub mod text;
 pub mod stage;
 pub mod gte;
+pub mod rand;
 pub mod front;

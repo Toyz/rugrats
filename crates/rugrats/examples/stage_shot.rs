@@ -11,11 +11,12 @@ fn main() -> Result<(), String> {
     let ticks: u64 = a.next().and_then(|s| s.parse().ok()).unwrap_or(120);
     let out = a.next().unwrap_or("stage.png".into());
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
-    let mut title = rugrats::front::Title::open(&disc, 0)?;
+    let mut rng = rugrats::rand::Rand::default();
+    let mut title = rugrats::front::Title::open(&disc, 0, &mut rng)?;
     let pads = rugrats::input::Pads::default();
     for t in 0..ticks {
         if title.frame_due(t) {
-            title.frame(&pads);
+            title.frame(&pads, &mut rng);
         }
     }
     let stage = &title.stage;

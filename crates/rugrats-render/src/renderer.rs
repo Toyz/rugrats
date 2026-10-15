@@ -571,7 +571,9 @@ fn make_pipeline(
             format: DEPTH,
             depth_write_enabled: Some(world && semi.is_none()),
             depth_compare: Some(match (world, semi) {
-                (true, None) => wgpu::CompareFunction::Less,
+                // Equal depths go to the later polygon, as the ordering
+                // table draws a coplanar decal over its floor.
+                (true, None) => wgpu::CompareFunction::LessEqual,
                 (true, Some(_)) => wgpu::CompareFunction::LessEqual,
                 _ => wgpu::CompareFunction::Always,
             }),

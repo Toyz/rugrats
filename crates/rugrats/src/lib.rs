@@ -15,3 +15,5 @@ pub mod rand;
 pub mod front;
 pub mod sound;
 pub mod collide;
+pub mod game;
+pub mod player;

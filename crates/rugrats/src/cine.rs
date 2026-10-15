@@ -53,10 +53,10 @@ pub struct Set {
     pub vram: Vram,
     /// The rooms, which do not move.
     pub rooms: Vec<Vtx>,
-    models: Models,
-    hierarchies: Vec<Option<Hierarchy>>,
-    placements: Vec<Placement>,
-    templates: Vec<Template>,
+    pub models: Models,
+    pub hierarchies: Vec<Option<Hierarchy>>,
+    pub placements: Vec<Placement>,
+    pub templates: Vec<Template>,
     faces: Faces,
 }
 
@@ -119,8 +119,13 @@ impl Set {
     /// stream's actors move them (0x80073c34) or where LP put them, and the
     /// posed skeletons (0x80073f08).
     pub fn objects(&self, f: &Frame) -> Vec<Vtx> {
+        self.objects_except(f, None)
+    }
+
+    /// [`Set::objects`] without placement `skip` (the player's, in play).
+    pub fn objects_except(&self, f: &Frame, skip: Option<usize>) -> Vec<Vtx> {
         let mut out = Vec::new();
-        for place in self.placements.iter().filter(|p| p.kind == 1 && !SKIPPED.contains(&p.template)) {
+        for (_, place) in self.placements.iter().enumerate().filter(|(k, p)| p.kind == 1 && !SKIPPED.contains(&p.template) && Some(*k) != skip) {
             let Some(t) = self.templates.get(place.template as usize) else { continue };
             // A placed object's rotation is LP's quaternion inverted
             // (0x8001f684) and kept as angles (0x800202b8); the matrix made

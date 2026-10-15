@@ -21,6 +21,7 @@ use rugrats::disc::GameDisc;
 use rugrats::input::{self, Pads, Query};
 use rugrats::movie::{Movie, Soundtrack};
 use rugrats::sound::{self, Spu};
+use rugrats::game::Game as Level;
 use rugrats::still;
 use rugrats_render::Renderer;
 
@@ -44,6 +45,8 @@ enum Boot {
     /// The opening cinematic, cine 0 on database 22 (`Opening Cine Init`,
     /// 0x8008f078), which the chooser plays when the title is left idle.
     Opening { cine: Box<Cine> },
+    /// A level in play.
+    Game { game: Box<Level> },
     /// Where the port ends for now.
     FrontEnd,
 }
@@ -162,6 +165,20 @@ impl Rugrats {
         }
     }
 
+    /// Game mode `mode`: for now its database of the same number.
+    fn game(&mut self, mode: usize, _now: u64) -> Boot {
+        match Level::open(&self.disc, mode) {
+            Ok(game) => {
+                self.world = None;
+                Boot::Game { game: Box::new(game) }
+            }
+            Err(e) => {
+                rrt::tracing::error!("game mode {mode}: {e}");
+                self.front_end()
+            }
+        }
+    }
+
     fn front_end(&mut self) -> Boot {
         rrt::tracing::info!("boot: the front end is not ported yet");
         self.screen = Picture::filled(320, 240, [0, 0, 0, 255]);
@@ -248,11 +265,17 @@ impl Game for Rugrats {
                     if let Some(Outcome::Play(mode)) = outcome {
                         self.stop_song();
                         rrt::tracing::info!("title: game mode {mode}");
-                        self.boot = self.front_end();
+                        self.boot = self.game(mode as usize, now);
                     } else if outcome == Some(Outcome::Idle) {
                         self.stop_song();
                         self.boot = self.demo(now);
                     }
+                }
+            }
+            Boot::Game { game } => {
+                if now.is_multiple_of(2) {
+                    self.pads.update([Some(&t.pad), None]);
+                    game.frame(&self.pads);
                 }
             }
             Boot::FrontEnd => {}
@@ -263,6 +286,7 @@ impl Game for Rugrats {
         let stage: &Stage = match &self.boot {
             Boot::Opening { cine } => &cine.stage,
             Boot::Title { title } => &title.stage,
+            Boot::Game { game } => &game.stage,
             _ => {
                 d.present_picture(&self.screen, None);
                 return;

@@ -10,13 +10,17 @@ pub const BUTTONS: usize = 16;
 pub const SELECT: usize = 0;
 pub const START: usize = 3;
 pub const UP: usize = 4;
+pub const RIGHT: usize = 5;
 pub const DOWN: usize = 6;
+pub const LEFT: usize = 7;
 pub const L2: usize = 8;
 pub const R2: usize = 9;
 pub const L1: usize = 10;
 pub const R1: usize = 11;
 pub const TRIANGLE: usize = 12;
+pub const CIRCLE: usize = 13;
 pub const CROSS: usize = 14;
+pub const SQUARE: usize = 15;
 
 #[derive(Clone, Debug, Default)]
 pub struct Pad {
@@ -51,6 +55,16 @@ impl Pads {
             for (b, h) in pad.history.iter_mut().enumerate() {
                 *h = *h << 1 | (bits >> b) as u32 & 1;
             }
+        }
+    }
+
+    /// One frame's sample of `port` from button bits (bit `b` button
+    /// `b`): for scripted input.
+    pub fn push_bits(&mut self, port: usize, bits: u16) {
+        let pad = &mut self.port[port];
+        pad.connected = true;
+        for (b, h) in pad.history.iter_mut().enumerate() {
+            *h = *h << 1 | (bits >> b) as u32 & 1;
         }
     }
 

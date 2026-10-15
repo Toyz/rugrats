@@ -47,7 +47,7 @@ pub struct Pose {
     pub keys: Vec<(u8, [i16; 4])>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Frame {
     pub number: u16,
     pub camera_pos: [i32; 3],

@@ -583,7 +583,12 @@ impl Game for Rugrats {
                             return;
                         }
                         if let Some(won) = game.won {
-                            let f = self.progress.finish(game.record, won, &mut self.rand);
+                            let mut f = self.progress.finish(game.record, won, &mut self.rand);
+                            // The fourth bar (0x80076ba8, 0x80076bf0, 0x80076c24).
+                            if game.fourth_bar && f.bars > 0 {
+                                self.progress.find_bar(game.record, (31 - f.bars) as usize);
+                                f.bars += 1;
+                            }
                             rrt::tracing::info!("level {} finished: {f:?}", game.level);
                             if let Some(next) = f.next {
                                 (level, cine) = (next, None);

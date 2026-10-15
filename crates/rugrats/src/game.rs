@@ -51,6 +51,7 @@ fn player_character(level: usize) -> usize {
         4 | 11 => 6,
         5 => 3,
         6 | 10 => 2,
+        17 => 5,
         _ => TOMMY,
     }
 }
@@ -66,6 +67,10 @@ pub trait Script {
     /// default respawn.
     fn cry(&mut self, _g: &mut Game) -> bool {
         false
+    }
+    /// Whether ForceCry plays the cry first (some levels' cases skip it).
+    fn cry_animation(&self) -> bool {
+        true
     }
     /// A room's Gameplay script (room flag 64, 0x80077ee4).
     fn gameplay(&mut self, _g: &mut Game, _n: u8) {}
@@ -202,6 +207,10 @@ pub struct Game {
     pub card: Option<usize>,
     /// Throws aim at characters (level 9's case of 0x80061c98).
     pub aim: bool,
+    /// A bonus level's fourth bar was earned (0x80076ba8 and friends).
+    pub fourth_bar: bool,
+    /// Activity play (+0x21).
+    pub activity: bool,
     /// The progress flags (+0x30) when the level opened: bit 16
     /// (Mirrorland entered) opens the hub's doors to 3, 4 and 6 and the
     /// mirror.
@@ -689,6 +698,8 @@ impl Game {
             spots,
             card: None,
             aim: false,
+            fourth_bar: false,
+            activity: progress.activity(),
             flags: progress.flags(),
         };
         g.hazards = hazards(&g.set, &g.apart);
@@ -705,6 +716,7 @@ impl Game {
             15 => Some(Box::new(crate::level15::Level15::start(&mut g, disc)?)),
             20 => Some(Box::new(crate::level20::Level20::start(&mut g, disc)?)),
             21 => Some(Box::new(crate::level20::Level20::start21(&mut g, disc)?)),
+            17 => Some(Box::new(crate::level17::Level17::start(&mut g, disc)?)),
             11 => Some(Box::new(crate::level11::Level11::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
@@ -1052,6 +1064,10 @@ impl Game {
     /// is gone.
     pub fn cry(&mut self) {
         if self.crying > 0 || self.exit.is_some() || self.cine.is_some() {
+            return;
+        }
+        if !self.script.as_ref().is_none_or(|s| s.cry_animation()) {
+            self.cried();
             return;
         }
         self.crying = CRY_TIME;

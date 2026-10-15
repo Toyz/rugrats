@@ -21,12 +21,14 @@ impl Vram {
         Vram { words: vec![0; VRAM_W * VRAM_H] }
     }
 
-    /// LoadImage: a rectangle of halfwords at (x, y).
+    /// LoadImage: a rectangle of halfwords at (x, y), row by row, as far as
+    /// `data` goes (DB00A.RAW is shorter than the rectangle it is loaded to).
     pub fn load(&mut self, x: u16, y: u16, w: u16, h: u16, data: &[u16]) {
         for row in 0..h as usize {
             for col in 0..w as usize {
+                let Some(&v) = data.get(row * w as usize + col) else { return };
                 let (vx, vy) = ((x as usize + col) % VRAM_W, (y as usize + row) % VRAM_H);
-                self.words[vy * VRAM_W + vx] = data[row * w as usize + col];
+                self.words[vy * VRAM_W + vx] = v;
             }
         }
     }

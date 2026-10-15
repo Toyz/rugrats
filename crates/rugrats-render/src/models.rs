@@ -30,3 +30,47 @@ pub fn model_triangles(m: &Model, rot: Mat3, pos: Vec3, out: &mut Vec<Vtx>) {
         }
     }
 }
+
+/// A quaternion (x, y, z, w), at any scale, as the rotation it stands for
+/// (SLUS_006.50:0x8001fc48 normalises by its squared length).
+pub fn quat_matrix(q: [i16; 4]) -> Mat3 {
+    let [x, y, z, w] = q.map(|v| v as f32);
+    let n = x * x + y * y + z * z + w * w;
+    if n <= 0.0 {
+        return Mat3::IDENTITY;
+    }
+    let s = 2.0 / n;
+    let (xx, yy, zz) = (x * x * s, y * y * s, z * z * s);
+    let (xy, xz, yz) = (x * y * s, x * z * s, y * z * s);
+    let (wx, wy, wz) = (w * x * s, w * y * s, w * z * s);
+    // The game's matrix is this, row-major (the test against 0x8001fc48
+    // pins the signs).
+    Mat3::from_cols(
+        Vec3::new(1.0 - yy - zz, xy - wz, xz + wy),
+        Vec3::new(xy + wz, 1.0 - xx - zz, yz - wx),
+        Vec3::new(xz - wy, yz + wx, 1.0 - xx - yy),
+    )
+}
+
+/// A hierarchy posed: each part's rotation `local[i]` (None at rest),
+/// composed from the root down as UpdatePartRotations (0x8004a5dc) does,
+/// the whole at `pos`.
+pub fn posed_triangles(
+    h: &rugrats_data::hierarchy::Hierarchy,
+    models: &[Option<Model>],
+    local: &[Option<Mat3>],
+    pos: Vec3,
+    out: &mut Vec<Vtx>,
+) {
+    let mut world: Vec<(Mat3, Vec3)> = Vec::with_capacity(h.parts.len());
+    for (i, part) in h.parts.iter().enumerate() {
+        let rot = local.get(i).copied().flatten().unwrap_or(Mat3::IDENTITY);
+        let offset = Vec3::new(part.offset[0] as f32, part.offset[1] as f32, part.offset[2] as f32);
+        let (prot, ppos) = part.parent.map_or((Mat3::IDENTITY, pos), |p| world[p]);
+        let me = (prot * rot, ppos + prot * offset);
+        world.push(me);
+        if let Some(Some(m)) = models.get(part.model as usize) {
+            model_triangles(m, me.0, me.1, out);
+        }
+    }
+}

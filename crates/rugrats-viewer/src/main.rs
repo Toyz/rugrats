@@ -1,7 +1,7 @@
 //! rugrats-viewer: fly around a database's rooms.
 //!
 //! ```text
-//! rugrats-viewer DB [--cue DISC.cue] [--at X,Y,Z] [--look YAW,PITCH] [--shot OUT.png] [--models] [--hier]
+//! rugrats-viewer DB [--cue DISC.cue] [--at X,Y,Z] [--look YAW,PITCH] [--shot OUT.png] [--models] [--hier] [--anim H,A]
 //! ```
 //!
 //! DB is 0-31. Keys: W A S D move, R F up and down, arrows turn, Shift
@@ -9,7 +9,7 @@
 //! right stick turns, R1 is faster, R2 and L2 up and down. `--shot` renders
 //! one frame offscreen and writes it as PNG. `--models` lays every model of
 //! the database out in rows from the origin; `--hier` every hierarchy at
-//! rest.
+//! rest; `--anim H,A` hierarchy H at each key frame of animation A.
 
 #![forbid(unsafe_code)]
 
@@ -31,6 +31,9 @@ const LEVEL: usize = 434;
 const A_RAW: usize = 499;
 const CHARACTR_RAW: usize = 498;
 const HIE: usize = 370;
+const ANM: usize = 274;
+const FRM: usize = 306;
+const ROT: usize = 338;
 
 struct Camera {
     pos: Vec3,
@@ -57,7 +60,7 @@ struct Scene {
 }
 
 impl Scene {
-    fn load(disc: &GameDisc, db: usize, models: bool, hier: bool) -> Result<Scene, String> {
+    fn load(disc: &GameDisc, db: usize, models: bool, hier: bool, anim: Option<(usize, usize)>) -> Result<Scene, String> {
         let level = rugrats_data::level::parse(&disc.file(LEVEL + db)?).map_err(|e| e.to_string())?;
         let raw = disc.file(A_RAW + db)?;
         let mut vram = Vram::new();
@@ -69,7 +72,29 @@ impl Scene {
         let words: Vec<u16> = chars.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
         vram.load(576, 256, 384, 256, &words);
         let mut triangles = Vec::new();
-        if hier {
+        if let Some((hn, an)) = anim {
+            // Hierarchy hn at each key frame of animation an, in a row.
+            let all = rugrats_data::model::parse_file(&disc.file(MOD + db)?).map_err(|e| e.to_string())?;
+            let hs = rugrats_data::hierarchy::parse_file(&disc.file(HIE + db)?).map_err(|e| e.to_string())?;
+            let h = hs.get(hn).and_then(|h| h.as_ref()).ok_or(format!("no hierarchy {hn}"))?;
+            let anims = rugrats_data::anim::Anims::parse(&disc.file(ANM + db)?, &disc.file(FRM + db)?, &disc.file(ROT + db)?)
+                .map_err(|e| e.to_string())?;
+            let frames = anims.frames_of(an);
+            rrt::tracing::info!("hierarchy {hn}, animation {an}: {} frames", frames.len());
+            for (k, f) in frames.iter().enumerate() {
+                let mut local = vec![None; h.parts.len()];
+                for key in anims.keys_of(f) {
+                    if let rugrats_data::anim::Key::Rotation { channel, q } = *key {
+                        let part = h.header.get(0x14 + channel as usize).copied().unwrap_or(0xff);
+                        if let Some(slot) = local.get_mut(part as usize) {
+                            *slot = Some(rugrats_render::models::quat_matrix(q));
+                        }
+                    }
+                }
+                let at = Vec3::new(k as f32 * 900.0, 0.0, 0.0);
+                rugrats_render::models::posed_triangles(h, &all, &local, at, &mut triangles);
+            }
+        } else if hier {
             // Every hierarchy at rest, in a row from the origin.
             let all = rugrats_data::model::parse_file(&disc.file(MOD + db)?).map_err(|e| e.to_string())?;
             let hs = rugrats_data::hierarchy::parse_file(&disc.file(HIE + db)?).map_err(|e| e.to_string())?;
@@ -218,6 +243,7 @@ fn run() -> Result<(), String> {
     let (mut db, mut cue, mut at, mut look, mut out) = (22usize, None::<PathBuf>, None, None, None::<PathBuf>);
     let mut models = false;
     let mut hier = false;
+    let mut anim = None;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--cue" => cue = args.next().map(PathBuf::from),
@@ -226,6 +252,12 @@ fn run() -> Result<(), String> {
             "--shot" => out = args.next().map(PathBuf::from),
             "--models" => models = true,
             "--hier" => hier = true,
+            "--anim" => {
+                anim = args.next().and_then(|s| {
+                    let (h, a) = s.split_once(',')?;
+                    Some((h.parse().ok()?, a.parse().ok()?))
+                })
+            }
             n if !n.starts_with('-') => db = n.parse().map_err(|_| format!("{n}: not a database number"))?,
             _ => return Err("usage: rugrats-viewer DB [--cue DISC.cue] [--at X,Y,Z] [--look YAW,PITCH] [--shot OUT.png]".into()),
         }
@@ -234,7 +266,7 @@ fn run() -> Result<(), String> {
         Some(c) => c,
         None => rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?,
     };
-    let scene = Scene::load(&GameDisc::open(&cue)?, db, models, hier)?;
+    let scene = Scene::load(&GameDisc::open(&cue)?, db, models, hier, anim)?;
     let mut camera = Camera { pos: scene.start, yaw: 0.0, pitch: 0.0 };
     if let Some(p) = at.filter(|p| p.len() == 3) {
         camera.pos = Vec3::new(p[0], p[1], p[2]);

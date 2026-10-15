@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod anim;
 pub mod bs;
 pub mod files;
 pub mod hierarchy;

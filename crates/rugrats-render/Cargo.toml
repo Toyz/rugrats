@@ -10,3 +10,6 @@ publish.workspace = true
 rugrats-data.workspace = true
 rrt = { workspace = true, features = ["disc", "gpu"] }
 tracing.workspace = true
+
+[dev-dependencies]
+rrt = { workspace = true, features = ["disc", "gpu", "emu"] }

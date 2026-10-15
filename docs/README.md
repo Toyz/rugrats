@@ -24,6 +24,7 @@ The containers and record layouts.
 
 | Page | Status | Discs | Covers |
 | --- | --- | --- | --- |
+| [Animations (DBnnANM.BIN, DBnnFRM.BIN, DBnnROT.BIN)](formats/anim.md) | partial | US | US /DATA/DB00/DB00ANM.BIN, US /DATA/DB00/DB00FRM.BIN, US /DATA/DB00/DB00ROT.BIN, US SLUS_006.50:0x80054fd0, US SLUS_006.50:0x80055170, US SLUS_006.50:0x800552bc, US SLUS_006.50:0x8001fc48, US SLUS_006.50:0x8004a5dc |
 | [BS still pictures](formats/bs.md) | partial | US | US /DATA/MENU/TIMS/LEGAL512.BS, US /DATA/MENU/TIMS/THQ512.BS, US /DATA/MENU/TIMS/NICK512.BS, US /DATA/MENU/TIMS/NSPAC512.BS, US /DATA/MENU/TIMS/E3SCR512.BS, US SLUS_006.50:0x80030010, US SLUS_006.50:0x800c1f20 |
 | [The file table in the executable](formats/file-table.md) | partial | US | US SLUS_006.50:0x800b2c40, US SLUS_006.50:0x80019794, US SLUS_006.50:0x80019a04 |
 | [DBnnHIE.BIN, a database's hierarchies](formats/hie.md) | partial | US | US /DATA/DB22/DB22HIE.BIN, US SLUS_006.50:0x80044e7c, US SLUS_006.50:0x8003205c, US SLUS_006.50:0x8004500c |

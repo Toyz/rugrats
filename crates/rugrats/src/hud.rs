@@ -36,6 +36,29 @@ impl Sprites {
         self.textures.get(n as usize % ENTRIES).filter(|t| t.tpage != 0)
     }
 
+    /// Copies sprite `n`'s texels and CLUT from `from` into `to` (a screen
+    /// over another VRAM keeps the level's icon).
+    pub fn copy(&self, n: u32, from: &rugrats_render::Vram, to: &mut rugrats_render::Vram) {
+        let Some(t) = self.texture(n) else { return };
+        let (px, py) = ((t.tpage as usize & 15) * 64, ((t.tpage as usize >> 4) & 1) * 256);
+        let depth = (t.tpage as usize >> 7) & 3;
+        let (us, vs) = (t.uv.iter().map(|uv| uv[0] as usize), t.uv.iter().map(|uv| uv[1] as usize));
+        let (u0, u1) = (us.clone().min().unwrap_or(0), us.max().unwrap_or(0));
+        let (v0, v1) = (vs.clone().min().unwrap_or(0), vs.max().unwrap_or(0));
+        // Texels a VRAM word: 4 (4-bit), 2 (8-bit), 1 (16-bit).
+        let per = [4, 2, 1, 1][depth];
+        let (x0, x1) = (px + u0 / per, px + u1 / per);
+        let w = |x: usize, y: usize| from.words[y * 1024 + x];
+        let rows: Vec<u16> = (py + v0..=py + v1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).map(|(x, y)| w(x, y)).collect();
+        to.load(x0 as u16, (py + v0) as u16, (x1 - x0 + 1) as u16, (v1 - v0 + 1) as u16, &rows);
+        let (cx, cy) = ((t.clut as usize & 63) * 16, (t.clut as usize >> 6) & 511);
+        let n = [16, 256, 0, 0][depth];
+        if n > 0 {
+            let clut: Vec<u16> = (cx..cx + n).map(|x| w(x, cy)).collect();
+            to.load(cx as u16, cy as u16, n as u16, 1, &clut);
+        }
+    }
+
     /// Sprite `n` at screen `at` (from the centre), half-size `w` x `h` at
     /// depth `z`, seen at projection `focal`; `top` lowers its top edge by
     /// that much (a meter's fill).

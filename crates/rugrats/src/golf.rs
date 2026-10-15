@@ -285,8 +285,15 @@ impl Golf {
     fn holed(&mut self, g: &mut Game) {
         g.fixed = None;
         if self.strokes > PAR[self.hole] {
-            // Over par: the box, then a cry and the hole again.
+            // Over par: the box (0x80043968), then a cry and the hole
+            // again.
             self.stage = Stage::Over;
+            let line = |k: usize, c| (self.strings[k].clone(), c);
+            g.pages.push(crate::screens::Page::Message {
+                lines: vec![line(2, crate::screens::PINK), line(3, crate::screens::PINK)],
+                bars: None,
+                blink: false,
+            });
             return;
         }
         self.stage = Stage::Done;
@@ -433,11 +440,9 @@ impl crate::game::Script for Golf {
                 }
             }
             Stage::Over => {
-                if pads.pressed(0, input::CROSS) {
-                    g.effects.push((126, crate::sound::EFFECTS_VOLUME));
-                    self.stage = Stage::Done;
-                    g.cry();
-                }
+                // Back from the box.
+                self.stage = Stage::Done;
+                g.cry();
             }
             Stage::Done => {}
         }
@@ -484,11 +489,6 @@ impl crate::game::Script for Golf {
                 let x = ((105.0 - half) * g.focal() / 512.0 * (512.0 / 320.0)) as i16;
                 s.draw(METER_BAR, (x, 76), half, 10.0, 512.0, 0.0, g.focal(), overlay);
             }
-        }
-        if self.stage == Stage::Over {
-            text(-90, -50, self.strings[2].clone(), overlay);
-            text(-50, -15, self.strings[3].clone(), overlay);
-            text(-110, 40, self.strings[4].clone(), overlay);
         }
     }
 }

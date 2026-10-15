@@ -20,6 +20,7 @@ use rugrats::front::{Outcome, Title};
 use rugrats::game::Game as Level;
 use rugrats::input::{self, Pads, Query};
 use rugrats::movie::{Movie, Soundtrack};
+use rugrats::screens::{self, Page, Screen};
 use rugrats::sound::{self, Spu};
 use rugrats::stage::Stage;
 use rugrats::still;
@@ -32,8 +33,16 @@ const LEGAL512_BS: usize = 234;
 /// it played in to go on with (play_cine inside the level loop,
 /// 0x80018ad0), told the cinematic finished (CineFinish, 0x800783d8).
 enum Then {
+    /// Level n, at once.
     Level(usize),
+    /// Level n with its start cinematic (SwitchEpisode).
+    Enter(usize),
+    /// The level the cinematic interrupted, told it finished.
     Resume(Box<Level>),
+    /// The level a screen interrupted.
+    Back(Box<Level>),
+    /// Screens, then more.
+    Pages(Vec<Page>, Box<Then>),
 }
 
 /// The boot as main runs it (SLUS_006.50:0x800185f8).
@@ -60,8 +69,21 @@ enum Boot {
     Card { card: Box<rugrats::front::Card>, n: usize, then: Then },
     /// A level in play.
     Game { game: Box<Level> },
+    /// The screens between and inside levels (the piece, the board, the
+    /// bars): the level frozen, not drawn.
+    Screen { screen: Box<Screen>, then: Then },
     /// Where the port ends for now.
     FrontEnd,
+}
+
+/// The pages after a piece was given in `level` (0x8009480c): the message,
+/// then the board unless it is level 1's first piece.
+fn piece_pages(disc: &GameDisc, progress: &rugrats::progress::Progress, level: usize) -> Vec<Page> {
+    if level == 1 && progress.pieces() == 1 {
+        vec![screens::message::help(disc)]
+    } else {
+        vec![screens::message::piece(disc), Page::Board]
+    }
 }
 
 /// The opening cinematic: its number and its database.
@@ -206,15 +228,18 @@ impl Rugrats {
             _ if level == 25 && self.progress.activity() => Some(31),
             _ => cine,
         };
+        // Reptar Puzzle gives the first piece (0x80094bfc(1)): "Help Tommy
+        // win twelve puzzle pieces", the board only with more.
+        let mut then = Then::Level(level);
         if level == 1 && cine.is_some() {
             self.progress.set_flags(flags | 4);
             if self.progress.give_piece(1, &mut self.rand) {
-                self.progress.place_earned();
+                then = Then::Pages(piece_pages(&self.disc, &self.progress, 1), Box::new(then));
             }
         }
         match cine {
-            Some(n) => self.scene(n, level, Then::Level(level), now),
-            None => self.game(level, now),
+            Some(n) => self.scene(n, level, then, now),
+            None => self.after(then, 0, now),
         }
     }
 
@@ -233,10 +258,35 @@ impl Rugrats {
         }
     }
 
+    /// The screens `pages` (sprites from database `db`), then `then`.
+    /// `vram` is what the level left (for its bar icon).
+    fn screen(&mut self, pages: Vec<Page>, db: usize, then: Then, vram: Option<rugrats_render::Vram>, now: u64) -> Boot {
+        let (earned, placed) = self.progress.piece_bits();
+        match Screen::open(&self.disc, pages, db, earned, placed, vram.as_ref()) {
+            Ok(screen) => {
+                self.world = None;
+                Boot::Screen { screen: Box::new(screen), then }
+            }
+            Err(e) => {
+                rrt::tracing::error!("screen: {e}");
+                self.after(then, 0, now)
+            }
+        }
+    }
+
     /// What follows cinematic `n` (and its card).
     fn after(&mut self, then: Then, n: usize, now: u64) -> Boot {
         match then {
             Then::Level(level) => self.game(level, now),
+            Then::Enter(level) => self.enter(level, now),
+            Then::Back(game) => {
+                self.world = None;
+                Boot::Game { game }
+            }
+            Then::Pages(pages, then) => {
+                let db = self.level.unwrap_or(1);
+                self.screen(pages, db, *then, None, now)
+            }
             Then::Resume(mut game) => {
                 self.world = None;
                 game.cine_finished(n);
@@ -350,6 +400,25 @@ impl Game for Rugrats {
                     }
                 }
             }
+            Boot::Screen { screen, .. } => {
+                if now.is_multiple_of(2) {
+                    self.pads.update([Some(&t.pad), None]);
+                    let going = screen.frame(&self.pads, &mut self.rand);
+                    if let Ok(mut spu) = self.spu.lock() {
+                        for &s in &screen.sounds {
+                            spu.effect(&self.effect_table, s as usize, sound::EFFECTS_VOLUME);
+                        }
+                    }
+                    if !going {
+                        let (placed, all) = (screen.placed, screen.all_placed);
+                        self.progress.set_placed_bits(placed);
+                        let Boot::Screen { then, .. } = std::mem::replace(&mut self.boot, Boot::FrontEnd) else { unreachable!() };
+                        // All twelve placed: Reptar 2010 (0x80092c68 step 5).
+                        let then = if all && self.progress.flags() & 512 == 0 { Then::Enter(7) } else { then };
+                        self.boot = self.after(then, 0, now);
+                    }
+                }
+            }
             Boot::Card { card, n, .. } => {
                 if now.is_multiple_of(2) {
                     self.pads.update([Some(&t.pad), None]);
@@ -420,12 +489,13 @@ impl Game for Rugrats {
                             spu.effect(&self.effect_table, e as usize, v);
                         }
                     }
+                    let mut bought = false;
                     for &n in &game.found {
                         // 0x80094a58: each bar may buy a piece.
                         self.progress.find_bar(game.level, n);
                         if self.progress.buy_piece(&mut self.rand) {
                             rrt::tracing::info!("15 bars bought a puzzle piece");
-                            self.progress.place_earned();
+                            bought = true;
                         }
                     }
                     game.bars = self.progress.bars_available();
@@ -473,13 +543,23 @@ impl Game for Rugrats {
                         if let Some(won) = game.won {
                             let f = self.progress.finish(game.record, won, &mut self.rand);
                             rrt::tracing::info!("level {} finished: {f:?}", game.level);
-                            if f.piece {
-                                // The puzzle board (0x8009480c) is not ported:
-                                // the pieces go straight onto it.
-                                self.progress.place_earned();
-                            }
                             if let Some(next) = f.next {
                                 (level, cine) = (next, None);
+                            }
+                            // The bar award, then the piece and the board.
+                            let mut pages = Vec::new();
+                            if f.bars > 0 {
+                                pages.push(screens::message::bars(&self.disc, f.bars, self.progress.bars_available()));
+                            }
+                            if f.piece {
+                                pages.extend(piece_pages(&self.disc, &self.progress, game.record));
+                            }
+                            if !pages.is_empty() {
+                                let here = game.level;
+                                let vram = Some(game.stage.vram.clone());
+                                self.stop_song();
+                                self.boot = self.screen(pages, here, Then::Enter(level), vram, now);
+                                return;
                             }
                         }
                         let here = game.level;
@@ -489,6 +569,21 @@ impl Game for Rugrats {
                             }
                             None => self.enter(level, now),
                         };
+                    } else if bought || game.board || !game.pages.is_empty() {
+                        // A bought piece's screens (0x80094a58), the board in
+                        // Pickles' Home (use callback 1, 0x8004d3f0), or the
+                        // level's own (the golf box).
+                        let pages = if bought {
+                            piece_pages(&self.disc, &self.progress, game.level)
+                        } else if std::mem::take(&mut game.board) {
+                            vec![Page::Board]
+                        } else {
+                            std::mem::take(&mut game.pages)
+                        };
+                        let here = game.level;
+                        let vram = Some(game.stage.vram.clone());
+                        let Boot::Game { game } = std::mem::replace(&mut self.boot, Boot::FrontEnd) else { unreachable!() };
+                        self.boot = self.screen(pages, here, Then::Back(game), vram, now);
                     } else if let Some(n) = game.cine.take() {
                         // A cinematic inside the level (PostCine, 0x80018ad0):
                         // the level waits for it.
@@ -507,6 +602,7 @@ impl Game for Rugrats {
             Boot::Opening { cine } => &cine.stage,
             Boot::Scene { cine, .. } => &cine.stage,
             Boot::Card { card, .. } => &card.stage,
+            Boot::Screen { screen, .. } => &screen.stage,
             Boot::Title { title } => &title.stage,
             Boot::Game { game } => &game.stage,
             _ => {

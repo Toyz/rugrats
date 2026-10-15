@@ -179,11 +179,14 @@ impl Progress {
         self.block[0x46..0x48].copy_from_slice(&w.to_le_bytes());
     }
 
-    /// Every earned piece on the board (the port's stand-in for the
-    /// puzzle screen).
-    pub fn place_earned(&mut self) {
-        let earned = [self.block[0x44], self.block[0x45]];
-        self.block[0x46..0x48].copy_from_slice(&earned);
+    /// Pieces earned (+0x44) and placed (+0x46), a bit each.
+    pub fn piece_bits(&self) -> (u16, u16) {
+        (u16::from_le_bytes([self.block[0x44], self.block[0x45]]), u16::from_le_bytes([self.block[0x46], self.block[0x47]]))
+    }
+
+    /// The pieces on the board after the puzzle screen.
+    pub fn set_placed_bits(&mut self, placed: u16) {
+        self.block[0x46..0x48].copy_from_slice(&placed.to_le_bytes());
     }
 
     /// Whether piece `n` is earned (0x80091ca8).

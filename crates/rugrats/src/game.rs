@@ -168,6 +168,11 @@ pub struct Game {
     pub timer: Option<i32>,
     /// The level a finish is recorded for (golf records level 8).
     pub record: usize,
+    /// The puzzle board asked for (its object's use, 0x8004d3f0).
+    pub board: bool,
+    /// Screens a level asks for (the golf box), shown with the level
+    /// frozen.
+    pub pages: Vec<crate::screens::Page>,
 }
 
 /// A collectible (0x80048a44, touched by 0x800514b0).
@@ -256,6 +261,9 @@ const THING_GRAVITY: i32 = 13;
 
 pub use crate::npc::Npc;
 
+/// The puzzle board's object (template 581, model 905; use callback 1,
+/// 0x8004d3f0).
+const BOARD_OBJECT: u32 = 581;
 /// How near (in x and z, and in y) the player must stand to use a door.
 const USE_REACH: i32 = 1500;
 const USE_REACH_Y: i32 = 1500;
@@ -477,6 +485,8 @@ impl Game {
             hurt_wait: 0,
             timer: None,
             record: level,
+            board: false,
+            pages: Vec::new(),
         };
         g.hazards = hazards(&g.set, &g.apart);
         g.script = match level {
@@ -893,7 +903,7 @@ impl Game {
                 .filter(|(k, d)| {
                     d.kind == 1
                         && !self.apart[*k]
-                        && (d.level > 0 || cine_of(d) > 0)
+                        && (d.level > 0 || cine_of(d) > 0 || d.template == BOARD_OBJECT)
                         && !self.unusable.contains(k)
                         && !self.hidden.contains(&d.id)
                 })
@@ -904,7 +914,9 @@ impl Game {
                     && (d.pos[2] - p[2]).abs() < USE_REACH
                     && (d.pos[1] - p[1]).abs() < USE_REACH_Y
             }) {
-                if d.level > 0 {
+                if d.template == BOARD_OBJECT {
+                    self.board = true;
+                } else if d.level > 0 {
                     rrt::tracing::info!("level {}: a door to level {} (cine {})", self.level, d.level, d.cine);
                     self.exit = Some((d.level as usize, (d.cine > 0).then_some(d.cine as usize)));
                 } else {

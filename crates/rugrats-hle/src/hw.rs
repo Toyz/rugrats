@@ -184,6 +184,7 @@ impl Hw {
             _ => (bcr & 0xffff) * (bcr >> 16).max(1),
         };
         let from_ram = chcr & 1 != 0;
+        tracing::trace!("dma {ch}: madr {madr:08x} bcr {bcr:08x} chcr {chcr:08x} ({words} words)");
         match ch {
             2 => match (chcr >> 9) & 3 {
                 2 => {

@@ -353,6 +353,9 @@ impl Hle {
     fn run_nested(&mut self, func: u32, prepare: impl FnOnce(&mut R3000)) -> Result<u32, Stop> {
         let cpu = self.m.cpu.clone();
         let (steps, limit, ret) = (self.m.steps, self.m.step_limit, self.m.return_to);
+        // A load the interrupted program has in flight would land on the
+        // handler's first instruction; it stays pending in the saved copy.
+        self.m.cpu.settle();
         prepare(&mut self.m.cpu);
         self.m.cpu.r[31] = NESTED_RETURN;
         self.m.cpu.set_pc(func);

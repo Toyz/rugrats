@@ -10,6 +10,9 @@ use crate::hw::Hw;
 pub const RAM_SIZE: usize = 2 << 20;
 
 pub struct PsxBus {
+    /// Debugging: a word that stops the run when 0 is written over a code
+    /// address in it (RUGRATS_WATCH=ADDR).
+    pub watch: Option<u32>,
     pub ram: Vec<u8>,
     pub scratch: Vec<u8>,
     pub hw: Hw,
@@ -17,7 +20,8 @@ pub struct PsxBus {
 
 impl Default for PsxBus {
     fn default() -> Self {
-        PsxBus { ram: vec![0; RAM_SIZE], scratch: vec![0; 1024], hw: Hw::default() }
+        let watch = std::env::var("RUGRATS_WATCH").ok().and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok());
+        PsxBus { watch, ram: vec![0; RAM_SIZE], scratch: vec![0; 1024], hw: Hw::default() }
     }
 }
 
@@ -92,7 +96,16 @@ impl Bus for PsxBus {
 
     fn write(&mut self, addr: u32, data: &[u8]) -> Result<(), u32> {
         match place(addr).ok_or(addr)? {
-            Place::Ram(_) => self.load_ram(addr, data),
+            Place::Ram(_) => {
+                if let Some(w) = self.watch
+                    && (addr & 0x1f_fffc) == (w & 0x1f_fffc)
+                    && data.iter().all(|&b| b == 0)
+                    && (0x8001_0000..0x800c_0000).contains(&self.ram_u32(w))
+                {
+                    return Err(addr);
+                }
+                self.load_ram(addr, data)
+            }
             Place::Scratch(a) => {
                 for (k, &b) in data.iter().enumerate() {
                     self.scratch[(a + k) & 0x3ff] = b;

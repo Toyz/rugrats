@@ -40,8 +40,10 @@ pub struct Cdrom {
     /// The data FIFO: the sector chosen by the mode, and how far read.
     data: Vec<u8>,
     data_pos: usize,
-    /// The last sector read, raw.
+    /// The last sector read, raw, and whether the data FIFO has taken it
+    /// yet (asking again does not rewind a sector being read).
     sector: Vec<u8>,
+    sector_fresh: bool,
     int_enable: u8,
     int_flag: u8,
     pending: VecDeque<Pending>,
@@ -72,6 +74,7 @@ impl Default for Cdrom {
             data: Vec::new(),
             data_pos: 0,
             sector: Vec::new(),
+            sector_fresh: false,
             int_enable: 0x1f,
             int_flag: 0,
             pending: VecDeque::new(),
@@ -106,6 +109,7 @@ impl Cdrom {
         w.bytes(&self.data);
         w.u32(self.data_pos as u32);
         w.bytes(&self.sector);
+        w.bool(self.sector_fresh);
         w.u8(self.int_enable);
         w.u8(self.int_flag);
         w.u32(self.pending.len() as u32);
@@ -134,6 +138,7 @@ impl Cdrom {
         self.data = r.bytes()?;
         self.data_pos = r.u32()? as usize;
         self.sector = r.bytes()?;
+        self.sector_fresh = r.bool()?;
         self.int_enable = r.u8()?;
         self.int_flag = r.u8()?;
         let n = r.u32()?;
@@ -328,6 +333,7 @@ impl Cdrom {
         let p = self.pending.pop_front().unwrap();
         if let Some(s) = p.sector {
             self.sector = s;
+            self.sector_fresh = true;
         }
         tracing::debug!("cd {now}: INT{} {:02x?} (enable {:#x})", p.int, p.bytes, self.int_enable);
         self.response = p.bytes.into();
@@ -385,7 +391,10 @@ impl Cdrom {
             (2, 1) => self.int_enable = v & 0x1f,
             (3, 0) => {
                 if v & 0x80 != 0 {
-                    self.load_data();
+                    if self.sector_fresh {
+                        self.load_data();
+                        self.sector_fresh = false;
+                    }
                 } else {
                     self.data.clear();
                     self.data_pos = 0;

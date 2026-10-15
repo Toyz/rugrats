@@ -7,6 +7,7 @@
 //!             [--peek ADDR:LEN,...]    memory after the run, as words
 //!             [--count ADDR,...]       calls of each function, per frame
 //!             [--poke ADDR=WORD,...]   words written before every frame
+//!             [--trace-from F]         record executed addresses from frame F; the last shown on a stop
 //! ```
 //!
 //! Writes the displayed picture every N frames, and all of VRAM at the end,
@@ -49,6 +50,7 @@ fn main() {
     let mut counts: Vec<u32> = Vec::new();
     // --poke ADDR=WORD: written before every frame.
     let mut pokes_each: Vec<(u32, u32)> = Vec::new();
+    let mut trace_from: Option<u64> = None;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--shots" => shots = args.next().map(PathBuf::from).unwrap_or(shots),
@@ -71,6 +73,7 @@ fn main() {
                     }
                 }
             }
+            "--trace-from" => trace_from = args.next().and_then(|s| s.parse().ok()),
             "--count" => counts.extend(args.next().unwrap_or_default().split(',').map(parse_num)),
             "--peek" => {
                 for p in args.next().unwrap_or_default().split(',') {
@@ -102,8 +105,22 @@ fn main() {
             hle.m.bus.load_ram(a, &v.to_le_bytes());
         }
         hle.pad = presses.iter().filter(|(at, _, len)| (*at..at + len).contains(&f)).fold(0, |a, p| a | p.1);
+        if trace_from == Some(f) {
+            hle.m.trace = Some(Vec::new());
+        }
+        if let Some(t) = &mut hle.m.trace
+            && t.len() > 4_000_000
+        {
+            t.drain(..t.len() - 1000);
+        }
         if let Err(e) = hle.run_frame() {
             tracing::error!("frame {f}: {e}");
+            let r = &hle.m.cpu.r;
+            tracing::error!("sp {:08x} ra {:08x} fp {:08x} gp {:08x} s0 {:08x} s1 {:08x}", r[29], r[31], r[30], r[28], r[16], r[17]);
+            if let Some(t) = &hle.m.trace {
+                let tail: Vec<String> = t.iter().rev().take(3_000_000).rev().map(|a| format!("{a:08x}")).collect();
+                tracing::error!("last steps: {}", tail.join(" "));
+            }
             break;
         }
         for (k, t) in tallies.iter().enumerate() {

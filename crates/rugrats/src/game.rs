@@ -188,6 +188,9 @@ pub struct Game {
     pub breakables: Vec<Breakable>,
     /// The hinged and sliding doors (classes 4 and 3).
     pub doors: Vec<Door>,
+    /// Spinning toys (class 2) and post walkers (class 15).
+    pub spinners: Vec<Spinner>,
+    pub walkers: Vec<Walker>,
     /// Thrown objects that struck a character this frame (0x80086ef0):
     /// (character, thing, the thing's +0x6d).
     pub struck: Vec<(usize, usize, i32)>,
@@ -253,6 +256,58 @@ pub struct Game {
     pub pieces: u32,
     /// Activity golf: the strokes of the hole just holed.
     pub strokes: Option<u32>,
+}
+
+/// A spinning toy (class 2, 0x80048364, think 0x8004e2ac): while the
+/// player is within its trigger radius its angles turn by template +0x18..
+/// +0x1c a VSync (two a game frame).
+pub struct Spinner {
+    pub placement: usize,
+    shape: u32,
+    pos: Vec3,
+    placed: Mat3,
+    speed: [i32; 3],
+    angle: [i32; 3],
+    radius: i32,
+}
+
+impl Spinner {
+    fn rot(&self, trig: &Trig) -> Mat3 {
+        let e = trig.euler(self.angle.map(|a| a as i16));
+        let cols: Vec<f32> = e.concat().into_iter().map(|v| v as f32 / 4096.0).collect();
+        self.placed * Mat3::from_cols_slice(&cols)
+    }
+}
+
+/// A post walker (class 15, 0x80048974, think 0x8004dba0): to its post
+/// (+0xa8) at LP +0x48 / 300 a think, turning at most 512, the next post
+/// the first neighbour not the one come from; within LP +0x4a of a post it
+/// moves on (under 11: it stops).
+pub struct Walker {
+    pub placement: usize,
+    pub template: u16,
+    shape: u32,
+    pub pos: [i32; 3],
+    heading: i32,
+    speed: i32,
+    reach: i32,
+    post: u8,
+    prev: u8,
+    radius: i32,
+    stopped: bool,
+}
+
+impl Walker {
+    fn world(&self) -> Vec3 {
+        Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32)
+    }
+
+    /// Its placed rotation turned to its heading now.
+    fn rot(&self, trig: &Trig) -> Mat3 {
+        let e = trig.euler([self.heading as i16, 0, 0]);
+        let cols: Vec<f32> = e.concat().into_iter().map(|v| v as f32 / 4096.0).collect();
+        Mat3::from_cols_slice(&cols)
+    }
 }
 
 /// A door (docs/engine/doors.md): class 4 hinged (0x8004860c, think
@@ -770,8 +825,56 @@ impl Game {
                 }
             })
             .collect();
+        let class_of = |k: usize, c: u8| {
+            let p = &set.placements[k];
+            p.kind == 1
+                && !character(k)
+                && !pickable(k)
+                && set.templates.get(p.template as usize).is_some_and(|t| t.raw[4] == c && set.models.has(t.shape as u32))
+        };
+        let radius_of = |t: &rugrats_data::placement::Template| u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32;
+        let spinners: Vec<Spinner> = (0..set.placements.len())
+            .filter(|&k| class_of(k, 2))
+            .map(|k| {
+                let p = &set.placements[k];
+                let t = &set.templates[p.template as usize];
+                let h = |at: usize| i16::from_le_bytes([t.raw[at], t.raw[at + 1]]) as i32;
+                Spinner {
+                    placement: k,
+                    shape: t.shape as u32,
+                    pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
+                    placed: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    speed: [h(0x18), h(0x1a), h(0x1c)],
+                    angle: [0; 3],
+                    radius: radius_of(t),
+                }
+            })
+            .collect();
+        let walkers: Vec<Walker> = (0..set.placements.len())
+            .filter(|&k| class_of(k, 15))
+            .map(|k| {
+                let p = &set.placements[k];
+                let t = &set.templates[p.template as usize];
+                let [_, qy, _, qw] = p.rotation.map(|v| v as f64);
+                let heading = ((2.0 * qy.atan2(qw) / std::f64::consts::TAU * 4096.0).round() as i32).rem_euclid(4096);
+                Walker {
+                    placement: k,
+                    template: p.template as u16,
+                    shape: t.shape as u32,
+                    pos: p.pos,
+                    heading,
+                    speed: p.spawn_group as i32 / 300,
+                    reach: p.word_4a as i32,
+                    post: p.copies as u8,
+                    prev: 0,
+                    radius: radius_of(t),
+                    stopped: false,
+                }
+            })
+            .collect();
+        let spun = |k: usize| class_of(k, 2) || class_of(k, 15);
         let apart: Vec<bool> = (0..set.placements.len())
-            .map(|k| character(k) || pickable(k) || collectible(k) || mover(k) || breakable(k) || door(k))
+            .map(|k| character(k) || pickable(k) || collectible(k) || mover(k) || breakable(k) || door(k) || spun(k))
             .collect();
         let scenery = set.objects_except(&Frame::default(), |k| apart[k]);
         let mut npcs = Vec::new();
@@ -882,6 +985,8 @@ impl Game {
             movers,
             breakables,
             doors,
+            spinners,
+            walkers,
             fixed: None,
             eye_up: default_eye_up(level),
             behind: if level == 7 { 6400.0 } else { BEHIND },
@@ -916,7 +1021,9 @@ impl Game {
         };
         g.talkers = talkers(&g.set, level);
         g.player.falls_hurt = !g.no_damage;
-        g.hazards = hazards(&g.set, &g.apart);
+        // Spinners still hurt on touch where they stand (their +0x6d).
+        let hazard_skip: Vec<bool> = (0..g.apart.len()).map(|k| g.apart[k] && !g.spinners.iter().any(|s| s.placement == k)).collect();
+        g.hazards = hazards(&g.set, &hazard_skip);
         g.script = match level {
             2 => Some(Box::new(crate::level2::Level2::start(&mut g, disc)?)),
             HUB => Some(Box::new(crate::level1::Level1::start(&mut g, disc)?)),
@@ -987,6 +1094,55 @@ impl Game {
                 let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
                 body(at, 100, at[1], at[1] - 200)
             })
+    }
+
+    /// The spinners' and walkers' thinks while the player is within their
+    /// trigger radius (enter 0x80049e18, leave 0x80049e5c).
+    fn toy_thinks(&mut self) {
+        let me = self.player.pos;
+        let near = |at: [i32; 3], r: i32| {
+            let (dx, dz) = ((at[0] - me[0]) as i64, (at[2] - me[2]) as i64);
+            dx * dx + dz * dz < (r as i64) * (r as i64)
+        };
+        for s in &mut self.spinners {
+            let at = [s.pos.x as i32, s.pos.y as i32, s.pos.z as i32];
+            if near(at, s.radius) {
+                // Angles += speed x VSyncs since the last think.
+                for i in 0..3 {
+                    s.angle[i] = (s.angle[i] + 2 * s.speed[i]).rem_euclid(4096);
+                }
+            }
+        }
+        for k in 0..self.walkers.len() {
+            let w = &self.walkers[k];
+            if w.stopped || !near(w.pos, w.radius) || w.post == 0 {
+                continue;
+            }
+            let Some(post) = self.posts.get(w.post as usize - 1).copied() else { continue };
+            let (dx, dz) = ((post.pos[0] - w.pos[0]) as i64, (post.pos[2] - w.pos[2]) as i64);
+            let w = &mut self.walkers[k];
+            if w.reach < 11 {
+                w.stopped = true;
+                continue;
+            }
+            if dx * dx + dz * dz < (w.reach as i64).pow(2) {
+                let next = post.next.iter().copied().find(|&n| n != 0 && n != w.prev).unwrap_or(w.prev);
+                w.prev = w.post;
+                w.post = next;
+                continue;
+            }
+            // Turn at most 512, then step along the heading.
+            let want = ((dx as f64).atan2(dz as f64) / std::f64::consts::TAU * 4096.0).round() as i32;
+            let d = (want - w.heading + 2048).rem_euclid(4096) - 2048;
+            w.heading = (w.heading + d.clamp(-512, 512)).rem_euclid(4096);
+            let (s, c) = (self.trig.sin(w.heading), self.trig.cos(w.heading));
+            let next = [w.pos[0] + (s * w.speed >> 12), w.pos[1], w.pos[2] + (c * w.speed >> 12)];
+            // Blocked by the player (0x8006baa8): it waits.
+            let (bx, bz) = ((next[0] - me[0]) as i64, (next[2] - me[2]) as i64);
+            if bx * bx + bz * bz > 400 * 400 {
+                w.pos = next;
+            }
+        }
     }
 
     /// The doors' thinks, one a game frame (0x8004f868, 0x8004e458).
@@ -1762,6 +1918,17 @@ impl Game {
                 boxes.extend(world_boxes(model, m.rot, m.world()));
             }
         }
+        self.toy_thinks();
+        for s in &self.spinners {
+            if let Some(model) = self.set.models.get(s.shape) {
+                boxes.extend(world_boxes(model, s.rot(&self.trig), s.pos));
+            }
+        }
+        for w in &self.walkers {
+            if let Some(model) = self.set.models.get(w.shape) {
+                boxes.extend(world_boxes(model, w.rot(&self.trig), w.world()));
+            }
+        }
         // Doors are solid where they are drawn (0x80069c40).
         self.door_thinks();
         for d in &self.doors {
@@ -1994,6 +2161,16 @@ impl Game {
             if let Some(model) = self.set.models.get(d.shape) {
                 let (rot, pos) = d.pose(d.offset, &self.trig);
                 rugrats_render::models::model_triangles(model, rot, pos, &mut moving);
+            }
+        }
+        for s in self.spinners.iter().filter(|s| !self.hidden.contains(&self.set.placements[s.placement].id)) {
+            if let Some(model) = self.set.models.get(s.shape) {
+                rugrats_render::models::model_triangles(model, s.rot(&self.trig), s.pos, &mut moving);
+            }
+        }
+        for w in self.walkers.iter().filter(|w| !self.hidden.contains(&self.set.placements[w.placement].id)) {
+            if let Some(model) = self.set.models.get(w.shape) {
+                rugrats_render::models::model_triangles(model, w.rot(&self.trig), w.world(), &mut moving);
             }
         }
         for b in self.breakables.iter().filter(|b| !b.gone) {

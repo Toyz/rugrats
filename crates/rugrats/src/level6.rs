@@ -34,6 +34,8 @@ const TOMMY_AFTER: [i32; 3] = [40738, -1267, 8097];
 const CHUCKIE_AFTER: [i32; 3] = [39612, -1378, 7197];
 
 struct Scary {
+    /// Its placement (a walker's position moves), where it is.
+    placement: usize,
     pos: [i32; 3],
     radius: i64,
     damage: i32,
@@ -80,7 +82,7 @@ impl Level6 {
         for (k, p) in g.set.placements.iter().enumerate().filter(|(_, p)| p.kind == 1) {
             if let Some(&(_, damage)) = SCARY.iter().find(|s| s.0 == p.template) {
                 let radius = template(p.template).map_or(3000, |t| u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i64);
-                scary.push(Scary { pos: p.pos, radius, damage });
+                scary.push(Scary { placement: k, pos: p.pos, radius, damage });
             }
             if let Some(&(_, period, reach)) = BURSTS.iter().find(|b| b.0 == p.template) {
                 bursts.push((p.pos, period, reach));
@@ -142,6 +144,12 @@ impl crate::game::Script for Level6 {
         };
         // Scary toys (0x80059570): once per approach; leaving clears it
         // (0x800596b0).
+        // The walker 1155 carries its scare along (0x8004dba0).
+        for s in &mut self.scary {
+            if let Some(w) = g.walkers.iter().find(|w| w.placement == s.placement) {
+                s.pos = w.pos;
+            }
+        }
         match self.scary.iter().find(|s| d2(s.pos) < s.radius * s.radius) {
             Some(s) if !self.scared => {
                 self.scared = true;

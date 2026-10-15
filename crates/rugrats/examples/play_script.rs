@@ -126,6 +126,9 @@ fn main() -> Result<(), String> {
             if std::env::var_os("DOORS").is_some() && frame % 10 == 0 {
                 println!("{frame}: doors {:?}", game.doors.iter().filter(|d| d.moving || d.open).map(|d| (d.template, d.open, d.moving)).collect::<Vec<_>>());
             }
+            if std::env::var_os("WALKERS").is_some() && frame % 30 == 0 {
+                println!("{frame}: walkers {:?}", game.walkers.iter().map(|w| (w.template, w.pos)).collect::<Vec<_>>());
+            }
             if std::env::var_os("MOVERS").is_some() && frame % 30 == 0 {
                 println!("{frame}: movers {:?}", game.movers.iter().map(|m| (m.id, m.pos)).collect::<Vec<_>>());
             }

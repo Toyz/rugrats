@@ -388,6 +388,8 @@ impl Game {
     /// EpisodeStart callback (0x80078e7c) puts it, unless from training.
     pub fn open_from(disc: &GameDisc, level: usize, from: Option<usize>, progress: &crate::progress::Progress) -> Result<Game, String> {
         let who = player_character(level);
+        // Level 12's Tommy is hierarchy 44 (0x8005981c).
+        let body = if level == 12 { 44 } else { who };
         let set = Set::load(disc, level)?;
         let col = Col::parse(&disc.file(COL + level)?)?;
         let anims = Anims::parse(&disc.file(ANM + level)?, &disc.file(FRM + level)?, &disc.file(ROT + level)?)
@@ -401,7 +403,7 @@ impl Game {
         // record whose template is the character's hierarchy, turned by
         // its quaternion (0x8001f684, 0x80059a88).
         let mine = |p: &&rugrats_data::placement::Placement| {
-            p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy() == Some(who))
+            p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy() == Some(body))
         };
         let (start, heading) = match set.placements.iter().find(mine) {
             Some(p) => {
@@ -420,7 +422,7 @@ impl Game {
             None => start,
         };
         rrt::tracing::info!("level {level}: the player starts at {start:?}, heading {heading}");
-        let hierarchy = set.hierarchies.get(who).cloned().flatten().ok_or("no hierarchy for the player")?;
+        let hierarchy = set.hierarchies.get(body).cloned().flatten().ok_or("no hierarchy for the player")?;
         let mut player = Player::new(disc, hierarchy.clone(), start, heading, &col, &anims)?;
         if who != TOMMY {
             // Another body (0x80059328): Spike turns slowly (0x80062eac).
@@ -555,6 +557,8 @@ impl Game {
                 continue;
             }
             let Some(h) = set.templates.get(p.template as usize).and_then(|t| t.hierarchy()) else { continue };
+            // Level 12's Spike is hierarchy 45 (0x80048284).
+            let h = if level == 12 && h == 6 { 45 } else { h };
             let Some(Some(hierarchy)) = set.hierarchies.get(h).cloned() else { continue };
             let mut animator = crate::animator::Animator::load(disc, h as u16)?;
             animator.set(crate::player::anim::IDLE, &anims);
@@ -674,6 +678,7 @@ impl Game {
             6 => Some(Box::new(crate::level6::Level6::start(&mut g, disc)?)),
             9 => Some(Box::new(crate::level9::Level9::start(&mut g, disc)?)),
             10 => Some(Box::new(crate::level10::Level10::start(&mut g, disc)?)),
+            12 => Some(Box::new(crate::level12::Level12::start(&mut g, disc)?)),
             11 => Some(Box::new(crate::level11::Level11::start(&mut g, disc)?)),
             23..=31 => Some(Box::new(crate::golf::Golf::start(&mut g, disc)?)),
             _ => None,
@@ -775,6 +780,17 @@ impl Game {
         self.things[k].state = ThingState::Carried;
         self.carried = Some(k);
         self.player.carrying = true;
+    }
+
+    /// Puts the carried thing down where the player stands (a cine's
+    /// drop).
+    pub fn drop_carried(&mut self) {
+        if let Some(k) = self.carried.take() {
+            let p = self.player.pos;
+            self.things[k].pos = Vec3::new(p[0] as f32, (p[1] - self.player.feet()) as f32 - 100.0, p[2] as f32);
+            self.things[k].state = ThingState::Rest;
+            self.player.carrying = false;
+        }
     }
 
     /// The thing carried.

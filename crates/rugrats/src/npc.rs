@@ -290,7 +290,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                 if from_home < n.range && (p[1] - n.pos[1]).abs() < 2800 {
                     if n.dist(p) < n.reach {
                         n.speed = 0;
-                        if n.cooldown == 0 && (p[1] - n.pos[1]).abs() < 1200.max(n.reach + 200) {
+                        if n.cooldown == 0 && (p[1] - n.pos[1]).abs() < 1200.max(n.reach + 600) {
                             events.push(Event::Bite { by: k, target: Target::Player, amount: n.damage });
                             n.cooldown = n.bite_wait;
                         }

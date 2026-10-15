@@ -193,6 +193,11 @@ impl crate::game::Script for Level12 {
         }
     }
 
+    /// The refrigerator opened (602's use gone).
+    fn cue(&self) -> i32 {
+        self.fridge_done as i32
+    }
+
     fn draw(&self, g: &Game, _moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
         // The gauge (0x8008c7f0: 360 over 361) while the light is held.
         if self.holding(g) {

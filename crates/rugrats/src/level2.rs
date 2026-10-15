@@ -400,6 +400,11 @@ impl crate::game::Script for Level2 {
         g.cry();
     }
 
+    /// +0x30 bit 8: phase 3.
+    fn cue(&self) -> i32 {
+        (self.phase == 3) as i32
+    }
+
     fn phase(&self) -> u8 {
         self.phase
     }

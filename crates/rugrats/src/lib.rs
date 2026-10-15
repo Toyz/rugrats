@@ -1,6 +1,7 @@
 //! Rugrats: Search for Reptar, ported: the game's systems as a library the
 //! `rugrats` program runs and the tests check against the original.
 
+pub mod ambience;
 pub mod animator;
 pub mod progress;
 pub mod npc;
@@ -36,6 +37,7 @@ pub mod movie;
 pub mod player;
 pub mod rand;
 pub mod sound;
+pub mod speech;
 pub mod stage;
 pub mod still;
 pub mod text;

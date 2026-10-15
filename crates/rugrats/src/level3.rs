@@ -437,6 +437,11 @@ impl crate::game::Script for Level3 {
         }
     }
 
+    /// +0x30 bit 8: the pie toss.
+    fn cue(&self) -> i32 {
+        self.toss.is_some() as i32
+    }
+
     fn phase(&self) -> u8 {
         self.phase
     }

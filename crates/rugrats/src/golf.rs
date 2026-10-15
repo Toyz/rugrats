@@ -360,6 +360,11 @@ fn lip_out(v: [i32; 3], to_cup: [i32; 2], s: i32) -> [i32; 3] {
 }
 
 impl crate::game::Script for Golf {
+    /// State 15, the stroke.
+    fn cue(&self) -> i32 {
+        if matches!(self.stage, Stage::Stroke(..)) { 15 } else { 0 }
+    }
+
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         match self.stage {
             Stage::Free => {

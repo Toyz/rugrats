@@ -441,6 +441,16 @@ impl crate::game::Script for Level11 {
         }
     }
 
+    /// The ring step (0x800c4bd0) the ambience reads: 9 riding to the
+    /// ramp, 5 the meter.
+    fn cue(&self) -> i32 {
+        match self.step {
+            Step::Ride => 9,
+            Step::Meter { .. } => 5,
+            _ => 0,
+        }
+    }
+
     fn phase(&self) -> u8 {
         self.phase
     }

@@ -38,6 +38,8 @@ pub struct Placement {
     pub group: Option<u16>,
     pub spawn_group: u16,
     pub placed_at_load: bool,
+    /// A speech line said when the player comes near (+0x4c, 0x8004d0f0).
+    pub speech: u16,
 }
 
 /// A spawn spot (LP kind 7, kept 16 bytes each at 0x800c4bac): x in the
@@ -81,6 +83,7 @@ pub fn parse_lp(b: &[u8]) -> Vec<Placement> {
                 group: (w(r + 0x48)? >> 16 != 0).then_some(w(r + 0x48)? as u16),
                 spawn_group: w(r + 0x48)? as u16,
                 placed_at_load: w(r + 0x48)? >> 16 != 0,
+                speech: w(r + 0x4c)? as u16,
             })
         })
         .collect()

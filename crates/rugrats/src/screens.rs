@@ -262,7 +262,12 @@ pub struct Screen {
     restart_text: [String; 3],
     held: u32,
     pub sounds: Vec<u8>,
+    /// Speech lines asked for this frame.
+    pub speech: Vec<u16>,
 }
+
+/// "You did it!" said (0x80094978).
+const YOU_DID_IT: u16 = 2046;
 
 fn order(rand: &mut crate::rand::Rand) -> [usize; 35] {
     // 0x80092090: for k, r = (rand & 255) % 35 until free; order[r] = k.
@@ -328,6 +333,7 @@ impl Screen {
             held: 0,
             restart_text: [229, 11, 12].map(|n| crate::front::string(disc, n)),
             sounds: Vec::new(),
+            speech: Vec::new(),
         };
         s.begin();
         s.draw();
@@ -356,6 +362,7 @@ impl Screen {
     /// One frame; false when the last page is over.
     pub fn frame(&mut self, pads: &Pads, rand: &mut crate::rand::Rand) -> bool {
         self.sounds.clear();
+        self.speech.clear();
         self.frames += 1;
         if self.frames.is_multiple_of(30) {
             self.backdrop.fading = true;
@@ -396,6 +403,7 @@ impl Screen {
             if self.pages.is_empty() && self.all_placed && !matches!(page, Page::Message { blink: false, bars: None, .. }) {
                 // All twelve placed: "You did it!" (0x80094978, speech 2046).
                 self.pages.push(self.all_text.clone());
+                self.speech.push(YOU_DID_IT);
             }
             self.begin();
             if self.pages.is_empty() {

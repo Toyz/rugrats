@@ -123,6 +123,9 @@ fn main() -> Result<(), String> {
                 println!("{frame}: training message {n}");
             }
             shown = game.training.showing();
+            if !game.speech.is_empty() {
+                println!("{frame}: speech {:?}", game.speech);
+            }
             if let Some(e) = game.exit.take() {
                 println!("{frame}: exit to {e:?}");
             }

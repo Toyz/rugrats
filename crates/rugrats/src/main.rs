@@ -462,13 +462,25 @@ impl Game for Rugrats {
                     }
                 }
             }
-            Boot::Screen { screen, .. } => {
+            Boot::Screen { screen, then } => {
                 if now.is_multiple_of(2) {
                     self.pads.update([Some(&t.pad), None]);
                     let going = screen.frame(&self.pads, &mut self.rand);
                     if let Ok(mut spu) = self.spu.lock() {
                         for &s in &screen.sounds {
                             spu.effect(&self.effect_table, s as usize, sound::EFFECTS_VOLUME);
+                        }
+                    }
+                    // Lines from the level's set, as the board runs in it.
+                    if let Then::Back(game) = then {
+                        for &n in &screen.speech {
+                            if let Ok(mut s) = self.soundtrack.lock() {
+                                if !s.playing() {
+                                    if let Some(sound) = game.lines.line(&self.disc, n) {
+                                        *s = Soundtrack::new(sound);
+                                    }
+                                }
+                            }
                         }
                     }
                     if !going {
@@ -560,6 +572,17 @@ impl Game for Rugrats {
                     if let Ok(mut spu) = self.spu.lock() {
                         for &(e, v) in &game.effects {
                             spu.effect(&self.effect_table, e as usize, v);
+                        }
+                    }
+                    // Speech (0x8008da4c): one line at a time; one asked for
+                    // while another plays is dropped.
+                    for &n in &game.speech {
+                        if let Ok(mut s) = self.soundtrack.lock() {
+                            if !s.playing() {
+                                if let Some(sound) = game.lines.line(&self.disc, n) {
+                                    *s = Soundtrack::new(sound);
+                                }
+                            }
                         }
                     }
                     let mut bought = false;

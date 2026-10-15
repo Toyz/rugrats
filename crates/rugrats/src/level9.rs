@@ -181,6 +181,11 @@ impl crate::game::Script for Level9 {
         }
     }
 
+    /// The deaths to go (0x800c4cd8).
+    fn cue(&self) -> i32 {
+        self.counter
+    }
+
     fn phase(&self) -> u8 {
         self.phase
     }

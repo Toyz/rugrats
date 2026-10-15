@@ -91,6 +91,12 @@ pub trait Script {
     fn describe(&self) -> String {
         String::new()
     }
+    /// What the level's ambience reads (crate::ambience): level 2 and 3
+    /// +0x30 bit 8, level 9 the deaths to go, level 11 the ring step,
+    /// level 12 the refrigerator opened, golf 15 in the stroke.
+    fn cue(&self) -> i32 {
+        0
+    }
 }
 
 pub struct Game {
@@ -225,6 +231,18 @@ pub struct Game {
     pub pages: Vec<crate::screens::Page>,
     /// The training messages (levels 1 and 16).
     pub training: crate::training::Training,
+    /// Speech lines asked for this frame (0x8008da4c), and the level's
+    /// lines.
+    pub speech: Vec<u16>,
+    pub lines: crate::speech::Speech,
+    /// Placements that speak when the player comes near (LP +0x4c, the
+    /// trigger list 0x80072d38): placement, line, radius, inside.
+    talkers: Vec<(usize, u16, i32, bool)>,
+    /// The ambience countdown (0x800c4cc0), its first-line flag
+    /// (0x800c4cc4) and its line tables.
+    pub ambience: i32,
+    pub ambience_first: bool,
+    ambience_lines: std::rc::Rc<crate::ambience::Tables>,
 }
 
 /// A moving platform (0x80048804, think 0x8004ee00): per axis it steps by
@@ -751,7 +769,14 @@ impl Game {
             activity: progress.activity(),
             flags: progress.flags(),
             training: crate::training::Training::load(disc, level),
+            speech: Vec::new(),
+            lines: crate::speech::Speech::load(disc, level),
+            talkers: Vec::new(),
+            ambience: crate::ambience::setup(level).0,
+            ambience_first: crate::ambience::setup(level).1,
+            ambience_lines: std::rc::Rc::new(crate::ambience::Tables::load(disc)),
         };
+        g.talkers = talkers(&g.set);
         g.hazards = hazards(&g.set, &g.apart);
         g.script = match level {
             2 => Some(Box::new(crate::level2::Level2::start(&mut g, disc)?)),
@@ -803,6 +828,31 @@ impl Game {
     /// player).
     pub fn set_room(&mut self, room: Option<usize>) {
         self.room = room;
+    }
+
+    /// The room holding `p` (0x8002b660, by the rooms' bounds).
+    fn room_of(&self, p: [i32; 3]) -> Option<usize> {
+        (0..self.set.room_info.len()).find(|&k| {
+            let r = &self.set.room_info[k];
+            (0..3).all(|i| r.min[i] <= p[i] && p[i] <= r.max[i])
+        })
+    }
+
+    /// The trigger list (0x80072d38): coming within a talker's radius
+    /// (2D) says its line (0x8004d0f0) when it is in the player's room.
+    fn talk(&mut self) {
+        let p = self.player.pos;
+        let room = self.room;
+        for k in 0..self.talkers.len() {
+            let (i, line, radius, was) = self.talkers[k];
+            let d = &self.set.placements[i];
+            let (dx, dz) = ((d.pos[0] - p[0]) as i64, (d.pos[2] - p[2]) as i64);
+            let inside = dx * dx + dz * dz < (radius as i64) * (radius as i64);
+            if inside && !was && !self.hidden.contains(&d.id) && room.is_some() && self.room_of(d.pos) == room {
+                self.speech.push(line);
+            }
+            self.talkers[k].3 = inside;
+        }
     }
 
     /// The player's room (0x8002b660, here by the rooms' bounds, the one
@@ -1102,7 +1152,12 @@ impl Game {
                 // Messages 3 (a bar) and 7 (a cookie).
                 match g.kind {
                     goodie::BAR => self.training.show(3),
-                    goodie::COOKIE => self.training.show(7),
+                    goodie::COOKIE => {
+                        self.training.show(7);
+                        if self.level == 16 {
+                            self.speech.push(216);
+                        }
+                    }
                     _ => {}
                 }
                 if g.kind == goodie::BAR {
@@ -1266,6 +1321,7 @@ impl Game {
     pub fn frame(&mut self, pads: &Pads) {
         self.frames = self.frames.wrapping_add(1);
         self.effects.clear();
+        self.speech.clear();
         if !self.paused && pads.pressed(0, input::START) {
             self.paused = true;
             self.pause.open();
@@ -1308,6 +1364,10 @@ impl Game {
         }
         // A training message (0x80097584): no player or world update, the
         // level timer stopped; the camera and drawing go on.
+        // The ambience runs even while a message holds the world.
+        let cue = self.script.as_ref().map_or(0, |s| s.cue());
+        let lines = self.ambience_lines.clone();
+        crate::ambience::frame(self, &lines, cue);
         let mut closed = Vec::new();
         if self.training.frame(pads, &mut closed) {
             self.effects.extend(closed.into_iter().map(|e| (e, crate::sound::EFFECTS_VOLUME)));
@@ -1369,6 +1429,10 @@ impl Game {
         }
         self.player.frame(pads, self.yaw.round() as i32, &self.col, &boxes, &self.anims, &self.trig);
         for n in std::mem::take(&mut self.player.hints) {
+            // The slip's start (state 3, 0x8005b3c4): speech 212 in level 16.
+            if n == 32 && self.level == 16 {
+                self.speech.push(212);
+            }
             self.training.show(n as usize);
         }
         self.carry(pads);
@@ -1509,6 +1573,7 @@ impl Game {
             self.meter_shown = crate::hud::METER_TIME;
         }
         self.room_change();
+        self.talk();
         let goal = self.clear_eye(self.eye_goal());
         self.eye += (goal - self.eye) / 8.0;
         self.draw();
@@ -1624,6 +1689,22 @@ fn hazards(set: &Set, apart: &[bool]) -> Vec<(crate::player::Box3, i32)> {
         out.extend(world_boxes(m, rot, pos).into_iter().map(|b| (b, damage)));
     }
     out
+}
+
+/// The placements with a speech line (LP +0x4c; template 613 says 194,
+/// 0x80046d04) and their trigger radius (template +0x34).
+fn talkers(set: &Set) -> Vec<(usize, u16, i32, bool)> {
+    set.placements
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.kind == 1)
+        .filter_map(|(k, p)| {
+            let line = if p.template == 613 { 194 } else { p.speech };
+            let t = set.templates.get(p.template as usize)?;
+            let radius = u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32;
+            (line != 0 && radius > 0).then_some((k, line, radius, false))
+        })
+        .collect()
 }
 
 /// A spot of spawn group `group` (0x8004fe14): the groups are runs of

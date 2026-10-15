@@ -42,6 +42,11 @@ impl Soundtrack {
     pub fn new(samples: Vec<(i16, i16)>) -> Soundtrack {
         Soundtrack { samples, pos: 0 }
     }
+
+    /// Still sounding.
+    pub fn playing(&self) -> bool {
+        self.pos < self.samples.len()
+    }
 }
 
 impl rrt::audio::Source for Soundtrack {

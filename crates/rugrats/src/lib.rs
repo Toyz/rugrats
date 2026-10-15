@@ -14,3 +14,4 @@ pub mod gte;
 pub mod rand;
 pub mod front;
 pub mod sound;
+pub mod collide;

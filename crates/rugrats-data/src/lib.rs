@@ -5,6 +5,7 @@
 pub mod anim;
 pub mod bs;
 pub mod cine;
+pub mod col;
 pub mod files;
 pub mod hierarchy;
 pub mod level;

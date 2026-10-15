@@ -30,6 +30,16 @@ const FOV: i32 = 612;
 const AIM_UP: f32 = 768.0;
 const BEHIND: f32 = 4096.0;
 const EYE_UP: f32 = 1024.0;
+
+/// The follow camera's height by level (0x800290a4, 0x800291f8: 512 in
+/// levels 4 and 15, -1000 in 7).
+fn default_eye_up(level: usize) -> f32 {
+    match level {
+        4 | 15 => 512.0,
+        7 => -1000.0,
+        _ => EYE_UP,
+    }
+}
 /// The default character: Tommy (0x800c5680 = 1), whose hierarchy is the
 /// database's number 1 (0x800450ac).
 const TOMMY: usize = 1;
@@ -137,6 +147,11 @@ pub struct Game {
     pub struck: Vec<(usize, usize, i32)>,
     /// A fixed camera (eye, look-at) a level sets (0x800291f8 kind 4).
     pub fixed: Option<(Vec3, Vec3)>,
+    /// The follow camera's height (0x800c3f5c) and distance (0x800c4a4c),
+    /// and the post a room's fixed camera stands at (kind 3, 0x800259a0).
+    eye_up: f32,
+    behind: f32,
+    post_camera: Option<usize>,
 }
 
 /// A collectible (0x80048a44, touched by 0x800514b0).
@@ -424,6 +439,9 @@ impl Game {
             unusable: Default::default(),
             struck: Vec::new(),
             fixed: None,
+            eye_up: default_eye_up(level),
+            behind: if level == 7 { 6400.0 } else { BEHIND },
+            post_camera: None,
         };
         g.script = match level {
             2 => Some(Box::new(crate::level2::Level2::start(&mut g, disc)?)),
@@ -463,6 +481,26 @@ impl Game {
         }
         if r.flags & 128 != 0 && (1..5).contains(&r.song) {
             self.song = Some(r.song as usize - 1);
+        }
+        // Flag 4: the room's camera (CameraSwitch, 0x80077c88 into
+        // 0x800291f8): kind 3 a fixed camera at post +0x5c; the follow
+        // kinds set its height (6: 200, 7: 500, 8: 1600, 9: 2000, 11:
+        // 500; 1500 means the level's own).
+        if r.flags & 4 != 0 && (!matches!(self.level, 20 | 21) || r.camera == 3) {
+            match r.camera {
+                3 => self.post_camera = Some(r.camera_post as usize),
+                1 | 6..=13 => {
+                    self.post_camera = None;
+                    self.eye_up = match r.camera {
+                        6 => 200.0,
+                        7 | 11 => 500.0,
+                        8 => 1600.0,
+                        9 => 2000.0,
+                        _ => default_eye_up(self.level),
+                    };
+                }
+                _ => {}
+            }
         }
         // Flag 64: the level's Gameplay script, once (0x80077ee4).
         if r.flags & 64 != 0 {
@@ -725,7 +763,7 @@ impl Game {
 
     fn eye_goal(&self) -> Vec3 {
         let a = self.yaw / 4096.0 * std::f32::consts::TAU;
-        self.target() - Vec3::new(a.sin(), 0.0, a.cos()) * BEHIND - Vec3::new(0.0, EYE_UP, 0.0)
+        self.target() - Vec3::new(a.sin(), 0.0, a.cos()) * self.behind - Vec3::new(0.0, self.eye_up, 0.0)
     }
 
     /// One frame of the level (0x80018c38): the player, then the camera,
@@ -929,7 +967,10 @@ impl Game {
             shadow.triangles(&self.fonts, &mut self.stage.overlay);
             t.triangles(&self.fonts, &mut self.stage.overlay);
         }
-        let (eye, target) = self.fixed.unwrap_or((self.eye, self.target()));
+        let post = self.post_camera.and_then(|k| self.posts.get(k.wrapping_sub(1))).map(|p| {
+            (Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32), self.target())
+        });
+        let (eye, target) = self.fixed.or(post).unwrap_or((self.eye, self.target()));
         let f = (target - eye).normalize_or(Vec3::Z);
         let x = Vec3::Y.cross(f).normalize_or(Vec3::X);
         let y = f.cross(x);

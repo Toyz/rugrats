@@ -72,6 +72,10 @@ pub struct RoomInfo {
     pub cine: u8,
     /// The Gameplay script entering runs once (+0x5f, flag 64).
     pub script: u8,
+    /// The camera entering switches to (+0x5d, flag 4) and its post
+    /// (+0x5c).
+    pub camera: u8,
+    pub camera_post: u8,
 }
 
 impl Set {
@@ -106,7 +110,7 @@ impl Set {
                 .map(|r| {
                     let w = |at: usize| i32::from_le_bytes(r.record[at..at + 4].try_into().unwrap());
                     // The loader clears +0x0c; LP kind 6 sets it.
-                    RoomInfo { min: [w(0x10), w(0x14), w(0x18)], max: [w(0x20), w(0x24), w(0x28)], flags: 0, song: 0, cine: 0, script: 0 }
+                    RoomInfo { min: [w(0x10), w(0x14), w(0x18)], max: [w(0x20), w(0x24), w(0x28)], flags: 0, song: 0, cine: 0, script: 0, camera: 0, camera_post: 0 }
                 })
                 .collect(),
         })
@@ -118,6 +122,7 @@ impl Set {
                 let a = p.template.to_le_bytes();
                 let b = (p.pos[0] as u32).to_le_bytes();
                 let Some(r) = set.room_info.get_mut(a[0] as usize) else { continue };
+                r.camera_post = a[3];
                 for (k, (byte, flag)) in
                     [(a[1], 2), (a[2], 4), (b[0], 32), (b[1], 16), (b[2], 64), (b[3], 128)].into_iter().enumerate()
                 {
@@ -131,6 +136,9 @@ impl Set {
                         }
                         if k == 4 {
                             r.script = byte;
+                        }
+                        if k == 1 {
+                            r.camera = byte;
                         }
                     }
                 }

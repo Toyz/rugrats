@@ -13,8 +13,8 @@ characters and objects that matter, the NPC movement they use, damage,
 crying and respawn, the 130 s shuffleboard timer, and the win and loss
 paths. Read from the pseudo-code and the disassembly. The phase changes
 and the NPC set-up values were checked in the oracle (see Checked in the
-oracle). Builds on [gameplay](gameplay.md) and
-[objectives](objectives.md). That page's "Level 2" section has two
+oracle). Builds on [gameplay](../engine/gameplay.md) and
+[objectives](../engine/objectives.md). That page's "Level 2" section has two
 errors, corrected here: the 200 health in phase 3 is Chuckie's, not the
 goose's, and the goose is registry id 11, not character 11.
 
@@ -51,7 +51,7 @@ The progress checkpoint is separate: the CheckPoint event (0x800772e0)
 stores the player's position in progress +0x24..+0x2c, its health in
 +0x20 and sets +0x30 bit 2. That one is used when the level is loaded
 again (restart, or back from the hub): the LP loader puts the player
-there (0x800454dc, see [gameplay](gameplay.md)).
+there (0x800454dc, see [gameplay](../engine/gameplay.md)).
 
 ## Data in DB02
 
@@ -91,7 +91,7 @@ The meter's max is that 255.
 
 Class 12 (0x80049af4) makes LP +0x46 copies of a 232-byte class-11
 object (0x80048a44, touch 0x800514b0, kind = template +0x26). See
-[objectives](objectives.md) for kinds 3 and 4.
+[objectives](../engine/objectives.md) for kinds 3 and 4.
 
 ### Rooms (LEVEL02.BIN, LP kind 6)
 
@@ -112,7 +112,7 @@ Every kind 6 record also sets room flag 16 (meaning unknown).
 ### Posts (LP kind 2, the 28-byte table at 0x800c4b9c)
 
 250 records. The same table holds the fixed cameras
-([gameplay](gameplay.md)) and the NPC waypoints, called posts here.
+([gameplay](../engine/gameplay.md)) and the NPC waypoints, called posts here.
 Index n is 1-based: post n is entry n-1.
 
 ```
@@ -392,7 +392,7 @@ Cine 5 "Episode 1 Endiing": its start hides the goose (0x80072ef0 case
 - progress respawn +0x24..+0x2c = (0x901c, 1001, 0x2839);
 - timer 0, exit code 0x800c4918 = 1, +0x30 |= 1;
 - 0x80076d6c(2, 1): level 2 played and won, its puzzle piece, the
-  main-level count (see [objectives](objectives.md)).
+  main-level count (see [objectives](../engine/objectives.md)).
 
 Level 1's EpisodeStart then puts Tommy at 0x800b8718[2] = (37002, 779,
 9866).

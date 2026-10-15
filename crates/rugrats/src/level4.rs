@@ -1,4 +1,4 @@
-//! Level 4, 7 Voyages of Cynthia (docs/engine/level-04.md): Spike walks
+//! Level 4, 7 Voyages of Cynthia (docs/levels/level-04.md): Spike walks
 //! the sewers to the garbage dump. Rooms 26 and 21 move the respawn on
 //! (phases 2, 3); from phase 2 the brown water hurts. Room 40 starts the
 //! 130 s search (phase 4); Cynthia waits at one of six spots, and coming

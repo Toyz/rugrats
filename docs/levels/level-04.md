@@ -16,7 +16,7 @@ disassembly; the phase changes, the water damage, a rat's bite, a bone,
 the timer running out, the win and the loss were run in the oracle (see
 Checked in the oracle). Builds on [level 3](level-03.md) and
 [level 2](level-02.md) (NPC modes, posts, events, ForceCry, cines,
-cards), [gameplay](gameplay.md) and [objectives](objectives.md).
+cards), [gameplay](../engine/gameplay.md) and [objectives](../engine/objectives.md).
 
 Units: dt is 1/300 s (10 a frame at 30 fps), angles 4096 a turn, y down.
 "id" is the registry id (LP +0x2a). "char" is the character (+0x15c =
@@ -229,7 +229,7 @@ Room boxes read from RAM in the oracle (room +0x10..+0x28).
 | 56-58 | -100352..-74752 | 67584..83968 | | the babies and the second Cynthia (guess: the cine stage) |
 
 All kind 6 records of the dump (37, 39-51) set room flag 16 (the light
-and camera pass 0x80088c80, see [gameplay](gameplay.md)). Rooms 0-3, 6-25,
+and camera pass 0x80088c80, see [gameplay](../engine/gameplay.md)). Rooms 0-3, 6-25,
 35, 38 have room flag 1 (meaning unknown). EpisodeStart's room sound
 bytes (0x80078e3c(34, 1), (41, 2)) change nothing: both rooms already
 have a song.
@@ -369,7 +369,7 @@ Two ways, both PostCine(48):
 Cine 48 "Cynthia End" has no start or end hook. After it (0x8007737c
 case 47): exit code 0x800c4918 = 1, 0x80076d6c(4, 1) (level 4 played
 and won, its puzzle piece, the main-level count; see
-[objectives](objectives.md)). The port's `ENDINGS` already has 48. In
+[objectives](../engine/objectives.md)). The port's `ENDINGS` already has 48. In
 the oracle the puzzle piece screen followed.
 
 Cynthia is placed from the start, so reaching her before room 40 would

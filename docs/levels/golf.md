@@ -12,8 +12,8 @@ The nine mini-golf holes ("Hole One" .. "Hole Nine"): starting a hole,
 the swing, the ball's roll, holing out, the camera, the HUD, and the
 activity-menu version for one to four players. Read from the pseudo-code
 and the disassembly; the main paths were run in the oracle (see Checked
-in the oracle). Builds on [gameplay](gameplay.md) (player, states,
-camera, events), [objectives](objectives.md) (flights, HUD pools, cards,
+in the oracle). Builds on [gameplay](../engine/gameplay.md) (player, states,
+camera, events), [objectives](../engine/objectives.md) (flights, HUD pools, cards,
 progress) and [level 3](level-03.md) (cine hooks, ForceCry).
 
 Units: dt is 1/300 s (10 a frame at 30 fps), angles 4096 a turn, y down.
@@ -25,7 +25,7 @@ play order 0-8 (0x80057d50), not the level number.
 ## The game in one paragraph
 
 From Pickles' Home a door (template 399, cine 36 "House to Golf",
-[gameplay](gameplay.md#doors-0x8004f78c)) leads to level 25, the first
+[gameplay](../engine/gameplay.md#doors-0x8004f78c)) leads to level 25, the first
 hole. Card HINT27 explains: walk up to the ball and the club appears;
 Left and Right aim; Triangle starts the power meter, which runs up and
 down; Triangle again swings. There is no stroke limit. Holing out at or
@@ -283,7 +283,7 @@ else the bare hand (0x80057468: 7, 22, 37, 54, 69, 1185).
 ## The hit (0x80058278)
 
 Builds a launch descriptor on the stack for 0x8008864c (layout in
-[objectives](objectives.md#flight-0x80061f88-0x8008864c-0x80087c5c)):
+[objectives](../engine/objectives.md#flight-0x80061f88-0x8008864c-0x80087c5c)):
 
 | desc | value |
 |---|---|
@@ -316,7 +316,7 @@ Then: ball +0x90 = 0x8008864c(desc); ball into its room's list
 
 ### The flight record (0x8008864c)
 
-As in [objectives](objectives.md#flight-0x80061f88-0x8008864c-0x80087c5c),
+As in [objectives](../engine/objectives.md#flight-0x80061f88-0x8008864c-0x80087c5c),
 with these golf values (oracle dump at the hit, power 94, heading 957):
 
 | rec | value |
@@ -487,7 +487,7 @@ and came back at about -948.
    (a bar at teardown). Speech 0x800b92d0[(rand & 255) % 3]. PostCine(35
    "Golf Ending"). After it (0x8007737c case 34): exit code 1,
    0x80076d6c(8, 1): level 8 played and won, its puzzle piece, the
-   main-level count ([objectives](objectives.md#finishing-a-level-0x80076d6clevel-won)).
+   main-level count ([objectives](../engine/objectives.md#finishing-a-level-0x80076d6clevel-won)).
 4. Other holes, at or under par: speech: 1: 70 at 1 stroke; 2: 338 at par
    - 1, else 0x800b92a8[% 5]; 3: 586 at 1, 589 at par - 1, else
    0x800b92b4[rand & 3]; 4: 939 at par - 1, else 0x800b92c4[% 5]; 5: 812
@@ -543,7 +543,7 @@ Each frame (0x8002953c, mode 12, level >= 22):
   in), target = the player's angles as a matrix (0x80020ee0) and the
   player's position. So the eye sits 4096 behind the player, 440 to the
   side and 2368 up.
-- The rest of the camera code follows (0x8001e6fc, [gameplay](gameplay.md#camera-0x8002953c)).
+- The rest of the camera code follows (0x8001e6fc, [gameplay](../engine/gameplay.md#camera-0x8002953c)).
 
 When the ball stops: back to follow (kind 1). In the golf holes the
 follow height 0x800c3f5c is 1600 (seen).
@@ -576,7 +576,7 @@ flyover of the hole) was not read.
 | "%d" | (150, -100) | strokes; EpisodeStart shows strokes[hole], the walk-up shows strokes[hole] + 1 |
 | power meter | (0, 76) | 0x8008cef0, pool 0x800c4d60, drawn by 0x8008cd00 |
 | aim line | world | five sprites 364, state 14 |
-| Reptar bars | (145, 70) / icon (192, 76) | bottom right in levels 23-31 ([objectives](objectives.md#hud)) |
+| Reptar bars | (145, 70) / icon (192, 76) | bottom right in levels 23-31 ([objectives](../engine/objectives.md#hud)) |
 | "Player %d" / "Hole %d" | (-230, 60) / (-230, 80) | activity play only, in the player's colour |
 
 All texts are 0x80090004 items, y from the screen centre (down
@@ -658,7 +658,7 @@ crying, no bars and nothing recorded (0x80076d6c skips activity play).
 No code was found that runs level 22 as golf: the activity round uses
 levels 23-31. Some golf tests use level >= 22 (0x8002953c, 0x8005be24),
 0x800b6df0 has an entry for 22, and the runner sets 0x800c3fb0 for it
-([gameplay](gameplay.md#the-level-runner-0x80017c0c)). DB22 holds the
+([gameplay](../engine/gameplay.md#the-level-runner-0x80017c0c)). DB22 holds the
 opening cinematic's data ([lp](../formats/lp.md)). Guess: a cut
 multiplayer course; the name (string 172) stays.
 

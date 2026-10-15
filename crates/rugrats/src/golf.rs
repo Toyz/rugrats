@@ -1,4 +1,4 @@
-//! Mini golf, levels 23-31 (docs/engine/golf.md): walk up to the ball,
+//! Mini golf, levels 23-31 (docs/levels/golf.md): walk up to the ball,
 //! aim with Left and Right, Triangle starts the power meter and Triangle
 //! again swings. The ball rolls on the floor (0x80087c5c with flags
 //! 0x19030000) until it stops or drops in the cup. At or under par the

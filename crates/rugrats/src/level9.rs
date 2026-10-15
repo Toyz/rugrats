@@ -1,4 +1,4 @@
-//! Level 9, The Mysterious Mr. Friend (docs/engine/level-09.md): Mr.
+//! Level 9, The Mysterious Mr. Friend (docs/levels/level-09.md): Mr.
 //! Friend chases Tommy and bites for 15. Thrown balls and cans aim at him;
 //! Triangle beside him kicks (50). Each death counts down from 4: the first
 //! plays cine 18 and brings him back with two more; at 1 one try is left;
@@ -28,7 +28,7 @@ pub struct Level9 {
     pub phase: u8,
     /// 0x800c4cd8: deaths to go.
     counter: i32,
-    /// Level 14 (docs/engine/level-14.md, a cut level the retail game
+    /// Level 14 (docs/levels/level-14.md, a cut level the retail game
     /// never reaches): one Mr. Friend, no aim, no sounds, every hit
     /// staggers him, his death ends nothing.
     l14: bool,

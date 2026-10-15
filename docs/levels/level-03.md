@@ -14,8 +14,8 @@ boss lobster and the switch. Read from the pseudo-code and the
 disassembly; the phase changes, the pie toss, both of its outcomes, the
 lobster bite, the boss's swat and the win were run in the oracle (see
 Checked in the oracle). Builds on [level 2](level-02.md) (NPC modes,
-posts, events, damage, ForceCry, cines, cards), [gameplay](gameplay.md)
-and [objectives](objectives.md).
+posts, events, damage, ForceCry, cines, cards), [gameplay](../engine/gameplay.md)
+and [objectives](../engine/objectives.md).
 
 Units: dt is 1/300 s (10 a frame at 30 fps), angles 4096 a turn, y down.
 "id" is the registry id (LP +0x2a). "char" is the character (+0x15c =
@@ -438,7 +438,7 @@ in room 35 (in the oracle he stands at y -3275 next to it). ACTION
 (Triangle) in the stand state with it touched enters state 12; the use
 posts Cine 14 "Episode 2 Ending". After cine 14 (0x8007737c case 13):
 exit code 1, 0x80076d6c(3, 1) (level 3 played and won, its puzzle piece,
-the main-level count; see [objectives](objectives.md)). Cine 14 has no
+the main-level count; see [objectives](../engine/objectives.md)). Cine 14 has no
 start or end hook. Level 1's EpisodeStart then places Tommy at
 0x800b8718[3].
 

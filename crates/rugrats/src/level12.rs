@@ -1,4 +1,4 @@
-//! Level 12, Let There Be Light (docs/engine/level-12.md): Tommy with the
+//! Level 12, Let There Be Light (docs/levels/level-12.md): Tommy with the
 //! flashlight in the dark house. Holding Triangle shines it (1 charge a
 //! frame); the light sends a Shadow monster away to another spot. Batteries
 //! give 30. The refrigerator's cine 67 drops the light and puts Spike

@@ -1,4 +1,4 @@
-//! Level 6, Toy Palace (docs/engine/level-06.md): Chuckie walks the dark
+//! Level 6, Toy Palace (docs/levels/level-06.md): Chuckie walks the dark
 //! toy store, frightened by scary toys, bitten by clowns and guards, hurt
 //! by bursts and breaking toys. Room 11's cine 46 hands over to Tommy, who
 //! stacks Reptar boxes to climb to the switch; its cine 47 wins.

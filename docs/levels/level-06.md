@@ -17,7 +17,7 @@ climb, the switch and the win, a cry and the last-try loss were run in the
 oracle (see Checked in the oracle). Builds on [level 5](level-05.md),
 [level 4](level-04.md), [level 3](level-03.md) and [level 2](level-02.md)
 (NPC modes, posts, events, ForceCry, cines, cards, spawn groups),
-[gameplay](gameplay.md) and [objectives](objectives.md).
+[gameplay](../engine/gameplay.md) and [objectives](../engine/objectives.md).
 
 Units: dt is 1/300 s (10 a frame at 30 fps), angles 4096 a turn, y down.
 "id" is the registry id (LP +0x2a). "char" is the character (+0x15c =
@@ -471,7 +471,7 @@ ACTION (Triangle) with the switch touched (state 12, 0x8005f584 ->
 +0x54 = 0x8004f83c): PostCine(47). Cine 47 has no start or end hook
 (0x80072ef0 / 0x800732d4 case 47) and no card. After it, 0x8007737c case
 46: exit code 0x800c4918 = 1, 0x80076d6c(6, 1) (level 6 played and won,
-its puzzle piece, the main-level count; see [objectives](objectives.md)).
+its puzzle piece, the main-level count; see [objectives](../engine/objectives.md)).
 The port's `ENDINGS` already has 47. Seen: the puzzle piece screen
 followed.
 

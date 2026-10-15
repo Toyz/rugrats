@@ -9,10 +9,11 @@ use std::path::{Path, PathBuf};
 const STATUS: [&str; 3] = ["solid", "partial", "guess"];
 const DISCS: [&str; 3] = ["US", "EU", "all"];
 
-const SECTIONS: [(&str, &str, &str); 5] = [
+const SECTIONS: [(&str, &str, &str); 6] = [
     ("disc", "The disc", "Tracks, the file system, boot, and what sits where on the CD."),
     ("formats", "File formats", "The containers and record layouts."),
     ("engine", "Engine", "How the game works, subsystem by subsystem."),
+    ("levels", "Levels", "Each level played start to finish: its objects, phases, win and loss."),
     ("content", "Content", "What is actually on the disc."),
     (
         "cut",

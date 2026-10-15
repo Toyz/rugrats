@@ -18,8 +18,8 @@ three caught, cine 78) and the loss (three races lost) were run in the
 oracle (see Checked in the oracle). Builds on [level 9](level-09.md),
 [level 6](level-06.md), [level 5](level-05.md), [level 4](level-04.md)
 and [level 2](level-02.md) (NPC modes, posts, spawn groups, events,
-ForceCry, cines, cards), [gameplay](gameplay.md) and
-[objectives](objectives.md).
+ForceCry, cines, cards), [gameplay](../engine/gameplay.md) and
+[objectives](../engine/objectives.md).
 
 Units: dt is 1/300 s (10 a frame at 30 fps), angles 4096 a turn, y down.
 "id" is the registry id (LP +0x2a). A VSync is 1/60 s; the oracle's frame
@@ -332,7 +332,7 @@ back to back (seen: Tommy caught at 3439, PostCine(77) and PostCine(78);
 cine 77 from 3467 to 3672, cine 78 from 3672 to 4450). Cine 78 has no
 hooks and no card. 0x8007737c case 77: exit code 0x800c4918 = 1,
 0x80076d6c(10, 1) (level 10 played and won, its puzzle piece; see
-[objectives](objectives.md)). The port's `ENDINGS` already has 78. Seen:
+[objectives](../engine/objectives.md)). The port's `ENDINGS` already has 78. Seen:
 0x80094bfc(10) and the puzzle screen 0x8009480c(10, 1) at 4450.
 
 ## ForceCry (0x8007fd0c, level 10 case)

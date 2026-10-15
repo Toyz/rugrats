@@ -17,7 +17,7 @@ the elevator ride, the three phases, the float, the win and the last-try
 loss were run in the oracle (see Checked in the oracle). Builds on
 [level 4](level-04.md), [level 3](level-03.md) and [level 2](level-02.md)
 (NPC modes, posts, events, ForceCry, cines, cards, spawn groups, movers),
-[gameplay](gameplay.md) and [objectives](objectives.md).
+[gameplay](../engine/gameplay.md) and [objectives](../engine/objectives.md).
 
 Units: dt is 1/300 s (10 a frame at 30 fps), angles 4096 a turn, y down.
 "id" is the registry id (LP +0x2a). "char" is the character (+0x15c =
@@ -124,7 +124,7 @@ LP 48 at (37672, -5193, 32020). Template 828 is class 13 (0x80049c04:
 generic init, object +0x00 |= 0x1000000), pickable (+0x00 0x10000),
 +0x32 = 120 (charge, +0x6d), +0x36 = 3 (cost a zap, +0xa2), trigger
 15000. Template 933 is the same kind of object in level 12 (the
-flashlight, see [objectives](objectives.md)).
+flashlight, see [objectives](../engine/objectives.md)).
 
 ### Collectibles and spawn groups (LP kind 7)
 
@@ -408,7 +408,7 @@ Room 38 has cine 40 (flag 2). Entering it: room change case (state 0,
 0x8008a7ec(-1)), PostCine(40). Cine 40 "Space Case Ending" has no hooks
 and no card. After it (0x8007737c case 39): exit code 0x800c4918 = 1,
 0x80076d6c(5, 1) (level 5 played and won, its puzzle piece, the
-main-level count; see [objectives](objectives.md)). The port's `ENDINGS`
+main-level count; see [objectives](../engine/objectives.md)). The port's `ENDINGS`
 already has 40. Seen: cine 40 from 5148 to 5672, then 0x80094bfc(5) and
 the puzzle screen (0x8009480c).
 
@@ -445,7 +445,7 @@ shaft has no fall (she rides the elevator).
 | HINT17-21 | 688-692 | no caller found | "Alien baby's room", "Alien parent's room", "Holding area", "Control area", "This way to the elevator!" |
 
 HINT22 confirms % = Cross and # = Circle (the guess in
-[objectives](objectives.md)). The port's card table (front.rs
+[objectives](../engine/objectives.md)). The port's card table (front.rs
 card_after) has 37 -> 687 and 38 -> 693.
 
 ## Per-frame ambience (0x80080ba8)

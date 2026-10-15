@@ -1,4 +1,4 @@
-//! Level 11, Circus Angelicus (docs/engine/level-11.md): three rings.
+//! Level 11, Circus Angelicus (docs/levels/level-11.md): three rings.
 //! Ring 1, Spike eats 12 bones in 110 s (one at a time on six stands).
 //! Ring 2, the tricycle takes the ramp; Cross on the boards jumps, and the
 //! middle band of press distances lands in the net. Ring 3, Angelica's two

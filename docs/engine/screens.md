@@ -16,7 +16,7 @@ pseudo-code and the disassembly; each screen was reached in the oracle
 and screenshotted (see Checked in the oracle). Builds on
 [objectives](objectives.md) (progress block, piece and bar rules, pause,
 hint cards), [front end](front-end.md) (backdrop, button cubes, camera),
-[text](text.md) (text items) and [golf](golf.md).
+[text](text.md) (text items) and [golf](../levels/golf.md).
 
 Units: positions are (x, y) in pixels from the centre of the 512 x 240
 screen, y down. "frame" is a game frame at 30 fps (two vertical blanks;
@@ -385,7 +385,7 @@ Callers: 0x80076d6c with n = the bonus bars of the level (see
 In the runner (0x80017c0c), after the frame loop and the exit code:
 
 1. 0x8008a7ec(-1).
-2. +0x30 bit 1024 set (a golf hole in one, [golf](golf.md#holing-out-0x8007a9d8)):
+2. +0x30 bit 1024 set (a golf hole in one, [golf](../levels/golf.md#holing-out-0x8007a9d8)):
    clear it, 0x80094b10(level, 1) (bar bit 31 of the level's word), the
    bar screen with n = 1.
 3. Fewer than twelve earned: 0x80094bfc(level) (which buys a piece with
@@ -416,7 +416,7 @@ Both use the message loop with the PRESS cube; no blinking piece.
 
 ## The golf over-par box (0x80043968)
 
-Called by holing out over par ([golf](golf.md#holing-out-0x8007a9d8)).
+Called by holing out over par ([golf](../levels/golf.md#holing-out-0x8007a9d8)).
 
 - "You were over par." (214), font 1, pink, centred, y -50; "Try Again"
   (232), font 0, pink, centred, y -15; shadows (+2, +2).

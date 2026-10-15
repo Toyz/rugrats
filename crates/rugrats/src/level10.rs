@@ -1,4 +1,4 @@
-//! Level 10, Chuckie's Glasses (docs/engine/level-10.md): hide and seek.
+//! Level 10, Chuckie's Glasses (docs/levels/level-10.md): hide and seek.
 //! Phil, Lil and Tommy hide at random spots; Chuckie tags one (Triangle or
 //! Circle) and it runs home along its posts. Chuckie in the playpen first
 //! catches it (cine 75-77); all three caught plays cine 78: won. A baby

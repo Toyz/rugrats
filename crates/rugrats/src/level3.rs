@@ -1,4 +1,4 @@
-//! Level 3, Incident on Aisle 7 (docs/engine/level-03.md). Phase 1 the
+//! Level 3, Incident on Aisle 7 (docs/levels/level-03.md). Phase 1 the
 //! store: the balloon (cine 8) or the cart ride (room 19, cine 9) brings
 //! Tommy to the bakery, where he throws pies at Larry and Steve (the pie
 //! toss, 0x8007bc60) as they walk rings of posts toward him. Four hits play

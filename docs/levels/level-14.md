@@ -14,8 +14,8 @@ Read from the pseudo-code and the disassembly; the start, the chase and
 the bites, the kick, a thrown can hitting him, his death, what follows it
 and the one-try loss were run in the oracle (see Checked in the oracle).
 Builds on [level 9](level-09.md) (the same Mr. Friend code),
-[gameplay](gameplay.md), [objectives](objectives.md) and
-[screens](screens.md).
+[gameplay](../engine/gameplay.md), [objectives](../engine/objectives.md) and
+[screens](../engine/screens.md).
 
 The short answer to "how does it end": it does not. No cine, no card and
 no call of 0x80076d6c(14, ...) exist. Killing Mr. Friend only hides him.
@@ -62,7 +62,7 @@ Nothing in the retail game switches to level 14:
 So level 14 is reachable only through the debug menu, which the retail
 game never opens (guess: a cut level). Other tables still have a slot for
 it: the loading screen's "The Return of / Mr. Friend" (strings 193, 141;
-[screens](screens.md)), the health meter list (0x8008c094), the
+[screens](../engine/screens.md)), the health meter list (0x8008c094), the
 EpisodeStart callback, ForceCry's case, footsteps, the bonus bars. The
 hub's return spot 0x800b8718[14] is the default (5775, 779, 19403),
 shared with levels 0, 1, 16, 17 and 19-22. DB14's own music and speech
@@ -296,7 +296,7 @@ does not post for level 14.
 
 None: no start cine, so no CineFinish card (0x800783d8); no level 14
 case posts one. The loading screen reads "The Return of" (193) / "Mr.
-Friend" (141) / "Loading" (0x8003b168; [screens](screens.md)). No "already
+Friend" (141) / "Loading" (0x8003b168; [screens](../engine/screens.md)). No "already
 earned" note (only levels 13 and 18 have one for bars).
 
 ## Checked in the oracle

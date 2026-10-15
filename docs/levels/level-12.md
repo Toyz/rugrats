@@ -17,8 +17,8 @@ refrigerator, the light picked up again, the win (Spike found, cine 68),
 a cry and the last-try loss were run in the oracle (see Checked in the
 oracle). Builds on [level 5](level-05.md) (the remote: a carried class 13
 object with a gauge and a beam), [level 10](level-10.md) (the same house,
-spots from spawn groups), [level 11](level-11.md), [gameplay](gameplay.md)
-and [objectives](objectives.md).
+spots from spawn groups), [level 11](level-11.md), [gameplay](../engine/gameplay.md)
+and [objectives](../engine/objectives.md).
 
 Units: dt is 1/300 s (10 a frame at 30 fps), angles 4096 a turn, y down,
 heading 0 faces +z and 1024 faces +x. "id" is the registry id (LP +0x2a).
@@ -395,7 +395,7 @@ ACTION (or GRAB with empty hands) with Spike touched: +0x54 =
 Cine 68's start hook (0x80072ef0 case 68) drops the flashlight like cine
 67's. Its end hook is the default; no card. 0x8007737c case 67: exit
 code 0x800c4918 = 1, 0x80076d6c(12, 1) (level 12 played and won, its
-puzzle piece; see [objectives](objectives.md)). The port's `ENDINGS`
+puzzle piece; see [objectives](../engine/objectives.md)). The port's `ENDINGS`
 already has 68.
 
 Seen: Tommy put at (18740, -5400, -2999) facing +x beside Spike in room

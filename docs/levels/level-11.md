@@ -19,8 +19,8 @@ loss and the ring 3 loss at the last try were run in the oracle (see
 Checked in the oracle). Builds on [level 10](level-10.md),
 [level 9](level-09.md), [level 6](level-06.md), [level 5](level-05.md),
 [level 4](level-04.md) and [level 2](level-02.md) (NPC modes, posts, spawn
-groups, ForceCry, cines, cards, the player swap), [gameplay](gameplay.md)
-and [objectives](objectives.md).
+groups, ForceCry, cines, cards, the player swap), [gameplay](../engine/gameplay.md)
+and [objectives](../engine/objectives.md).
 
 Units: dt is 1/300 s (10 a frame at 30 fps), angles 4096 a turn, y down,
 heading 0 faces +z and 1024 faces +x. "id" is the registry id (LP +0x2a).
@@ -402,7 +402,7 @@ forward 2176, cine 59 (tries 3) or 60 (tries 2).
 ## Winning: cine 62
 
 0x8007737c case 61: exit code 0x800c4918 = 1, 0x80076d6c(11, 1) (level 11
-played and won, its puzzle piece; see [objectives](objectives.md)). Cine
+played and won, its puzzle piece; see [objectives](../engine/objectives.md)). Cine
 62 has no hooks and no card. The port's `ENDINGS` already has 62. Seen:
 cine 62 5544-6464, 0x80076d6c(11, 1), 0x80094bfc(11), the puzzle screen
 0x8009480c(11, 1).

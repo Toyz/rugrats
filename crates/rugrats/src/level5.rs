@@ -1,4 +1,4 @@
-//! Level 5, Visitors from Outer Space (docs/engine/level-05.md): Angelica
+//! Level 5, Visitors from Outer Space (docs/levels/level-05.md): Angelica
 //! on the alien ship with the TV remote. Triangle zaps (3 of 120 charge);
 //! a zap stuns a TV robot 20 s and opens a sliding door; batteries give 30.
 //! The elevator (id 1969) takes her down while she rides it; room 42 is

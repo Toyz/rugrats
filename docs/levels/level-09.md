@@ -17,7 +17,7 @@ ball and a can hitting Mr. Friend, the kick, each death, cine 18 and phase
 the oracle (see Checked in the oracle). Builds on [level 6](level-06.md),
 [level 5](level-05.md), [level 3](level-03.md) and [level 2](level-02.md)
 (NPC modes, events, ForceCry, cines, cards, spawn groups),
-[gameplay](gameplay.md) and [objectives](objectives.md).
+[gameplay](../engine/gameplay.md) and [objectives](../engine/objectives.md).
 
 Units: dt is 1/300 s (10 a frame at 30 fps), angles 4096 a turn, y down.
 "id" is the registry id (LP +0x2a). "char" is the character (+0x15c =
@@ -400,7 +400,7 @@ shows 94 and 93 with draw 0x800b7d2c[1] (0x80031b84), shows 802, 97, 804
 and 95. Its end hook is the default. CineFinish (0x800783d8 case 18): no
 card. 0x8007737c case 18: exit code 0x800c4918 = 1, 0x80076d6c(9, 1)
 (level 9 played and won; its puzzle piece; see
-[objectives](objectives.md)). The port's `ENDINGS` already has 19.
+[objectives](../engine/objectives.md)). The port's `ENDINGS` already has 19.
 
 Seen: 46 died at 5002, PostCine(19), cine 19 from 5131 to 5765,
 0x80076d6c(9, 1), 0x80094bfc(9), the puzzle screen 0x8009480c(9, 1).
@@ -464,7 +464,7 @@ Seen: speech 1142, 1144, 1138 at 3386, 3688, 3856. Speech only.
 
 - The stick speed factors 10 / 10 (0x800c421c / 0x800c4220) in 0x8005be24
   and 0x80059008 / 0x800590d4 are for character 9 (0x800c5680 = 9), not
-  level 9 ([gameplay](gameplay.md) says level 9). Tommy uses 17 / 8.
+  level 9 ([gameplay](../engine/gameplay.md) says level 9). Tommy uses 17 / 8.
 - 0x8007737c (cine end) and 0x800783d8 (CineFinish) switch on cine - 1;
   the hooks 0x80072ef0 and 0x800732d4 switch on the cine number. The death
   posts the cine; 0x8007737c(18 or 19, 1) also runs about 100 VSyncs

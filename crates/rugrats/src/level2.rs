@@ -1,4 +1,4 @@
-//! Level 2, Grandpa's Teeth (docs/engine/level-02.md): a goose has the
+//! Level 2, Grandpa's Teeth (docs/levels/level-02.md): a goose has the
 //! teeth. Phase 1 the yard to the gap in the fence (room 69, cine 3);
 //! phase 2 Tommy rides Spike after the goose to the shuffleboard court
 //! (room 44, cine 4); phase 3 Tommy kicks pucks at the goose while it

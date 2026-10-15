@@ -51,6 +51,9 @@ pub struct Game {
     /// Where the level ends: a level to go to (the exit code, 0x800c4918)
     /// and a cinematic to play first.
     pub exit: Option<(usize, Option<usize>)>,
+    /// A cinematic the level asks for (PostCine), played with the level
+    /// waiting.
+    pub cine: Option<usize>,
     /// The placed objects' collision boxes in the world.
     pub boxes: Vec<crate::player::Box3>,
     /// The placed characters other than the player.
@@ -304,6 +307,7 @@ impl Game {
             yaw,
             scenery,
             exit: None,
+            cine: None,
             boxes,
             npcs,
             room: None,
@@ -456,6 +460,14 @@ impl Game {
                 t.state = ThingState::Flying(v);
             }
         }
+    }
+
+    /// A cinematic asked for has played (CineFinish, 0x800783d8): the
+    /// room's song again, and the level's own reaction.
+    pub fn cine_finished(&mut self, n: usize) {
+        self.room = None;
+        self.eye = self.eye_goal();
+        rrt::tracing::info!("level {}: cine {n} finished", self.level);
     }
 
     /// Puts the camera behind heading `yaw` at once (for tools).

@@ -28,6 +28,14 @@ use rugrats_render::Renderer;
 /// Files the boot reads, by the game's numbering.
 const LEGAL512_BS: usize = 234;
 
+/// What follows a cinematic and its card: a level to load, or the level
+/// it played in to go on with (play_cine inside the level loop,
+/// 0x80018ad0), told the cinematic finished (CineFinish, 0x800783d8).
+enum Then {
+    Level(usize),
+    Resume(Box<Level>),
+}
+
 /// The boot as main runs it (SLUS_006.50:0x800185f8).
 enum Boot {
     /// The legal screen (`show_still(234)`, 0x800186cc), held until the
@@ -47,9 +55,9 @@ enum Boot {
     Opening { cine: Box<Cine> },
     /// A cinematic between levels: a level's start (0x80074958) or a
     /// door's (0x8004f78c), then level `then`.
-    Scene { cine: Box<Cine>, n: usize, then: usize },
-    /// A hint card after a cinematic (0x80044434), then level `then`.
-    Card { card: Box<rugrats::front::Card>, then: usize },
+    Scene { cine: Box<Cine>, n: usize, then: Then },
+    /// A hint card after a cinematic (0x80044434), then `then`.
+    Card { card: Box<rugrats::front::Card>, n: usize, then: Then },
     /// A level in play.
     Game { game: Box<Level> },
     /// Where the port ends for now.
@@ -185,13 +193,14 @@ impl Rugrats {
         let cine = rugrats::game::start_cine(level).filter(|_| !(self.seen.contains(&level) && matches!(level, 1 | 2)));
         self.seen.insert(level);
         match cine {
-            Some(n) => self.scene(n, level, level, now),
+            Some(n) => self.scene(n, level, Then::Level(level), now),
             None => self.game(level, now),
         }
     }
 
-    /// Cinematic `n` on database `db`, then level `then`.
-    fn scene(&mut self, n: usize, db: usize, then: usize, now: u64) -> Boot {
+    /// Cinematic `n` on database `db`, then `then`.
+    fn scene(&mut self, n: usize, db: usize, then: Then, now: u64) -> Boot {
+        self.stop_song();
         match Cine::open(&self.disc, n, db, now, &self.soundtrack) {
             Ok(cine) => {
                 self.world = None;
@@ -199,7 +208,19 @@ impl Rugrats {
             }
             Err(e) => {
                 rrt::tracing::error!("cine {n}: {e}");
-                self.game(then, now)
+                self.after(then, n, now)
+            }
+        }
+    }
+
+    /// What follows cinematic `n` (and its card).
+    fn after(&mut self, then: Then, n: usize, now: u64) -> Boot {
+        match then {
+            Then::Level(level) => self.game(level, now),
+            Then::Resume(mut game) => {
+                self.world = None;
+                game.cine_finished(n);
+                Boot::Game { game }
             }
         }
     }
@@ -288,32 +309,34 @@ impl Game for Rugrats {
                     self.boot = self.opening(now);
                 }
             }
-            Boot::Scene { cine, n, then } => {
+            Boot::Scene { cine, n, .. } => {
                 if cine.tick(now) {
                     self.pads.update([Some(&t.pad), None]);
                     if self.pads.pressed(0, input::TRIANGLE) || cine.over() {
                         if let Ok(mut s) = self.soundtrack.lock() {
                             *s = Soundtrack::default();
                         }
-                        let (n, then) = (*n, *then);
+                        let n = *n;
+                        let Boot::Scene { then, .. } = std::mem::replace(&mut self.boot, Boot::FrontEnd) else { unreachable!() };
                         // CineFinish (0x800783d8) shows the cinematic's card.
                         self.boot =
                             match rugrats::front::card_after(n).map(|f| rugrats::front::Card::open(&self.disc, f)) {
                                 Some(Ok(card)) => {
                                     self.world = None;
-                                    Boot::Card { card: Box::new(card), then }
+                                    Boot::Card { card: Box::new(card), n, then }
                                 }
-                                _ => self.game(then, now),
+                                _ => self.after(then, n, now),
                             };
                     }
                 }
             }
-            Boot::Card { card, then } => {
+            Boot::Card { card, n, .. } => {
                 if now.is_multiple_of(2) {
                     self.pads.update([Some(&t.pad), None]);
                     if card.frame(&self.pads) {
-                        let then = *then;
-                        self.boot = self.game(then, now);
+                        let n = *n;
+                        let Boot::Card { then, .. } = std::mem::replace(&mut self.boot, Boot::FrontEnd) else { unreachable!() };
+                        self.boot = self.after(then, n, now);
                     }
                 }
             }
@@ -415,10 +438,16 @@ impl Game for Rugrats {
                         self.boot = match cine {
                             Some(n) => {
                                 self.seen.insert(level);
-                                self.scene(n, here, level, now)
+                                self.scene(n, here, Then::Level(level), now)
                             }
                             None => self.enter(level, now),
                         };
+                    } else if let Some(n) = game.cine.take() {
+                        // A cinematic inside the level (PostCine, 0x80018ad0):
+                        // the level waits for it.
+                        let here = game.level;
+                        let Boot::Game { game } = std::mem::replace(&mut self.boot, Boot::FrontEnd) else { unreachable!() };
+                        self.boot = self.scene(n, here, Then::Resume(game), now);
                     }
                 }
             }

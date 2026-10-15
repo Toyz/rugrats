@@ -1885,7 +1885,7 @@ impl Game {
             }
         }
         // Select: the restart menu (0x80043d58), outside activity play.
-        if pads.pressed(0, input::SELECT) {
+        if pads.pressed(0, input::SELECT) && !self.activity {
             self.pages.push(crate::screens::Page::Restart);
         }
         // The camera buttons turn it by an eighth (L2, R2: 341 a press).
@@ -1894,6 +1894,10 @@ impl Game {
         }
         if pads.pressed(0, input::R2) {
             self.yaw += 341.0;
+        }
+        // R1: the camera back behind the player (0x80026ddc).
+        if pads.pressed(0, input::R1) {
+            self.yaw = self.player.heading as f32;
         }
         // Follow: swing behind the player as it runs, ease 1/8 a frame.
         if self.player.speed > 0 {

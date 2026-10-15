@@ -13,9 +13,29 @@ fn main() -> Result<(), String> {
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let mut rng = rugrats::rand::Rand::default();
     let mut title = rugrats::front::Title::open(&disc, 0, &mut rng)?;
-    let pads = rugrats::input::Pads::default();
+    // SCRIPT=buttons@tick,...: presses for scripted runs (down, cross, ...).
+    let script: Vec<(u64, u16)> = std::env::var("SCRIPT")
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|p| {
+            let (b, t) = p.split_once('@')?;
+            let bit = match b {
+                "down" => rugrats::input::DOWN,
+                "up" => rugrats::input::UP,
+                "cross" => rugrats::input::CROSS,
+                "start" => rugrats::input::START,
+                "triangle" => rugrats::input::TRIANGLE,
+                "right" => rugrats::input::RIGHT,
+                _ => return None,
+            };
+            Some((t.parse().ok()?, 1u16 << bit))
+        })
+        .collect();
+    let mut pads = rugrats::input::Pads::default();
     for t in 0..ticks {
         if title.frame_due(t) {
+            let bits = script.iter().filter(|(at, _)| (*at..at + 2).contains(&t)).fold(0, |a, p| a | p.1);
+            pads.push_bits(0, bits);
             title.frame(&pads, &mut rng);
         }
     }

@@ -340,10 +340,9 @@ impl Game for Rugrats {
                             spu.effect(&self.effect_table, s as usize, sound::EFFECTS_VOLUME);
                         }
                     }
-                    if outcome == Some(Outcome::Load) {
-                        // The last record saved (word 3), else the first.
+                    if let Some(Outcome::Load(k)) = outcome {
                         let cards = rugrats::card::Cards::default();
-                        let state = cards.load(0, &self.disc.card).and_then(|s| s.record((s.words[3] as usize).max(1)).or_else(|| s.record(1)));
+                        let state = cards.load(0, &self.disc.card).and_then(|s| s.record(k));
                         match state {
                             Some(block) => {
                                 self.progress = rugrats::progress::Progress { block };

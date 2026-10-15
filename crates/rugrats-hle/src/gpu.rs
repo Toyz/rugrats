@@ -36,6 +36,9 @@ pub struct Gpu {
     download: Option<(u16, u16, u16, u16, usize)>,
     // Drawing environment.
     texpage: u16,
+    /// The texture window (GP0 0xE2): mask x, mask y, offset x, offset y,
+    /// 5 bits each in 8-texel steps.
+    window: u32,
     area: (i32, i32, i32, i32),
     offset: (i32, i32),
     pub display: Display,
@@ -58,6 +61,7 @@ impl Default for Gpu {
             upload: None,
             download: None,
             texpage: 0,
+            window: 0,
             area: (0, 0, 1023, 511),
             offset: (0, 0),
             display: Display { x: 0, y: 0, width: 320, height: 240, enabled: false, rgb24: false },
@@ -130,6 +134,7 @@ impl Gpu {
         w.u64(self.drawn);
         w.bool(self.field);
         w.u32(self.busy);
+        w.u32(self.window);
     }
 
     pub fn load(&mut self, r: &mut crate::state::Reader) -> crate::state::Result<()> {
@@ -149,6 +154,7 @@ impl Gpu {
         self.drawn = r.u64()?;
         self.field = r.bool()?;
         self.busy = r.u32()?;
+        self.window = r.u32()?;
         Ok(())
     }
 
@@ -295,6 +301,7 @@ impl Gpu {
                 self.download = Some((x, y, w, h, 0));
             }
             0xe1 => self.texpage = (c[0] & 0x7ff) as u16,
+            0xe2 => self.window = c[0] & 0xf_ffff,
             0xe3 => self.area = (sext(c[0] & 0x3ff, 32), sext((c[0] >> 10) & 0x1ff, 32), self.area.2, self.area.3),
             0xe4 => self.area = (self.area.0, self.area.1, (c[0] & 0x3ff) as i32, ((c[0] >> 10) & 0x1ff) as i32),
             0xe5 => self.offset = (sext(c[0] & 0x7ff, 11), sext((c[0] >> 11) & 0x7ff, 11)),
@@ -407,6 +414,14 @@ impl Gpu {
             _ => (16, 16),
         };
         let mode = Mode { textured, raw: op & 0x01 != 0, semi: op & 0x02 != 0, texpage: self.texpage, clut };
+        if let Some(r) = self.trace
+            && x < r[2]
+            && x + w > r[0]
+            && y < r[3]
+            && y + h > r[1]
+        {
+            eprintln!("gpu rect {op:02x} page {:04x} clut {clut:04x} rgb {:06x} at ({x}, {y}) {w}x{h} uv ({u0}, {v0})", self.texpage, c[0] & 0xff_ffff);
+        }
         let rgb = rgb_of(c[0]);
         for yy in 0..h {
             for xx in 0..w {
@@ -464,6 +479,8 @@ impl Gpu {
     }
 
     fn texel(&self, mode: Mode, u: i32, v: i32) -> u16 {
+        let f = |k: u32| ((self.window >> (5 * k)) & 31) as i32 * 8;
+        let (u, v) = ((u & !f(0)) | (f(2) & f(0)), (v & !f(1)) | (f(3) & f(1)));
         let (u, v) = ((u & 0xff) as usize, (v & 0xff) as usize);
         let bx = (mode.texpage as usize & 15) * 64;
         let by = ((mode.texpage as usize >> 4) & 1) * 256;

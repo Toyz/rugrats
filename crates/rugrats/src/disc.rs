@@ -21,6 +21,9 @@ pub struct GameDisc {
     pub mdec: Tables,
     /// What the memory card code takes from the executable.
     pub card: crate::card::Art,
+    /// The executable's image, from 0x80010000: the tables and strings the
+    /// port reads where the game keeps them.
+    exe: Vec<u8>,
 }
 
 impl GameDisc {
@@ -51,7 +54,27 @@ impl GameDisc {
             })
             .collect();
         let card = crate::card::Art::from_exe(exe).ok_or("no memory card tables in SLUS_006.50")?;
-        Ok(GameDisc { image, table, movies, mdec, card })
+        let exe = exe.to_vec();
+        Ok(GameDisc { image, table, movies, mdec, card, exe })
+    }
+
+    /// `len` bytes of the executable at `addr`.
+    pub fn exe_bytes(&self, addr: u32, len: usize) -> Result<&[u8], String> {
+        let at = addr.checked_sub(0x8001_0000).ok_or(format!("{addr:#x} is below the executable"))? as usize;
+        self.exe.get(at..at + len).ok_or(format!("{addr:#x}+{len:#x} is past the executable"))
+    }
+
+    pub fn exe_u32(&self, addr: u32) -> Result<u32, String> {
+        Ok(u32::from_le_bytes(self.exe_bytes(addr, 4)?.try_into().unwrap()))
+    }
+
+    /// The string a pointer in the executable at `addr` points to.
+    pub fn exe_string_at(&self, addr: u32) -> Result<String, String> {
+        let p = self.exe_u32(addr)?;
+        let at = p.checked_sub(0x8001_0000).ok_or(format!("{p:#x} is below the executable"))? as usize;
+        let bytes = self.exe.get(at..).ok_or(format!("{p:#x} is past the executable"))?;
+        let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+        Ok(String::from_utf8_lossy(&bytes[..end]).into_owned())
     }
 
     /// The first sector of file `index` (the streams are read by sector).

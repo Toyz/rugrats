@@ -7,3 +7,6 @@ pub mod input;
 pub mod movie;
 pub mod cine;
 pub mod card;
+pub mod text;
+pub mod stage;
+pub mod front;

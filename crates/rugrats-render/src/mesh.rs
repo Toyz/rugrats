@@ -3,6 +3,7 @@
 use rrt::kit::Pack;
 
 /// The PlayStation's video memory: 1024 x 512 halfwords.
+#[derive(Clone)]
 pub struct Vram {
     pub words: Vec<u16>,
 }
@@ -57,6 +58,12 @@ impl Vtx {
     /// A mode bit (the page's unused bit 14): an untextured polygon, its
     /// colour as it is (a POLY_F4 or POLY_G4), not modulating a texel.
     pub const FLAT: u32 = 1 << 30;
+    /// A mode bit (the page's unused bit 13): `window` is the GPU's texture
+    /// window (GP0 0xE2) as masks and offsets in texels, u mask | v mask
+    /// << 8 | u offset << 16 | v offset << 24: a texel coordinate keeps its
+    /// bits outside the mask and takes the offset's inside it, so the
+    /// texture repeats.
+    pub const WRAP: u32 = 1 << 29;
 
     /// The texels of a sprite whose corners have `u` and `v`: the
     /// PlayStation never reaches its far edges, so neither may sampling.

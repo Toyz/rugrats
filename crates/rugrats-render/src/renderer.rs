@@ -51,15 +51,24 @@ fn word(x: u32, y: u32) -> u32 {
 }
 
 fn texel(i: Out) -> u32 {
-    let tpage = (i.mode >> 16u) & 0x7fffu;
+    let tpage = (i.mode >> 16u) & 0x1fffu;
     let clut = i.mode & 0xffffu;
     let bx = (tpage & 15u) * 64u;
     let by = ((tpage >> 4u) & 1u) * 256u;
     let depth = (tpage >> 7u) & 3u;
     let cx = (clut & 63u) * 16u;
     let cy = clut >> 6u;
-    let u = clamp(u32(clamp(i.uv.x, 0.0, 255.0)), i.window & 255u, (i.window >> 16u) & 255u);
-    let v = clamp(u32(clamp(i.uv.y, 0.0, 255.0)), (i.window >> 8u) & 255u, i.window >> 24u);
+    var u = u32(clamp(i.uv.x, 0.0, 255.0));
+    var v = u32(clamp(i.uv.y, 0.0, 255.0));
+    if ((i.mode >> 29u) & 1u) == 1u {
+        let mu = i.window & 255u;
+        let mv = (i.window >> 8u) & 255u;
+        u = (u & ~mu) | ((i.window >> 16u) & mu);
+        v = (v & ~mv) | ((i.window >> 24u) & mv);
+    } else {
+        u = clamp(u, i.window & 255u, (i.window >> 16u) & 255u);
+        v = clamp(v, (i.window >> 8u) & 255u, i.window >> 24u);
+    }
     var c: u32;
     if depth == 0u {
         let idx = (word(bx + u / 4u, by + v) >> ((u % 4u) * 4u)) & 15u;
@@ -131,6 +140,12 @@ pub struct Renderer {
     overlay_semi: GrowBuffer,
     overlay_semi_ranges: [(u32, u32); 4],
     overlay_semi_staging: Staging,
+    /// Shapes in the PlayStation screen's pixels drawn in their order under
+    /// the world (the back of the ordering table: a menu's backdrop), as
+    /// runs of one kind: opaque, or semi-transparent by blend mode.
+    under: GrowBuffer,
+    under_runs: Vec<(u32, u32, Option<usize>)>,
+    under_staging: Staging,
     /// What does not move (the track), uploaded once.
     vertices: wgpu::Buffer,
     count: u32,
@@ -297,6 +312,9 @@ impl Renderer {
             overlay_semi: GrowBuffer::new("overlay semi", wgpu::BufferUsages::VERTEX),
             overlay_semi_ranges: [(0, 0); 4],
             overlay_semi_staging: Staging::new(),
+            under: GrowBuffer::new("under", wgpu::BufferUsages::VERTEX),
+            under_runs: Vec::new(),
+            under_staging: Staging::new(),
             vertices,
             count: tris.len() as u32,
             moving: GrowBuffer::new("moving", wgpu::BufferUsages::VERTEX),
@@ -365,6 +383,22 @@ impl Renderer {
         self.overlay_semi.write(device, queue, self.overlay_semi_staging.pack(&sorted));
     }
 
+    /// Shapes drawn under the world in this order, in the PlayStation
+    /// screen's pixels. A semi-transparent triangle (mode bit 31) blends
+    /// its marked texels by its page's mode, as on the PlayStation.
+    pub fn set_under(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tris: &[Vtx]) {
+        let kind = |v: &Vtx| (v.mode >> 31 == 1).then_some(((v.mode >> 21) & 3) as usize);
+        self.under_runs.clear();
+        for (k, t) in tris.as_chunks::<3>().0.iter().enumerate() {
+            let at = 3 * k as u32;
+            match self.under_runs.last_mut() {
+                Some(run) if run.2 == kind(&t[0]) && run.1 == at => run.1 = at + 3,
+                _ => self.under_runs.push((at, at + 3, kind(&t[0]))),
+            }
+        }
+        self.under.write(device, queue, self.under_staging.pack(tris));
+    }
+
     /// The overlay's triangles, in the PlayStation screen's pixels.
     pub fn set_overlay(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tris: &[Vtx]) {
         self.overlay.write(device, queue, self.overlay_staging.pack(tris));
@@ -409,6 +443,20 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            if let Some(slice) = self.under.slice() {
+                pass.set_vertex_buffer(0, slice);
+                for &(from, to, kind) in &self.under_runs {
+                    pass.set_pipeline(&self.overlay_pipeline);
+                    pass.set_bind_group(0, &self.overlay_group, &[]);
+                    pass.draw(from..to, 0..1);
+                    if let Some(k) = kind {
+                        pass.set_pipeline(&self.overlay_semi_pipelines[k]);
+                        pass.set_bind_group(0, &self.overlay_group, &[]);
+                        pass.set_blend_constant(wgpu::Color { r: BLEND[k], g: BLEND[k], b: BLEND[k], a: BLEND[k] });
+                        pass.draw(from..to, 0..1);
+                    }
+                }
+            }
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.group, &[]);
             if self.count > 0 {

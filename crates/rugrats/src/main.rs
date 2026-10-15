@@ -14,7 +14,9 @@ use std::sync::{Arc, Mutex};
 use rrt::audio::Output;
 use rrt::gpu::Target;
 use rrt::prelude::*;
-use rugrats::cine::{self, Cine};
+use rugrats::cine::Cine;
+use rugrats::front::Title;
+use rugrats::stage::Stage;
 use rugrats::disc::GameDisc;
 use rugrats::input::{self, Pads, Query};
 use rugrats::movie::{Movie, Soundtrack};
@@ -32,10 +34,13 @@ enum Boot {
     /// The THQ, Nickelodeon and n-Space logos: movies 0, 1, 2
     /// (0x8008b230, 0x8008b27c, 0x8008b0b4), each skippable.
     Logo { n: usize, movie: Box<Movie> },
+    /// The title menu (0x8003eb28), which main's chooser (0x80030158)
+    /// runs after the logos.
+    Title { title: Box<Title> },
     /// The opening cinematic, cine 0 on database 22 (`Opening Cine Init`,
-    /// 0x8008f078), which the original plays next.
+    /// 0x8008f078), which the chooser plays when the title is left idle.
     Opening { cine: Box<Cine> },
-    /// The front end. Not ported yet.
+    /// Where the port ends for now.
     FrontEnd,
 }
 
@@ -51,9 +56,9 @@ struct Rugrats {
     soundtrack: Arc<Mutex<Soundtrack>>,
     /// Kept so the sound plays; None headless or with no device.
     _audio: Option<Output>,
-    /// What draws a cinematic, made for the one playing, and the 4:3
-    /// picture it draws into.
-    world: Option<(Renderer, Target)>,
+    /// What draws a 3D screen, made for its stage's generation, and the
+    /// 4:3 picture it draws into.
+    world: Option<(Renderer, Target, u64)>,
 }
 
 impl Rugrats {
@@ -79,6 +84,16 @@ impl Rugrats {
             Ok(cine) => Boot::Opening { cine: Box::new(cine) },
             Err(e) => {
                 rrt::tracing::error!("the opening: {e}");
+                self.front_end()
+            }
+        }
+    }
+
+    fn title(&mut self, now: u64) -> Boot {
+        match Title::open(&self.disc, now) {
+            Ok(title) => Boot::Title { title: Box::new(title) },
+            Err(e) => {
+                rrt::tracing::error!("the title: {e}");
                 self.front_end()
             }
         }
@@ -127,7 +142,7 @@ impl Game for Rugrats {
                     if let Ok(mut s) = self.soundtrack.lock() {
                         *s = Soundtrack::default();
                     }
-                    self.boot = if next < 3 { self.logo(next, now) } else { self.opening(now) };
+                    self.boot = if next < 3 { self.logo(next, now) } else { self.title(now) };
                 }
             }
             Boot::Opening { cine } => {
@@ -143,27 +158,34 @@ impl Game for Rugrats {
                     }
                 }
             }
+            Boot::Title { title } => title.tick(now),
             Boot::FrontEnd => {}
         }
     }
 
     fn draw(&mut self, d: &mut Draw<'_>) {
-        let Boot::Opening { cine } = &self.boot else {
-            d.present_picture(&self.screen, None);
-            return;
+        let stage: &Stage = match &self.boot {
+            Boot::Opening { cine } => &cine.stage,
+            Boot::Title { title } => &title.stage,
+            _ => {
+                d.present_picture(&self.screen, None);
+                return;
+            }
         };
         let (w, h) = (d.height * 4 / 3, d.height);
-        let world = self.world.get_or_insert_with(|| {
-            let mut r = Renderer::new(&d.gpu.device, &d.gpu.queue, Target::FORMAT, &cine.set.vram, &cine.set.rooms);
-            r.clear = cine::BACKDROP;
-            (r, Target::new(&d.gpu.device, w, h))
-        });
-        if (world.1.width, world.1.height) != (w, h) {
-            world.1 = Target::new(&d.gpu.device, w, h);
+        if self.world.as_ref().is_none_or(|w| w.2 != stage.generation) {
+            let r = Renderer::new(&d.gpu.device, &d.gpu.queue, Target::FORMAT, &stage.vram, &stage.fixed);
+            self.world = Some((r, Target::new(&d.gpu.device, w, h), stage.generation));
         }
-        let (renderer, target) = world;
-        renderer.set_moving(&d.gpu.device, &d.gpu.queue, &cine.objects);
-        let cmd = renderer.draw(&d.gpu.device, &d.gpu.queue, &target.view, (w, h), cine.camera);
+        let (renderer, target, _) = self.world.as_mut().unwrap();
+        if (target.width, target.height) != (w, h) {
+            *target = Target::new(&d.gpu.device, w, h);
+        }
+        renderer.clear = stage.clear;
+        renderer.set_moving(&d.gpu.device, &d.gpu.queue, &stage.moving);
+        renderer.set_under(&d.gpu.device, &d.gpu.queue, &stage.under);
+        renderer.set_overlay(&d.gpu.device, &d.gpu.queue, &stage.overlay);
+        let cmd = renderer.draw(&d.gpu.device, &d.gpu.queue, &target.view, (w, h), stage.camera);
         d.submit(cmd);
         d.present_target(target, None);
     }

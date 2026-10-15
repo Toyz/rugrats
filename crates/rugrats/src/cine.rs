@@ -19,6 +19,7 @@ use rugrats_render::models::{model_triangles, posed_triangles, quat_matrix};
 use rugrats_render::{Vram, Vtx};
 
 use crate::disc::GameDisc;
+use crate::stage::Stage;
 use crate::movie::Soundtrack;
 
 /// A database's files, by the game's numbering (file + db).
@@ -220,9 +221,9 @@ pub struct Cine {
     stream: Stream,
     started: u64,
     shown: Option<usize>,
-    /// What the frame shown leaves on screen: the objects, the camera.
-    pub objects: Vec<Vtx>,
-    pub camera: Mat4,
+    /// What the frame shown leaves on screen: the rooms, the objects, the
+    /// camera, the backdrop.
+    pub stage: Stage,
 }
 
 impl Cine {
@@ -233,7 +234,9 @@ impl Cine {
         if let Ok(mut a) = audio.lock() {
             *a = Soundtrack::new(std::mem::take(&mut stream.sound));
         }
-        Ok(Cine { set, stream, started: now, shown: None, objects: Vec::new(), camera: Mat4::IDENTITY })
+        let mut stage = Stage::new(set.vram.clone(), set.rooms.clone());
+        stage.clear = BACKDROP;
+        Ok(Cine { set, stream, started: now, shown: None, stage })
     }
 
     /// The stream frame shown, from 1.
@@ -248,8 +251,8 @@ impl Cine {
         let due = self.stream.frames.iter().take_while(|(d, _)| *d <= t).count();
         let Some(k) = due.checked_sub(1).filter(|&k| Some(k) != self.shown) else { return false };
         let f = &self.stream.frames[k].1;
-        self.objects = self.set.objects(f);
-        self.camera = camera(f);
+        self.stage.moving = self.set.objects(f);
+        self.stage.camera = camera(f);
         self.shown = Some(k);
         true
     }

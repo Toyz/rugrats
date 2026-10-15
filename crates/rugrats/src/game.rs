@@ -247,8 +247,10 @@ pub struct Game {
     ambience_lines: std::rc::Rc<crate::ambience::Tables>,
     /// Damage events are dropped (level 1, 0x800780d8).
     pub no_damage: bool,
-    /// The levels won (+0x38), for the hub's signs.
+    /// The levels won (+0x38), for the hub's signs, and the pieces earned
+    /// (0x80094b8c) for the pause.
     pub won_levels: u32,
+    pub pieces: u32,
 }
 
 /// A door (docs/engine/doors.md): class 4 hinged (0x8004860c, think
@@ -483,6 +485,7 @@ const THROW_SPEED: f32 = 170.0 * 65536.0 / 6000.0;
 const DROP_SPEED: f32 = 10.0 * 65536.0 / 6000.0;
 /// The HUD's bar and clock icons (sprites; their sizes are guesses).
 const BAR_ICON: u32 = 291;
+const PIECE_ICON: u32 = 292;
 const CLOCK_ICON: u32 = 375;
 
 /// Text in font 1 with its shadow 2 down and right (0x80090004).
@@ -906,6 +909,7 @@ impl Game {
             // Damage is dropped in levels 1, 11, 17 and 23-31 (0x800780d8).
             no_damage: matches!(level, 1 | 11 | 17 | 23..=31),
             won_levels: (0..32).filter(|&l| progress.won(l)).fold(0, |a, l| a | 1 << l),
+            pieces: progress.pieces(),
         };
         g.talkers = talkers(&g.set, level);
         g.player.falls_hurt = !g.no_damage;
@@ -2018,6 +2022,14 @@ impl Game {
         self.stage.overlay = overlay;
         if self.paused {
             self.pause.triangles(&self.fonts, &mut self.stage.overlay);
+            // The counters (0x8003e05c): pieces earned with model 292 at
+            // (-192, 76), bars available with 291 at (192, 76).
+            if let Some(sp) = &self.sprites {
+                sp.draw(PIECE_ICON, (-192, 76), 26.0, 32.0, crate::hud::METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
+                sp.draw(BAR_ICON, (192, 76), 26.0, 32.0, crate::hud::METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
+            }
+            shadowed(&self.fonts, -160, 70, format!("{}", self.pieces), &mut self.stage.overlay);
+            shadowed(&self.fonts, 150, 70, format!("{}", self.bars), &mut self.stage.overlay);
         } else {
             // The level timer: "%ld" seconds at the top by the clock
             // (model 375).

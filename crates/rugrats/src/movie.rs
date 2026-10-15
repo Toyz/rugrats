@@ -21,13 +21,48 @@ pub const TABLE: u32 = 0x800b_ae4c;
 pub const COUNT: usize = 7;
 
 /// Sectors a second at double speed, and ticks a second.
-const SECTORS_PER_SECOND: u64 = 150;
+pub const SECTORS_PER_SECOND: u64 = 150;
 const TICKS_PER_SECOND: u64 = 60;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub frames: u32,
     pub lba: u32,
+}
+
+/// What the CD-ROM controller's XA-ADPCM decoder makes of a stream as the
+/// drive reads it at double speed: a sector arriving while the decoder's
+/// output still holds more than a few frames is dropped unread (the
+/// hardware has no flow control; DuckStation models it this way). Streams
+/// lean on that: the opening's encoder repeats each audio sector several
+/// times to fill the bandwidth, and the decoder plays each once.
+pub struct XaPlayer {
+    decoder: xa::Decoder,
+    /// The decoded sound at 44100 Hz, from the stream's first sector.
+    pub sound: Vec<(i16, i16)>,
+}
+
+impl Default for XaPlayer {
+    fn default() -> XaPlayer {
+        XaPlayer { decoder: xa::Decoder::new(), sound: Vec::new() }
+    }
+}
+
+impl XaPlayer {
+    /// Frames the output may still hold when a sector is taken.
+    const LOW_WATER: usize = 10;
+
+    /// The audio sector read `at` sectors into the stream.
+    pub fn sector(&mut self, at: u64, coding: u8, data: &[u8]) {
+        let now = (at * 44100 / SECTORS_PER_SECOND) as usize;
+        if self.sound.len() > now + Self::LOW_WATER {
+            return;
+        }
+        if self.sound.len() < now {
+            self.sound.resize(now, (0, 0));
+        }
+        self.decoder.decode(xa::Coding(coding), data, &mut self.sound);
+    }
 }
 
 /// The soundtrack the audio device pulls: 44100 Hz stereo.
@@ -82,8 +117,7 @@ impl Movie {
         let e = disc.movies.get(n).ok_or(format!("no movie {n}"))?;
         let mut assembler = Frames::default();
         let mut frames = Vec::new();
-        let mut sound = Vec::new();
-        let mut decoder = xa::Decoder::new();
+        let mut xa = XaPlayer::default();
         let mut lba = e.lba;
         while frames.len() < e.frames as usize {
             let s = disc.sector(lba)?;
@@ -92,11 +126,7 @@ impl Movie {
             let raw = &s.raw[..];
             // XA audio: Form 2, audio, real time.
             if raw[18] & 0x64 == 0x64 {
-                if sound.is_empty() {
-                    // Silence until the first audio sector is read.
-                    sound.resize((at * 44100 / SECTORS_PER_SECOND) as usize, (0, 0));
-                }
-                decoder.decode(xa::Coding(raw[19]), &raw[24..24 + xa::SECTOR_AUDIO], &mut sound);
+                xa.sector(at, raw[19], &raw[24..24 + xa::SECTOR_AUDIO]);
                 continue;
             }
             if let Some(f) = str_::chunk(raw).and_then(|c| assembler.push(c)) {
@@ -105,7 +135,7 @@ impl Movie {
             }
         }
         if let Ok(mut a) = audio.lock() {
-            *a = Soundtrack { samples: sound, pos: 0 };
+            *a = Soundtrack { samples: xa.sound, pos: 0 };
         }
         Ok(Movie {
             frames,

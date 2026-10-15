@@ -164,8 +164,7 @@ impl Stream {
     pub fn read(disc: &GameDisc, n: usize) -> Result<Stream, String> {
         let start = disc.file_lba(n)?;
         let mut frames = Vec::new();
-        let mut sound = Vec::new();
-        let mut decoder = xa::Decoder::new();
+        let mut xa = crate::movie::XaPlayer::default();
         let mut total = None;
         for lba in start.. {
             let s = disc.sector(lba)?;
@@ -175,10 +174,7 @@ impl Stream {
             // XA audio: Form 2, audio, real time; the filter picks one.
             if sub & 0x64 == 0x64 {
                 if (file, channel) == (XA_FILE, XA_CHANNEL) {
-                    if sound.is_empty() {
-                        sound.resize((at * 44100 / SECTORS_PER_SECOND) as usize, (0, 0));
-                    }
-                    decoder.decode(xa::Coding(raw[19]), &raw[24..24 + xa::SECTOR_AUDIO], &mut sound);
+                    xa.sector(at, raw[19], &raw[24..24 + xa::SECTOR_AUDIO]);
                 }
                 continue;
             }
@@ -197,7 +193,7 @@ impl Stream {
                 break;
             }
         }
-        Ok(Stream { frames, sound })
+        Ok(Stream { frames, sound: xa.sound })
     }
 }
 

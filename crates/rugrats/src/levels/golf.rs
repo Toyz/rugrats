@@ -6,12 +6,19 @@
 //! plays cine 35 and records level 8.
 
 use rrt::glam::{Mat3, Vec3};
+use rugrats_data::hierarchy::Hierarchy;
+use rugrats_render::{Vtx, models};
 
-use crate::actors::player::DT;
+use crate::actors::animator::Animator;
+use crate::actors::player::{DT, TURN};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::Level;
-use crate::world::game::{Exit, Game};
+use crate::ui::front;
+use crate::ui::screens::{PINK, Page};
+use crate::ui::text::Text;
+use crate::world::collide;
+use crate::world::game::{Exit, Game, Script};
 
 /// Hole index (play order) to level (0x80057dcc), par (0x800b7ffc) and the
 /// baby who plays it (0x800b7ff0).
@@ -119,7 +126,7 @@ pub struct Golf {
     /// Activity play: the bodies a turn may take (characters 1-5 and
     /// Susie, 37), the ball's tee, and "Player %d" / "Hole %d" (203, 204)
     /// with the turn's player and colour.
-    bodies: Vec<(usize, rugrats_data::hierarchy::Hierarchy, crate::actors::animator::Animator)>,
+    bodies: Vec<(usize, Hierarchy, Animator)>,
     tee: [i32; 3],
     turn_strings: [String; 2],
     turn: Option<(usize, [u8; 3])>,
@@ -164,8 +171,8 @@ impl Golf {
         let baby = BABY[hole];
         if baby != 1 {
             if let Some(Some(h)) = g.set.hierarchies.get(baby).cloned() {
-                let a = crate::actors::animator::Animator::load(disc, baby as u16)?;
-                g.player.set_body(h, a, crate::actors::player::TURN, &g.anims);
+                let a = Animator::load(disc, baby as u16)?;
+                g.player.set_body(h, a, TURN, &g.anims);
             }
         }
         // In activity play only holes 0 and 8 hide the others (0x80096a30).
@@ -183,7 +190,7 @@ impl Golf {
         if let Some(k) = ball_thing {
             g.things[k].hidden = true;
         }
-        let string = |n: u32| crate::ui::front::string(disc, n);
+        let string = |n: u32| front::string(disc, n);
         let strings = [string(PAR_TEXT), string(SWING_TEXT), string(OVER_PAR), string(TRY_AGAIN), string(PRESS)];
         let lines = LINE_TABLES
             .iter()
@@ -196,7 +203,7 @@ impl Golf {
         if g.activity {
             for c in FACES {
                 if let Some(Some(h)) = g.set.hierarchies.get(c).cloned() {
-                    if let Ok(a) = crate::actors::animator::Animator::load(disc, c as u16) {
+                    if let Ok(a) = Animator::load(disc, c as u16) {
                         bodies.push((c, h, a));
                     }
                 }
@@ -225,7 +232,7 @@ impl Golf {
 
     /// The ball on the floor: y = floor - radius.
     fn settle(&mut self, g: &Game) {
-        let q = crate::world::collide::query(&g.col, [self.ball[0], self.ball[1] - 1, self.ball[2]]);
+        let q = collide::query(&g.col, [self.ball[0], self.ball[1] - 1, self.ball[2]]);
         if q.tile.is_some() && q.kind == 0 {
             self.ball[1] = q.floor - RADIUS;
         }
@@ -271,7 +278,7 @@ impl Golf {
         for k in [0, 2] {
             let mut p = self.ball;
             p[k] += v[k] * DT >> 6;
-            let q = crate::world::collide::query(&g.col, [p[0], p[1], p[2]]);
+            let q = collide::query(&g.col, [p[0], p[1], p[2]]);
             // Objects stop it too (0x80086340): their boxes.
             let object =
                 g.boxes.iter().any(|b| b.covers(p, RADIUS) && b.min_y < p[1] + RADIUS && b.max_y > p[1] - RADIUS);
@@ -285,7 +292,7 @@ impl Golf {
         }
         // Rolling (0x80086cd0): on the floor, friction 15 a frame, the
         // slope's push downhill.
-        let q = crate::world::collide::query(&g.col, [self.ball[0], self.ball[1], self.ball[2]]);
+        let q = collide::query(&g.col, [self.ball[0], self.ball[1], self.ball[2]]);
         let Some((cx, k)) = q.tile.filter(|_| q.kind == 0) else {
             self.roll = None;
             return self.stopped(g);
@@ -438,11 +445,7 @@ impl Golf {
             // again.
             self.stage = Stage::Over;
             let line = |k: usize, c| (self.strings[k].clone(), c);
-            g.pages.push(crate::ui::screens::Page::Message {
-                lines: vec![line(2, crate::ui::screens::PINK), line(3, crate::ui::screens::PINK)],
-                bars: None,
-                blink: false,
-            });
+            g.pages.push(Page::Message { lines: vec![line(2, PINK), line(3, PINK)], bars: None, blink: false });
             return;
         }
         self.stage = Stage::Done;
@@ -508,7 +511,7 @@ fn lip_out(v: [i32; 3], to_cup: [i32; 2], s: i32) -> [i32; 3] {
     [(a.sin() * s as f64 / 2.0) as i32, v[1], (a.cos() * s as f64 / 2.0) as i32]
 }
 
-impl crate::world::game::Script for Golf {
+impl Script for Golf {
     /// State 15, the stroke.
     fn cue(&self) -> i32 {
         if matches!(self.stage, Stage::Stroke(..)) { 15 } else { 0 }
@@ -629,7 +632,7 @@ impl crate::world::game::Script for Golf {
     /// pick plays the hole from the tee with an untouched ball.
     fn activity_turn(&mut self, g: &mut Game, player: usize, character: usize) {
         if let Some((_, h, a)) = self.bodies.iter().find(|b| b.0 == character).cloned() {
-            g.player.set_body(h, a, crate::actors::player::TURN, &g.anims);
+            g.player.set_body(h, a, TURN, &g.anims);
         }
         g.character = character;
         g.player.pos = STARTS[self.hole];
@@ -649,14 +652,14 @@ impl crate::world::game::Script for Golf {
         self.turn = Some((player, PLAYER_COLOURS[player % 4]));
     }
 
-    fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         // "Player %d" (-230, 60) and "Hole %d" (-230, 80), font 0, the
         // player's colour, all turn long (0x80090004).
         if let Some((p, rgb)) = self.turn {
             for (k, (form, n)) in
                 [(&self.turn_strings[0], p + 1), (&self.turn_strings[1], self.hole + 1)].into_iter().enumerate()
             {
-                let t = crate::ui::text::Text {
+                let t = Text {
                     font: 0,
                     spacing: 1,
                     rgb,
@@ -676,15 +679,15 @@ impl crate::world::game::Script for Golf {
         if let Some(t) = self.ball_thing.map(|k| &g.things[k]) {
             if let Some(m) = g.set.models.get(t.shape) {
                 let pos = Vec3::new(self.ball[0] as f32, self.ball[1] as f32, self.ball[2] as f32);
-                rugrats_render::models::model_triangles(m, Mat3::IDENTITY, pos, moving);
+                models::model_triangles(m, Mat3::IDENTITY, pos, moving);
             }
         }
         // "Par %d", "Swing ", "%d" at y -100 (0x8007a584), the walk-up
         // shows the stroke about to be played.
         let shown =
             if matches!(self.stage, Stage::WalkIn(_) | Stage::Aim { .. }) { self.strokes + 1 } else { self.strokes };
-        let text = |x: i16, y: i16, s: String, out: &mut Vec<rugrats_render::Vtx>| {
-            let t = crate::ui::text::Text { font: 1, spacing: 1, rgb: YELLOW, x, y, string: s, ..Default::default() };
+        let text = |x: i16, y: i16, s: String, out: &mut Vec<Vtx>| {
+            let t = Text { font: 1, spacing: 1, rgb: YELLOW, x, y, string: s, ..Default::default() };
             let mut shadow = t.clone();
             shadow.rgb = [1, 1, 1];
             shadow.x += 2;

@@ -2,6 +2,10 @@
 //! flights, and the breakables.
 
 use super::*;
+use crate::actors::npc::Mode;
+use crate::actors::player::anim::{PICK_UP, PUT_DOWN, THROW};
+use crate::actors::player::{Box3, DT, State};
+use crate::world::collide;
 
 /// A breakable (class 14, 0x8004d7c4): touched, its model becomes shape +
 /// 1 and its template t + 1 (the rubble, which with template flag 8 no
@@ -80,7 +84,7 @@ impl Game {
         let target = self
             .npcs
             .iter()
-            .filter(|n| !n.hidden && !matches!(n.mode, crate::actors::npc::Mode::Ride { .. }))
+            .filter(|n| !n.hidden && !matches!(n.mode, Mode::Ride { .. }))
             .filter(|n| {
                 let (dx, dz) = ((n.pos[0] - p[0]) as f64, (n.pos[2] - p[2]) as f64);
                 let yaw = ((dx.atan2(dz) / std::f64::consts::TAU) * 4096.0).round() as i32;
@@ -141,12 +145,7 @@ impl Game {
     /// Triangle throws it (0x80060b44).
     pub(super) fn carry(&mut self, pads: &Pads) {
         let p = &self.player;
-        let standing = matches!(
-            p.state,
-            crate::actors::player::State::Stand
-                | crate::actors::player::State::Walk
-                | crate::actors::player::State::Run
-        ) && p.action.is_none();
+        let standing = matches!(p.state, State::Stand | State::Walk | State::Run) && p.action.is_none();
         if !standing {
             return;
         }
@@ -165,11 +164,11 @@ impl Game {
                 // within 512 of the facing, the direction's y -300.
                 let aimed = if throw && self.aim { self.aim_at() } else { None };
                 let (dir, speed, anim) = if let Some(d) = aimed {
-                    (d, THROW_SPEED, crate::actors::player::anim::THROW)
+                    (d, THROW_SPEED, THROW)
                 } else if throw {
-                    (rot * Vec3::new(0.0, -384.0, 1024.0), THROW_SPEED, crate::actors::player::anim::THROW)
+                    (rot * Vec3::new(0.0, -384.0, 1024.0), THROW_SPEED, THROW)
                 } else {
-                    (rot * Vec3::new(0.0, 0.0, 4096.0), DROP_SPEED, crate::actors::player::anim::PUT_DOWN)
+                    (rot * Vec3::new(0.0, 0.0, 4096.0), DROP_SPEED, PUT_DOWN)
                 };
                 let v = if aimed.is_some() { dir * speed } else { dir.normalize() * speed };
                 self.things[k].state = ThingState::Flying([v.x as i32, v.y as i32, v.z as i32]);
@@ -213,7 +212,7 @@ impl Game {
         self.things[k].state = ThingState::Carried;
         self.carried = Some(k);
         self.player.carrying = true;
-        self.player.act(crate::actors::player::anim::PICK_UP, &self.anims);
+        self.player.act(PICK_UP, &self.anims);
         // The grab (0x800601e4): message 5.
         self.training.show(5);
     }
@@ -221,11 +220,11 @@ impl Game {
     /// Flights (0x80087c5c): gravity 13, pos += (v dt + a dt^2 / 2) >> 6,
     /// until the object's bottom reaches the floor.
     pub(super) fn fly(&mut self) {
-        let dt = crate::actors::player::DT;
+        let dt = DT;
         self.struck.clear();
         // What a flight may land on besides the floor: the boxes of things
         // at rest (stacking, 0x8006c7a0).
-        let resting: Vec<(usize, crate::actors::player::Box3)> = self
+        let resting: Vec<(usize, Box3)> = self
             .things
             .iter()
             .enumerate()
@@ -241,7 +240,7 @@ impl Game {
                 let hit = self.npcs.iter().position(|n| {
                     let (dx, dz) = (n.pos[0] as f32 - t.pos.x, n.pos[2] as f32 - t.pos.z);
                     !n.hidden
-                        && !matches!(n.mode, crate::actors::npc::Mode::Ride { .. })
+                        && !matches!(n.mode, Mode::Ride { .. })
                         && dx * dx + dz * dz < (STRIKE * STRIKE) as f32
                         && (t.pos.y - (n.pos[1] - n.feet() / 2) as f32).abs() < 900.0
                 });
@@ -262,10 +261,7 @@ impl Game {
             }
             // The wall test (0x80060810): a step into a wall or a higher
             // column is taken back, and the thing drops where it was.
-            let side = crate::world::collide::query(
-                &self.col,
-                [t.pos.x as i32, (t.pos.y + bottom - 1.0) as i32, t.pos.z as i32],
-            );
+            let side = collide::query(&self.col, [t.pos.x as i32, (t.pos.y + bottom - 1.0) as i32, t.pos.z as i32]);
             if side.kind != 0 || side.tile.is_none() {
                 t.pos.x = before.x;
                 t.pos.z = before.z;
@@ -274,7 +270,7 @@ impl Game {
             }
             t.pos.y += ((v[1] * dt + THING_GRAVITY * dt * dt / 2) >> 6) as f32;
             v[1] += THING_GRAVITY * dt;
-            let q = crate::world::collide::query(&self.col, [t.pos.x as i32, (t.pos.y - 1.0) as i32, t.pos.z as i32]);
+            let q = collide::query(&self.col, [t.pos.x as i32, (t.pos.y - 1.0) as i32, t.pos.z as i32]);
             let mut floor = if q.tile.is_some() { q.floor as f32 } else { f32::MAX };
             // Another thing's top under it, crossed this step.
             let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];

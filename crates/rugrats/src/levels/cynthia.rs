@@ -6,12 +6,15 @@
 //! the clock again and Cynthia elsewhere.
 
 use rrt::glam::{Mat3, Vec3};
+use rugrats_render::{Vtx, models};
 
 use crate::actors::npc::{Event, Mode, Target};
-use crate::actors::player::Pose;
+use crate::actors::player::{DT, Pose};
 use crate::disc::GameDisc;
 use crate::input::Pads;
-use crate::world::game::{Exit, Game};
+use crate::levels::Level;
+use crate::world::collide;
+use crate::world::game::{self, Exit, Game, Script};
 
 /// Cynthia (id 34), the rats (char 39).
 const CYNTHIA: u16 = 34;
@@ -90,7 +93,7 @@ impl Cynthia {
 
     /// 0x8004fe14(&cynthia, 0, 1): a spot of group 0 not used yet.
     fn hide_cynthia(&mut self, g: &mut Game) {
-        if let Some(i) = crate::world::game::spawn(&mut g.spots, HIDING, &mut g.rand) {
+        if let Some(i) = game::spawn(&mut g.spots, HIDING, &mut g.rand) {
             self.cynthia = g.spots[i].pos;
         }
         rrt::tracing::info!("level 4: Cynthia at {:?}", self.cynthia);
@@ -103,7 +106,7 @@ impl Cynthia {
     }
 }
 
-impl crate::world::game::Script for Cynthia {
+impl Script for Cynthia {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             if let Event::Bite { target: Target::Player, amount, .. } = e {
@@ -115,13 +118,13 @@ impl crate::world::game::Script for Cynthia {
         }
         // The brown water (0x8005d8e0, 0x8005eab0): from phase 2, on a
         // water floor and not on an object.
-        self.hurt = self.hurt.map(|t| (t - crate::actors::player::DT).max(0));
+        self.hurt = self.hurt.map(|t| (t - DT).max(0));
         if self.phase >= 2 {
             let p = g.player.pos;
             let feet = p[1] - g.player.feet();
-            let q = crate::world::collide::query(&g.col, [p[0], feet - 1, p[2]]);
+            let q = collide::query(&g.col, [p[0], feet - 1, p[2]]);
             let on_floor = q.kind == 0 && (q.floor - feet).abs() < 32;
-            if on_floor && crate::world::collide::floor_flags(&g.col, &q) & WATER_FLAG != 0 {
+            if on_floor && collide::floor_flags(&g.col, &q) & WATER_FLAG != 0 {
                 let moving = g.player.speed > 0;
                 let k = moving as usize;
                 if self.hurt[k] == 0 {
@@ -168,7 +171,7 @@ impl crate::world::game::Script for Cynthia {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some(Exit::to(crate::levels::Level::HUB));
+            g.exit = Some(Exit::to(Level::HUB));
             return true;
         }
         if self.phase == 4 {
@@ -184,10 +187,10 @@ impl crate::world::game::Script for Cynthia {
         true
     }
 
-    fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         if let Some(m) = g.set.models.get(self.shape).filter(|_| self.shape != 0) {
             let pos = Vec3::new(self.cynthia[0] as f32, self.cynthia[1] as f32, self.cynthia[2] as f32);
-            rugrats_render::models::model_triangles(m, Mat3::IDENTITY, pos, moving);
+            models::model_triangles(m, Mat3::IDENTITY, pos, moving);
         }
         if self.phase == 4 {
             if let Some(s) = &g.sprites {

@@ -3,9 +3,12 @@
 //! player picks a face from the six heads.
 
 use rrt::glam::{Mat3, Vec3};
-use rugrats_render::Vtx;
+use rugrats_data::model::Model;
+use rugrats_render::{Vtx, models};
 
 use crate::input::{self, Pads};
+use crate::levels::golf::PLAYER_COLOURS;
+use crate::ui::hud::Sprites;
 use crate::ui::text::{Fonts, Text};
 
 /// The front end's sounds (0x8006f26c): leave, accept, the two moves.
@@ -153,8 +156,8 @@ impl GolfSetup {
     pub fn draw(
         &self,
         fonts: &Fonts,
-        heads: &[Option<rugrats_data::model::Model>],
-        sprites: Option<&crate::ui::hud::Sprites>,
+        heads: &[Option<Model>],
+        sprites: Option<&Sprites>,
         camera: Vec3,
         focal: f32,
         under: &mut Vec<Vtx>,
@@ -191,19 +194,14 @@ impl GolfSetup {
             put(head.trim_end(), 0, -65, 1, LIT, true, true, overlay);
             let p = self.picks.len();
             let line = self.strings[7].replace("%d", &(p + 1).to_string());
-            put(line.trim_end(), 0, -35, 0, crate::levels::golf::PLAYER_COLOURS[p % 4], true, true, overlay);
+            put(line.trim_end(), 0, -35, 0, PLAYER_COLOURS[p % 4], true, true, overlay);
         }
         // The six heads at (-120 + 130 c, 25 + 60 r), depth 5500.
         for (slot, head) in heads.iter().enumerate() {
             let Some(m) = head else { continue };
             let (x, y) = face_at(slot);
             let at = camera + Vec3::new(x as f32 * DEPTH / (focal * 1.6), y as f32 * DEPTH / focal, DEPTH);
-            rugrats_render::models::model_triangles(
-                m,
-                Mat3::from_rotation_x(std::f32::consts::FRAC_PI_2) * HEAD_SCALE,
-                at,
-                moving,
-            );
+            models::model_triangles(m, Mat3::from_rotation_x(std::f32::consts::FRAC_PI_2) * HEAD_SCALE, at, moving);
         }
         // The picks: a star behind the head and the player's number.
         for (p, &slot) in self.picks.iter().enumerate() {
@@ -215,7 +213,7 @@ impl GolfSetup {
             let mut t = Text {
                 font: 1,
                 spacing: 1,
-                rgb: crate::levels::golf::PLAYER_COLOURS[p % 4],
+                rgb: PLAYER_COLOURS[p % 4],
                 x,
                 y: y - 20,
                 string: (p + 1).to_string(),

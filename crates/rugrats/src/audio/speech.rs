@@ -13,14 +13,24 @@ const XA_FILE: usize = 617;
 /// again; below it a line plays once unless its flag bit 2 is set.
 const REPEATS_FROM: u16 = 2040;
 
+/// One line of the index: its id (low 12 bits), flags (top 4 bits, bit 1
+/// set once played) and record.
+#[derive(Clone, Copy, Debug)]
+struct Line {
+    id: u16,
+    flags: u8,
+    /// Sectors from the XA file's start.
+    offset: u32,
+    /// In 8-sector units.
+    len: u32,
+    /// The XA channel less one.
+    channel: u8,
+}
+
 #[derive(Default)]
 pub struct Speech {
-    /// Line ids (low 12 bits), sorted, and per line its flags (top 4
-    /// bits, bit 1 set once played) and record: sector offset, length in
-    /// 8-sector units, channel less one.
-    ids: Vec<u16>,
-    flags: Vec<u8>,
-    records: Vec<(u32, u32, u8)>,
+    /// Sorted by id.
+    lines: Vec<Line>,
     base: u32,
 }
 
@@ -37,32 +47,34 @@ impl Speech {
         if raw.len() < at + 4 * n {
             return Speech::default();
         }
-        let words: Vec<u16> = (0..n).map(|k| u16::from_le_bytes([raw[4 + 2 * k], raw[5 + 2 * k]])).collect();
-        let records = (0..n)
+        let lines = (0..n)
             .map(|k| {
+                let w = u16::from_le_bytes([raw[4 + 2 * k], raw[5 + 2 * k]]);
                 let e = &raw[at + 4 * k..at + 4 * k + 4];
-                (u16::from_le_bytes([e[0], e[1]]) as u32, e[2] as u32, e[3])
+                Line {
+                    id: w & 4095,
+                    flags: (w >> 12) as u8,
+                    offset: u16::from_le_bytes([e[0], e[1]]) as u32,
+                    len: e[2] as u32,
+                    channel: e[3],
+                }
             })
             .collect();
-        Speech {
-            ids: words.iter().map(|w| w & 4095).collect(),
-            flags: words.iter().map(|w| (w >> 12) as u8).collect(),
-            records,
-            base,
-        }
+        Speech { lines, base }
     }
 
     /// 0x8008da4c: line `n`'s sound, or None when the set lacks it or it
     /// has played and may not again.
     pub fn line(&mut self, disc: &GameDisc, n: u16) -> Option<Vec<(i16, i16)>> {
-        let k = self.ids.binary_search(&n).ok()?;
-        if self.flags[k] & 3 == 1 {
+        let k = self.lines.binary_search_by_key(&n, |l| l.id).ok()?;
+        let line = &mut self.lines[k];
+        if line.flags & 3 == 1 {
             return None;
         }
         if n < REPEATS_FROM {
-            self.flags[k] |= 1;
+            line.flags |= 1;
         }
-        let (offset, len, channel) = self.records[k];
+        let Line { offset, len, channel, .. } = *line;
         let start = self.base + offset - 8;
         let mut player = xa::Player::new(xa::DOUBLE_SPEED);
         for lba in start..start + len * 8 {

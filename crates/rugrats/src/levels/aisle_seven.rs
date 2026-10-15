@@ -7,14 +7,17 @@
 //! lobster guards the switch, whose use plays cine 14: won.
 
 use rrt::glam::Vec3;
+use rugrats_render::Vtx;
 
 use crate::actors::npc::{Event, Mode, Target};
 use crate::actors::player::Pose;
+use crate::actors::player::anim::THROW;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::Level;
 use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
-use crate::world::game::{Exit, Game, Strike};
+use crate::ui::hud;
+use crate::world::game::{self, Exit, Game, Script, Strike};
 
 /// Registry ids (LP +0x2a).
 const LARRY: u16 = 75;
@@ -158,7 +161,7 @@ impl AisleSeven {
             // ForceCry at once (phase 1: no cry): a try gone.
             g.tries -= 1;
             if g.tries <= 0 {
-                g.exit = Some(Exit::to(crate::levels::Level::HUB));
+                g.exit = Some(Exit::to(Level::HUB));
             }
         }
     }
@@ -204,7 +207,7 @@ impl AisleSeven {
                 let aim = find(g, LARRY).map(|k| g.npcs[k].pos);
                 toss.pies.push(Pie::thrown(g, COUNTER, g.player.heading, aim));
                 toss.holding = false;
-                g.player.act(crate::actors::player::anim::THROW, &g.anims);
+                g.player.act(THROW, &g.anims);
             } else {
                 toss.holding = true;
             }
@@ -217,7 +220,7 @@ impl AisleSeven {
             // The one hit says so (0x800511a8: Larry 1065, Steve 1076 /
             // 1079).
             let r = g.rand.next() & 1;
-            g.speech.extend(crate::world::game::hit_line(g.npcs[hit].character, Level::AISLE_SEVEN, r));
+            g.speech.extend(game::hit_line(g.npcs[hit].character, Level::AISLE_SEVEN, r));
             let mut left = TOSS_HEALTH;
             for id in [LARRY, STEVE] {
                 if let Some(k) = find(g, id) {
@@ -239,7 +242,7 @@ impl AisleSeven {
     }
 }
 
-impl crate::world::game::Script for AisleSeven {
+impl Script for AisleSeven {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             match e {
@@ -334,7 +337,7 @@ impl crate::world::game::Script for AisleSeven {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some(Exit::to(crate::levels::Level::HUB));
+            g.exit = Some(Exit::to(Level::HUB));
             return true;
         }
         if self.phase == 3 {
@@ -354,12 +357,12 @@ impl crate::world::game::Script for AisleSeven {
         true
     }
 
-    fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         let Some(toss) = &self.toss else { return };
         draw_pies(g, &toss.pies, toss.holding, moving);
         // The gauge (0x8008c5e0 on Larry): model 280 over 282.
         if let (Some(s), Some(k)) = (&g.sprites, find(g, LARRY)) {
-            crate::ui::hud::gauge(s, 280, (-148, 73), g.npcs[k].health, TOSS_HEALTH, g.focal(), overlay);
+            hud::gauge(s, 280, (-148, 73), g.npcs[k].health, TOSS_HEALTH, g.focal(), overlay);
         }
     }
 

@@ -1,7 +1,10 @@
 //! Doors (docs/engine/doors.md): hinged (class 4), sliding (class 3) and
 //! swinging (class 8) doors, their thinks, the use and the blocking test.
 
+use rugrats_data::model::Models;
+
 use super::*;
+use crate::actors::player::{DT, HEIGHT, RADIUS};
 
 /// A door (docs/engine/doors.md): class 4 hinged (0x8004860c, think
 /// 0x8004f868, use 0x8004f4a0) turns about its origin; class 3 sliding
@@ -49,7 +52,7 @@ pub(super) struct Swing {
 impl Door {
     /// Its placed heading and the world corners of its first box (for
     /// tools).
-    pub fn describe(&self, models: &rugrats_data::model::Models, trig: &Trig) -> String {
+    pub fn describe(&self, models: &Models, trig: &Trig) -> String {
         let (rot, pos) = self.pose(self.offset, trig);
         let corners = models.get(self.shape).and_then(|m| m.boxes.first().copied()).map(|(lo, hi)| {
             [(lo[0], lo[2]), (hi[0], lo[2]), (hi[0], hi[2]), (lo[0], hi[2])].map(|(x, z)| {
@@ -87,11 +90,11 @@ impl Game {
         let (rot, pos) = d.pose(offset, &self.trig);
         let boxes = world_boxes(model, rot, pos);
         let p = self.player.pos;
-        let (feet, head) = (p[1] - self.player.feet(), p[1] - self.player.feet() - crate::actors::player::HEIGHT);
+        let (feet, head) = (p[1] - self.player.feet(), p[1] - self.player.feet() - HEIGHT);
         let body = |at: [i32; 3], r: i32, lo: i32, hi: i32| {
             boxes.iter().any(|b| b.covers(at, r) && b.min_y <= lo && b.max_y >= hi)
         };
-        body(p, crate::actors::player::RADIUS, feet, head)
+        body(p, RADIUS, feet, head)
             || self.npcs.iter().filter(|n| !n.hidden).any(|n| {
                 let f = n.pos[1] - n.feet();
                 body(n.pos, 200, f, f - 600)
@@ -110,7 +113,7 @@ impl Game {
             // Class 8 runs while the player is within its radius (enter
             // 0x80049e18, leave 0x80049e5c).
             if let Some(s) = &mut self.doors[k].swing {
-                s.hurt = (s.hurt - crate::actors::player::DT).max(0);
+                s.hurt = (s.hurt - DT).max(0);
                 let d = &self.doors[k];
                 let (dx, dz) = ((d.start[0] - me[0]) as i64, (d.start[2] - me[2]) as i64);
                 let near = dx * dx + dz * dz < (self.doors[k].swing.as_ref().map_or(0, |s| s.radius) as i64).pow(2);
@@ -220,11 +223,9 @@ impl Game {
                 && !self.unusable.contains(&d.placement)
                 && self.set.models.get(d.shape).is_some_and(|m| {
                     let (rot, pos) = d.pose(d.offset, &self.trig);
-                    world_boxes(m, rot, pos).iter().any(|b| {
-                        b.covers(p, crate::actors::player::RADIUS + 150)
-                            && b.min_y <= feet
-                            && b.max_y >= feet - crate::actors::player::HEIGHT
-                    })
+                    world_boxes(m, rot, pos)
+                        .iter()
+                        .any(|b| b.covers(p, RADIUS + 150) && b.min_y <= feet && b.max_y >= feet - HEIGHT)
                 })
         });
         let Some(k) = touched else { return false };

@@ -1,6 +1,7 @@
 //! Moving platforms (class 11).
 
 use super::*;
+use crate::actors::player::RADIUS;
 
 /// A moving platform (0x80048804, think 0x8004ee00): per axis it steps by
 /// the template's +0x18.. until it has gone +0x1e.. and, with template
@@ -82,9 +83,7 @@ impl Game {
         let feet = p[1] - self.player.feet();
         self.movers.iter().position(|m| {
             self.set.models.get(m.shape).is_some_and(|model| {
-                world_boxes(model, m.rot, m.world())
-                    .iter()
-                    .any(|b| b.covers(p, crate::actors::player::RADIUS) && (b.min_y - feet).abs() <= 48)
+                world_boxes(model, m.rot, m.world()).iter().any(|b| b.covers(p, RADIUS) && (b.min_y - feet).abs() <= 48)
             })
         })
     }

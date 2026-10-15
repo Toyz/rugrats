@@ -6,12 +6,16 @@
 //! try (phase 3); room 38's cine 40 wins.
 
 use rrt::glam::Vec3;
+use rugrats_render::Vtx;
 
 use crate::actors::npc::{Event, Mode, Target};
-use crate::actors::player::Pose;
+use crate::actors::player::{DT, Pose};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::{Collected, Exit, Game};
+use crate::levels::Level;
+use crate::world::collide;
+use crate::world::fx::{BEAM, Mesh};
+use crate::world::game::{Collected, Exit, Game, Script};
 
 /// Hidden by cine 37's end (0x800732d4 case 37) and 0x8007b280.
 const CINE_ACTORS: [u16; 11] = [1776, 608, 609, 1492, 130, 132, 131, 134, 514, 524, 8801];
@@ -45,7 +49,7 @@ const CINE_FLOAT: usize = 38;
 /// +0x44 = 10 + 2048, so (speed x dt) >> 12 of the direction a frame
 /// (20580 at dt 10); life 1000 less 33 a frame (0x800b44d4[dt]); tested
 /// along the way in steps (0x80090860 tests the segment).
-const BEAM_SPEED: i32 = (10 + 2048) * crate::actors::player::DT;
+const BEAM_SPEED: i32 = (10 + 2048) * DT;
 const BEAM_LIFE: i32 = 1000;
 const BEAM_DECAY: i32 = 33;
 const BEAM_STEP: i32 = 256;
@@ -63,13 +67,21 @@ struct Beam {
     done: bool,
 }
 
+/// A sliding door: its placement, where it stands, whether it is open.
+#[derive(Clone, Copy, Debug)]
+struct SlidingDoor {
+    placement: usize,
+    at: [i32; 3],
+    open: bool,
+}
+
 pub struct OuterSpace {
     pub phase: u8,
     respawn: Pose,
     charge: i32,
-    doors: Vec<(usize, [i32; 3], bool)>,
+    doors: Vec<SlidingDoor>,
     beams: Vec<Beam>,
-    mesh: Option<crate::world::fx::Mesh>,
+    mesh: Option<Mesh>,
 }
 
 impl OuterSpace {
@@ -99,11 +111,11 @@ impl OuterSpace {
             .iter()
             .enumerate()
             .filter(|(_, p)| p.kind == 1 && p.template == DOOR)
-            .map(|(k, p)| (k, p.pos, false))
+            .map(|(placement, p)| SlidingDoor { placement, at: p.pos, open: false })
             .collect();
         let respawn = Pose::new(START, START_HEADING);
         g.checkpoint = Some(respawn);
-        let mesh = crate::world::fx::Mesh::load(disc, &crate::world::fx::BEAM).ok();
+        let mesh = Mesh::load(disc, &BEAM).ok();
         Ok(OuterSpace { phase: 1, respawn, charge: CHARGE, doors, beams: Vec::new(), mesh })
     }
 
@@ -124,11 +136,10 @@ impl OuterSpace {
 
     /// A door opens (sound 71) or shuts.
     fn door(&mut self, g: &mut Game, i: usize, open: bool) {
-        let (k, at, was) = self.doors[i];
-        if was != open {
-            self.doors[i].2 = open;
-            g.hide_placement(k, open);
-            let _ = at;
+        let d = &mut self.doors[i];
+        if d.open != open {
+            d.open = open;
+            g.hide_placement(d.placement, open);
             g.play(71);
         }
     }
@@ -163,7 +174,7 @@ impl OuterSpace {
                 let step = BEAM_STEP.min(BEAM_SPEED - gone);
                 gone += step;
                 let next = [b.pos[0] + (b.dir[0] * step >> 12), b.pos[1], b.pos[2] + (b.dir[1] * step >> 12)];
-                let q = crate::world::collide::query(&g.col, next);
+                let q = collide::query(&g.col, next);
                 if q.kind != 0 {
                     b.done = true;
                     break;
@@ -181,7 +192,7 @@ impl OuterSpace {
                     break;
                 }
                 // A door (0x80051d44): it opens.
-                if let Some(i) = self.doors.iter().position(|d| !d.2 && near(d.1)) {
+                if let Some(i) = self.doors.iter().position(|d| !d.open && near(d.at)) {
                     opened.push(i);
                     b.done = true;
                     break;
@@ -196,7 +207,7 @@ impl OuterSpace {
     }
 }
 
-impl crate::world::game::Script for OuterSpace {
+impl Script for OuterSpace {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             if let Event::Bite { target: Target::Player, amount, .. } = e {
@@ -221,7 +232,7 @@ impl crate::world::game::Script for OuterSpace {
         // Sliding doors (0x8004d078, 0x8004d0b0): open within 5000.
         let p = g.player.pos;
         for i in 0..self.doors.len() {
-            let at = self.doors[i].1;
+            let at = self.doors[i].at;
             let (dx, dz) = (((at[0] - p[0]) as i64).abs(), ((at[2] - p[2]) as i64).abs());
             let d = dx.max(dz) + dx.min(dz) / 2;
             let near = d < DOOR_REACH && (at[1] - p[1]).abs() < 4000;
@@ -257,7 +268,7 @@ impl crate::world::game::Script for OuterSpace {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some(Exit::to(crate::levels::Level::HUB));
+            g.exit = Some(Exit::to(Level::HUB));
             return true;
         }
         if self.phase <= 1 {
@@ -273,7 +284,7 @@ impl crate::world::game::Script for OuterSpace {
         true
     }
 
-    fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         // The beams (0x80090d34): the mesh stretched over this frame's
         // segment.
         if let Some(mesh) = &self.mesh {
@@ -301,7 +312,7 @@ impl crate::world::game::Script for OuterSpace {
             self.phase,
             self.charge,
             b,
-            self.doors.iter().filter(|d| d.2).count()
+            self.doors.iter().filter(|d| d.open).count()
         )
     }
 }

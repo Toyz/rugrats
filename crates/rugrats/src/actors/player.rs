@@ -13,7 +13,7 @@ use rugrats_data::col::Col;
 use rugrats_data::hierarchy::Hierarchy;
 use rugrats_data::model::Models;
 use rugrats_render::Vtx;
-use rugrats_render::models::posed_triangles;
+use rugrats_render::models::{self, posed_triangles};
 
 use crate::actors::animator::Animator;
 use crate::disc::GameDisc;
@@ -569,12 +569,7 @@ impl Player {
     /// Each part's rotation and joint in the world.
     pub fn parts(&self, anims: &Anims, trig: &Trig) -> Vec<(Mat3, Vec3)> {
         let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
-        rugrats_render::models::posed_parts(
-            &self.hierarchy,
-            &self.animator.locals(&self.hierarchy, anims),
-            self.rotation(trig),
-            pos,
-        )
+        models::posed_parts(&self.hierarchy, &self.animator.locals(&self.hierarchy, anims), self.rotation(trig), pos)
     }
 
     /// The part a hand slot names (hierarchy +0x14 + slot).

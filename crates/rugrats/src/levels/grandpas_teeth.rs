@@ -5,13 +5,17 @@
 //! chases Chuckie, 130 s on the clock. The goose at 0 plays cine 5: won.
 
 use rugrats_data::hierarchy::Hierarchy;
+use rugrats_render::{Vtx, models};
 
 use crate::actors::animator::Animator;
-use crate::actors::npc::{Event, Mode, Target};
-use crate::actors::player::{DT, Pose};
+use crate::actors::npc::{Event, Mode, Npc, REACH, Target};
+use crate::actors::player::anim::IDLE;
+use crate::actors::player::{DT, Pose, SLOW_TURN, TURN};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::{Exit, Game};
+use crate::levels::Level;
+use crate::ui::hud;
+use crate::world::game::{Effect, Exit, Game, Script};
 
 /// Registry ids (LP +0x2a).
 const CHUCKIE: u16 = 1776;
@@ -131,11 +135,11 @@ impl GrandpasTeeth {
                 }
                 // 0x8007737c case 4: exit 1, the level won.
                 g.won = Some(true);
-                g.exit = Some(Exit::to(crate::levels::Level::HUB));
+                g.exit = Some(Exit::to(Level::HUB));
             }
             CINE_LOSE => {
                 g.won = Some(false);
-                g.exit = Some(Exit::to(crate::levels::Level::HUB));
+                g.exit = Some(Exit::to(Level::HUB));
             }
             _ => {}
         }
@@ -148,14 +152,14 @@ impl GrandpasTeeth {
         self.puck = None;
         g.player.frozen = false;
         let (h, a) = (self.spike.0.clone(), self.spike.1.clone());
-        g.player.set_body(h, a, crate::actors::player::SLOW_TURN, &g.anims);
+        g.player.set_body(h, a, SLOW_TURN, &g.anims);
         // Spike as an NPC stands down; Tommy rides the player (y - 250).
         if let Some(k) = find(g, SPIKE) {
             g.npcs[k].hidden = true;
             g.npcs[k].mode = Mode::Idle;
         }
         if find(g, 0xffff).is_none() {
-            let mut rider = crate::actors::npc::Npc {
+            let mut rider = Npc {
                 id: 0xffff,
                 character: TOMMY,
                 hierarchy: self.tommy.0.clone(),
@@ -180,10 +184,10 @@ impl GrandpasTeeth {
                 reach: 600,
                 bite_wait: 900,
                 run_speed: None,
-                post_reach: crate::actors::npc::REACH,
+                post_reach: REACH,
                 hold: None,
             };
-            rider.animator.set(crate::actors::player::anim::IDLE, &g.anims);
+            rider.animator.set(IDLE, &g.anims);
             g.npcs.push(rider);
         }
         let goose = find(g, GOOSE);
@@ -212,7 +216,7 @@ impl GrandpasTeeth {
     /// the goose after Chuckie round the court; 130 s.
     fn court(&mut self, g: &mut Game) {
         let (h, a) = (self.tommy.0.clone(), self.tommy.1.clone());
-        g.player.set_body(h, a, crate::actors::player::TURN, &g.anims);
+        g.player.set_body(h, a, TURN, &g.anims);
         if let Some(k) = find(g, 0xffff) {
             g.npcs.remove(k);
         }
@@ -272,7 +276,7 @@ impl GrandpasTeeth {
                 g.timer = None;
                 g.cine = Some(CINE_LOSE);
             } else {
-                g.exit = Some(Exit::to(crate::levels::Level::HUB));
+                g.exit = Some(Exit::to(Level::HUB));
             }
             return;
         }
@@ -349,7 +353,7 @@ impl GrandpasTeeth {
                     m => Box::new(m.clone()),
                 };
                 n.mode = Mode::Hit { left: 300, then };
-                g.effects.push(crate::world::game::Effect::new(34));
+                g.effects.push(Effect::new(34));
                 // 0x8007eb68: the goose at 0 wins, Chuckie at 0 is a cry.
                 if n.health == 0 {
                     if n.id == GOOSE {
@@ -369,11 +373,11 @@ impl GrandpasTeeth {
     }
 
     /// The puck, the clock and the two gauges (as text for now).
-    pub fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    pub fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         if let Some(p) = &self.puck {
             if let Some(m) = g.set.models.get(PUCK_MODEL) {
                 let pos = rrt::glam::Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32);
-                rugrats_render::models::model_triangles(m, rrt::glam::Mat3::IDENTITY, pos, moving);
+                models::model_triangles(m, rrt::glam::Mat3::IDENTITY, pos, moving);
             }
         }
         if self.phase == 3 {
@@ -381,33 +385,17 @@ impl GrandpasTeeth {
             // bottom left, Chuckie's (279) bottom right.
             if let Some(s) = &g.sprites {
                 if let Some(k) = find(g, GOOSE) {
-                    crate::ui::hud::gauge(
-                        s,
-                        278,
-                        (-200, 88),
-                        g.npcs[k].health,
-                        g.npcs[k].max_health,
-                        g.focal(),
-                        overlay,
-                    );
+                    hud::gauge(s, 278, (-200, 88), g.npcs[k].health, g.npcs[k].max_health, g.focal(), overlay);
                 }
                 if let Some(k) = find(g, CHUCKIE) {
-                    crate::ui::hud::gauge(
-                        s,
-                        279,
-                        (200, 88),
-                        g.npcs[k].health,
-                        g.npcs[k].max_health,
-                        g.focal(),
-                        overlay,
-                    );
+                    hud::gauge(s, 279, (200, 88), g.npcs[k].health, g.npcs[k].max_health, g.focal(), overlay);
                 }
             }
         }
     }
 }
 
-impl crate::world::game::Script for GrandpasTeeth {
+impl Script for GrandpasTeeth {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         GrandpasTeeth::frame(self, g, pads);
     }
@@ -421,7 +409,7 @@ impl crate::world::game::Script for GrandpasTeeth {
         true
     }
 
-    fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         GrandpasTeeth::draw(self, g, moving, overlay);
     }
 

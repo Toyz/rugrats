@@ -1,6 +1,10 @@
 //! Collectibles (bars, cookies and the levels' own) and the spawn spots.
 
+use rugrats_data::placement::Spot;
+
 use super::*;
+use crate::actors::player::{DT, RADIUS};
+use crate::rand::Rand;
 
 /// A collectible (0x80048a44, touched by 0x800514b0).
 pub struct Goodie {
@@ -43,7 +47,7 @@ pub(super) const COUNTER_TIME: i32 = 1500;
 /// spots ending at threshold 100; r = (rand & 255) % 100 picks the first
 /// unused spot whose threshold is above it, else retries with r = 0, at
 /// most five rounds. The spot is used.
-pub fn spawn(spots: &mut [rugrats_data::placement::Spot], group: usize, rand: &mut crate::rand::Rand) -> Option<usize> {
+pub fn spawn(spots: &mut [Spot], group: usize, rand: &mut Rand) -> Option<usize> {
     let (mut start, mut n) = (0, 0);
     let mut range = None;
     for (i, s) in spots.iter().enumerate() {
@@ -79,12 +83,11 @@ impl Game {
     pub(super) fn touch(&mut self) {
         self.found.clear();
         self.collected.clear();
-        self.bar_shown = (self.bar_shown - crate::actors::player::DT).max(0);
+        self.bar_shown = (self.bar_shown - DT).max(0);
         let me = Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32);
         // Kind 16 has no touch (0x80049244): decoration.
         for g in self.goodies.iter_mut().filter(|g| !g.taken && g.kind != 16) {
-            let r =
-                self.set.models.get(g.shape).map_or(256.0, |m| m.radius as f32) + crate::actors::player::RADIUS as f32;
+            let r = self.set.models.get(g.shape).map_or(256.0, |m| m.radius as f32) + RADIUS as f32;
             let d = g.pos - me;
             if Vec3::new(d.x, 0.0, d.z).length() < r && d.y.abs() < 1200.0 {
                 g.taken = true;

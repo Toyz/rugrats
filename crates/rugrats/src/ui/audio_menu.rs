@@ -4,9 +4,13 @@
 //! two arrow blocks and two speakers turned for stereo or mono.
 
 use rrt::glam::{Mat3, Vec3};
-use rugrats_render::Vtx;
+use rugrats_data::model::Models;
+use rugrats_render::{Vtx, models};
 
+use crate::disc::GameDisc;
+use crate::gte::Trig;
 use crate::input::{self, Pads};
+use crate::ui::front;
 use crate::ui::text::{self, Fonts, Text};
 
 /// The settings it edits (state +0x0c, +0x10, +0x14).
@@ -139,8 +143,8 @@ pub struct AudioMenu {
 
 impl AudioMenu {
     /// Its strings: "Audio", "Music", "Sfx", "STEREO", "MONO".
-    pub fn strings(disc: &crate::disc::GameDisc) -> [String; 5] {
-        [HEADING, MUSIC, SFX, STEREO, MONO].map(|n| crate::ui::front::string(disc, n))
+    pub fn strings(disc: &GameDisc) -> [String; 5] {
+        [HEADING, MUSIC, SFX, STEREO, MONO].map(|n| front::string(disc, n))
     }
 
     pub fn open(strings: &[String; 5], fonts: &Fonts, settings: Settings) -> AudioMenu {
@@ -317,8 +321,8 @@ impl AudioMenu {
     /// main one), and the text.
     pub fn draw(
         &self,
-        models: &rugrats_data::model::Models,
-        trig: &crate::gte::Trig,
+        models: &Models,
+        trig: &Trig,
         shift: Vec3,
         fonts: &Fonts,
         moving: &mut Vec<Vtx>,
@@ -337,7 +341,7 @@ impl AudioMenu {
             )
             .transpose();
             let pos = Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
-            rugrats_render::models::model_triangles(m, rows.transpose(), pos, moving);
+            models::model_triangles(m, rows.transpose(), pos, moving);
         }
         // The shadows, the items (the chosen one yellow), then the heading.
         for l in &self.items {

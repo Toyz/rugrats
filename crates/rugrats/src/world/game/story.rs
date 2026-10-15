@@ -1,6 +1,7 @@
 //! Cries, tries and the cinematics that end a level.
 
 use super::*;
+use crate::actors::player::anim::CRY;
 
 /// What a character says when a thrown thing hits it (0x800511a8): Angelica
 /// (3) 556 or 557, char 10 1065, char 11 1076 or 1079, Chuckie (2) 185 in
@@ -97,7 +98,7 @@ impl Game {
             return;
         }
         self.crying = CRY_TIME;
-        self.player.act(crate::actors::player::anim::CRY, &self.anims);
+        self.player.act(CRY, &self.anims);
     }
 
     /// After the cry: health back to 255; the level's own respawn, or by

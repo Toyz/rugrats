@@ -24,9 +24,10 @@ use rugrats::media::still;
 use rugrats::stage::Stage;
 use rugrats::ui::front::{Outcome, Title};
 use rugrats::ui::screens::{self, Page, Screen};
-// rrt's Game is the app trait; the level in play is a Play.
 use rugrats::world::game::Game as Play;
-use rugrats_render::Renderer;
+use rugrats_render::{Renderer, Vram};
+
+// rrt's Game is the app trait; the level in play is a Play.
 
 /// Files the boot reads, by the game's numbering.
 const LEGAL512_BS: usize = 234;
@@ -343,14 +344,7 @@ impl Rugrats {
 
     /// The screens `pages` (sprites from `level`'s database), then
     /// `then`. `vram` is what the level left (for its bar icon).
-    fn screen(
-        &mut self,
-        pages: Vec<Page>,
-        level: Level,
-        then: Then,
-        vram: Option<rugrats_render::Vram>,
-        now: u64,
-    ) -> Boot {
+    fn screen(&mut self, pages: Vec<Page>, level: Level, then: Then, vram: Option<Vram>, now: u64) -> Boot {
         let (earned, placed) = self.progress.piece_bits();
         match Screen::open(&self.disc, pages, level.index(), earned, placed, vram.as_ref()) {
             Ok(screen) => {

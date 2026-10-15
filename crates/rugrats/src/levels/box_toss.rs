@@ -8,11 +8,15 @@
 //! code with a bottle: 20 drinks, a throw costs one too, only a drink
 //! wins; the round start gives the bottle back to Tommy's body.
 
+use rugrats_render::Vtx;
+
 use crate::actors::npc::{Mode, Target};
-use crate::actors::player::Pose;
+use crate::actors::player::anim::THROW;
+use crate::actors::player::{Pose, State};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::{Exit, Game};
+use crate::levels::Level;
+use crate::world::game::{self, Exit, Game, Script, ThingState};
 
 /// The box (template 442) and the cookies in it.
 const BOX: u16 = 442;
@@ -230,7 +234,7 @@ impl BoxToss {
     }
 }
 
-impl crate::world::game::Script for BoxToss {
+impl Script for BoxToss {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         g.npc_events.clear();
         if self.ended {
@@ -240,7 +244,7 @@ impl crate::world::game::Script for BoxToss {
         let item = self.rules.item;
         let holding = g.carried().is_some_and(|k| g.things[k].template == item);
         // Eating (0x80057950): Circle or Square, standing.
-        let standing = matches!(g.player.state, crate::actors::player::State::Stand);
+        let standing = matches!(g.player.state, State::Stand);
         if holding
             && standing
             && self.eat_wait == 0
@@ -276,7 +280,7 @@ impl crate::world::game::Script for BoxToss {
                     -(65.0 * frames) as i32,
                     ((q[2] - p[2]) as f64 / frames * per) as i32,
                 ];
-                g.player.act(crate::actors::player::anim::THROW, &g.anims);
+                g.player.act(THROW, &g.anims);
                 // 0x8005d11c: speech 1159 or 1167.
                 g.speech.push(if g.rand.next() & 1 != 0 { 1159 } else { 1167 });
                 g.throw_carried(v);
@@ -294,7 +298,7 @@ impl crate::world::game::Script for BoxToss {
                 if (b.pos.x as i32 - q[0]).abs() < CATCH && (b.pos.z as i32 - q[2]).abs() < CATCH {
                     self.catcher = None;
                     self.swap(g, k);
-                } else if b.state == crate::world::game::ThingState::Rest {
+                } else if b.state == ThingState::Rest {
                     // A missed throw: the box on the floor.
                     self.catcher = None;
                 }
@@ -333,7 +337,7 @@ impl crate::world::game::Script for BoxToss {
         if n == self.rules.lost {
             if g.tries <= 0 {
                 g.won = Some(false);
-                g.exit = Some(Exit::to(crate::levels::Level::HUB));
+                g.exit = Some(Exit::to(Level::HUB));
             } else {
                 // Card 709, then the round again (0x80079f1c).
                 g.card = Some(709);
@@ -351,7 +355,7 @@ impl crate::world::game::Script for BoxToss {
         true
     }
 
-    fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         if let Some(s) = &g.sprites {
             if self.rules.throw_costs {
                 // Level 21's bottle gauge (0x8008c7f0: 366 over 365, max 20).
@@ -370,7 +374,7 @@ impl crate::world::game::Script for BoxToss {
             }
         }
         if !self.rules.throw_costs {
-            crate::world::game::shadowed(&g.fonts, -130, 43, format!("{}", self.cookies.max(0)), overlay);
+            game::shadowed(&g.fonts, -130, 43, format!("{}", self.cookies.max(0)), overlay);
         }
     }
 

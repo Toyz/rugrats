@@ -5,11 +5,13 @@
 //! reaching post 120 first wins the race (cine 41-43): it hides again and
 //! a try is gone.
 
+use crate::actors::npc::post::GOAL;
 use crate::actors::npc::{Event, Mode};
-use crate::actors::player::Pose;
+use crate::actors::player::{DT, Pose};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::{Exit, Game};
+use crate::levels::Level;
+use crate::world::game::{self, Exit, Game, Script};
 
 /// The hiders: Phil, Lil, Tommy; their catch and win cines.
 const BABIES: [(u16, usize, usize); 3] = [(608, 76, 42), (609, 75, 41), (1492, 77, 43)];
@@ -60,7 +62,7 @@ impl ChuckiesGlasses {
             g.hide(id, true);
         }
         if let Some(p) = g.posts.get_mut(HOME_POST - 1) {
-            p.flags |= crate::actors::npc::post::GOAL;
+            p.flags |= GOAL;
         }
         let mut l = ChuckiesGlasses {
             phase: 1,
@@ -77,7 +79,7 @@ impl ChuckiesGlasses {
     /// 0x8007f004: to a random free spot (0x8004fe14), hiding.
     fn hide(&mut self, g: &mut Game, i: usize) {
         let Some(k) = find(g, self.babies[i].id) else { return };
-        let spot = crate::world::game::spawn(&mut g.spots, 0, &mut g.rand);
+        let spot = game::spawn(&mut g.spots, 0, &mut g.rand);
         self.babies[i].spot = spot;
         let n = &mut g.npcs[k];
         n.hidden = false;
@@ -99,7 +101,7 @@ impl ChuckiesGlasses {
     fn lose_try(&mut self, g: &mut Game) {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some(Exit::to(crate::levels::Level::HUB));
+            g.exit = Some(Exit::to(Level::HUB));
             return;
         }
         if let Some(Pose { pos: at, heading: h }) = g.checkpoint {
@@ -111,7 +113,7 @@ impl ChuckiesGlasses {
     }
 }
 
-impl crate::world::game::Script for ChuckiesGlasses {
+impl Script for ChuckiesGlasses {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             // GoalPost (0x8007f150): a baby home first.
@@ -155,7 +157,7 @@ impl crate::world::game::Script for ChuckiesGlasses {
         // line at 0.
         for b in &self.babies {
             if find(g, b.id).is_some_and(|k| matches!(g.npcs[k].mode, Mode::Posts { .. })) {
-                self.talk_wait -= crate::actors::player::DT;
+                self.talk_wait -= DT;
                 if self.talk_wait <= 0 {
                     let lines = running_lines(b.id);
                     g.speech.push(lines[(g.rand.next() & 255) as usize % lines.len()]);
@@ -197,7 +199,7 @@ impl crate::world::game::Script for ChuckiesGlasses {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some(Exit::to(crate::levels::Level::HUB));
+            g.exit = Some(Exit::to(Level::HUB));
         }
         true
     }

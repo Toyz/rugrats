@@ -3,6 +3,8 @@
 //! runs out. Speech only; nothing that changes play.
 
 use crate::actors::npc::Mode;
+use crate::actors::player::DT;
+use crate::disc::GameDisc;
 use crate::levels::Level;
 use crate::world::game::Game;
 
@@ -39,7 +41,7 @@ const TABLES: [(u32, usize); 22] = [
 const GOLF_TABLES: [(u32, usize); 4] = [(0x800b_9528, 19), (0x800b_9550, 11), (0x800b_9568, 11), (0x800b_9580, 12)];
 
 impl Tables {
-    pub fn load(disc: &crate::disc::GameDisc) -> Tables {
+    pub fn load(disc: &GameDisc) -> Tables {
         let words = TABLES
             .iter()
             .chain(GOLF_TABLES.iter())
@@ -86,7 +88,7 @@ pub fn frame(g: &mut Game, t: &Tables, cue: i32) {
     } else {
         g.level.0
     };
-    let dt = crate::actors::player::DT;
+    let dt = DT;
     let say = |g: &mut Game, n: u16| g.speech.push(n);
     match level {
         // 0x80080648: with +0x30 bit 8 sounds 32-35 or lines; the goose

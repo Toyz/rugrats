@@ -1,13 +1,20 @@
 //! The pause menu (0x8003e05c, 0x800398bc mode 0).
 
+use rugrats_render::Vtx;
+
 use super::*;
+use crate::save::card::{Art, STATE_SIZE};
+use crate::ui::card_menu::{self, BACK, CardMenu, HEADING, ITEM, ON, Outcome, Strings};
+use crate::ui::front;
+use crate::ui::screens::PRESS;
+use crate::ui::text::Fonts;
 
 /// How the pause menu ends.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PauseEnd {
     Continue,
     /// Load Game confirmed (state 15): the pause returns 1, to the hub.
-    Loaded(Box<[u8; crate::save::card::STATE_SIZE]>),
+    Loaded(Box<[u8; STATE_SIZE]>),
     QuitGame,
     QuitLevel,
 }
@@ -26,11 +33,11 @@ pub(super) struct Pause {
     pub(super) sounds: Vec<u8>,
     /// The card pages (Save Game?, Load Game?), their strings, the
     /// footer's texts, the card's art, the hub's spot of this level.
-    pub(super) card: Option<crate::ui::card_menu::CardMenu>,
-    pub(super) card_strings: crate::ui::card_menu::Strings,
+    pub(super) card: Option<CardMenu>,
+    pub(super) card_strings: Strings,
     pub(super) press: String,
     pub(super) labels: [String; 2],
-    pub(super) art: crate::save::card::Art,
+    pub(super) art: Art,
     pub(super) spot: [i32; 3],
     /// Frames since the pause opened (the cursor's blink).
     pub(super) frames: u32,
@@ -41,15 +48,15 @@ pub(super) const PAUSE_AT: [(i16, i16); 5] = [(-185, -30), (-145, -10), (-60, -3
 
 /// The menu's sounds (0x800398bc): Left/Up and Triangle 124,
 /// Right/Down 125, Cross 126.
-pub(super) const MOVE: u8 = crate::ui::card_menu::BACK;
+pub(super) const MOVE: u8 = BACK;
 
-pub(super) const MOVE_ON: u8 = crate::ui::card_menu::ON;
+pub(super) const MOVE_ON: u8 = ON;
 
-pub(super) const PICK: u8 = crate::ui::card_menu::PICK;
+pub(super) const PICK: u8 = card_menu::PICK;
 
 impl Pause {
     pub(super) fn load(disc: &GameDisc, level: Level) -> Result<Pause, String> {
-        let s = |n: u32| crate::ui::front::string(disc, n);
+        let s = |n: u32| front::string(disc, n);
         // The hub's spot for this level (0x800b8718), written into a save.
         let b = disc.exe_bytes(0x800b_8718 + 16 * level.index() as u32, 12)?;
         let spot = [0, 4, 8].map(|k| i32::from_le_bytes(b[k..k + 4].try_into().unwrap()));
@@ -62,8 +69,8 @@ impl Pause {
             confirm: None,
             sounds: Vec::new(),
             card: None,
-            card_strings: crate::ui::card_menu::Strings::load(disc),
-            press: crate::ui::front::string(disc, crate::ui::screens::PRESS),
+            card_strings: Strings::load(disc),
+            press: front::string(disc, PRESS),
             labels: [
                 disc.exe_string_at(0x800b_b504).unwrap_or_default(),
                 disc.exe_string_at(0x800b_b508).unwrap_or_default(),
@@ -81,18 +88,18 @@ impl Pause {
         self.frames = 0;
     }
 
-    pub(super) fn frame(&mut self, pads: &Pads, state: &[u8; crate::save::card::STATE_SIZE]) -> Option<PauseEnd> {
+    pub(super) fn frame(&mut self, pads: &Pads, state: &[u8; STATE_SIZE]) -> Option<PauseEnd> {
         self.frames += 1;
         if let Some(card) = &mut self.card {
             let out = card.frame(pads);
             self.sounds.extend(card.sounds.drain(..));
             match out {
-                Some(crate::ui::card_menu::Outcome::Back(item)) => {
+                Some(Outcome::Back(item)) => {
                     self.card = None;
                     self.cursor = item;
                 }
-                Some(crate::ui::card_menu::Outcome::Close) => return Some(PauseEnd::Continue),
-                Some(crate::ui::card_menu::Outcome::Loaded(b)) => return Some(PauseEnd::Loaded(b)),
+                Some(Outcome::Close) => return Some(PauseEnd::Continue),
+                Some(Outcome::Loaded(b)) => return Some(PauseEnd::Loaded(b)),
                 None => {}
             }
             return None;
@@ -124,15 +131,7 @@ impl Pause {
                 self.confirm = None;
                 match c {
                     1 => return Some(if item == 3 { PauseEnd::QuitGame } else { PauseEnd::QuitLevel }),
-                    2 | 4 => {
-                        self.card = Some(crate::ui::card_menu::CardMenu::open(
-                            c == 2,
-                            false,
-                            self.art.clone(),
-                            *state,
-                            self.spot,
-                        ))
-                    }
+                    2 | 4 => self.card = Some(CardMenu::open(c == 2, false, self.art.clone(), *state, self.spot)),
                     _ => self.cursor = item,
                 }
             }
@@ -166,16 +165,13 @@ impl Pause {
                 1 => return Some(PauseEnd::Continue),
                 3 | 5 => self.confirm = Some((self.cursor, 3)),
                 // Save Game? (state 3) or Load Game? (9): the card pages.
-                c => {
-                    self.card =
-                        Some(crate::ui::card_menu::CardMenu::open(c == 2, false, self.art.clone(), *state, self.spot))
-                }
+                c => self.card = Some(CardMenu::open(c == 2, false, self.art.clone(), *state, self.spot)),
             }
         }
         None
     }
 
-    pub(super) fn triangles(&self, fonts: &crate::ui::text::Fonts, out: &mut Vec<rugrats_render::Vtx>) {
+    pub(super) fn triangles(&self, fonts: &Fonts, out: &mut Vec<Vtx>) {
         use crate::ui::text::Text;
         if let Some(card) = &self.card {
             card.triangles(&self.card_strings, fonts, &self.press, &self.labels, out);
@@ -183,14 +179,14 @@ impl Pause {
         }
         // The heading in font 1 and pink, the items in font 0 and light
         // blue, the cursor's blinking (0x80035fec, 0x800391d4).
-        let cursor = crate::ui::card_menu::cursor_colour(self.frames);
+        let cursor = card_menu::cursor_colour(self.frames);
         let mut item = |s: &str, x: i16, y: i16, lit: bool, centre: bool| {
             let rgb = if centre {
-                crate::ui::card_menu::HEADING
+                HEADING
             } else if lit {
                 cursor
             } else {
-                crate::ui::card_menu::ITEM
+                ITEM
             };
             let mut t = Text {
                 font: if centre { 1 } else { 0 },

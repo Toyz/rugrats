@@ -4,10 +4,10 @@
 //! the camera. Cine 85 is the end of the game: the credits, the progress
 //! cleared, the hub.
 
-use crate::actors::player::Pose;
+use crate::actors::player::{Pose, State};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::Game;
+use crate::world::game::{Game, Script};
 
 /// Where cine 79 leaves Reptar.
 const START: [i32; 3] = [25162, -703, -9351];
@@ -99,7 +99,7 @@ impl Reptar2010 {
     }
 }
 
-impl crate::world::game::Script for Reptar2010 {
+impl Script for Reptar2010 {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         // Raw Triangle and Circle (0x8005ab60), in any state.
         if g.player.action.is_none() {
@@ -112,7 +112,7 @@ impl crate::world::game::Script for Reptar2010 {
             }
         }
         // The landing's rumble (0x8005cba8 for char 9): sound 93.
-        let air = matches!(g.player.state, crate::actors::player::State::Jump | crate::actors::player::State::Fall);
+        let air = matches!(g.player.state, State::Jump | State::Fall);
         if self.was_air && !air {
             g.play(93);
         }

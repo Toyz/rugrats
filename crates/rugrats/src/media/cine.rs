@@ -11,17 +11,18 @@ use std::sync::{Arc, Mutex};
 use rrt::glam::{Mat3, Mat4, Vec3};
 use rrt::kit::adpcm::xa;
 use rugrats_data::cine::{self, Frame};
-use rugrats_data::hierarchy::Hierarchy;
-use rugrats_data::level::Level;
+use rugrats_data::hierarchy::{self, Hierarchy};
+use rugrats_data::level::{self, Level};
 use rugrats_data::model::Models;
-use rugrats_data::placement::{Placement, Template};
+use rugrats_data::placement::{self, Placement, Template};
 use rugrats_render::models::{model_triangles, posed_triangles, quat_matrix};
-use rugrats_render::{Vram, Vtx};
+use rugrats_render::{Vram, Vtx, rooms};
 
 use crate::disc::GameDisc;
 use crate::media::face::{Blinks, Faces};
 use crate::media::movie::Soundtrack;
 use crate::stage::Stage;
+use crate::ui::text::{FONT_AT, FONT_FILE, FONT_SIZE};
 
 /// A database's files, by the game's numbering (file + db).
 const MOD: usize = 242;
@@ -82,7 +83,7 @@ impl Set {
     /// Database `db`'s files, as the loaders read them (rooms 0x8002a208,
     /// models 0x80044d00, hierarchies 0x80044e7c, placements 0x800454dc).
     pub fn load(disc: &GameDisc, db: usize) -> Result<Set, String> {
-        let level: Level = rugrats_data::level::parse(&disc.file(LEVEL + db)?).map_err(|e| e.to_string())?;
+        let level: Level = level::parse(&disc.file(LEVEL + db)?).map_err(|e| e.to_string())?;
         let mut vram = Vram::new();
         // load_rooms uploads A.RAW to (0, 256), 576 x 256; main loads the
         // characters' image at boot (0x800186d8) to (576, 256), 384 x 256.
@@ -92,18 +93,17 @@ impl Set {
             vram.load(x, 256, if x == 0 { 576 } else { 384 }, 256, &words);
         }
         // The fonts, which boot puts at (960, 256) for good (0x8002ed80).
-        let (fx, fy) = crate::ui::text::FONT_AT;
-        let (fw, fh) = crate::ui::text::FONT_SIZE;
-        let font: Vec<u16> =
-            disc.file(crate::ui::text::FONT_FILE)?.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
+        let (fx, fy) = FONT_AT;
+        let (fw, fh) = FONT_SIZE;
+        let font: Vec<u16> = disc.file(FONT_FILE)?.chunks_exact(2).map(|h| u16::from_le_bytes([h[0], h[1]])).collect();
         vram.load(fx, fy, fw, fh, &font);
         Ok(Set {
             vram,
-            rooms: rugrats_render::rooms::level_triangles(&level),
+            rooms: rooms::level_triangles(&level),
             models: Models::parse(&disc.file(MOD + db)?).map_err(|e| e.to_string())?,
-            hierarchies: rugrats_data::hierarchy::parse_file(&disc.file(HIE + db)?).map_err(|e| e.to_string())?,
-            placements: rugrats_data::placement::parse_lp(&disc.file(LP + db)?),
-            templates: rugrats_data::placement::parse_templates(&disc.file(TEMPLATE)?),
+            hierarchies: hierarchy::parse_file(&disc.file(HIE + db)?).map_err(|e| e.to_string())?,
+            placements: placement::parse_lp(&disc.file(LP + db)?),
+            templates: placement::parse_templates(&disc.file(TEMPLATE)?),
             faces: Faces::load(disc, Faces::mask(disc, db)?)?,
             room_info: level
                 .rooms

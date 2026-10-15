@@ -11,7 +11,7 @@
 use std::sync::{Arc, Mutex};
 
 use rrt::kit::adpcm::spu;
-use rugrats_data::sep::Song;
+use rugrats_data::sep::{self, Song};
 use rugrats_data::vab::{Tone, Vab};
 
 use crate::disc::GameDisc;
@@ -91,7 +91,7 @@ impl Loaded {
             set,
             music: Arc::new(Bank::load(disc, set.music)?),
             effects: Arc::new(Bank::load(disc, set.effects)?),
-            songs: rugrats_data::sep::parse(&disc.file(set.sep)?)?,
+            songs: sep::parse(&disc.file(set.sep)?)?,
         })
     }
 }

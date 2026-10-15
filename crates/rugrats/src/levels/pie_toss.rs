@@ -3,8 +3,10 @@
 //! and training's booth share it.
 
 use rrt::glam::{Mat3, Vec3};
+use rugrats_render::{Vtx, models};
 
 use crate::actors::player::DT;
+use crate::world::collide;
 use crate::world::game::Game;
 
 /// A pie (0x80061c98): rolled along (0, 35, 1024), speed 225 with the
@@ -50,7 +52,7 @@ pub fn roll_pies(g: &Game, pies: &mut Vec<Pie>, targets: &[usize]) -> Vec<usize>
                 p.pos[2 * k] += p.v[k] * DT >> 8;
             }
             p.travelled += ((p.v[0] as f64).hypot(p.v[1] as f64) as i32 * DT) >> 8;
-            let q = crate::world::collide::query(&g.col, [p.pos[0], p.pos[1] - 1, p.pos[2]]);
+            let q = collide::query(&g.col, [p.pos[0], p.pos[1] - 1, p.pos[2]]);
             if q.kind == 2 || q.tile.is_none() || p.travelled > PIE_RANGE {
                 return false;
             }
@@ -74,17 +76,17 @@ pub fn roll_pies(g: &Game, pies: &mut Vec<Pie>, targets: &[usize]) -> Vec<usize>
 }
 
 /// The pies flying and the one in hand (model 885).
-pub fn draw_pies(g: &Game, pies: &[Pie], holding: bool, moving: &mut Vec<rugrats_render::Vtx>) {
+pub fn draw_pies(g: &Game, pies: &[Pie], holding: bool, moving: &mut Vec<Vtx>) {
     let Some(m) = g.set.models.get(PIE_MODEL) else { return };
     for p in pies {
         let pos = Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32);
-        rugrats_render::models::model_triangles(m, Mat3::IDENTITY, pos, moving);
+        models::model_triangles(m, Mat3::IDENTITY, pos, moving);
     }
     if holding {
         let parts = g.player.parts(&g.anims, &g.trig);
         let rot = g.player.rotation(&g.trig);
         if let Some(hand) = g.player.slot_part(15).and_then(|i| parts.get(i)) {
-            rugrats_render::models::model_triangles(m, rot, hand.1 + rot * Vec3::new(0.0, -100.0, 200.0), moving);
+            models::model_triangles(m, rot, hand.1 + rot * Vec3::new(0.0, -100.0, 200.0), moving);
         }
     }
 }

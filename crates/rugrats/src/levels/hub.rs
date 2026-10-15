@@ -4,12 +4,17 @@
 //! here.
 
 use rrt::glam::Vec3;
+use rugrats_render::Vtx;
 
 use crate::actors::npc::{Mode, Target};
+use crate::actors::player::DT;
 use crate::disc::GameDisc;
 use crate::input::Pads;
 use crate::levels::Level;
-use crate::world::game::{Game, ThingState};
+use crate::ui::front;
+use crate::ui::text::Text;
+use crate::world::collide;
+use crate::world::game::{Game, Script, ThingState};
 
 /// Hidden at every start: cine 7's end hook (0x800732d4 case 7, also
 /// when the cine is skipped) and EpisodeStart (0x80078e7c).
@@ -93,7 +98,7 @@ impl Hub {
             .chunks_exact(2)
             .map(|w| u16::from_le_bytes([w[0], w[1]]))
             .collect();
-        let s = |n: u32| crate::ui::front::string(disc, n);
+        let s = |n: u32| front::string(disc, n);
         let names = (0..32).map(|l| s(if l == 25 { 158 } else { 150 + l })).collect();
         let range = find(g, SPIKE).map_or(6000, |k| g.npcs[k].range);
         Ok(Hub { spike: Spike::Asleep, barks, bark_wait: 0, held: None, range, names, words: [s(221), s(220), s(222)] })
@@ -149,7 +154,7 @@ impl Hub {
                     Mode::Idle
                 };
                 // The barks (0x800c4ce4) in his corner of the yard.
-                self.bark_wait -= crate::actors::player::DT;
+                self.bark_wait -= DT;
                 if self.bark_wait <= 0 && matches!(room, Some(24 | 39..=41)) && !self.barks.is_empty() {
                     let r = (g.rand.next() & 255) as usize;
                     g.speech.push(self.barks[r % self.barks.len()]);
@@ -204,7 +209,7 @@ impl Hub {
         let d = if ahead { 1024 } else { 0 };
         let (s, c) = (g.trig.sin(n.heading), g.trig.cos(n.heading));
         let at = [n.pos[0] + (s * d >> 12), n.pos[1], n.pos[2] + (c * d >> 12)];
-        let q = crate::world::collide::query(&g.col, [at[0], at[1] - 400, at[2]]);
+        let q = collide::query(&g.col, [at[0], at[1] - 400, at[2]]);
         let y = if q.tile.is_some() && q.kind == 0 { q.floor } else { at[1] };
         let toy = &mut g.things[t];
         toy.pos = Vec3::new(at[0] as f32, y as f32, at[2] as f32);
@@ -215,7 +220,7 @@ impl Hub {
     }
 }
 
-impl crate::world::game::Script for Hub {
+impl Script for Hub {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         g.npc_events.clear();
         g.struck.clear();
@@ -225,7 +230,7 @@ impl crate::world::game::Script for Hub {
     /// The door signs (0x80049eec): Easy / Medium / Hard at y 62 and the
     /// level's name at y 80, font 0 centred across; the name cyan once
     /// the level is won.
-    fn draw(&self, g: &Game, _moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, _moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         let me = g.player.pos;
         let room = g.current_room();
         let flag16 = g.flags & 16 != 0;
@@ -259,8 +264,7 @@ impl crate::world::game::Script for Hub {
             let name_rgb = if g.won_levels & level.record().bit() != 0 { [0, 255, 255] } else { [255, 255, 255] };
             let name = self.names.get(level.index()).cloned().unwrap_or_default();
             for (text, y, rgb) in [(word.clone(), 62, rgb), (name, 80, name_rgb)] {
-                let mut t =
-                    crate::ui::text::Text { font: 0, spacing: 1, rgb, x: 0, y, string: text, ..Default::default() };
+                let mut t = Text { font: 0, spacing: 1, rgb, x: 0, y, string: text, ..Default::default() };
                 g.fonts.centre(&mut t, true, false);
                 let mut shadow = t.clone();
                 shadow.rgb = [1, 1, 1];

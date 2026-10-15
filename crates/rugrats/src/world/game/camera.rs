@@ -1,6 +1,7 @@
 //! The follow camera: its aim, height and distance.
 
 use super::*;
+use crate::world::collide;
 
 /// The follow camera (0x80027304): it aims 768 above the player's origin
 /// (0x800c3f58) from 4096 behind (0x800c4a4c) and 1024 up (0x800c3f5c),
@@ -43,7 +44,7 @@ impl Game {
         let mut last = from;
         for k in 1..=steps {
             let p = from + (goal - from) * (k as f32 / steps as f32);
-            let q = crate::world::collide::query(&self.col, [p.x as i32, p.y as i32, p.z as i32]);
+            let q = collide::query(&self.col, [p.x as i32, p.y as i32, p.z as i32]);
             if q.kind != 0 {
                 return from + (last - from) * 0.9;
             }

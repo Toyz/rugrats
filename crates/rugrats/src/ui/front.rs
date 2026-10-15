@@ -2,8 +2,22 @@
 //! backdrop, with the logo and the babies in 3D. It runs at 30 frames a
 //! second (each frame two vertical blanks).
 
-use rugrats_render::Vtx;
+use rugrats_data::hierarchy::{self, Hierarchy};
+use rugrats_data::model::{Model, Models};
+use rugrats_render::{Vram, Vtx, models};
 
+use crate::audio::sound::{EFFECTS_VOLUME, MUSIC_VOLUME};
+use crate::disc::GameDisc;
+use crate::gte::Trig;
+use crate::input::{CROSS, Pads};
+use crate::rand::Rand;
+use crate::save::card::{Art, STATE_SIZE};
+use crate::stage::Stage;
+use crate::ui::audio_menu::{AudioMenu, Settings};
+use crate::ui::card_menu::{self, CardMenu, Strings};
+use crate::ui::golf_setup::{self, GolfSetup};
+use crate::ui::hud::Sprites;
+use crate::ui::screens::{HEADS, PRESS};
 use crate::ui::text::{self, Fonts, Text};
 
 /// The backdrop's patterns: six 128 x 128 4-bit tiles in CHARACTR.RAW,
@@ -214,7 +228,7 @@ const CAMERA: [f32; 3] = [0.0, 30.0, -500.0];
 /// The Rugrats sign: model 1038 at the origin, its vertices nudged every
 /// other frame (0x8003f200, from 0x8003f350 while it is still).
 pub struct Sign {
-    pub model: rugrats_data::model::Model,
+    pub model: Model,
     steps: [(i16, i16); 5],
     /// 0x800c40e0, and the step (0x800c40e8).
     ticks: u32,
@@ -364,7 +378,7 @@ pub struct InUse {
 
 impl Baby {
     /// One frame of 0x80043098.
-    pub fn think(&mut self, used: &mut InUse, rng: &mut crate::rand::Rand) {
+    pub fn think(&mut self, used: &mut InUse, rng: &mut Rand) {
         match self.state {
             0 => {
                 self.corner = (rng.next() & 7) as i16;
@@ -530,7 +544,7 @@ pub enum Outcome {
     /// training.
     Play(u8),
     /// Load Game (0x800398bc(8, 1, 0, 0)): the state a record held.
-    Load(Box<[u8; crate::save::card::STATE_SIZE]>),
+    Load(Box<[u8; STATE_SIZE]>),
     /// Mini-golf set up: each player's face slot.
     Golf(Vec<usize>),
 }
@@ -565,15 +579,15 @@ pub struct Title {
     /// The two peeking babies and what they have taken.
     pub babies: [Baby; 2],
     pub in_use: InUse,
-    hierarchies: Vec<rugrats_data::hierarchy::Hierarchy>,
-    models: rugrats_data::model::Models,
+    hierarchies: Vec<Hierarchy>,
+    models: Models,
     /// The items sliding away before an action.
     pub leaving: Option<Action>,
     strings: [String; 3],
     start_strings: [String; 3],
     activity_strings: [String; 4],
     pub menu: Menu,
-    card_art: crate::save::card::Art,
+    card_art: Art,
     /// What the Start Game menu's items sliding away end with.
     start_leaving: Option<Option<u8>>,
     /// Frames until the menu gives up (0x8003d884's s2).
@@ -583,10 +597,10 @@ pub struct Title {
     /// CANCEL's and ACCEPT's cubes (0x800c4b14, 0x800c4b18), their labels.
     pub buttons: [Button; 2],
     labels: [Text; 2],
-    button_model: rugrats_data::model::Model,
-    trig: crate::gte::Trig,
+    button_model: Model,
+    trig: Trig,
     pub sign: Sign,
-    pub stage: crate::stage::Stage,
+    pub stage: Stage,
     fonts: Fonts,
     pub backdrop: Backdrop,
     pub items: Vec<Text>,
@@ -596,21 +610,21 @@ pub struct Title {
     started: u64,
     /// The audio settings as main has them, the menu editing them, and
     /// the song volume to set this frame.
-    pub settings: crate::ui::audio_menu::Settings,
-    audio: Option<crate::ui::audio_menu::AudioMenu>,
+    pub settings: Settings,
+    audio: Option<AudioMenu>,
     pub song_volume: Option<i32>,
     audio_strings: [String; 5],
     /// The card pages (Load Game), their strings, PRESS X's text.
-    card: Option<crate::ui::card_menu::CardMenu>,
-    card_strings: crate::ui::card_menu::Strings,
+    card: Option<CardMenu>,
+    card_strings: Strings,
     press: String,
     /// Mini-golf's setup, the count kept between visits (0x800c46cc),
     /// the menu's sprites (TEXPOS entry 0), the heads, the projection
     /// and the setup's strings.
-    golf: Option<crate::ui::golf_setup::GolfSetup>,
+    golf: Option<GolfSetup>,
     golf_count: usize,
-    sprites: Option<crate::ui::hud::Sprites>,
-    heads: Vec<Option<rugrats_data::model::Model>>,
+    sprites: Option<Sprites>,
+    heads: Vec<Option<Model>>,
     focal: f32,
     golf_strings: Vec<String>,
 }
@@ -622,8 +636,8 @@ fn words(bytes: &[u8]) -> Vec<u16> {
 /// VRAM as the front end has it: MENU.TEX at (0, 256), the characters'
 /// image beside it with the backdrop's CLUTs marked semi-transparent, and
 /// the fonts.
-pub fn menu_vram(disc: &crate::disc::GameDisc) -> Result<rugrats_render::Vram, String> {
-    let mut vram = rugrats_render::Vram::new();
+pub fn menu_vram(disc: &GameDisc) -> Result<Vram, String> {
+    let mut vram = Vram::new();
     vram.load(0, 256, 576, 256, &words(&disc.file(MENU_TEX)?));
     let mut chars = words(&disc.file(CHARACTR_RAW)?);
     for row in CLUT_ROWS {
@@ -640,14 +654,14 @@ pub fn menu_vram(disc: &crate::disc::GameDisc) -> Result<rugrats_render::Vram, S
 }
 
 /// The game's string table (0x800bb4e8): string `n`.
-pub fn string(disc: &crate::disc::GameDisc, n: u32) -> String {
+pub fn string(disc: &GameDisc, n: u32) -> String {
     disc.exe_string_at(0x800b_b4e8 + 4 * n).unwrap_or_default()
 }
 
 /// A hint card (0x80044434): a HINT file's lines over the front end's
 /// backdrop, until Cross.
 pub struct Card {
-    pub stage: crate::stage::Stage,
+    pub stage: Stage,
     fonts: Fonts,
     backdrop: Backdrop,
     texts: Vec<Text>,
@@ -695,7 +709,7 @@ pub fn card_after(cine: usize) -> Option<usize> {
 
 impl Card {
     /// HINT file `file`.
-    pub fn open(disc: &crate::disc::GameDisc, file: usize) -> Result<Card, String> {
+    pub fn open(disc: &GameDisc, file: usize) -> Result<Card, String> {
         let fonts = Fonts::load(disc)?;
         let raw = disc.file(file)?;
         let body = String::from_utf8_lossy(&raw).into_owned();
@@ -715,14 +729,14 @@ impl Card {
         // "PRESS     TO CONTINUE", the gap the Cross button's.
         let press = string(disc, 67).replacen("     ", "  %  ", 1);
         texts.extend(line(press, 80, [255, 255, 255], &fonts));
-        let stage = crate::stage::Stage::new(menu_vram(disc)?, Vec::new());
+        let stage = Stage::new(menu_vram(disc)?, Vec::new());
         let mut card = Card { stage, fonts, backdrop: Backdrop::default(), texts, frames: 0 };
         card.draw();
         Ok(card)
     }
 
     /// One frame (every other tick); true when Cross closes it.
-    pub fn frame(&mut self, pads: &crate::input::Pads) -> bool {
+    pub fn frame(&mut self, pads: &Pads) -> bool {
         if self.frames % 30 == 0 {
             self.backdrop.fading = true;
         }
@@ -731,7 +745,7 @@ impl Card {
         }
         self.frames += 1;
         self.draw();
-        pads.pressed(0, crate::input::CROSS)
+        pads.pressed(0, CROSS)
     }
 
     fn draw(&mut self) {
@@ -747,27 +761,27 @@ impl Card {
 impl Title {
     /// The front end's setup, which also draws on rand once (an object it
     /// makes, through 0x80048a44, the call at 0x80048b78).
-    pub fn open(disc: &crate::disc::GameDisc, now: u64, rng: &mut crate::rand::Rand) -> Result<Title, String> {
+    pub fn open(disc: &GameDisc, now: u64, rng: &mut Rand) -> Result<Title, String> {
         rng.next();
         let vram = menu_vram(disc)?;
         let fonts = Fonts::load(disc)?;
-        let models = rugrats_data::model::Models::parse(&disc.file(DB00_MOD)?).map_err(|e| e.to_string())?;
+        let models = Models::parse(&disc.file(DB00_MOD)?).map_err(|e| e.to_string())?;
         let model = models.get(SIGN_MODEL).ok_or("no sign model in DB00")?.clone();
         let raw = disc.exe_bytes(WOBBLE, 20)?;
         let h = |k: usize| i16::from_le_bytes([raw[k], raw[k + 1]]);
         let steps = [0, 1, 2, 3, 4].map(|k| (h(4 * k), h(4 * k + 2)));
         let sign = Sign { model, steps, ticks: 0, phase: 0 };
-        let trig = crate::gte::Trig::load(disc)?;
+        let trig = Trig::load(disc)?;
         let projection = trig.geom_screen(FOV).ok_or("no projection")? as f32;
         let strings = ITEM_STRINGS.map(|a| disc.exe_string_at(a).unwrap_or_default());
         let start_strings = START_STRINGS.map(|a| disc.exe_string_at(a).unwrap_or_default());
         let activity_strings = ACTIVITY_STRINGS.map(|a| disc.exe_string_at(a).unwrap_or_default());
         let items = menu_items(&fonts, strings.clone());
-        let mut stage = crate::stage::Stage::new(vram, Vec::new());
+        let mut stage = Stage::new(vram, Vec::new());
         stage.camera = crate::stage::view(CAMERA.into(), rrt::glam::Mat3::IDENTITY, projection);
         let button_model = models.get(BUTTON_MODEL).ok_or("no button model in DB00")?.clone();
         // The five babies' skeletons: hierarchy copies 1-5 (0x800e2440).
-        let all = rugrats_data::hierarchy::parse_file(&disc.file(DB00_HIE)?).map_err(|e| e.to_string())?;
+        let all = hierarchy::parse_file(&disc.file(DB00_HIE)?).map_err(|e| e.to_string())?;
         let hierarchies = (1..=5)
             .map(|k| all.get(k).cloned().flatten().ok_or(format!("no hierarchy {k} in DB00")))
             .collect::<Result<Vec<_>, _>>()?;
@@ -814,28 +828,22 @@ impl Title {
             chosen: 0,
             frames: 0,
             started: now,
-            settings: crate::ui::audio_menu::Settings {
-                music: crate::audio::sound::MUSIC_VOLUME,
-                effects: crate::audio::sound::EFFECTS_VOLUME,
-                mono: false,
-            },
+            settings: Settings { music: MUSIC_VOLUME, effects: EFFECTS_VOLUME, mono: false },
             audio: None,
             song_volume: None,
-            audio_strings: crate::ui::audio_menu::AudioMenu::strings(disc),
+            audio_strings: AudioMenu::strings(disc),
             card: None,
-            card_strings: crate::ui::card_menu::Strings::load(disc),
-            press: string(disc, crate::ui::screens::PRESS),
+            card_strings: Strings::load(disc),
+            press: string(disc, PRESS),
             golf: None,
             golf_count: 1,
-            sprites: crate::ui::hud::Sprites::load(disc, 99).ok(),
+            sprites: Sprites::load(disc, 99).ok(),
             heads: Vec::new(),
             focal: projection,
             golf_strings: [87u32, 86, 199, 200, 120, 121, 122, 201].iter().map(|&n| string(disc, n)).collect(),
         };
-        title.heads = crate::ui::screens::HEADS
-            .iter()
-            .map(|&id| title.models.has(id).then(|| title.models.get(id).cloned()).flatten())
-            .collect();
+        title.heads =
+            HEADS.iter().map(|&id| title.models.has(id).then(|| title.models.get(id).cloned()).flatten()).collect();
         title.draw(true);
         Ok(title)
     }
@@ -854,7 +862,7 @@ impl Title {
 
     /// One frame of the menu (0x8003d884's loop), the pads as sampled at
     /// the end of the last.
-    pub fn frame(&mut self, pads: &crate::input::Pads, rng: &mut crate::rand::Rand) -> Option<Outcome> {
+    pub fn frame(&mut self, pads: &Pads, rng: &mut Rand) -> Option<Outcome> {
         use crate::input::*;
         self.sounds.clear();
         if let Some(action) = self.leaving {
@@ -874,13 +882,7 @@ impl Title {
             }
             if action == Action::LoadGame {
                 self.menu = Menu::Load;
-                self.card = Some(crate::ui::card_menu::CardMenu::open(
-                    false,
-                    true,
-                    self.card_art.clone(),
-                    [0; crate::save::card::STATE_SIZE],
-                    [0; 3],
-                ));
+                self.card = Some(CardMenu::open(false, true, self.card_art.clone(), [0; STATE_SIZE], [0; 3]));
                 self.chosen = 0;
                 self.items.clear();
                 self.draw_load();
@@ -888,7 +890,7 @@ impl Title {
             }
             // Audio (0x80041970).
             self.menu = Menu::Audio;
-            self.audio = Some(crate::ui::audio_menu::AudioMenu::open(&self.audio_strings, &self.fonts, self.settings));
+            self.audio = Some(AudioMenu::open(&self.audio_strings, &self.fonts, self.settings));
             self.items.clear();
             self.draw(true);
             return None;
@@ -956,7 +958,7 @@ impl Title {
     /// Down or Select and Up move; Start plays the main game at once;
     /// Triangle goes back; Cross picks (with the four shoulders held, the
     /// main game goes through the level chooser 0x8003bea0).
-    fn start_frame(&mut self, pads: &crate::input::Pads, rng: &mut crate::rand::Rand) -> Option<Outcome> {
+    fn start_frame(&mut self, pads: &Pads, rng: &mut Rand) -> Option<Outcome> {
         use crate::input::*;
         if let Some(end) = self.start_leaving {
             self.menu_frame(rng);
@@ -1029,7 +1031,7 @@ impl Title {
     /// One frame of the Activities menu (0x8003b7bc): Down or Select and
     /// Up step through the four, Left and Right change column; Cross
     /// plays one, Triangle goes back to Start Game.
-    fn activities_frame(&mut self, pads: &crate::input::Pads, rng: &mut crate::rand::Rand) -> Option<Outcome> {
+    fn activities_frame(&mut self, pads: &Pads, rng: &mut Rand) -> Option<Outcome> {
         use crate::input::*;
         if let Some(end) = self.start_leaving {
             self.menu_frame(rng);
@@ -1041,10 +1043,7 @@ impl Title {
                 // Mini-golf goes to its setup first (0x80096134).
                 Some(25) => {
                     self.menu = Menu::GolfSetup;
-                    self.golf = Some(crate::ui::golf_setup::GolfSetup::with_strings(
-                        self.golf_strings.clone(),
-                        self.golf_count,
-                    ));
+                    self.golf = Some(GolfSetup::with_strings(self.golf_strings.clone(), self.golf_count));
                     self.items.clear();
                     self.draw_golf();
                     None
@@ -1091,13 +1090,13 @@ impl Title {
 
     /// One frame of Load Game (0x800398bc(8, 1, 0, 0)): the card pages;
     /// their Cross and Triangle returns end it with 0, back to the menu.
-    fn load_frame(&mut self, pads: &crate::input::Pads, rng: &mut crate::rand::Rand) -> Option<Outcome> {
+    fn load_frame(&mut self, pads: &Pads, rng: &mut Rand) -> Option<Outcome> {
         let _ = rng;
         let Some(card) = &mut self.card else { return None };
         let out = card.frame(pads);
         self.sounds.extend(card.sounds.drain(..));
         match out {
-            Some(crate::ui::card_menu::Outcome::Loaded(state)) => return Some(Outcome::Load(state)),
+            Some(card_menu::Outcome::Loaded(state)) => return Some(Outcome::Load(state)),
             Some(_) => {
                 self.card = None;
                 self.menu = Menu::Main;
@@ -1135,7 +1134,7 @@ impl Title {
     /// a frame, the second and third waiting 5 and 10 frames first.
     /// A frame of the Audio menu; at its end the title's items slide in
     /// again with Audio chosen (0x8003d5a0).
-    fn audio_frame(&mut self, pads: &crate::input::Pads) -> Option<Outcome> {
+    fn audio_frame(&mut self, pads: &Pads) -> Option<Outcome> {
         self.song_volume = None;
         let Some(menu) = &mut self.audio else { return None };
         // The backdrop's fade steps twice a frame here (0x80042294,
@@ -1171,7 +1170,7 @@ impl Title {
 
     /// A frame of mini-golf's setup: Triangle at the count goes back to
     /// the Activities menu; the last pick plays.
-    fn golf_frame(&mut self, pads: &crate::input::Pads) -> Option<Outcome> {
+    fn golf_frame(&mut self, pads: &Pads) -> Option<Outcome> {
         let Some(setup) = &mut self.golf else { return None };
         let out = setup.frame(pads);
         self.sounds.extend(setup.sounds.drain(..));
@@ -1187,13 +1186,13 @@ impl Title {
             b.step();
         }
         match out {
-            Some(crate::ui::golf_setup::Outcome::Back) => {
+            Some(golf_setup::Outcome::Back) => {
                 self.golf = None;
                 self.activities();
                 self.draw(true);
                 None
             }
-            Some(crate::ui::golf_setup::Outcome::Play(slots)) => {
+            Some(golf_setup::Outcome::Play(slots)) => {
                 self.golf = None;
                 Some(Outcome::Golf(slots))
             }
@@ -1241,7 +1240,7 @@ impl Title {
             )
             .transpose();
             let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
-            rugrats_render::models::model_triangles(&self.button_model, rows.transpose(), pos, &mut self.stage.moving);
+            models::model_triangles(&self.button_model, rows.transpose(), pos, &mut self.stage.moving);
         }
     }
 
@@ -1270,11 +1269,11 @@ impl Title {
             )
             .transpose();
             let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
-            rugrats_render::models::model_triangles(&self.button_model, rows.transpose(), pos, &mut self.stage.moving);
+            models::model_triangles(&self.button_model, rows.transpose(), pos, &mut self.stage.moving);
         }
     }
 
-    fn leave(&mut self, action: Action, rng: &mut crate::rand::Rand) {
+    fn leave(&mut self, action: Action, rng: &mut Rand) {
         self.slide_away();
         self.leaving = Some(action);
         self.menu_frame(rng);
@@ -1295,7 +1294,7 @@ impl Title {
     }
 
     /// The menu's draw (0x80035ab8) and what runs with it each frame.
-    fn menu_frame(&mut self, rng: &mut crate::rand::Rand) {
+    fn menu_frame(&mut self, rng: &mut Rand) {
         if self.backdrop.fading {
             self.backdrop.fading = self.backdrop.step();
         }
@@ -1321,7 +1320,7 @@ impl Title {
         self.stage.under.clear();
         self.backdrop.triangles(&mut self.stage.under);
         self.stage.moving.clear();
-        rugrats_render::models::model_triangles(
+        models::model_triangles(
             &self.sign.model,
             rrt::glam::Mat3::IDENTITY,
             rrt::glam::Vec3::ZERO,
@@ -1339,14 +1338,7 @@ impl Title {
             )
             .transpose();
             let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
-            rugrats_render::models::posed_triangles(
-                h,
-                &self.models,
-                &[],
-                rows.transpose(),
-                pos,
-                &mut self.stage.moving,
-            );
+            models::posed_triangles(h, &self.models, &[], rows.transpose(), pos, &mut self.stage.moving);
         }
         self.stage.overlay.clear();
         menu_triangles(&self.fonts, &self.items, self.chosen, &mut self.stage.overlay);
@@ -1374,7 +1366,7 @@ impl Title {
             .transpose();
             let mut tris = Vec::new();
             let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
-            rugrats_render::models::model_triangles(&self.button_model, rows.transpose(), pos, &mut tris);
+            models::model_triangles(&self.button_model, rows.transpose(), pos, &mut tris);
             self.stage.moving.extend(tris);
         }
     }

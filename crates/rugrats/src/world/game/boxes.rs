@@ -1,6 +1,11 @@
 //! Collision boxes of the placed objects, and the hazards among them.
 
+use rugrats_data::model::Model;
+use rugrats_data::placement::Placement;
+use rugrats_render::models;
+
 use super::*;
+use crate::actors::player::Box3;
 
 /// The world boxes of the placed models (the player's placement left out):
 /// each model box with the placement's rotation and position, and the
@@ -8,7 +13,7 @@ use super::*;
 /// An object's box that hurts on touch by its +0x6d.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Hazard {
-    pub area: crate::actors::player::Box3,
+    pub area: Box3,
     pub damage: i32,
 }
 
@@ -22,14 +27,14 @@ pub(super) fn hazards(set: &Set, apart: &[bool]) -> Vec<Hazard> {
             continue;
         }
         let Some(m) = set.models.get(t.shape as u32).filter(|_| set.models.has(t.shape as u32)) else { continue };
-        let rot = rugrats_render::models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
+        let rot = models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
         let pos = Vec3::new(place.pos[0] as f32, place.pos[1] as f32, place.pos[2] as f32);
         out.extend(world_boxes(m, rot, pos).into_iter().map(|area| Hazard { area, damage }));
     }
     out
 }
 
-pub(super) fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate::actors::player::Box3> {
+pub(super) fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<Box3> {
     let mut out = Vec::new();
     for (k, place) in set.placements.iter().enumerate() {
         if place.kind != 1 || skip(k) {
@@ -42,7 +47,7 @@ pub(super) fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate
             continue;
         }
         let Some(m) = set.models.get(t.shape as u32) else { continue };
-        let rot = rugrats_render::models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
+        let rot = models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
         let pos = Vec3::new(place.pos[0] as f32, place.pos[1] as f32, place.pos[2] as f32);
         let climb = t.flags & 64 != 0;
         out.extend(world_boxes(m, rot, pos).into_iter().map(|mut b| {
@@ -54,7 +59,7 @@ pub(super) fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<crate
 }
 
 /// A model's boxes at `rot`, `pos`, with the heights their corners span.
-pub(super) fn world_boxes(m: &rugrats_data::model::Model, rot: Mat3, pos: Vec3) -> Vec<crate::actors::player::Box3> {
+pub(super) fn world_boxes(m: &Model, rot: Mat3, pos: Vec3) -> Vec<Box3> {
     let mut out = Vec::new();
     for &(lo, hi) in &m.boxes {
         let (mut a, mut b) = (f32::MAX, f32::MIN);
@@ -68,7 +73,7 @@ pub(super) fn world_boxes(m: &rugrats_data::model::Model, rot: Mat3, pos: Vec3) 
             a = a.min(y);
             b = b.max(y);
         }
-        out.push(crate::actors::player::Box3 {
+        out.push(Box3 {
             lo: lo.map(|v| v as i32),
             hi: hi.map(|v| v as i32),
             rot,
@@ -85,7 +90,7 @@ pub(super) fn world_boxes(m: &rugrats_data::model::Model, rot: Mat3, pos: Vec3) 
 impl Game {
     /// How far `y` is from a placed object's model in height (0 inside
     /// it): a door hung high is used from the floor below.
-    pub(super) fn use_dy(&self, d: &rugrats_data::placement::Placement, y: i32) -> i32 {
+    pub(super) fn use_dy(&self, d: &Placement, y: i32) -> i32 {
         let span = self
             .set
             .templates

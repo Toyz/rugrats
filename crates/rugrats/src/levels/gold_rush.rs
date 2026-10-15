@@ -4,10 +4,13 @@
 //! try: Phil's round ends with cine 27 and Lil plays the second; her
 //! clock out is a cry and the hub.
 
+use rugrats_render::Vtx;
+
 use crate::actors::npc::Mode;
 use crate::disc::GameDisc;
 use crate::input::Pads;
-use crate::world::game::{Collected, Exit, Game};
+use crate::levels::Level;
+use crate::world::game::{self, Collected, Exit, Game, Script};
 
 /// The nickels (template 446, kind 2, group 1) and the gold coin (1218,
 /// kind 15, group 0).
@@ -59,7 +62,7 @@ impl GoldRush {
             if g.goodies[k].template == GOLD && (self.gold || self.activity) {
                 continue;
             }
-            if let Some(i) = crate::world::game::spawn(&mut g.spots, group, &mut g.rand) {
+            if let Some(i) = game::spawn(&mut g.spots, group, &mut g.rand) {
                 let at = g.spots[i].pos;
                 g.goodies[k].pos = rrt::glam::Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32);
             }
@@ -89,7 +92,7 @@ impl GoldRush {
     }
 }
 
-impl crate::world::game::Script for GoldRush {
+impl Script for GoldRush {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         g.npc_events.clear();
         for Collected { kind, .. } in std::mem::take(&mut g.collected) {
@@ -137,7 +140,7 @@ impl crate::world::game::Script for GoldRush {
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if self.lil || g.tries <= 0 {
-            g.exit = Some(Exit::to(crate::levels::Level::HUB));
+            g.exit = Some(Exit::to(Level::HUB));
         } else {
             g.cine = Some(CINE_LOST);
         }
@@ -157,14 +160,14 @@ impl crate::world::game::Script for GoldRush {
         }
     }
 
-    fn draw(&self, g: &Game, _moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, _moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         if let Some(s) = &g.sprites {
             s.draw(COUNTER, (-192, -80), 32.0, 32.0, 1024.0, 0.0, g.focal(), overlay);
             if self.gold {
                 s.draw(GOLD_ICON, (-140, -60), 32.0, 32.0, 1024.0, 0.0, g.focal(), overlay);
             }
         }
-        crate::world::game::shadowed(&g.fonts, -170, -93, format!("{}", NICKELS.saturating_sub(self.taken)), overlay);
+        game::shadowed(&g.fonts, -170, -93, format!("{}", NICKELS.saturating_sub(self.taken)), overlay);
     }
 
     fn phase(&self) -> u8 {

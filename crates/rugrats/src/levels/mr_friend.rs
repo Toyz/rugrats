@@ -7,7 +7,7 @@
 use crate::actors::npc::{Event, Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::{Game, Strike};
+use crate::world::game::{Effect, Game, Script, Strike};
 
 /// The Mr. Friends (char 16): 46 first, 91 and 800 after cine 18.
 const FRIENDS: [u16; 3] = [46, 91, 800];
@@ -88,7 +88,7 @@ impl MrFriend {
         }
         n.health = (n.health - amount).max(0);
         if !l14 {
-            g.effects.push(crate::world::game::Effect::new(19));
+            g.effects.push(Effect::new(19));
             // His line (0x800833a4 / 0x800834b0 in level 9: 0x800b96c8).
             g.speech.push([153, 187, 146][(g.rand.next() & 255) as usize % 3]);
         }
@@ -123,7 +123,7 @@ impl MrFriend {
     }
 }
 
-impl crate::world::game::Script for MrFriend {
+impl Script for MrFriend {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             if let Event::Bite { target: Target::Player, amount, .. } = e {

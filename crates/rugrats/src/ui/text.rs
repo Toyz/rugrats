@@ -3,8 +3,9 @@
 //! sprite (0x8002e67c), laid out and centred by 0x8002e144, and slid into
 //! place by 0x8002e2b4.
 
-use crate::disc::GameDisc;
 use rugrats_render::Vtx;
+
+use crate::disc::GameDisc;
 
 /// The font image's file, where it goes in VRAM, and its size in VRAM
 /// words.

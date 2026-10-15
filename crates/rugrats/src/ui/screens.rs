@@ -5,12 +5,18 @@
 //! loop with the level frozen and not drawn.
 
 use rrt::glam::{Mat3, Vec3};
-use rugrats_render::Vtx;
+use rugrats_data::model::{Model, Models};
+use rugrats_render::{Vram, Vtx, models};
 
+use crate::actors::player::DT;
 use crate::disc::GameDisc;
+use crate::gte::Trig;
 use crate::input::{self, Pads};
 use crate::levels::Level;
-use crate::ui::front::{Backdrop, Button};
+use crate::levels::golf::{LEVELS, PAR};
+use crate::rand::Rand;
+use crate::stage::Stage;
+use crate::ui::front::{self, Backdrop, Button};
 use crate::ui::hud::Sprites;
 use crate::ui::text::{Fonts, Text};
 
@@ -117,7 +123,7 @@ pub mod message {
     use super::*;
 
     fn lines(disc: &GameDisc, ids: [u32; 3], colours: [[u8; 3]; 3]) -> Vec<(String, [u8; 3])> {
-        ids.iter().zip(colours).map(|(&n, c)| (crate::ui::front::string(disc, n), c)).collect()
+        ids.iter().zip(colours).map(|(&n, c)| (front::string(disc, n), c)).collect()
     }
 
     /// "Help Tommy win / twelve puzzle pieces / by completing levels!"
@@ -138,7 +144,7 @@ pub mod message {
     /// The loading screen's lines for `level` (0x8003b168, switch
     /// 0x800133f0).
     pub fn loading(disc: &GameDisc, level: Level, activity: bool, home_seen: bool) -> Page {
-        let s = |n: u32| crate::ui::front::string(disc, n);
+        let s = |n: u32| front::string(disc, n);
         let name = |l: Level| {
             let n = disc
                 .exe_bytes(0x800b_7d60 + 2 * l.0 as u32, 2)
@@ -146,7 +152,7 @@ pub mod message {
             s(n)
         };
         let loading = s(24);
-        let hole = |l: Level| crate::levels::golf::LEVELS.iter().position(|&x| x == l).unwrap_or(0) as u32;
+        let hole = |l: Level| LEVELS.iter().position(|&x| x == l).unwrap_or(0) as u32;
         let (lines, fonts, ys): (Vec<String>, Vec<u8>, Vec<i16>) = match level.0 {
             1 if !home_seen => (vec![s(183), s(182), loading], vec![1, 0, 0], vec![-35, -55, -5]),
             1 => (vec![s(151), s(73), loading], vec![1, 0, 0], vec![-35, -55, -5]),
@@ -184,7 +190,7 @@ pub mod message {
     /// The pause's "Returning to / Main Menus / Loading", or in activity
     /// play "Returning to the / Activities Menu / Loading" (0x8003e05c).
     pub fn returning(disc: &GameDisc, activity: bool) -> Page {
-        let s = |n: u32| crate::ui::front::string(disc, n);
+        let s = |n: u32| front::string(disc, n);
         let (a, b) = if activity { (71, 72) } else { (73, 74) };
         Page::Loading(vec![(s(a), LIGHT_BLUE, 0, -55), (s(b), PINK, 1, -35), (s(24), PINK, 0, -5)])
     }
@@ -248,18 +254,18 @@ struct Board {
 }
 
 pub struct Screen {
-    pub stage: crate::stage::Stage,
+    pub stage: Stage,
     pages: Vec<Page>,
     fonts: Fonts,
     sprites: Option<Sprites>,
-    trig: crate::gte::Trig,
+    trig: Trig,
     focal: f32,
     backdrop: Backdrop,
     frames: u32,
-    burst: Option<rugrats_data::model::Model>,
-    button_model: Option<rugrats_data::model::Model>,
+    burst: Option<Model>,
+    button_model: Option<Model>,
     /// The six faces' heads (0x800bb47c: models 2, 17, 32, 64, 49, 1173).
-    heads: Vec<Option<rugrats_data::model::Model>>,
+    heads: Vec<Option<Model>>,
     cube: Button,
     z: i32,
     fly: Fly,
@@ -288,7 +294,7 @@ pub struct Screen {
 /// "You did it!" said (0x80094978).
 const YOU_DID_IT: u16 = 2046;
 
-fn order(rand: &mut crate::rand::Rand) -> [usize; 35] {
+fn order(rand: &mut Rand) -> [usize; 35] {
     // 0x80092090: for k, r = (rand & 255) % 35 until free; order[r] = k.
     let mut order = [usize::MAX; 35];
     for k in 0..35 {
@@ -312,26 +318,26 @@ impl Screen {
         db: usize,
         earned: u16,
         placed: u16,
-        level: Option<&rugrats_render::Vram>,
+        level: Option<&Vram>,
     ) -> Result<Screen, String> {
-        let mut vram = crate::ui::front::menu_vram(disc)?;
+        let mut vram = front::menu_vram(disc)?;
         let sprites = Sprites::load(disc, db).ok();
         if let (Some(sp), Some(from)) = (&sprites, level) {
             sp.copy(BAR_ICON, from, &mut vram);
         }
-        let mut stage = crate::stage::Stage::new(vram, Vec::new());
+        let mut stage = Stage::new(vram, Vec::new());
         stage.clear = [0, 0, 0];
-        let trig = crate::gte::Trig::load(disc)?;
+        let trig = Trig::load(disc)?;
         let focal = trig.geom_screen(FOV).unwrap_or(386) as f32;
         let raw = disc.file(BURST)?;
-        let burst = rugrats_data::model::Models::parse(&raw)
+        let burst = Models::parse(&raw)
             .ok()
             .and_then(|m| m.iter().next().map(|(_, m)| m.clone()))
-            .or_else(|| rugrats_data::model::Model::parse(&raw).ok());
+            .or_else(|| Model::parse(&raw).ok());
         if burst.is_none() {
             rrt::tracing::warn!("BURST2.CMD: not read as a model");
         }
-        let db00 = rugrats_data::model::Models::parse(&disc.file(DB00_MOD)?).ok();
+        let db00 = Models::parse(&disc.file(DB00_MOD)?).ok();
         let button_model = db00.as_ref().and_then(|m| m.get(BUTTON_MODEL).cloned());
         let heads = HEADS
             .iter()
@@ -353,9 +359,9 @@ impl Screen {
             z: FAR,
             fly: Fly::In,
             board: None,
-            press: crate::ui::front::string(disc, PRESS),
-            titles: TITLES.map(|n| crate::ui::front::string(disc, n)),
-            labels: [crate::ui::front::string(disc, CANCEL), crate::ui::front::string(disc, ACCEPT)],
+            press: front::string(disc, PRESS),
+            titles: TITLES.map(|n| front::string(disc, n)),
+            labels: [front::string(disc, CANCEL), front::string(disc, ACCEPT)],
             all_text: message::all(disc),
             earned,
             placed,
@@ -363,8 +369,8 @@ impl Screen {
             restart: false,
             cursor: 2,
             held: 0,
-            restart_text: [229, 11, 12].map(|n| crate::ui::front::string(disc, n)),
-            score_text: [123, 124, 125].map(|n| crate::ui::front::string(disc, n)),
+            restart_text: [229, 11, 12].map(|n| front::string(disc, n)),
+            score_text: [123, 124, 125].map(|n| front::string(disc, n)),
             sounds: Vec::new(),
             speech: Vec::new(),
         };
@@ -379,7 +385,7 @@ impl Screen {
         self.board = None;
     }
 
-    fn start_board(&mut self, rand: &mut crate::rand::Rand) {
+    fn start_board(&mut self, rand: &mut Rand) {
         let pos = std::array::from_fn(|i| if self.placed >> i & 1 != 0 { SLOT[i] } else { TRAY[i] });
         self.board = Some(Board {
             run: Run::Open(0),
@@ -393,7 +399,7 @@ impl Screen {
     }
 
     /// One frame; false when the last page is over.
-    pub fn frame(&mut self, pads: &Pads, rand: &mut crate::rand::Rand) -> bool {
+    pub fn frame(&mut self, pads: &Pads, rand: &mut Rand) -> bool {
         self.sounds.clear();
         self.speech.clear();
         self.frames += 1;
@@ -522,7 +528,7 @@ impl Screen {
     }
 
     /// The board (0x80092c68, 0x800929f8).
-    fn board_frame(&mut self, pads: &Pads, rand: &mut crate::rand::Rand) -> bool {
+    fn board_frame(&mut self, pads: &Pads, rand: &mut Rand) -> bool {
         let earned = self.earned;
         let Some(b) = &mut self.board else { return true };
         match b.run {
@@ -626,10 +632,10 @@ impl Screen {
                 }
             }
             State::Terrific(left) => {
-                if left < crate::actors::player::DT {
+                if left < DT {
                     end = true;
                 } else {
-                    b.state = State::Terrific(left - crate::actors::player::DT);
+                    b.state = State::Terrific(left - DT);
                 }
             }
             State::Over => {}
@@ -671,7 +677,7 @@ impl Screen {
             .transpose();
             let shift = eye - BUTTON_CAMERA;
             let pos = Vec3::new(self.cube.pos[0] as f32, self.cube.pos[1] as f32, self.cube.pos[2] as f32) + shift;
-            rugrats_render::models::model_triangles(m, rows.transpose(), pos, moving);
+            models::model_triangles(m, rows.transpose(), pos, moving);
         }
     }
 
@@ -699,7 +705,7 @@ impl Screen {
             (Some(Page::Board), Some(b)) => self.draw_board(b, &mut overlay),
             (Some(Page::Loading(lines)), _) => {
                 if let Some(m) = &self.burst {
-                    rugrats_render::models::model_triangles(m, Mat3::IDENTITY, Vec3::ZERO, &mut moving);
+                    models::model_triangles(m, Mat3::IDENTITY, Vec3::ZERO, &mut moving);
                 }
                 if self.fly == Fly::Hold {
                     for (l, c, f, y) in lines {
@@ -719,9 +725,9 @@ impl Screen {
                 self.text_at(&self.score_text[2], -200, -75, blue, &mut overlay);
                 for k in 0..9 {
                     self.text_at(&(k + 1).to_string(), at(k), -95, pink, &mut overlay);
-                    self.text_at(&crate::levels::golf::PAR[k].to_string(), at(k), -75, blue, &mut overlay);
+                    self.text_at(&PAR[k].to_string(), at(k), -75, blue, &mut overlay);
                 }
-                self.text_at(&crate::levels::golf::PAR.iter().sum::<u32>().to_string(), 169, -75, yellow, &mut overlay);
+                self.text_at(&PAR.iter().sum::<u32>().to_string(), 169, -75, yellow, &mut overlay);
                 for (p, (slot, row)) in players.iter().enumerate() {
                     let y = -40 + 30 * p as i16;
                     // The player's head at (-200, -20 + 30 p), depth 7000,
@@ -734,7 +740,7 @@ impl Screen {
                         // along the face; chosen by eye against the oracle's
                         // pictures).
                         let r = Mat3::from_rotation_x(std::f32::consts::FRAC_PI_2);
-                        rugrats_render::models::model_triangles(m, r * HEAD_SCALE, at, &mut moving);
+                        models::model_triangles(m, r * HEAD_SCALE, at, &mut moving);
                     }
                     for (k, &n) in row.iter().enumerate().filter(|(_, n)| **n > 0) {
                         self.text_at(&n.to_string(), at(k), y, WHITE, &mut overlay);
@@ -745,7 +751,7 @@ impl Screen {
             }
             (Some(Page::Restart), _) => {
                 if let Some(m) = &self.burst {
-                    rugrats_render::models::model_triangles(m, Mat3::IDENTITY, Vec3::ZERO, &mut moving);
+                    models::model_triangles(m, Mat3::IDENTITY, Vec3::ZERO, &mut moving);
                 }
                 // The chosen item yellow (0x13cdeb), the other white.
                 let colour = |k: u8| if self.cursor == k { YELLOW } else { WHITE };
@@ -757,7 +763,7 @@ impl Screen {
             }
             (Some(Page::Message { lines, bars, blink }), _) => {
                 if let Some(m) = &self.burst {
-                    rugrats_render::models::model_triangles(m, Mat3::IDENTITY, Vec3::ZERO, &mut moving);
+                    models::model_triangles(m, Mat3::IDENTITY, Vec3::ZERO, &mut moving);
                 }
                 if self.fly == Fly::Hold {
                     for (k, (s, c)) in lines.iter().enumerate() {

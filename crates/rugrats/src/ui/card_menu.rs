@@ -5,8 +5,10 @@
 
 use rugrats_render::Vtx;
 
+use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::save::card::{Art, Cards, RECORD, STATE_SIZE, Save};
+use crate::ui::front;
 use crate::ui::text::{Fonts, Text};
 
 /// The menu's colours (0x800391d4): items light blue, the heading pink,
@@ -68,11 +70,11 @@ pub struct Strings {
 }
 
 impl Strings {
-    pub fn load(disc: &crate::disc::GameDisc) -> Strings {
+    pub fn load(disc: &GameDisc) -> Strings {
         let ids = [11, 12, 13, 14, 15, 16, 17, 20, 21, 47, 48, 49, 50, 51, 52, 54, 55, 225, 226, 206, 207, 208, 209]
             .into_iter()
             .chain(32..=46);
-        let s = ids.map(|n| (n, crate::ui::front::string(disc, n))).collect();
+        let s = ids.map(|n| (n, front::string(disc, n))).collect();
         // The levels' names (0x800b7d60, by state +0x00).
         let levels = (0..32).map(|l| disc.exe_string_at(0x800b_7d60 + 4 * l).unwrap_or_default()).collect();
         Strings { s, levels }

@@ -3,9 +3,11 @@
 //! bar. The 35th egg ends the clock and cine 24 wins; eggs left when it
 //! runs out play cine 23 and the hub.
 
+use rugrats_render::Vtx;
+
 use crate::disc::GameDisc;
 use crate::input::Pads;
-use crate::world::game::{Collected, Game};
+use crate::world::game::{self, Collected, Game, Script};
 
 /// The eggs (template 496, kind 1) and the gold egg (1219, kind 17).
 const EGG: u16 = 496;
@@ -44,7 +46,7 @@ impl EggHunt {
     }
 }
 
-impl crate::world::game::Script for EggHunt {
+impl Script for EggHunt {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         for Collected { kind, .. } in std::mem::take(&mut g.collected) {
             if kind == GOLD_KIND {
@@ -75,20 +77,14 @@ impl crate::world::game::Script for EggHunt {
         false
     }
 
-    fn draw(&self, g: &Game, _moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, _moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         if let Some(s) = &g.sprites {
             s.draw(COUNTER, (-192, -80), 32.0, 32.0, 1024.0, 0.0, g.focal(), overlay);
             if self.gold {
                 s.draw(GOLD_ICON, (-140, -60), 32.0, 32.0, 1024.0, 0.0, g.focal(), overlay);
             }
         }
-        crate::world::game::shadowed(
-            &g.fonts,
-            -170,
-            -93,
-            format!("{}", self.total.saturating_sub(self.taken)),
-            overlay,
-        );
+        game::shadowed(&g.fonts, -170, -93, format!("{}", self.total.saturating_sub(self.taken)), overlay);
     }
 
     fn describe(&self) -> String {

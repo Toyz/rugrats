@@ -11,7 +11,7 @@
 //! falls. It shows for 1500 dt after a change.
 
 use rugrats_data::level::Texture;
-use rugrats_render::Vtx;
+use rugrats_render::{Vram, Vtx};
 
 use crate::disc::GameDisc;
 
@@ -38,7 +38,7 @@ impl Sprites {
 
     /// Copies sprite `n`'s texels and CLUT from `from` into `to` (a screen
     /// over another VRAM keeps the level's icon).
-    pub fn copy(&self, n: u32, from: &rugrats_render::Vram, to: &mut rugrats_render::Vram) {
+    pub fn copy(&self, n: u32, from: &Vram, to: &mut Vram) {
         let Some(t) = self.texture(n) else { return };
         let (px, py) = ((t.tpage as usize & 15) * 64, ((t.tpage as usize >> 4) & 1) * 256);
         let depth = (t.tpage as usize >> 7) & 3;

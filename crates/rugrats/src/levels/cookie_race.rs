@@ -7,7 +7,7 @@
 use crate::actors::npc::{Event, Mode};
 use crate::disc::GameDisc;
 use crate::input::Pads;
-use crate::world::game::{Collected, Game};
+use crate::world::game::{Collected, Game, Script, goodie};
 
 const ANGELICA: u16 = 600;
 /// Her route (EpisodeStart 0x80079600): from post 50, reach 1536.
@@ -50,7 +50,7 @@ impl CookieRace {
     }
 }
 
-impl crate::world::game::Script for CookieRace {
+impl Script for CookieRace {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             // Angelica waiting at a post taunts (0x80083e2c: 0x800b96d0,
@@ -71,7 +71,7 @@ impl crate::world::game::Script for CookieRace {
             }
         }
         for Collected { kind, .. } in std::mem::take(&mut g.collected) {
-            if kind == crate::world::game::goodie::COOKIE {
+            if kind == goodie::COOKIE {
                 self.cookies += 1;
                 // 0x80076c24: all five for the fourth bar.
                 if self.total > 0 && self.cookies >= self.total {

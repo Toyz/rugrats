@@ -11,11 +11,16 @@ use rrt::glam::{Mat3, Vec3};
 use rugrats_data::anim::Anims;
 use rugrats_data::col::Col;
 use rugrats_data::hierarchy::Hierarchy;
+use rugrats_data::model::Models;
 use rugrats_data::placement::Placement;
+use rugrats_render::{Vtx, models};
 
 use crate::actors::animator::Animator;
-use crate::actors::player::{DT, Pose};
+use crate::actors::player::anim::{IDLE, RUN};
+use crate::actors::player::{Box3, DT, Pose};
 use crate::gte::Trig;
+use crate::rand::Rand;
+use crate::world::collide;
 
 /// The speed table (0x800b9698), row 0.
 pub const SPEEDS: [i32; 6] = [0, 4, 8, 12, 17, 25];
@@ -180,7 +185,7 @@ impl Npc {
     }
 
     fn snap(&mut self, col: &Col) {
-        let q = crate::world::collide::query(col, [self.pos[0], self.pos[1] - self.feet() - 1, self.pos[2]]);
+        let q = collide::query(col, [self.pos[0], self.pos[1] - self.feet() - 1, self.pos[2]]);
         if q.tile.is_some() && q.kind == 0 {
             self.pos[1] = q.floor + self.feet();
         }
@@ -200,7 +205,7 @@ impl Npc {
         self.pos[0] += trig.sin(self.heading) * speed * DT >> 12;
         self.pos[2] += trig.cos(self.heading) * speed * DT >> 12;
         // Asked from a step above the feet, as the player's floor test.
-        let q = crate::world::collide::query(col, [self.pos[0], self.pos[1] - self.feet() - 384, self.pos[2]]);
+        let q = collide::query(col, [self.pos[0], self.pos[1] - self.feet() - 384, self.pos[2]]);
         if q.kind == 2 || q.tile.is_none() {
             self.pos = start;
             self.speed = 0;
@@ -221,7 +226,7 @@ impl Npc {
 
     /// Whether the body walked deeper into an object's box than it was at
     /// `start` (a box whose top is within a step of the feet is floor).
-    fn walled(&self, start: [i32; 3], walls: &[crate::actors::player::Box3]) -> bool {
+    fn walled(&self, start: [i32; 3], walls: &[Box3]) -> bool {
         let feet = self.pos[1] - self.feet();
         walls.iter().any(|b| {
             !b.character
@@ -247,11 +252,11 @@ pub struct World<'a> {
     pub trig: &'a Trig,
     pub anims: &'a Anims,
     /// The objects' boxes this frame (doors, crates; not bodies).
-    pub walls: &'a [crate::actors::player::Box3],
+    pub walls: &'a [Box3],
 }
 
 /// One frame of every NPC (the scheduler running each think, 0x80072bf0).
-pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Event> {
+pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
     let mut events = Vec::new();
     let places: Vec<Pose> = npcs.iter().map(|n| Pose::new(n.pos, n.heading)).collect();
     let at = |t: Target| match t {
@@ -401,11 +406,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut crate::rand::Rand) -> Vec<Ev
                 n.mode = if left <= 0 { *then } else { Mode::Hit { left: left - DT, then } };
             }
         }
-        let a = n.hold.unwrap_or(if n.speed > 0 {
-            crate::actors::player::anim::RUN
-        } else {
-            crate::actors::player::anim::IDLE
-        });
+        let a = n.hold.unwrap_or(if n.speed > 0 { RUN } else { IDLE });
         n.animator.set(a, w.anims);
         n.animator.step(w.anims);
     }
@@ -421,7 +422,7 @@ impl Npc {
     /// The next post (0x80082c78), with loop posts counted (0x80082ee0):
     /// at one with the count spent, it is reloaded and the second
     /// neighbour taken.
-    fn next_post(&mut self, p: &Post, prev: u8, rand: &mut crate::rand::Rand) -> u8 {
+    fn next_post(&mut self, p: &Post, prev: u8, rand: &mut Rand) -> u8 {
         if p.flags & post::LOOP != 0 && self.loops.1 > 0 {
             if self.loops.0 <= 0 {
                 self.loops.0 = self.loops.1;
@@ -438,7 +439,7 @@ impl Npc {
 
 /// The next post (0x80082c78): a random neighbour with flag 4, else the
 /// first neighbour that is not the one come from, else neighbour 0.
-fn next_post(p: &Post, prev: u8, rand: &mut crate::rand::Rand) -> u8 {
+fn next_post(p: &Post, prev: u8, rand: &mut Rand) -> u8 {
     let real: Vec<u8> = p.next.iter().copied().filter(|&n| n != 0).collect();
     if real.is_empty() {
         return prev;
@@ -450,23 +451,10 @@ fn next_post(p: &Post, prev: u8, rand: &mut crate::rand::Rand) -> u8 {
 }
 
 /// The NPC's triangles.
-pub fn triangles(
-    n: &Npc,
-    models: &rugrats_data::model::Models,
-    anims: &Anims,
-    trig: &Trig,
-    out: &mut Vec<rugrats_render::Vtx>,
-) {
+pub fn triangles(n: &Npc, models: &Models, anims: &Anims, trig: &Trig, out: &mut Vec<Vtx>) {
     if n.hidden {
         return;
     }
     let pos = Vec3::new(n.pos[0] as f32, n.pos[1] as f32, n.pos[2] as f32);
-    rugrats_render::models::posed_triangles(
-        &n.hierarchy,
-        models,
-        &n.animator.locals(&n.hierarchy, anims),
-        n.rotation(trig),
-        pos,
-        out,
-    );
+    models::posed_triangles(&n.hierarchy, models, &n.animator.locals(&n.hierarchy, anims), n.rotation(trig), pos, out);
 }

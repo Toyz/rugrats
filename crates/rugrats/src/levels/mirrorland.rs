@@ -5,10 +5,12 @@
 //! all six play cine 72: won. The clock out is a cry that undoes the
 //! colours since the last checkpoint. Tries never run out (0).
 
+use rugrats_render::Vtx;
+
 use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::{Collected, Game};
+use crate::world::game::{self, Collected, Game, Script};
 
 /// The boxes (template 1102, ids 207-212) and the room each stands in;
 /// the room's (group, slot) (0x8007d02c).
@@ -93,7 +95,7 @@ impl Mirrorland {
         for k in ks {
             if out {
                 g.goodies[k].taken = true;
-            } else if let Some(i) = crate::world::game::spawn(&mut g.spots, group as usize, &mut g.rand) {
+            } else if let Some(i) = game::spawn(&mut g.spots, group as usize, &mut g.rand) {
                 let at = g.spots[i].pos;
                 g.goodies[k].pos = rrt::glam::Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32);
                 g.goodies[k].taken = false;
@@ -143,7 +145,7 @@ impl Mirrorland {
     }
 }
 
-impl crate::world::game::Script for Mirrorland {
+impl Script for Mirrorland {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         // Balloons taken (0x800514b0 kinds 6-11): sound 113, the count.
         for Collected { kind, .. } in std::mem::take(&mut g.collected) {
@@ -203,7 +205,7 @@ impl crate::world::game::Script for Mirrorland {
         true
     }
 
-    fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         let Some(s) = &g.sprites else { return };
         let f = g.focal();
         // The balloons: sprites by group (0x80048df8: 299-304, 240 x 300),
@@ -225,13 +227,7 @@ impl crate::world::game::Script for Mirrorland {
         // left.
         if let Some((_, group)) = self.running {
             s.draw(COUNTER[group as usize], (-192, 73), 48.0, 64.0, 1024.0, 0.0, f, overlay);
-            crate::world::game::shadowed(
-                &g.fonts,
-                -150,
-                66,
-                format!("{}", self.total.saturating_sub(self.taken)),
-                overlay,
-            );
+            game::shadowed(&g.fonts, -150, 66, format!("{}", self.total.saturating_sub(self.taken)), overlay);
         }
     }
 

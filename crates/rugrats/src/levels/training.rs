@@ -5,13 +5,16 @@
 //! hub with the progress kept.
 
 use rrt::glam::Vec3;
+use rugrats_render::Vtx;
 
 use crate::actors::npc::{Event, Mode, Target};
+use crate::actors::player::State;
+use crate::actors::player::anim::THROW;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::Level;
 use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
-use crate::world::game::{Game, Strike};
+use crate::world::game::{self, Game, Script, Strike};
 
 const ANGELICA: u16 = 600;
 /// The lobster (template 495, id 0): posts 10-19, bites 15.
@@ -81,7 +84,7 @@ impl Training {
         g.player.target = 2048;
         g.player.speed = 0;
         g.player.v = [0; 3];
-        g.player.state = crate::actors::player::State::Stand;
+        g.player.state = State::Stand;
         g.player.frozen = true;
         g.set_room(Some(START_ROOM));
         // The stick turns him camera-relative: the camera looks east.
@@ -112,7 +115,7 @@ impl Training {
         g.player.pos = AFTER;
         g.player.speed = 0;
         g.player.v = [0; 3];
-        g.player.state = crate::actors::player::State::Stand;
+        g.player.state = State::Stand;
         g.set_room(Some(START_ROOM));
         let h = g.player.heading;
         g.set_camera_yaw(h as f32);
@@ -128,7 +131,7 @@ impl Training {
         if pads.pressed(0, input::TRIANGLE) && ready {
             let aim = find(g, ANGELICA).map(|k| g.npcs[k].pos);
             toss.pies.push(Pie::thrown(g, g.player.pos, g.player.heading, aim));
-            g.player.act(crate::actors::player::anim::THROW, &g.anims);
+            g.player.act(THROW, &g.anims);
         }
         let targets: Vec<usize> = find(g, ANGELICA).into_iter().collect();
         let hits = roll_pies(g, &mut toss.pies, &targets);
@@ -137,7 +140,7 @@ impl Training {
             let Some(k) = find(g, ANGELICA) else { break };
             g.play(44);
             let r = g.rand.next() & 1;
-            g.speech.extend(crate::world::game::hit_line(3, Level::TRAINING, r));
+            g.speech.extend(game::hit_line(3, Level::TRAINING, r));
             let n = &mut g.npcs[k];
             n.health = (n.health - PIE_DAMAGE).max(0);
             if n.health == 0 {
@@ -151,7 +154,7 @@ impl Training {
     }
 }
 
-impl crate::world::game::Script for Training {
+impl Script for Training {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             // Angelica waiting at a post (0x80083e2c, level 16: 0x800b96e4).
@@ -209,7 +212,7 @@ impl crate::world::game::Script for Training {
         true
     }
 
-    fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, _overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, _overlay: &mut Vec<Vtx>) {
         if let Some(toss) = &self.toss {
             draw_pies(g, &toss.pies, g.player.action.is_none(), moving);
         }

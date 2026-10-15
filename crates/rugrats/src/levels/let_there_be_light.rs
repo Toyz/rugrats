@@ -4,10 +4,13 @@
 //! give 30. The refrigerator's cine 67 drops the light and puts Spike
 //! somewhere in the house; finding him plays cine 68: won.
 
+use rugrats_render::Vtx;
+
 use crate::actors::npc::{Event, Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::Game;
+use crate::world::fx::{self, Mesh};
+use crate::world::game::{self, Effect, Game, Script};
 
 /// The flashlight (template 933): 120 charge at the start, 100 after a
 /// pick-up; 1 a frame.
@@ -48,7 +51,7 @@ pub struct LetThereBeLight {
     fridge_done: bool,
     spike_waiting: bool,
     shining: bool,
-    mesh: Option<crate::world::fx::Mesh>,
+    mesh: Option<Mesh>,
 }
 
 fn find(g: &Game, id: u16) -> Option<usize> {
@@ -78,7 +81,7 @@ impl LetThereBeLight {
                 n.bite_wait = 230;
             }
         }
-        let mesh = crate::world::fx::Mesh::load(disc, &crate::world::fx::LIGHT).ok();
+        let mesh = Mesh::load(disc, &fx::LIGHT).ok();
         Ok(LetThereBeLight {
             charge: CHARGE,
             max: CHARGE,
@@ -117,7 +120,7 @@ impl LetThereBeLight {
     }
 }
 
-impl crate::world::game::Script for LetThereBeLight {
+impl Script for LetThereBeLight {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             if let Event::Bite { target: Target::Player, amount, .. } = e {
@@ -151,7 +154,7 @@ impl crate::world::game::Script for LetThereBeLight {
         for k in back {
             // Mode 10's end (0x80084380): speech 143 or 21.
             g.speech.push(if g.rand.next() & 1 == 0 { 143 } else { 21 });
-            if let Some(i) = crate::world::game::spawn(&mut g.spots, SPOTS, &mut g.rand) {
+            if let Some(i) = game::spawn(&mut g.spots, SPOTS, &mut g.rand) {
                 g.spots[i].used = false;
                 let at = g.spots[i].pos;
                 let n = &mut g.npcs[k];
@@ -169,7 +172,7 @@ impl crate::world::game::Script for LetThereBeLight {
                 if holding {
                     self.charge = (self.charge + 30).min(self.max);
                 }
-                g.effects.push(crate::world::game::Effect::new(109));
+                g.effects.push(Effect::new(109));
             }
         }
         // Picked up again (0x800602d8): the gauge's max is 100.
@@ -201,7 +204,7 @@ impl crate::world::game::Script for LetThereBeLight {
         if n == CINE_FRIDGE {
             // 0x8007bb84 after card 705: Spike idle at a group 0 spot.
             if let Some(k) = find(g, SPIKE) {
-                if let Some(i) = crate::world::game::spawn(&mut g.spots, 0, &mut g.rand) {
+                if let Some(i) = game::spawn(&mut g.spots, 0, &mut g.rand) {
                     let at = g.spots[i].pos;
                     g.npcs[k].place(at, &g.col);
                 }
@@ -217,7 +220,7 @@ impl crate::world::game::Script for LetThereBeLight {
         self.fridge_done as i32
     }
 
-    fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         // The light (0x80090e70): this frame's ray from hand bone 15 +
         // (0, 0, 350) (table 0x800bb28c entry 1), 4096 along the facing,
         // the cone's point at the hand (guess: the code's axis was not

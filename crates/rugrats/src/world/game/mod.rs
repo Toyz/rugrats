@@ -6,16 +6,40 @@ use rrt::glam::{Mat3, Vec3};
 use rugrats_data::anim::Anims;
 use rugrats_data::cine::Frame;
 use rugrats_data::col::Col;
+use rugrats_data::placement::{Placement, Spot, Template};
+use rugrats_render::{Vtx, models};
 
-pub use crate::actors::npc::Npc;
-use crate::actors::player::Player;
-pub use crate::actors::player::Pose;
+use crate::actors::animator::Animator;
+use crate::actors::npc::{self, Event, Mode, Post, REACH, World};
+use crate::actors::player::anim::{CRY, IDLE};
+use crate::actors::player::{Box3, DT, HEIGHT, Player, RADIUS, SLOW_TURN, State, TURN};
+use crate::audio::ambience::{self, Tables};
+use crate::audio::sound::EFFECTS_VOLUME;
+use crate::audio::speech::Speech;
 use crate::disc::GameDisc;
 use crate::gte::Trig;
 use crate::input::{self, Pads};
-pub use crate::levels::Level;
 use crate::media::cine::Set;
+use crate::rand::Rand;
+use crate::save::card::STATE_SIZE;
+use crate::save::progress::Progress;
 use crate::stage::Stage;
+use crate::ui::hud::{self, METER_DEPTH, METER_TIME, Sprites};
+use crate::ui::screens::Page;
+use crate::ui::text::{Fonts, Text};
+use crate::ui::tips::Training;
+
+use boxes::*;
+use camera::*;
+use doors::*;
+use pause::*;
+use rooms::*;
+use story::*;
+use things::*;
+
+pub use crate::actors::npc::Npc;
+pub use crate::actors::player::Pose;
+pub use crate::levels::Level;
 
 mod boxes;
 mod camera;
@@ -28,18 +52,11 @@ mod story;
 mod things;
 mod toys;
 
-use boxes::*;
-use camera::*;
 pub use doors::Door;
-use doors::*;
 pub use goodies::{Collected, Goodie, goodie, spawn};
 pub use movers::Mover;
 pub use pause::PauseEnd;
-use pause::*;
-use rooms::*;
-use story::*;
 pub use story::{hit_line, start_cine};
-use things::*;
 pub use things::{Breakable, Strike, Thing, ThingState};
 pub use toys::{Spinner, Walker};
 
@@ -90,7 +107,7 @@ pub struct Effect {
 impl Effect {
     /// At full volume (0x8006f26c).
     pub fn new(sound: u8) -> Effect {
-        Effect { sound, volume: crate::audio::sound::EFFECTS_VOLUME }
+        Effect { sound, volume: EFFECTS_VOLUME }
     }
 }
 
@@ -115,7 +132,7 @@ pub trait Script {
     /// The player entered room `room` (the level's case of 0x8007f498).
     fn room(&mut self, _g: &mut Game, _room: usize) {}
     /// The level's own models and HUD.
-    fn draw(&self, _g: &Game, _moving: &mut Vec<rugrats_render::Vtx>, _overlay: &mut Vec<rugrats_render::Vtx>) {}
+    fn draw(&self, _g: &Game, _moving: &mut Vec<Vtx>, _overlay: &mut Vec<Vtx>) {}
     /// The level timer ran out (TimerExpired's level callback).
     fn timer_expired(&mut self, _g: &mut Game) {}
     /// The phase, for tools.
@@ -152,7 +169,7 @@ pub struct Game {
     pub eye: Vec3,
     pub yaw: f32,
     /// The rooms and objects at rest, drawn under the player.
-    scenery: Vec<rugrats_render::Vtx>,
+    scenery: Vec<Vtx>,
     /// Where the level ends: a level to go to (the exit code, 0x800c4918)
     /// and a cinematic to play first.
     pub exit: Option<Exit>,
@@ -169,18 +186,18 @@ pub struct Game {
     pub script: Option<Box<dyn Script>>,
     pub won: Option<bool>,
     /// The HUD's sprites, and the health meter's time left and last value.
-    pub sprites: Option<crate::ui::hud::Sprites>,
+    pub sprites: Option<Sprites>,
     meter_shown: i32,
     meter_health: i32,
     /// The placed objects' collision boxes in the world.
-    pub boxes: Vec<crate::actors::player::Box3>,
+    pub boxes: Vec<Box3>,
     /// The placed characters other than the player.
     pub npcs: Vec<Npc>,
     /// The posts (LP kind 2), what the NPCs asked for this frame, and the
     /// level's rand.
-    pub posts: Vec<crate::actors::npc::Post>,
-    pub npc_events: Vec<crate::actors::npc::Event>,
-    pub rand: crate::rand::Rand,
+    pub posts: Vec<Post>,
+    pub npc_events: Vec<Event>,
+    pub rand: Rand,
     /// The room the player is in, and a song the room asked for
     /// (RoomChange, 0x80077a54: room flag 128, song at +0x64 less one).
     room: Option<usize>,
@@ -192,7 +209,7 @@ pub struct Game {
     /// pause menu runs (0x8003e05c).
     pub paused: bool,
     pause: Pause,
-    pub fonts: crate::ui::text::Fonts,
+    pub fonts: Fonts,
     /// Quit to the front end (the exit code -1).
     pub quit: bool,
     /// The game's end: the progress cleared, the credits, the hub.
@@ -210,8 +227,8 @@ pub struct Game {
     pub found: Vec<usize>,
     /// The game state as main has it (for a save), and a record the
     /// pause's Load Game read (0x80070970).
-    pub state_block: [u8; crate::save::card::STATE_SIZE],
-    pub loaded: Option<Box<[u8; crate::save::card::STATE_SIZE]>>,
+    pub state_block: [u8; STATE_SIZE],
+    pub loaded: Option<Box<[u8; STATE_SIZE]>>,
     carried: Option<usize>,
     grip: Vec3,
     /// Objects hidden by id (0x80078bc4) and the placements always drawn
@@ -259,7 +276,7 @@ pub struct Game {
     /// The playable character (state +0x08).
     pub character: usize,
     /// The spawn spots (LP kind 7).
-    pub spots: Vec<rugrats_data::placement::Spot>,
+    pub spots: Vec<Spot>,
     /// A hint card the level asks for (0x80044434).
     pub card: Option<usize>,
     /// Throws aim at characters (level 9's case of 0x80061c98).
@@ -274,13 +291,13 @@ pub struct Game {
     pub flags: u32,
     /// Screens a level asks for (the golf box), shown with the level
     /// frozen.
-    pub pages: Vec<crate::ui::screens::Page>,
+    pub pages: Vec<Page>,
     /// The training messages (levels 1 and 16).
-    pub training: crate::ui::tips::Training,
+    pub training: Training,
     /// Speech lines asked for this frame (0x8008da4c), and the level's
     /// lines.
     pub speech: Vec<u16>,
-    pub lines: crate::audio::speech::Speech,
+    pub lines: Speech,
     /// Placements that speak when the player comes near (LP +0x4c, the
     /// trigger list 0x80072d38).
     talkers: Vec<Talker>,
@@ -288,7 +305,7 @@ pub struct Game {
     /// (0x800c4cc4) and its line tables.
     pub ambience: i32,
     pub ambience_first: bool,
-    ambience_lines: std::rc::Rc<crate::audio::ambience::Tables>,
+    ambience_lines: std::rc::Rc<Tables>,
     /// Level 5's camera hold while floating (0x800c4a50) and its shaft
     /// camera (kind 3 walking, rooms 15 and 40).
     cam_hold: bool,
@@ -311,8 +328,8 @@ const PIECE_ICON: u32 = 292;
 const CLOCK_ICON: u32 = 375;
 
 /// Text in font 1 with its shadow 2 down and right (0x80090004).
-pub fn shadowed(fonts: &crate::ui::text::Fonts, x: i16, y: i16, string: String, out: &mut Vec<rugrats_render::Vtx>) {
-    let t = crate::ui::text::Text { font: 1, spacing: 1, rgb: [255, 255, 255], x, y, string, ..Default::default() };
+pub fn shadowed(fonts: &Fonts, x: i16, y: i16, string: String, out: &mut Vec<Vtx>) {
+    let t = Text { font: 1, spacing: 1, rgb: [255, 255, 255], x, y, string, ..Default::default() };
     let mut shadow = t.clone();
     shadow.rgb = [1, 1, 1];
     shadow.x += 2;
@@ -355,18 +372,13 @@ impl Game {
     }
 
     pub fn open(disc: &GameDisc, level: Level) -> Result<Game, String> {
-        Game::open_from(disc, level, None, &crate::save::progress::Progress::default())
+        Game::open_from(disc, level, None, &Progress::default())
     }
 
     /// Level `level`, come to from level `from`: back in the hub the
     /// player stands at 0x800b8718[from] (16 bytes: x, y, z), as level 1's
     /// EpisodeStart callback (0x80078e7c) puts it, unless from training.
-    pub fn open_from(
-        disc: &GameDisc,
-        level: Level,
-        from: Option<Level>,
-        progress: &crate::save::progress::Progress,
-    ) -> Result<Game, String> {
+    pub fn open_from(disc: &GameDisc, level: Level, from: Option<Level>, progress: &Progress) -> Result<Game, String> {
         let who = level.character();
         let db = level.index();
         // Level 12's Tommy is hierarchy 44 (0x8005981c).
@@ -383,7 +395,7 @@ impl Game {
         // The placements loader (0x800454dc) moves the player onto the LP
         // record whose template is the character's hierarchy, turned by
         // its quaternion (0x8001f684, 0x80059a88).
-        let mine = |p: &&rugrats_data::placement::Placement| {
+        let mine = |p: &&Placement| {
             p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy() == Some(body))
         };
         let (start, heading) = match set.placements.iter().find(mine) {
@@ -407,9 +419,8 @@ impl Game {
         let mut player = Player::new(disc, hierarchy.clone(), start, heading, &col, &anims)?;
         if who != TOMMY {
             // Another body (0x80059328): Spike turns slowly (0x80062eac).
-            let a = crate::actors::animator::Animator::load(disc, who as u16)?;
-            let turn =
-                if matches!(who, 6 | 21) { crate::actors::player::SLOW_TURN } else { crate::actors::player::TURN };
+            let a = Animator::load(disc, who as u16)?;
+            let turn = if matches!(who, 6 | 21) { SLOW_TURN } else { TURN };
             player.set_body(hierarchy, a, turn, &anims);
             player.pos = start;
         }
@@ -444,7 +455,7 @@ impl Game {
                     keep: t.raw[4] == 13,
                     shape: t.shape as u32,
                     pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
-                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    rot: models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
                     state: ThingState::Rest,
                 }
             })
@@ -465,8 +476,7 @@ impl Game {
         let mut bar = 0usize;
         // The spawn spots (kind 7); level 4's loader moves entries 1 and 5
         // (0x80045e08).
-        let mut spots: Vec<rugrats_data::placement::Spot> =
-            set.placements.iter().filter_map(rugrats_data::placement::Spot::of).collect();
+        let mut spots: Vec<Spot> = set.placements.iter().filter_map(Spot::of).collect();
         if level == Level::CYNTHIA {
             if let Some(s) = spots.get_mut(1) {
                 s.pos[1] = 900;
@@ -475,7 +485,7 @@ impl Game {
                 s.pos[1] = 825;
             }
         }
-        let mut rand = crate::rand::Rand::default();
+        let mut rand = Rand::default();
         // Collectibles: LP +0x46 copies each (0x80049af4), placed at their
         // spawn group's spots when they have one (0x80045f34).
         let mut goodies: Vec<Goodie> = Vec::new();
@@ -505,7 +515,7 @@ impl Game {
                     kind,
                     value: t.raw[0x32] as i32,
                     pos: Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32),
-                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    rot: models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
                 });
             }
         }
@@ -531,7 +541,7 @@ impl Game {
                     shape: t.shape as u32,
                     start: p.pos,
                     pos: p.pos,
-                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    rot: models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
                     step: [h(0x18), h(0x1a), h(0x1c)],
                     range: [h(0x1e), h(0x20), h(0x22)],
                     gone: [0; 3],
@@ -557,7 +567,7 @@ impl Game {
                     template: p.template as u16,
                     shape: set.templates[p.template as usize].shape as u32,
                     pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
-                    rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    rot: models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
                     broken: false,
                     gone: false,
                 }
@@ -589,7 +599,7 @@ impl Game {
                     shape: t.shape as u32,
                     hinged: t.raw[4] != 3,
                     start: p.pos,
-                    placed: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    placed: models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
                     heading,
                     offset: [0; 3],
                     speed: [h(0x18), h(0x1a), h(0x1c)],
@@ -624,7 +634,7 @@ impl Game {
                     .get(p.template as usize)
                     .is_some_and(|t| t.raw[4] == c && set.models.has(t.shape as u32))
         };
-        let radius_of = |t: &rugrats_data::placement::Template| u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32;
+        let radius_of = |t: &Template| u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32;
         let spinners: Vec<Spinner> = (0..set.placements.len())
             .filter(|&k| class_of(k, 2))
             .map(|k| {
@@ -635,7 +645,7 @@ impl Game {
                     placement: k,
                     shape: t.shape as u32,
                     pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
-                    placed: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    placed: models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
                     speed: [h(0x18), h(0x1a), h(0x1c)],
                     angle: [0; 3],
                     radius: radius_of(t),
@@ -678,8 +688,8 @@ impl Game {
             // Level 12's Spike is hierarchy 45 (0x80048284).
             let h = if level == Level::LET_THERE_BE_LIGHT && h == 6 { 45 } else { h };
             let Some(Some(hierarchy)) = set.hierarchies.get(h).cloned() else { continue };
-            let mut animator = crate::actors::animator::Animator::load(disc, h as u16)?;
-            animator.set(crate::actors::player::anim::IDLE, &anims);
+            let mut animator = Animator::load(disc, h as u16)?;
+            animator.set(IDLE, &anims);
             // Template +0x18 health, +0x1a range, +0x1c wait, +0x1e speed
             // index, +0x32 damage (0x80081bac).
             let t = &set.templates[p.template as usize];
@@ -700,7 +710,7 @@ impl Game {
                 damage: t.raw[0x32] as i32,
                 health: h16(0x18),
                 max_health: h16(0x18),
-                mode: crate::actors::npc::Mode::Idle,
+                mode: Mode::Idle,
                 home: p.pos,
                 hidden: false,
                 attacks: false,
@@ -711,7 +721,7 @@ impl Game {
                 reach: 600,
                 bite_wait: 900,
                 run_speed: None,
-                post_reach: crate::actors::npc::REACH,
+                post_reach: REACH,
                 hold: None,
             };
             // On the floor under it (0x80081bac asks 0x8002b240), the root
@@ -723,7 +733,7 @@ impl Game {
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let yaw = heading as f32;
         let boxes = object_boxes(&set, |k| apart[k]);
-        let posts = crate::actors::npc::posts(&set.placements);
+        let posts = npc::posts(&set.placements);
         let mut g = Game {
             level,
             set,
@@ -743,7 +753,7 @@ impl Game {
             crying: 0,
             script: None,
             won: None,
-            sprites: crate::ui::hud::Sprites::load(disc, db).ok(),
+            sprites: Sprites::load(disc, db).ok(),
             meter_shown: 0,
             meter_health: 255,
             boxes,
@@ -756,7 +766,7 @@ impl Game {
             effects: Vec::new(),
             paused: false,
             pause: Pause::load(disc, level)?,
-            fonts: crate::ui::text::Fonts::load(disc)?,
+            fonts: Fonts::load(disc)?,
             quit: false,
             ending: false,
             things,
@@ -764,7 +774,7 @@ impl Game {
             bars: progress.bars_available(),
             bar_shown: 0,
             found: Vec::new(),
-            state_block: [0; crate::save::card::STATE_SIZE],
+            state_block: [0; STATE_SIZE],
             loaded: None,
             carried: None,
             grip: Vec3::ZERO,
@@ -798,13 +808,13 @@ impl Game {
             fourth_bar: false,
             activity: progress.activity(),
             flags: progress.flags(),
-            training: crate::ui::tips::Training::load(disc, level),
+            training: Training::load(disc, level),
             speech: Vec::new(),
-            lines: crate::audio::speech::Speech::load(disc, db),
+            lines: Speech::load(disc, db),
             talkers: Vec::new(),
-            ambience: crate::audio::ambience::setup(level).0,
-            ambience_first: crate::audio::ambience::setup(level).1,
-            ambience_lines: std::rc::Rc::new(crate::audio::ambience::Tables::load(disc)),
+            ambience: ambience::setup(level).0,
+            ambience_first: ambience::setup(level).1,
+            ambience_lines: std::rc::Rc::new(Tables::load(disc)),
             // Damage is dropped in levels 1, 11, 17 and 23-31 (0x800780d8).
             no_damage: level.no_damage(),
             cam_hold: false,
@@ -927,9 +937,9 @@ impl Game {
         }
         if self.crying > 0 {
             // The cry runs on its own (0x8007f920's loop): the world waits.
-            self.crying -= crate::actors::player::DT;
+            self.crying -= DT;
             self.player.animator.step(&self.anims);
-            if self.crying <= 0 || !self.player.animator.playing(crate::actors::player::anim::CRY) {
+            if self.crying <= 0 || !self.player.animator.playing(CRY) {
                 self.crying = 0;
                 self.cried();
             }
@@ -941,7 +951,7 @@ impl Game {
         // The ambience runs even while a message holds the world.
         let cue = self.script.as_ref().map_or(0, |s| s.cue());
         let lines = self.ambience_lines.clone();
-        crate::audio::ambience::frame(self, &lines, cue);
+        ambience::frame(self, &lines, cue);
         let mut closed = Vec::new();
         if self.training.frame(pads, &mut closed) {
             self.effects.extend(closed.into_iter().map(Effect::new));
@@ -1007,9 +1017,9 @@ impl Game {
         // The other characters stand in the way: a box of their radius
         // (object +0x86 is 0x2000 / 8 for a baby, guessed at 200) from the
         // feet up.
-        for n in self.npcs.iter().filter(|n| !n.hidden && !matches!(n.mode, crate::actors::npc::Mode::Ride { .. })) {
+        for n in self.npcs.iter().filter(|n| !n.hidden && !matches!(n.mode, Mode::Ride { .. })) {
             let feet = (n.pos[1] - n.feet()) as f32;
-            boxes.push(crate::actors::player::Box3 {
+            boxes.push(Box3 {
                 lo: [-200, 0, -200],
                 hi: [200, 0, 200],
                 rot: Mat3::IDENTITY,
@@ -1033,7 +1043,7 @@ impl Game {
         self.touch();
         let d = (self.eye - Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32))
             .length();
-        let volume = (crate::audio::sound::EFFECTS_VOLUME as f32 * (1.0 - d / 16384.0).max(0.0)) as i32;
+        let volume = (EFFECTS_VOLUME as f32 * (1.0 - d / 16384.0).max(0.0)) as i32;
         self.effects.extend(closed.into_iter().map(Effect::new));
         self.effects.extend(self.player.effects.iter().map(|&sound| Effect { sound, volume }));
         // Using an object (the stand handler's ACTION, Triangle, on the
@@ -1057,12 +1067,11 @@ impl Game {
             if let Some(d) = hint {
                 self.training.show(if EPISODE_OBJECTS.contains(&d.template) { 34 } else { 33 });
             }
-            let training_object = |d: &rugrats_data::placement::Placement| {
-                self.level == Level::TRAINING && EPISODE_OBJECTS.contains(&d.template)
-            };
-            let mirror = |d: &rugrats_data::placement::Placement| matches!(d.template, MIRROR_A | MIRROR_B);
+            let training_object =
+                |d: &Placement| self.level == Level::TRAINING && EPISODE_OBJECTS.contains(&d.template);
+            let mirror = |d: &Placement| matches!(d.template, MIRROR_A | MIRROR_B);
             let flag16 = self.flags & 16 != 0;
-            let cine_of = |d: &rugrats_data::placement::Placement| match (d.cine, d.template) {
+            let cine_of = |d: &Placement| match (d.cine, d.template) {
                 (16, _) => 14,
                 (0, 567) => 8,
                 (c, _) => c as usize,
@@ -1122,7 +1131,7 @@ impl Game {
         }
         // Select: the restart menu (0x80043d58), outside activity play.
         if pads.pressed(0, input::SELECT) && !self.activity {
-            self.pages.push(crate::ui::screens::Page::Restart);
+            self.pages.push(Page::Restart);
         }
         // The camera buttons turn it by an eighth (L2, R2: 341 a press).
         if pads.pressed(0, input::L2) {
@@ -1142,7 +1151,7 @@ impl Game {
             self.yaw += d / 16.0;
         }
         self.yaw = self.yaw.rem_euclid(4096.0);
-        let world = crate::actors::npc::World {
+        let world = World {
             player: self.player.pos,
             player_heading: self.player.heading,
             col: &self.col,
@@ -1151,22 +1160,21 @@ impl Game {
             anims: &self.anims,
             walls: &boxes,
         };
-        self.npc_events = crate::actors::npc::step(&mut self.npcs, &world, &mut self.rand);
+        self.npc_events = npc::step(&mut self.npcs, &world, &mut self.rand);
         self.with_script(|s, g| s.frame(g, pads));
         // Hazards (0x8005e1f4, the walk and run states): walking into one
         // costs its +0x6d; the next only after 300 dt (guess).
-        self.hurt_wait = (self.hurt_wait - crate::actors::player::DT).max(0);
-        let walking =
-            matches!(self.player.state, crate::actors::player::State::Walk | crate::actors::player::State::Run);
+        self.hurt_wait = (self.hurt_wait - DT).max(0);
+        let walking = matches!(self.player.state, State::Walk | State::Run);
         if self.hurt_wait == 0 && self.crying == 0 && walking && !self.player.frozen && !self.no_damage {
             let p = self.player.pos;
-            let (feet, head) = (p[1] - self.player.feet(), p[1] - self.player.feet() - crate::actors::player::HEIGHT);
+            let (feet, head) = (p[1] - self.player.feet(), p[1] - self.player.feet() - HEIGHT);
             let hurt = self
                 .hazards
                 .iter()
                 .filter(|h| {
                     let b = &h.area;
-                    b.covers(p, crate::actors::player::RADIUS + 40) && b.min_y <= feet + 40 && b.max_y >= head
+                    b.covers(p, RADIUS + 40) && b.min_y <= feet + 40 && b.max_y >= head
                 })
                 .map(|h| h.damage)
                 .max();
@@ -1177,7 +1185,7 @@ impl Game {
         }
         // The level timer (0x8007f5a8): at 0, sound 117 and TimerExpired.
         if let Some(t) = self.timer {
-            let t = t - crate::actors::player::DT;
+            let t = t - DT;
             if t <= 0 {
                 self.timer = None;
                 self.play(117);
@@ -1190,10 +1198,10 @@ impl Game {
         if self.player.health <= 0 {
             self.cry();
         }
-        self.meter_shown = (self.meter_shown - crate::actors::player::DT).max(0);
+        self.meter_shown = (self.meter_shown - DT).max(0);
         if self.player.health != self.meter_health {
             self.meter_health = self.player.health;
-            self.meter_shown = crate::ui::hud::METER_TIME;
+            self.meter_shown = METER_TIME;
         }
         self.room_change();
         self.talk();
@@ -1223,45 +1231,45 @@ impl Game {
         }
         for t in self.things.iter().filter(|t| !t.hidden) {
             if let Some(m) = self.set.models.get(t.shape) {
-                rugrats_render::models::model_triangles(m, t.rot, t.pos, &mut moving);
+                models::model_triangles(m, t.rot, t.pos, &mut moving);
             }
         }
         for m in &self.movers {
             if let Some(model) = self.set.models.get(m.shape) {
-                rugrats_render::models::model_triangles(model, m.rot, m.world(), &mut moving);
+                models::model_triangles(model, m.rot, m.world(), &mut moving);
             }
         }
         for d in &self.doors {
             if let Some(model) = self.set.models.get(d.shape) {
                 let (rot, pos) = d.pose(d.offset, &self.trig);
-                rugrats_render::models::model_triangles(model, rot, pos, &mut moving);
+                models::model_triangles(model, rot, pos, &mut moving);
             }
         }
         for s in self.spinners.iter().filter(|s| !self.hidden.contains(&self.set.placements[s.placement].id)) {
             if let Some(model) = self.set.models.get(s.shape) {
-                rugrats_render::models::model_triangles(model, s.rot(&self.trig), s.pos, &mut moving);
+                models::model_triangles(model, s.rot(&self.trig), s.pos, &mut moving);
             }
         }
         for w in self.walkers.iter().filter(|w| !self.hidden.contains(&self.set.placements[w.placement].id)) {
             if let Some(model) = self.set.models.get(w.shape) {
-                rugrats_render::models::model_triangles(model, w.rot(&self.trig), w.world(), &mut moving);
+                models::model_triangles(model, w.rot(&self.trig), w.world(), &mut moving);
             }
         }
         for b in self.breakables.iter().filter(|b| !b.gone) {
             let shape = if b.broken { b.shape + 1 } else { b.shape };
             if let Some(model) = self.set.models.get(shape) {
-                rugrats_render::models::model_triangles(model, b.rot, b.pos, &mut moving);
+                models::model_triangles(model, b.rot, b.pos, &mut moving);
             }
         }
         // Level 15's balloons (kinds 6-11) are sprites its script draws.
         let sprites_only = |g: &&Goodie| self.level == Level::MIRRORLAND && (6..=11).contains(&g.kind);
         for g in self.goodies.iter().filter(|g| !g.taken).filter(|g| !sprites_only(g)) {
             if let Some(m) = self.set.models.get(g.shape) {
-                rugrats_render::models::model_triangles(m, g.rot, g.pos, &mut moving);
+                models::model_triangles(m, g.rot, g.pos, &mut moving);
             }
         }
         for n in &self.npcs {
-            crate::actors::npc::triangles(n, &self.set.models, &self.anims, &self.trig, &mut moving);
+            npc::triangles(n, &self.set.models, &self.anims, &self.trig, &mut moving);
         }
         let mut overlay = Vec::new();
         if let Some(s) = &self.script {
@@ -1270,7 +1278,7 @@ impl Game {
         // The health meter (levels 2-6, 9, 12, 14, 16: 0x8008c094's switch).
         if self.meter_shown > 0 && self.level.has_meter() {
             if let Some(s) = &self.sprites {
-                crate::ui::hud::meter(s, self.player.health, 255, self.focal, &mut overlay);
+                hud::meter(s, self.player.health, 255, self.focal, &mut overlay);
             }
         }
         self.stage.set_moving(moving);
@@ -1282,26 +1290,8 @@ impl Game {
             // pause page only (0x80090174).
             let page = self.pause.card.is_none();
             if let (Some(sp), true) = (&self.sprites, page) {
-                sp.draw(
-                    PIECE_ICON,
-                    (-192, 76),
-                    26.0,
-                    32.0,
-                    crate::ui::hud::METER_DEPTH,
-                    0.0,
-                    self.focal,
-                    &mut self.stage.overlay,
-                );
-                sp.draw(
-                    BAR_ICON,
-                    (192, 76),
-                    26.0,
-                    32.0,
-                    crate::ui::hud::METER_DEPTH,
-                    0.0,
-                    self.focal,
-                    &mut self.stage.overlay,
-                );
+                sp.draw(PIECE_ICON, (-192, 76), 26.0, 32.0, METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
+                sp.draw(BAR_ICON, (192, 76), 26.0, 32.0, METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
             }
             if page {
                 shadowed(&self.fonts, -160, 70, format!("{}", self.pieces), &mut self.stage.overlay);
@@ -1312,16 +1302,7 @@ impl Game {
             // (model 375).
             if let Some(t) = self.timer {
                 if let Some(sp) = &self.sprites {
-                    sp.draw(
-                        CLOCK_ICON,
-                        (-40, -96),
-                        24.0,
-                        24.0,
-                        crate::ui::hud::METER_DEPTH,
-                        0.0,
-                        self.focal,
-                        &mut self.stage.overlay,
-                    );
+                    sp.draw(CLOCK_ICON, (-40, -96), 24.0, 24.0, METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
                 }
                 shadowed(&self.fonts, -12, -100, format!("{}", t / 300), &mut self.stage.overlay);
             }
@@ -1335,16 +1316,7 @@ impl Game {
                     _ => ((-192, -76), (-150, -80)),
                 };
                 if let Some(sp) = &self.sprites {
-                    sp.draw(
-                        BAR_ICON,
-                        icon,
-                        26.0,
-                        32.0,
-                        crate::ui::hud::METER_DEPTH,
-                        0.0,
-                        self.focal,
-                        &mut self.stage.overlay,
-                    );
+                    sp.draw(BAR_ICON, icon, 26.0, 32.0, METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
                 }
                 shadowed(&self.fonts, text.0, text.1, format!("{}", self.bars), &mut self.stage.overlay);
             }

@@ -3,9 +3,14 @@
 //! In level 16 one freezes the player and the world until 1500 dt pass
 //! or Cross closes it; level 1 shows messages 33 and 35 without a freeze.
 
+use rugrats_render::Vtx;
+
+use crate::actors::player::DT;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::Level;
+use crate::ui::front;
+use crate::ui::text::{Fonts, Text};
 
 /// Messages 0-35: strings 237-272 (0x800bb89c).
 const COUNT: usize = 36;
@@ -32,7 +37,7 @@ impl Training {
     /// 0x80097664: every message once.
     pub fn load(disc: &GameDisc, level: Level) -> Training {
         let strings = if matches!(level, Level::HUB | Level::TRAINING) {
-            (0..COUNT as u32).map(|n| crate::ui::front::string(disc, FIRST_STRING + n)).collect()
+            (0..COUNT as u32).map(|n| front::string(disc, FIRST_STRING + n)).collect()
         } else {
             Vec::new()
         };
@@ -68,7 +73,7 @@ impl Training {
                     effects.push(CLOSE_SOUND);
                     *time = 0;
                 } else {
-                    *time -= crate::actors::player::DT;
+                    *time -= DT;
                 }
                 self.level != Level::HUB
             }
@@ -78,7 +83,7 @@ impl Training {
             }
             None => {
                 for c in self.cooldown.iter_mut() {
-                    *c = (*c - crate::actors::player::DT).max(0);
+                    *c = (*c - DT).max(0);
                 }
                 false
             }
@@ -87,13 +92,12 @@ impl Training {
 
     /// 0x80097314: the shadow, then the text. Level 16: font 1 centred on
     /// the screen; level 1: font 0 centred across at y -105.
-    pub fn draw(&self, fonts: &crate::ui::text::Fonts, out: &mut Vec<rugrats_render::Vtx>) {
+    pub fn draw(&self, fonts: &Fonts, out: &mut Vec<Vtx>) {
         let Some(s) = self.showing.and_then(|(n, time)| (time > 0).then(|| self.strings.get(n)).flatten()) else {
             return;
         };
         let (font, y, down) = if self.level == Level::HUB { (0, -105, false) } else { (1, 0, true) };
-        let mut t =
-            crate::ui::text::Text { font, spacing: 1, rgb: RGB, x: 0, y, string: s.clone(), ..Default::default() };
+        let mut t = Text { font, spacing: 1, rgb: RGB, x: 0, y, string: s.clone(), ..Default::default() };
         fonts.centre(&mut t, true, down);
         let mut shadow = t.clone();
         shadow.rgb = SHADOW;

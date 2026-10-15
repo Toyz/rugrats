@@ -7,13 +7,16 @@
 
 use rrt::glam::Vec3;
 use rugrats_data::hierarchy::Hierarchy;
+use rugrats_render::Vtx;
 
 use crate::actors::animator::Animator;
 use crate::actors::npc::Mode;
-use crate::actors::player::Pose;
+use crate::actors::player::{Pose, SLOW_TURN, State, TURN};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::{Collected, Exit, Game};
+use crate::levels::Level;
+use crate::world::game::goodie::BONE;
+use crate::world::game::{Collected, Exit, Game, Script};
 
 /// Ids: the tricycle, Angelica, Chuckie, Tommy, the net, the board.
 const TRIKE: u16 = 508;
@@ -121,7 +124,7 @@ impl Circus {
     /// (0x800585b0's swap).
     fn become_body(&self, g: &mut Game, b: usize, at: [i32; 3], heading: i32) {
         let (c, h, a) = (self.bodies[b].0, self.bodies[b].1.clone(), self.bodies[b].2.clone());
-        let turn = if matches!(c, 6 | 34) { crate::actors::player::SLOW_TURN } else { crate::actors::player::TURN };
+        let turn = if matches!(c, 6 | 34) { SLOW_TURN } else { TURN };
         g.player.set_body(h, a, turn, &g.anims);
         g.character = c;
         g.player.pos = at;
@@ -161,7 +164,7 @@ impl Circus {
     /// The bone to its group's spot (0x8004fe14(&bone, group, 1)).
     fn place_bone(&mut self, g: &mut Game) {
         let at = g.spots.iter().find(|s| s.group as usize == self.group).map(|s| s.pos);
-        if let (Some(at), Some(b)) = (at, g.goodies.iter_mut().find(|x| x.kind == crate::world::game::goodie::BONE)) {
+        if let (Some(at), Some(b)) = (at, g.goodies.iter_mut().find(|x| x.kind == BONE)) {
             b.pos = Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32);
             b.taken = false;
         }
@@ -190,23 +193,18 @@ impl Circus {
     fn lose_try(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
-            g.exit = Some(Exit::to(crate::levels::Level::HUB));
+            g.exit = Some(Exit::to(Level::HUB));
             return false;
         }
         true
     }
 
     fn landed(g: &Game) -> bool {
-        matches!(
-            g.player.state,
-            crate::actors::player::State::Stand
-                | crate::actors::player::State::Walk
-                | crate::actors::player::State::Run
-        )
+        matches!(g.player.state, State::Stand | State::Walk | State::Run)
     }
 }
 
-impl crate::world::game::Script for Circus {
+impl Script for Circus {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         g.npc_events.clear();
         match self.step {
@@ -214,7 +212,7 @@ impl crate::world::game::Script for Circus {
                 // 0x800514b0's level 11 path: each bone moves the next to the
                 // next stand; the twelfth wins the ring.
                 for Collected { kind, .. } in std::mem::take(&mut g.collected) {
-                    if kind == crate::world::game::goodie::BONE {
+                    if kind == BONE {
                         self.bones += 1;
                         if self.bones >= BONES {
                             g.timer = None;
@@ -417,7 +415,7 @@ impl crate::world::game::Script for Circus {
         true
     }
 
-    fn draw(&self, g: &Game, _moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
+    fn draw(&self, g: &Game, _moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         let Some(s) = &g.sprites else { return };
         let f = g.focal();
         match self.step {

@@ -3,13 +3,14 @@
 //! by bursts and breaking toys. Room 11's cine 46 hands over to Tommy, who
 //! stacks Reptar boxes to climb to the switch; its cine 47 wins.
 
+use rugrats_data::hierarchy::Hierarchy;
+
 use crate::actors::animator::Animator;
 use crate::actors::npc::{Event, Mode, Target};
-use crate::actors::player::Pose;
+use crate::actors::player::{Pose, State, TURN};
 use crate::disc::GameDisc;
 use crate::input::Pads;
-use crate::world::game::Game;
-use rugrats_data::hierarchy::Hierarchy;
+use crate::world::game::{Game, Script};
 
 /// Ids: Tommy, Chuckie, the guards and the clowns.
 const TOMMY: u16 = 1492;
@@ -43,11 +44,19 @@ struct Scary {
     damage: i32,
 }
 
+/// A timed burst placed: hurts every `period` frames within `reach`.
+#[derive(Clone, Copy, Debug)]
+struct Burst {
+    at: [i32; 3],
+    period: i32,
+    reach: i64,
+}
+
 pub struct ToyPalace {
     pub phase: u8,
     scary: Vec<Scary>,
     scared: bool,
-    bursts: Vec<([i32; 3], i32, i64)>,
+    bursts: Vec<Burst>,
     clock: i32,
     breakables: Vec<usize>,
     tommy: (Hierarchy, Animator),
@@ -88,7 +97,7 @@ impl ToyPalace {
                 scary.push(Scary { placement: k, pos: p.pos, radius, damage });
             }
             if let Some(&(_, period, reach)) = BURSTS.iter().find(|b| b.0 == p.template) {
-                bursts.push((p.pos, period, reach));
+                bursts.push(Burst { at: p.pos, period, reach });
             }
             if p.template == BREAKABLE {
                 breakables.push(k);
@@ -111,7 +120,7 @@ impl ToyPalace {
         let (here, heading) = (CHUCKIE_AFTER, g.player.heading);
         let there = TOMMY_AFTER;
         let (h, a) = self.tommy.clone();
-        g.player.set_body(h, a, crate::actors::player::TURN, &g.anims);
+        g.player.set_body(h, a, TURN, &g.anims);
         g.player.pos = there;
         g.character = 1;
         let n = &mut g.npcs[k];
@@ -131,7 +140,7 @@ impl ToyPalace {
     }
 }
 
-impl crate::world::game::Script for ToyPalace {
+impl Script for ToyPalace {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             if let Event::Bite { target: Target::Player, amount, .. } = e {
@@ -164,7 +173,7 @@ impl crate::world::game::Script for ToyPalace {
         }
         // Timed bursts: every period, 18 within reach (3D).
         self.clock += 1;
-        for &(at, period, reach) in &self.bursts {
+        for &Burst { at, period, reach } in &self.bursts {
             if self.clock % period == 0 && d2(at) <= reach * reach {
                 g.player.health = (g.player.health - BURST_HURT).max(0);
                 g.play(79);
@@ -172,12 +181,7 @@ impl crate::world::game::Script for ToyPalace {
         }
         // Breaking toys (0x8005ac98): standing on one breaks it.
         let feet = p[1] - g.player.feet();
-        let on_ground = matches!(
-            g.player.state,
-            crate::actors::player::State::Stand
-                | crate::actors::player::State::Walk
-                | crate::actors::player::State::Run
-        );
+        let on_ground = matches!(g.player.state, State::Stand | State::Walk | State::Run);
         if on_ground {
             let under = self.breakables.iter().position(|&k| {
                 let q = g.set.placements[k];

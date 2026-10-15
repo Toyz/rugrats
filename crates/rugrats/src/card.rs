@@ -29,6 +29,8 @@ pub const SAVE_SIZE: usize = 0x1590;
 pub const WORDS: usize = SAVE_SIZE / 4;
 /// A record's place and size in the save; record 0 is the save's header.
 pub const RECORD: usize = 344;
+/// The game state a record holds (0x800c5678, 328 bytes).
+pub const STATE_SIZE: usize = 328;
 pub const RECORDS: usize = 16;
 
 /// What the card code takes from the executable.
@@ -152,6 +154,30 @@ impl Save {
 
     pub fn to_bytes(&self) -> Vec<u8> {
         self.words.iter().flat_map(|w| w.to_le_bytes()).collect()
+    }
+
+    /// Record `k`'s game state (1-15), when its bit in word 1 is set.
+    pub fn record(&self, k: usize) -> Option<[u8; STATE_SIZE]> {
+        if k == 0 || k >= RECORDS || self.words[1] >> k & 1 == 0 {
+            return None;
+        }
+        let b = self.to_bytes();
+        b.get(RECORD * k + 0x20..RECORD * k + 0x20 + STATE_SIZE)?.try_into().ok()
+    }
+
+    /// Writes record `k` (1-15): its name ("GAME %d") and the game state,
+    /// marks it used and last saved (words 1, 3), and seals.
+    pub fn put_record(&mut self, k: usize, state: &[u8; STATE_SIZE]) {
+        let mut b = self.to_bytes();
+        let at = RECORD * k;
+        let name = format!("GAME {k}");
+        b[at + 0x14..at + 0x20].fill(0);
+        b[at + 0x14..at + 0x14 + name.len()].copy_from_slice(name.as_bytes());
+        b[at + 0x20..at + 0x20 + STATE_SIZE].copy_from_slice(state);
+        *self = Save::from_bytes(&b).unwrap();
+        self.words[1] |= 1 << k;
+        self.words[3] = k as u32;
+        self.seal();
     }
 
     fn record_sum(&self, k: usize) -> u32 {

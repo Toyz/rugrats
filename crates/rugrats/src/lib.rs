@@ -2,6 +2,7 @@
 //! `rugrats` program runs and the tests check against the original.
 
 pub mod animator;
+pub mod progress;
 pub mod card;
 pub mod cine;
 pub mod collide;

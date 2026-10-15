@@ -487,6 +487,8 @@ pub enum Outcome {
     /// A game mode chosen (stored to 0x800c5678): 1 the main game, 16
     /// training.
     Play(u8),
+    /// Load Game (0x800398bc(8, 1, 0, 0)): the save's last record.
+    Load,
 }
 
 /// What a chosen item leads to, once its items have slid away.
@@ -778,6 +780,9 @@ impl Title {
                 self.chosen = 0;
                 self.draw(true);
                 return None;
+            }
+            if action == Action::LoadGame {
+                return Some(Outcome::Load);
             }
             rrt::tracing::info!("title: {action:?} is not ported yet");
             // As if it came back with nothing: the menu again (0x8003d5a0).

@@ -120,3 +120,23 @@ fn the_empty_save_file_matches_the_originals() {
     assert!(cards.load(0, &art).is_some_and(|s| s.check()));
     assert!(!cards.present(1));
 }
+
+/// A game state put in a record comes back from the file's bytes, and the
+/// sums hold.
+#[test]
+fn a_record_round_trips() {
+    let mut p = rugrats::progress::Progress::default();
+    p.enter(2);
+    p.find_bar(2, 3);
+    p.find_bar(2, 6);
+    let mut save = rugrats::card::Save::default();
+    save.put_record(1, &p.block);
+    assert!(save.check());
+    let back = rugrats::card::Save::from_bytes(&save.to_bytes()).unwrap();
+    assert_eq!(back.record(1), Some(p.block));
+    assert_eq!(back.words[3], 1);
+    let q = rugrats::progress::Progress { block: back.record(1).unwrap() };
+    assert!(q.bar_found(2, 3) && q.bar_found(2, 6) && !q.bar_found(2, 4));
+    assert_eq!(q.bars_available(), 2);
+    assert_eq!(q.level(), 2);
+}

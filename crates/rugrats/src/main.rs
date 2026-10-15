@@ -71,6 +71,8 @@ struct Rugrats {
     /// The song set loaded (the menu's, a level's).
     songs: Option<sound::Loaded>,
     effect_table: Vec<[u8; 3]>,
+    /// The game state (0x800c5678), what a save holds.
+    progress: rugrats::progress::Progress,
     /// The level last played (state +0x04), for the hub's return spot.
     level: Option<usize>,
     /// Levels whose start cinematic has played (state +0x30's bits).
@@ -104,6 +106,7 @@ impl Rugrats {
             effect_table,
             seen: Default::default(),
             level: None,
+            progress: Default::default(),
             _audio: audio,
             world: None,
             rand: Default::default(),
@@ -203,7 +206,8 @@ impl Rugrats {
 
     fn game(&mut self, mode: usize, _now: u64) -> Boot {
         let from = self.level.replace(mode);
-        match Level::open_from(&self.disc, mode, from) {
+        self.progress.enter(mode);
+        match Level::open_from(&self.disc, mode, from, &self.progress) {
             Ok(game) => {
                 self.world = None;
                 // The level's song set (0x80017c0c, 0x8006e96c), and for
@@ -336,7 +340,24 @@ impl Game for Rugrats {
                             spu.effect(&self.effect_table, s as usize, sound::EFFECTS_VOLUME);
                         }
                     }
-                    if let Some(Outcome::Play(mode)) = outcome {
+                    if outcome == Some(Outcome::Load) {
+                        // The last record saved (word 3), else the first.
+                        let cards = rugrats::card::Cards::default();
+                        let state = cards.load(0, &self.disc.card).and_then(|s| s.record((s.words[3] as usize).max(1)).or_else(|| s.record(1)));
+                        match state {
+                            Some(block) => {
+                                self.progress = rugrats::progress::Progress { block };
+                                self.stop_song();
+                                let level = rugrats::game::HUB;
+                                self.seen.insert(level);
+                                self.boot = self.enter(level, now);
+                            }
+                            None => rrt::tracing::info!("load: no saved game on the card in slot 1"),
+                        }
+                    } else if let Some(Outcome::Play(mode)) = outcome {
+                        if mode == rugrats::front::MAIN_GAME {
+                            self.progress = Default::default();
+                        }
                         self.stop_song();
                         rrt::tracing::info!("title: game mode {mode}");
                         self.boot = self.enter(mode as usize, now);
@@ -353,6 +374,19 @@ impl Game for Rugrats {
                     if let Ok(mut spu) = self.spu.lock() {
                         for &(e, v) in &game.effects {
                             spu.effect(&self.effect_table, e as usize, v);
+                        }
+                    }
+                    for &n in &game.found {
+                        self.progress.find_bar(game.level, n);
+                    }
+                    if std::mem::take(&mut game.save) {
+                        let cards = rugrats::card::Cards::default();
+                        let mut save = cards.load(0, &self.disc.card).unwrap_or_default();
+                        let k = (save.words[3] as usize).clamp(1, rugrats::card::RECORDS - 1);
+                        save.put_record(k, &self.progress.block);
+                        match cards.store(0, &self.disc.card, &save) {
+                            Ok(()) => rrt::tracing::info!("saved to GAME {k} on the card in slot 1"),
+                            Err(e) => rrt::tracing::error!("save: {e}"),
                         }
                     }
                     if let Some(song) = game.song.take().and_then(|n| self.songs.as_ref().and_then(|l| l.songs.get(n)))

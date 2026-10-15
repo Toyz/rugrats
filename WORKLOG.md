@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-30 entries: audio 6, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 5, render 9, save 1, test 9, tooling 15, ui 6, video 8.
+31 entries: audio 6, bug 1, build 3, content 1, decomp 13, design 1, disc 1, engine 9, format 9, input 4, play 6, render 9, save 2, test 9, tooling 15, ui 7, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -42,3 +42,4 @@ The [reference](docs/README.md) says what is true now.
 | 28 | [Play: the hub and levels, Tommy running, jumping and colliding](worklog/0028-play-the-hub-and-levels-tommy-running-jumping-and-colliding.md) | 2026-10-15 | play, engine |
 | 29 | [Characters, cinematics between levels, room music](worklog/0029-characters-cinematics-between-levels-room-music.md) | 2026-10-15 | play, audio, video |
 | 30 | [Hint cards, carrying and throwing](worklog/0030-hint-cards-carrying-and-throwing.md) | 2026-10-15 | play, ui |
+| 31 | [Pause menu, collectibles, progress and saving](worklog/0031-pause-menu-collectibles-progress-and-saving.md) | 2026-10-15 | play, save, ui |

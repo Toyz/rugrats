@@ -77,12 +77,17 @@ pub struct Game {
     pub goodies: Vec<Goodie>,
     pub bars: u32,
     bar_shown: i32,
+    /// Bars found this frame (0x80094a58), and a save asked for.
+    pub found: Vec<usize>,
+    pub save: bool,
     carried: Option<usize>,
     grip: Vec3,
 }
 
 /// A collectible (0x80048a44, touched by 0x800514b0).
 pub struct Goodie {
+    /// A bar's number in its level.
+    pub number: usize,
     pub shape: u32,
     pub kind: u16,
     pub pos: Vec3,
@@ -155,13 +160,13 @@ pub const HUB: usize = 1;
 
 impl Game {
     pub fn open(disc: &GameDisc, level: usize) -> Result<Game, String> {
-        Game::open_from(disc, level, None)
+        Game::open_from(disc, level, None, &crate::progress::Progress::default())
     }
 
     /// Level `level`, come to from level `from`: back in the hub the
     /// player stands at 0x800b8718[from] (16 bytes: x, y, z), as level 1's
     /// EpisodeStart callback (0x80078e7c) puts it, unless from training.
-    pub fn open_from(disc: &GameDisc, level: usize, from: Option<usize>) -> Result<Game, String> {
+    pub fn open_from(disc: &GameDisc, level: usize, from: Option<usize>, progress: &crate::progress::Progress) -> Result<Game, String> {
         let set = Set::load(disc, level)?;
         let col = Col::parse(&disc.file(COL + level)?)?;
         let anims = Anims::parse(&disc.file(ANM + level)?, &disc.file(FRM + level)?, &disc.file(ROT + level)?)
@@ -232,17 +237,28 @@ impl Game {
             let p = &set.placements[k];
             p.kind == 1 && !character(k) && set.templates.get(p.template as usize).is_some_and(|t| t.raw[4] == 12 && set.models.find(t.shape as u32) != 0)
         };
+        // Bars are numbered in the order they are made (0x800c4ba8); a bar
+        // found before stays found (+0x48).
+        let mut bar = 0usize;
         let goodies: Vec<Goodie> = (0..set.placements.len())
             .filter(|&k| collectible(k))
             .map(|k| {
                 let p = &set.placements[k];
                 let t = &set.templates[p.template as usize];
+                let kind = u16::from_le_bytes([t.raw[0x26], t.raw[0x27]]);
+                let number = if kind == goodie::BAR {
+                    bar += 1;
+                    bar - 1
+                } else {
+                    0
+                };
                 Goodie {
+                    number,
+                    taken: kind == goodie::BAR && progress.bar_found(level, number),
                     shape: t.shape as u32,
-                    kind: u16::from_le_bytes([t.raw[0x26], t.raw[0x27]]),
+                    kind,
                     pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
                     rot: rugrats_render::models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
-                    taken: false,
                 }
             })
             .collect();
@@ -300,6 +316,8 @@ impl Game {
             goodies,
             bars: 0,
             bar_shown: 0,
+            found: Vec::new(),
+            save: false,
             carried: None,
             grip: Vec3::ZERO,
         };
@@ -394,6 +412,7 @@ impl Game {
 
     /// Touching collectibles (0x800514b0): taken, with their kind's sound.
     fn touch(&mut self) {
+        self.found.clear();
         self.bar_shown = (self.bar_shown - crate::player::DT).max(0);
         let me = Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32);
         for g in self.goodies.iter_mut().filter(|g| !g.taken) {
@@ -405,6 +424,7 @@ impl Game {
                 if g.kind == goodie::BAR {
                     self.bars += 1;
                     self.bar_shown = COUNTER_TIME;
+                    self.found.push(g.number);
                 }
             }
         }
@@ -486,6 +506,7 @@ impl Game {
             match self.pause.frame(pads) {
                 Some(PauseEnd::Continue) => self.paused = false,
                 Some(PauseEnd::QuitGame) => self.quit = true,
+                Some(PauseEnd::Save) => self.save = true,
                 // Quit Level: to Pickles' Home, or the front end from the
                 // hub and training (0x800398bc).
                 Some(PauseEnd::QuitLevel) => {
@@ -685,6 +706,8 @@ fn world_boxes(m: &rugrats_data::model::Model, rot: Mat3, pos: Vec3) -> Vec<crat
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PauseEnd {
     Continue,
+    /// Save Game (state 3, 0x80070d80): the menu stays.
+    Save,
     QuitGame,
     QuitLevel,
 }
@@ -768,7 +791,8 @@ impl Pause {
             match self.cursor {
                 1 => return Some(PauseEnd::Continue),
                 3 | 5 => self.confirm = Some((self.cursor, false)),
-                _ => rrt::tracing::info!("pause: saving and loading are not ported yet"),
+                2 => return Some(PauseEnd::Save),
+                _ => rrt::tracing::info!("pause: loading in play is not ported yet"),
             }
         }
         None

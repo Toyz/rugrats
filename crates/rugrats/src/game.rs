@@ -62,6 +62,8 @@ pub struct Game {
     /// Sound effects asked for this frame, with their volume (0x8006f644:
     /// the effects setting, less with distance from the camera).
     pub effects: Vec<(u8, i32)>,
+    /// Paused (Start, 0x80018c38 step 13): the world holds still.
+    pub paused: bool,
 }
 
 /// A placed character, standing (its think and AI are not ported).
@@ -135,7 +137,7 @@ impl Game {
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let yaw = heading as f32;
         let boxes = object_boxes(&set, |k| character(k));
-        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None, boxes, npcs, room: None, song: None, effects: Vec::new() };
+        let mut g = Game { level, set, col, anims, player, stage, trig, focal, eye: Vec3::ZERO, yaw, scenery, exit: None, boxes, npcs, room: None, song: None, effects: Vec::new(), paused: false };
         g.eye = g.eye_goal();
         g.draw();
         Ok(g)
@@ -199,6 +201,12 @@ impl Game {
     /// One frame of the level (0x80018c38): the player, then the camera,
     /// then the draw.
     pub fn frame(&mut self, pads: &Pads) {
+        if pads.pressed(0, input::START) {
+            self.paused = !self.paused;
+        }
+        if self.paused {
+            return;
+        }
         self.player.frame(pads, self.yaw.round() as i32, &self.col, &self.boxes, &self.anims, &self.trig);
         let d = (self.eye - Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32)).length();
         let volume = (crate::sound::EFFECTS_VOLUME as f32 * (1.0 - d / 16384.0).max(0.0)) as i32;

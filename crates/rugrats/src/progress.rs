@@ -155,6 +155,10 @@ impl Progress {
         self.u32(0x30)
     }
 
+    pub fn set_flags(&mut self, f: u32) {
+        self.set_u32(0x30, f);
+    }
+
     /// Activity play (+0x21): one level from the Activities menu.
     pub fn activity(&self) -> bool {
         self.block[0x21] != 0

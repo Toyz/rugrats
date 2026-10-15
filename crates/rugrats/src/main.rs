@@ -84,7 +84,6 @@ struct Rugrats {
     /// The level last played (state +0x04), for the hub's return spot.
     level: Option<usize>,
     /// Levels whose start cinematic has played (state +0x30's bits).
-    seen: std::collections::HashSet<usize>,
     /// Kept so the sound plays; None headless or with no device.
     _audio: Option<Output>,
     /// The game's rand, which the babies and the chooser share.
@@ -112,7 +111,6 @@ impl Rugrats {
             spu,
             songs: None,
             effect_table,
-            seen: Default::default(),
             level: None,
             progress: Default::default(),
             _audio: audio,
@@ -188,10 +186,26 @@ impl Rugrats {
     }
 
     /// Game mode `mode`: for now its database of the same number.
-    /// Level `level`, its start cinematic first unless already seen.
+    /// Level `level`, its start cinematic first (0x80074958): level 1's
+    /// "Reptar Puzzle" once (+0x30 bit 4), giving the first piece; level
+    /// 2's until its checkpoint (bit 2).
     fn enter(&mut self, level: usize, now: u64) -> Boot {
-        let cine = rugrats::game::start_cine(level).filter(|_| !(self.seen.contains(&level) && matches!(level, 1 | 2)));
-        self.seen.insert(level);
+        // A new level starts without its checkpoint (+0x30 bits 1, 2).
+        if self.level != Some(level) {
+            self.progress.set_flags(self.progress.flags() & !3);
+        }
+        let flags = self.progress.flags();
+        let cine = rugrats::game::start_cine(level).filter(|_| match level {
+            1 => flags & 4 == 0,
+            2 => flags & 2 == 0,
+            _ => true,
+        });
+        if level == 1 && cine.is_some() {
+            self.progress.set_flags(flags | 4);
+            if self.progress.give_piece(1, &mut self.rand) {
+                self.progress.place_earned();
+            }
+        }
         match cine {
             Some(n) => self.scene(n, level, Then::Level(level), now),
             None => self.game(level, now),
@@ -371,7 +385,6 @@ impl Game for Rugrats {
                                 self.progress = rugrats::progress::Progress { block };
                                 self.stop_song();
                                 let level = rugrats::game::HUB;
-                                self.seen.insert(level);
                                 self.boot = self.enter(level, now);
                             }
                             None => rrt::tracing::info!("load: no saved game on the card in slot 1"),
@@ -464,7 +477,6 @@ impl Game for Rugrats {
                         let here = game.level;
                         self.boot = match cine {
                             Some(n) => {
-                                self.seen.insert(level);
                                 self.scene(n, here, Then::Level(level), now)
                             }
                             None => self.enter(level, now),

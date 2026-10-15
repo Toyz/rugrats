@@ -4,6 +4,7 @@
 
 pub mod bs;
 pub mod files;
+pub mod hierarchy;
 pub mod level;
 pub mod mdec;
 pub mod model;

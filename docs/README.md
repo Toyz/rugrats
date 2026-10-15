@@ -26,6 +26,7 @@ The containers and record layouts.
 | --- | --- | --- | --- |
 | [BS still pictures](formats/bs.md) | partial | US | US /DATA/MENU/TIMS/LEGAL512.BS, US /DATA/MENU/TIMS/THQ512.BS, US /DATA/MENU/TIMS/NICK512.BS, US /DATA/MENU/TIMS/NSPAC512.BS, US /DATA/MENU/TIMS/E3SCR512.BS, US SLUS_006.50:0x80030010, US SLUS_006.50:0x800c1f20 |
 | [The file table in the executable](formats/file-table.md) | partial | US | US SLUS_006.50:0x800b2c40, US SLUS_006.50:0x80019794, US SLUS_006.50:0x80019a04 |
+| [DBnnHIE.BIN, a database's hierarchies](formats/hie.md) | partial | US | US /DATA/DB22/DB22HIE.BIN, US SLUS_006.50:0x80044e7c, US SLUS_006.50:0x8003205c, US SLUS_006.50:0x8004500c |
 | [LEVELnn.BIN, a database's rooms](formats/level.md) | partial | US | US /DATA/DB00/LEVEL00.BIN, US SLUS_006.50:0x8002a208, US SLUS_006.50:0x800b6e98 |
 | [DBnnMOD.BIN, a database's models](formats/mod.md) | partial | US | US /DATA/DB22/DB22MOD.BIN, US SLUS_006.50:0x80044d00, US SLUS_006.50:0x80044c98, US SLUS_006.50:0x80010000, US SLUS_006.50:0x80031b84 |
 | [STR movies](formats/str.md) | partial | US | US /DATA/OPEN/THQ_LOGO.STR, US /DATA/OPEN/NICKLOGO.STR, US /DATA/OPEN/LOGOXA.STR, US /DATA/OPEN/DEMO01.STR, US /DATA/OPEN/DEMO02.STR, US /DATA/OPEN/DEMO03.STR, US /DATA/OPEN/CREDITS.STR, US SLUS_006.50:0x800bae4c |

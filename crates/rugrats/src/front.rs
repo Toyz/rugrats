@@ -119,6 +119,32 @@ pub fn menu_items(fonts: &Fonts, strings: [String; 3]) -> Vec<Text> {
         .collect()
 }
 
+/// The Activities menu's items: font 1, sliding up into two columns.
+pub fn activity_items(fonts: &Fonts, strings: &[String; 4]) -> Vec<Text> {
+    strings
+        .iter()
+        .zip(ACTIVITY_AT)
+        .enumerate()
+        .map(|(k, (s, (x, y)))| {
+            let _ = fonts;
+            Text {
+                font: 1,
+                spacing: 1,
+                string: s.clone(),
+                x,
+                y: 200 + 50 * (k as i16 % 2),
+                target: (x, y),
+                rest: (x, y),
+                speed: (0, 12),
+                count: (0, 4),
+                rgb: [255, 255, 255],
+                flags: text::SLIDE_Y | text::WOBBLE,
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
 /// A menu item drawn as the menu draws them (0x80035ab8): its shadow
 /// first, black, two pixels down and right, then the item, yellow when
 /// chosen.
@@ -157,7 +183,16 @@ pub enum Menu {
     Main,
     /// 0x8003cf80.
     StartGame,
+    /// 0x8003b7bc.
+    Activities,
 }
+
+/// The Activities menu's items (0x800bb6a4..b0), where they sit, and
+/// what they play (0x80013030: Cookie Race 13, Gold Rush 17, Mini-Golf
+/// -2 (its course menu 0x80096134; for now golf level 23), Egg Hunt 18).
+const ACTIVITY_STRINGS: [u32; 4] = [0x800b_b6a4, 0x800b_b6a8, 0x800b_b6ac, 0x800b_b6b0];
+const ACTIVITY_AT: [(i16, i16); 4] = [(-225, 50), (-225, 75), (80, 50), (80, 75)];
+const ACTIVITY_LEVELS: [u8; 4] = [13, 17, 23, 18];
 
 /// Database 0's models (file 242 + 0) and the sign among them.
 const DB00_MOD: usize = 242;
@@ -527,6 +562,7 @@ pub struct Title {
     pub leaving: Option<Action>,
     strings: [String; 3],
     start_strings: [String; 3],
+    activity_strings: [String; 4],
     pub menu: Menu,
     /// What the Start Game menu's items sliding away end with.
     start_leaving: Option<Option<u8>>,
@@ -701,6 +737,7 @@ impl Title {
         let projection = trig.geom_screen(FOV).ok_or("no projection")? as f32;
         let strings = ITEM_STRINGS.map(|a| disc.exe_string_at(a).unwrap_or_default());
         let start_strings = START_STRINGS.map(|a| disc.exe_string_at(a).unwrap_or_default());
+        let activity_strings = ACTIVITY_STRINGS.map(|a| disc.exe_string_at(a).unwrap_or_default());
         let items = menu_items(&fonts, strings.clone());
         let mut stage = crate::stage::Stage::new(vram, Vec::new());
         stage.camera = crate::stage::view(CAMERA.into(), rrt::glam::Mat3::IDENTITY, projection);
@@ -735,6 +772,7 @@ impl Title {
             leaving: None,
             strings,
             start_strings,
+            activity_strings,
             menu: Menu::Main,
             start_leaving: None,
             countdown: COUNTDOWN,
@@ -790,6 +828,9 @@ impl Title {
             self.countdown = COUNTDOWN;
             self.draw(true);
             return None;
+        }
+        if self.menu == Menu::Activities {
+            return self.activities_frame(pads, rng);
         }
         if self.menu == Menu::StartGame {
             return self.start_frame(pads, rng);
@@ -889,7 +930,10 @@ impl Title {
                 0 => Some(Some(MAIN_GAME)),
                 2 => Some(Some(TRAINING)),
                 _ => {
-                    rrt::tracing::info!("title: Activities is not ported yet");
+                    // 0x8003b7bc: its own four items, sliding in.
+                    self.menu = Menu::Activities;
+                    self.items = activity_items(&self.fonts, &self.activity_strings);
+                    self.chosen = 0;
                     None
                 }
             }
@@ -903,6 +947,58 @@ impl Title {
                     b.state = 8;
                 }
             }
+            self.slide_away();
+        }
+        self.menu_frame(rng);
+        None
+    }
+
+    /// One frame of the Activities menu (0x8003b7bc): Down or Select and
+    /// Up step through the four, Left and Right change column; Cross
+    /// plays one, Triangle goes back to Start Game.
+    fn activities_frame(&mut self, pads: &crate::input::Pads, rng: &mut crate::rand::Rand) -> Option<Outcome> {
+        use crate::input::*;
+        if let Some(end) = self.start_leaving {
+            self.menu_frame(rng);
+            if self.items.iter().any(|t| t.flags & text::SLIDE_Y != 0) {
+                return None;
+            }
+            self.start_leaving = None;
+            return match end {
+                Some(level) => Some(Outcome::Play(level)),
+                None => {
+                    self.menu = Menu::StartGame;
+                    self.items = menu_items(&self.fonts, self.start_strings.clone());
+                    self.chosen = 1;
+                    self.draw(true);
+                    None
+                }
+            };
+        }
+        let pressed = |b: usize| pads.pressed(0, b);
+        if pressed(DOWN) || pressed(SELECT) {
+            self.sounds.push(sound::DOWN);
+            self.chosen = (self.chosen + 1) % 4;
+        }
+        if pressed(UP) {
+            self.sounds.push(sound::UP);
+            self.chosen = (self.chosen + 3) % 4;
+        }
+        if pressed(LEFT) || pressed(RIGHT) {
+            self.sounds.push(sound::DOWN);
+            self.chosen = (self.chosen + 2) % 4;
+        }
+        let end = if pressed(TRIANGLE) {
+            self.sounds.push(sound::LEAVE);
+            Some(None)
+        } else if pressed(CROSS) {
+            self.sounds.push(sound::PICK);
+            Some(Some(ACTIVITY_LEVELS[self.chosen]))
+        } else {
+            None
+        };
+        if let Some(end) = end {
+            self.start_leaving = Some(end);
             self.slide_away();
         }
         self.menu_frame(rng);

@@ -223,6 +223,8 @@ pub struct Game {
     /// Screens a level asks for (the golf box), shown with the level
     /// frozen.
     pub pages: Vec<crate::screens::Page>,
+    /// The training messages (levels 1 and 16).
+    pub training: crate::training::Training,
 }
 
 /// A moving platform (0x80048804, think 0x8004ee00): per axis it steps by
@@ -417,6 +419,13 @@ const USE_REACH: i32 = 1500;
 const USE_REACH_Y: i32 = 1500;
 /// The hub, Pickles' home.
 pub const HUB: usize = 1;
+/// The pie (template 564) and training's box (1016) for the messages.
+const PIE: u16 = 564;
+const HIGH_BOX: u16 = 1016;
+/// Using these shows message 34 (training's hub door objects) or 33 (the
+/// hub's locked doors) (0x8004d49c).
+const EPISODE_OBJECTS: [u32; 2] = [111, 441];
+const LOCKED_OBJECTS: [u32; 3] = [117, 715, 720];
 
 impl Game {
     pub fn open(disc: &GameDisc, level: usize) -> Result<Game, String> {
@@ -741,11 +750,13 @@ impl Game {
             fourth_bar: false,
             activity: progress.activity(),
             flags: progress.flags(),
+            training: crate::training::Training::load(disc, level),
         };
         g.hazards = hazards(&g.set, &g.apart);
         g.script = match level {
             2 => Some(Box::new(crate::level2::Level2::start(&mut g, disc)?)),
             3 => Some(Box::new(crate::level3::Level3::start(&mut g, disc)?)),
+            16 => Some(Box::new(crate::level16::Level16::start(&mut g, disc)?)),
             4 => Some(Box::new(crate::level4::Level4::start(&mut g, disc)?)),
             5 => Some(Box::new(crate::level5::Level5::start(&mut g, disc)?)),
             6 => Some(Box::new(crate::level6::Level6::start(&mut g, disc)?)),
@@ -767,6 +778,31 @@ impl Game {
         g.eye = g.eye_goal();
         g.draw();
         Ok(g)
+    }
+
+    /// How far `y` is from a placed object's model in height (0 inside
+    /// it): a door hung high is used from the floor below.
+    fn use_dy(&self, d: &rugrats_data::placement::Placement, y: i32) -> i32 {
+        let span = self
+            .set
+            .templates
+            .get(d.template as usize)
+            .and_then(|t| self.set.models.get(t.shape as u32).filter(|_| self.set.models.has(t.shape as u32)))
+            .and_then(|m| Some((m.boxes.iter().map(|b| b.0[1]).min()?, m.boxes.iter().map(|b| b.1[1]).max()?)));
+        let (lo, hi) = span.map_or((d.pos[1], d.pos[1]), |(a, b)| (d.pos[1] + a as i32, d.pos[1] + b as i32));
+        if y < lo {
+            lo - y
+        } else if y > hi {
+            y - hi
+        } else {
+            0
+        }
+    }
+
+    /// Sets the player's room without entering it (a level moving the
+    /// player).
+    pub fn set_room(&mut self, room: Option<usize>) {
+        self.room = room;
     }
 
     /// The player's room (0x8002b660, here by the rooms' bounds, the one
@@ -820,9 +856,12 @@ impl Game {
                 _ => {}
             }
         }
-        // Flag 64: the level's Gameplay script, once (0x80077ee4).
+        // Flag 64: the level's Gameplay script, once (0x80077ee4); level
+        // 16's room keeps it (0x800789e4 never sets +0x11).
         if r.flags & 64 != 0 {
-            self.set.room_info[k].flags &= !64;
+            if self.level != 16 {
+                self.set.room_info[k].flags &= !64;
+            }
             self.with_script(|s, g| s.gameplay(g, r.script));
         }
     }
@@ -978,6 +1017,9 @@ impl Game {
         let me = Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32);
         let rot = p.rotation(&self.trig);
         if let Some(k) = self.carried {
+            // The carry's animation done (0x80060b44): message 6, 27 for
+            // the pie.
+            self.training.show(if self.things[k].template == PIE { 27 } else { 6 });
             let throw = pads.pressed(0, input::TRIANGLE) && !self.things[k].keep;
             // GRAB never puts down in levels 5, 20 and 21 (0x8005d11c).
             let put_down = pads.pressed(0, input::CIRCLE) && !matches!(self.level, 5 | 20 | 21);
@@ -999,6 +1041,9 @@ impl Game {
                 self.player.act(anim, &self.anims);
                 if throw {
                     self.player.jump_lock = 300;
+                } else if self.things[k].template == HIGH_BOX {
+                    // Put down (0x80060910): message 8.
+                    self.training.show(8);
                 }
             }
             return;
@@ -1032,6 +1077,8 @@ impl Game {
         self.carried = Some(k);
         self.player.carrying = true;
         self.player.act(crate::player::anim::PICK_UP, &self.anims);
+        // The grab (0x800601e4): message 5.
+        self.training.show(5);
     }
 
     /// Touching collectibles (0x800514b0): taken, with their kind's sound.
@@ -1051,6 +1098,12 @@ impl Game {
                 // Cookies and bones heal by their +0x6d (0x800514b0).
                 if matches!(g.kind, goodie::COOKIE | goodie::BONE) {
                     self.player.health = (self.player.health + g.value).min(255);
+                }
+                // Messages 3 (a bar) and 7 (a cookie).
+                match g.kind {
+                    goodie::BAR => self.training.show(3),
+                    goodie::COOKIE => self.training.show(7),
+                    _ => {}
                 }
                 if g.kind == goodie::BAR {
                     self.bars += 1;
@@ -1212,6 +1265,7 @@ impl Game {
     /// then the draw.
     pub fn frame(&mut self, pads: &Pads) {
         self.frames = self.frames.wrapping_add(1);
+        self.effects.clear();
         if !self.paused && pads.pressed(0, input::START) {
             self.paused = true;
             self.pause.open();
@@ -1249,6 +1303,14 @@ impl Game {
                 self.crying = 0;
                 self.cried();
             }
+            self.draw();
+            return;
+        }
+        // A training message (0x80097584): no player or world update, the
+        // level timer stopped; the camera and drawing go on.
+        let mut closed = Vec::new();
+        if self.training.frame(pads, &mut closed) {
+            self.effects.extend(closed.into_iter().map(|e| (e, crate::sound::EFFECTS_VOLUME)));
             self.draw();
             return;
         }
@@ -1302,22 +1364,40 @@ impl Game {
                 min_y: (feet - 700.0) as i32,
                 max_y: feet as i32,
                 climb: false,
+                character: true,
             });
         }
         self.player.frame(pads, self.yaw.round() as i32, &self.col, &boxes, &self.anims, &self.trig);
+        for n in std::mem::take(&mut self.player.hints) {
+            self.training.show(n as usize);
+        }
         self.carry(pads);
         self.fly();
         self.touch();
         let d = (self.eye - Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32))
             .length();
         let volume = (crate::sound::EFFECTS_VOLUME as f32 * (1.0 - d / 16384.0).max(0.0)) as i32;
-        self.effects = self.player.effects.iter().map(|&e| (e, volume)).collect();
+        self.effects.extend(closed.into_iter().map(|e| (e, crate::sound::EFFECTS_VOLUME)));
+        self.effects.extend(self.player.effects.iter().map(|&e| (e, volume)));
         // Using an object (the stand handler's ACTION, Triangle, on the
         // touched object): a door (use 0x8004f78c, LP +0x42) goes to its
         // level; one with only a cinematic (0x8004f83c, LP +0x44, made by
         // 0x8004691c: 16 is played as 14, template 567 is 8) plays it.
         if pads.pressed(0, input::TRIANGLE) && !self.player.carrying && self.carried.is_none() {
             let p = self.player.pos;
+            // Messages 34 and 33 (0x8004d49c); in training these objects
+            // do nothing else.
+            let hint = self.set.placements.iter().find(|d| {
+                d.kind == 1
+                    && (EPISODE_OBJECTS.contains(&d.template) || LOCKED_OBJECTS.contains(&d.template))
+                    && (d.pos[0] - p[0]).abs() < USE_REACH
+                    && (d.pos[2] - p[2]).abs() < USE_REACH
+                    && self.use_dy(d, p[1]) < USE_REACH_Y
+            });
+            if let Some(d) = hint {
+                self.training.show(if EPISODE_OBJECTS.contains(&d.template) { 34 } else { 33 });
+            }
+            let training_object = |d: &rugrats_data::placement::Placement| self.level == 16 && EPISODE_OBJECTS.contains(&d.template);
             let mirror = |d: &rugrats_data::placement::Placement| matches!(d.template, MIRROR_A | MIRROR_B);
             let flag16 = self.flags & 16 != 0;
             let cine_of = |d: &rugrats_data::placement::Placement| match (d.cine, d.template) {
@@ -1333,6 +1413,7 @@ impl Game {
                 .filter(|(k, d)| {
                     d.kind == 1
                         && !self.apart[*k]
+                        && !training_object(d)
                         && (d.level > 0 || cine_of(d) > 0 || d.template == BOARD_OBJECT || mirror(d))
                         && (!mirror(d) || flag16)
                         && !self.unusable.contains(k)
@@ -1343,7 +1424,7 @@ impl Game {
             if let Some(d) = near.filter(|d| {
                 (d.pos[0] - p[0]).abs() < USE_REACH
                     && (d.pos[2] - p[2]).abs() < USE_REACH
-                    && (d.pos[1] - p[1]).abs() < USE_REACH_Y
+                    && self.use_dy(d, p[1]) < USE_REACH_Y
             }) {
                 if d.template == BOARD_OBJECT {
                     self.board = true;
@@ -1508,6 +1589,8 @@ impl Game {
                 }
                 shadowed(&self.fonts, text.0, text.1, format!("{}", self.bars), &mut self.stage.overlay);
             }
+            // The training message, after the HUD (0x80097564).
+            self.training.draw(&self.fonts, &mut self.stage.overlay);
         }
         let post = self.post_camera.and_then(|k| self.posts.get(k.wrapping_sub(1))).map(|p| {
             (Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32), self.target())
@@ -1685,6 +1768,7 @@ fn world_boxes(m: &rugrats_data::model::Model, rot: Mat3, pos: Vec3) -> Vec<crat
             min_y: a as i32,
             max_y: b as i32,
             climb: false,
+            character: false,
         });
     }
     out

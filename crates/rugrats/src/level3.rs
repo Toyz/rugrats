@@ -65,10 +65,76 @@ const BITE: i32 = 15;
 const STUN: i32 = 600;
 
 /// A pie rolling.
-struct Pie {
+pub struct Pie {
     pos: [i32; 3],
     v: [i32; 2],
     travelled: i32,
+}
+
+impl Pie {
+    /// A pie thrown from `from` along `heading` (0x80061c98): speed 225
+    /// with `aim` within 13000, else 450; from the pie spot 512 ahead.
+    pub fn thrown(g: &Game, from: [i32; 3], heading: i32, aim: Option<[i32; 3]>) -> Pie {
+        let near = aim.is_some_and(|p| {
+            let d = [(p[0] - from[0]) as f64, (p[1] - from[1]) as f64, (p[2] - from[2]) as f64];
+            ((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() as i32) < PIE_NEAR
+        });
+        let speed = if near { 225 } else { 450 } * 65536 / 6000;
+        let (s, c) = (g.trig.sin(heading), g.trig.cos(heading));
+        let pos = [from[0] + (s * 512 >> 12), from[1], from[2] + (c * 512 >> 12)];
+        Pie { pos, v: [s * speed >> 12, c * speed >> 12], travelled: 0 }
+    }
+}
+
+/// Pies roll on the floor below the counter (gravity 1, flags
+/// 0x0a070400) until a wall, a hit on one of `targets` (NPC indices) or
+/// the range. Returns the hits.
+pub fn roll_pies(g: &Game, pies: &mut Vec<Pie>, targets: &[usize]) -> u32 {
+    let mut hits = 0;
+    pies.retain_mut(|p| {
+        // In quarter steps, so a fast pie cannot pass through.
+        for _ in 0..4 {
+            for k in 0..2 {
+                p.pos[2 * k] += p.v[k] * DT >> 8;
+            }
+            p.travelled += ((p.v[0] as f64).hypot(p.v[1] as f64) as i32 * DT) >> 8;
+            let q = crate::collide::query(&g.col, [p.pos[0], p.pos[1] - 1, p.pos[2]]);
+            if q.kind == 2 || q.tile.is_none() || p.travelled > PIE_RANGE {
+                return false;
+            }
+            if q.kind == 0 {
+                p.pos[1] = (p.pos[1] + 30).min(q.floor);
+            }
+            let hit = targets.iter().any(|&k| {
+                let n = &g.npcs[k];
+                let (dx, dz) = ((n.pos[0] - p.pos[0]) as i64, (n.pos[2] - p.pos[2]) as i64);
+                let reach = (n.size.max(PIE_REACH) + PIE_RADIUS) as i64;
+                dx * dx + dz * dz < reach * reach
+            });
+            if hit {
+                hits += 1;
+                return false;
+            }
+        }
+        true
+    });
+    hits
+}
+
+/// The pies flying and the one in hand (model 885).
+pub fn draw_pies(g: &Game, pies: &[Pie], holding: bool, moving: &mut Vec<rugrats_render::Vtx>) {
+    let Some(m) = g.set.models.get(PIE_MODEL) else { return };
+    for p in pies {
+        let pos = Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32);
+        rugrats_render::models::model_triangles(m, Mat3::IDENTITY, pos, moving);
+    }
+    if holding {
+        let parts = g.player.parts(&g.anims, &g.trig);
+        let rot = g.player.rotation(&g.trig);
+        if let Some(hand) = g.player.slot_part(15).and_then(|i| parts.get(i)) {
+            rugrats_render::models::model_triangles(m, rot, hand.1 + rot * Vec3::new(0.0, -100.0, 200.0), moving);
+        }
+    }
 }
 
 /// The pie toss under way.
@@ -213,52 +279,16 @@ impl Level3 {
         let Some(toss) = &mut self.toss else { return };
         if pads.pressed(0, input::TRIANGLE) && g.player.action.is_none() {
             if toss.holding {
-                let near = find(g, LARRY).is_some_and(|k| {
-                    let p = g.npcs[k].pos;
-                    let d = [(p[0] - COUNTER[0]) as f64, (p[1] - COUNTER[1]) as f64, (p[2] - COUNTER[2]) as f64];
-                    ((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() as i32) < PIE_NEAR
-                });
-                let speed = if near { 225 } else { 450 } * 65536 / 6000;
-                let (s, c) = (g.trig.sin(g.player.heading), g.trig.cos(g.player.heading));
-                // The pie spot: 512 ahead of Tommy.
-                let pos = [COUNTER[0] + (s * 512 >> 12), COUNTER[1], COUNTER[2] + (c * 512 >> 12)];
-                toss.pies.push(Pie { pos, v: [s * speed >> 12, c * speed >> 12], travelled: 0 });
+                let aim = find(g, LARRY).map(|k| g.npcs[k].pos);
+                toss.pies.push(Pie::thrown(g, COUNTER, g.player.heading, aim));
                 toss.holding = false;
                 g.player.act(crate::player::anim::THROW, &g.anims);
             } else {
                 toss.holding = true;
             }
         }
-        // Pies roll on the floor below the counter (gravity 1, flags
-        // 0x0a070400) until a wall, a hit or the range.
-        let mut hits = 0;
-        toss.pies.retain_mut(|p| {
-            // In quarter steps, so a fast pie cannot pass through.
-            for _ in 0..4 {
-                for k in 0..2 {
-                    p.pos[2 * k] += p.v[k] * DT >> 8;
-                }
-                p.travelled += ((p.v[0] as f64).hypot(p.v[1] as f64) as i32 * DT) >> 8;
-                let q = crate::collide::query(&g.col, [p.pos[0], p.pos[1] - 1, p.pos[2]]);
-                if q.kind == 2 || q.tile.is_none() || p.travelled > PIE_RANGE {
-                    return false;
-                }
-                if q.kind == 0 {
-                    p.pos[1] = (p.pos[1] + 30).min(q.floor);
-                }
-                let hit = [LARRY, STEVE].iter().filter_map(|&id| find(g, id)).any(|k| {
-                    let n = &g.npcs[k];
-                    let (dx, dz) = ((n.pos[0] - p.pos[0]) as i64, (n.pos[2] - p.pos[2]) as i64);
-                    let reach = (n.size.max(PIE_REACH) + PIE_RADIUS) as i64;
-                    dx * dx + dz * dz < reach * reach
-                });
-                if hit {
-                    hits += 1;
-                    return false;
-                }
-            }
-            true
-        });
+        let targets: Vec<usize> = [LARRY, STEVE].iter().filter_map(|&id| find(g, id)).collect();
+        let hits = roll_pies(g, &mut toss.pies, &targets);
         // A hit (0x800511a8, 0x8007e308): both lose 50, the one hit
         // flinches; at 0 the toss is won.
         for _ in 0..hits {
@@ -400,18 +430,7 @@ impl crate::game::Script for Level3 {
 
     fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
         let Some(toss) = &self.toss else { return };
-        let Some(m) = g.set.models.get(PIE_MODEL) else { return };
-        for p in &toss.pies {
-            let pos = Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32);
-            rugrats_render::models::model_triangles(m, Mat3::IDENTITY, pos, moving);
-        }
-        if toss.holding {
-            let parts = g.player.parts(&g.anims, &g.trig);
-            let rot = g.player.rotation(&g.trig);
-            if let Some(hand) = g.player.slot_part(15).and_then(|i| parts.get(i)) {
-                rugrats_render::models::model_triangles(m, rot, hand.1 + rot * Vec3::new(0.0, -100.0, 200.0), moving);
-            }
-        }
+        draw_pies(g, &toss.pies, toss.holding, moving);
         // The gauge (0x8008c5e0 on Larry): model 280 over 282.
         if let (Some(s), Some(k)) = (&g.sprites, find(g, LARRY)) {
             crate::hud::gauge(s, 280, (-148, 73), g.npcs[k].health, TOSS_HEALTH, g.focal(), overlay);

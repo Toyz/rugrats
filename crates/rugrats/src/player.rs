@@ -62,6 +62,8 @@ pub mod anim {
     pub const CLIMB: i16 = 5;
     /// The cry (0x8007f920: 0x800572a8(player, 16, 2560)).
     pub const CRY: i16 = 16;
+    /// The slip (states 17, 18).
+    pub const SLIP: i16 = 33;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +118,14 @@ pub struct Player {
     pub carrying: bool,
     /// The jump lock after a throw (0x800c4290: 300, less dt a frame).
     pub jump_lock: i32,
+    /// Training messages asked for this frame (0x80097788's n).
+    pub hints: Vec<u8>,
+    /// Time falling (0x800c428c, summed in 0x80061330).
+    air: i32,
+    /// Slipping on floor flag 2 (states 3, 17, 18: 0x8005dedc), and the
+    /// slip's sound (169 in level 16, else 56).
+    slipping: bool,
+    pub slip_sound: u8,
 }
 
 impl Player {
@@ -154,6 +164,10 @@ impl Player {
             float: None,
             carrying: false,
             jump_lock: 0,
+            hints: Vec::new(),
+            air: 0,
+            slipping: false,
+            slip_sound: 56,
         };
         let q = collide::query(col, start);
         if q.tile.is_some() {
@@ -181,6 +195,7 @@ impl Player {
             return;
         }
         self.effects.clear();
+        self.hints.clear();
         let held = |b: usize| pads.held(0, b);
         let pressed = |b: usize| pads.pressed(0, b);
         let start = self.pos;
@@ -209,6 +224,12 @@ impl Player {
                 magnitude = 0;
             } else {
                 self.action = None;
+                // The slip's fall ends (state 18): Damage 5, message 30.
+                if self.slipping {
+                    self.slipping = false;
+                    self.health = (self.health - SLIP_DAMAGE).max(0);
+                    self.hints.push(30);
+                }
             }
         }
         let acting = self.action.is_some();
@@ -226,6 +247,10 @@ impl Player {
                 self.heading = want;
                 self.target = want;
                 self.speed = magnitude * factor >> 12;
+                // Running at full speed (0x800590d4): message 2.
+                if self.speed > self.gait.0 * 3933 >> 12 {
+                    self.hints.push(2);
+                }
             } else {
                 self.target = want;
                 self.speed = 0;
@@ -291,6 +316,12 @@ impl Player {
             let ok = up.kind == 0 && up.floor < feet_y - STEP_UP && up.floor >= feet_y - reach;
             if ok {
                 climb_to = Some(up.floor);
+            } else {
+                // Too tall (0x80058da4): a step of 1025..3071, message 16.
+                let tall = collide::query(col, [self.pos[0], feet_y - TOO_TALL, self.pos[2]]);
+                if tall.kind == 0 && tall.floor <= feet_y - CLIMB - 1 && tall.floor >= feet_y - TOO_TALL {
+                    self.hints.push(16);
+                }
             }
             ok
         } {
@@ -325,6 +356,14 @@ impl Player {
                 if b.climb && walking && top >= start_feet - reach {
                     climb_to = Some(climb_to.map_or(top, |c: i32| c.min(top)));
                 } else {
+                    // Not climbable (29) or too tall (16).
+                    if walking && !b.character {
+                        if top >= start_feet - reach {
+                            self.hints.push(29);
+                        } else if b.climb && top <= start_feet - CLIMB - 1 && top >= start_feet - TOO_TALL {
+                            self.hints.push(16);
+                        }
+                    }
                     self.pos[0] = start[0];
                     self.pos[2] = start[2];
                 }
@@ -335,6 +374,7 @@ impl Player {
             self.floor = top;
             self.state = State::Stand;
             self.act(anim::CLIMB, anims);
+            self.hints.push(1);
         }
         let feet_y = self.pos[1] - self.feet;
         if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
@@ -348,8 +388,30 @@ impl Player {
             self.pos[1] = self.floor + self.feet;
             self.v = [0; 3];
             self.state = State::Land;
+            // A long fall (state 10, 0x8005b2d8): Damage 5, message 31.
+            if self.air >= LONG_FALL {
+                self.health = (self.health - FALL_DAMAGE).max(0);
+                self.hints.push(31);
+            }
         } else if self.v[1] > 0 {
             self.state = State::Fall;
+        }
+        // Counted on the way down only (guess: a held jump's whole time
+        // in the air would pass 193).
+        self.air = if matches!(self.state, State::Jump | State::Fall) && self.v[1] > 0 { self.air + DT } else { 0 };
+        // Running onto a slippery floor (flag 2, 0x8005c96c): message 32,
+        // the slip (anim 33), then its fall.
+        let on_floor = matches!(self.state, State::Walk | State::Run);
+        if on_floor && self.speed > WALK && !self.slipping && !acting && self.anm(anim::SLIP).is_some() {
+            let here = collide::query(col, [self.pos[0], self.pos[1] - self.feet - 1, self.pos[2]]);
+            if collide::floor_flags(col, &here) & SLIPPERY != 0 {
+                self.hints.push(32);
+                self.slipping = true;
+                self.speed = 0;
+                self.state = State::Stand;
+                self.effects.push(self.slip_sound);
+                self.act(anim::SLIP, anims);
+            }
         }
         if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
             self.state = match self.speed {
@@ -515,6 +577,14 @@ pub const HEIGHT: i32 = 600;
 /// while carrying).
 const CLIMB: i32 = 1033;
 const CLIMB_CARRYING: i32 = 521;
+/// The highest step message 16 calls too tall (0x80058da4).
+const TOO_TALL: i32 = 3071;
+/// A landing after this long falling hurts (0x8005b2d8).
+const LONG_FALL: i32 = 193;
+const FALL_DAMAGE: i32 = 5;
+/// Floor flag 2 (slippery) and the slip's fall's damage.
+const SLIPPERY: u8 = 2;
+const SLIP_DAMAGE: i32 = 5;
 
 /// An object's collision box: its model box (`lo`, `hi`) in the object's
 /// space, the object's rotation and position, and the world heights it
@@ -529,6 +599,8 @@ pub struct Box3 {
     pub max_y: i32,
     /// Its template has flag 64: it can be climbed onto (0x80058da4).
     pub climb: bool,
+    /// Another character's body (no climb test).
+    pub character: bool,
 }
 
 impl Box3 {

@@ -71,6 +71,7 @@ fn main() -> Result<(), String> {
     let mut pads = Pads::default();
     let mut frame = 0usize;
     let mut steps = Vec::new();
+    let mut shown = None;
     for part in script.split(',') {
         let (buttons, n) = part.split_once('*').unwrap_or((part, "1"));
         let bits = buttons.split('+').map(bit).fold(0, |a, b| a | b);
@@ -117,6 +118,16 @@ fn main() -> Result<(), String> {
                         .collect();
                     println!("{frame}: phase {} health {} tries {} npcs {npcs:?}", phase, game.player.health, game.tries);
                 }
+            }
+            if let Some(n) = game.training.showing().filter(|_| shown != game.training.showing()) {
+                println!("{frame}: training message {n}");
+            }
+            shown = game.training.showing();
+            if let Some(e) = game.exit.take() {
+                println!("{frame}: exit to {e:?}");
+            }
+            if game.quit {
+                println!("{frame}: quit");
             }
             if let Some(n) = game.cine.take() {
                 println!("{frame}: the level asks for cine {n}");

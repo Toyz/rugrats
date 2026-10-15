@@ -355,7 +355,7 @@ impl Player {
                 if top < self.floor {
                     self.floor = top;
                 }
-            } else if b.max_y > head && b.depth(self.pos, RADIUS) > b.depth(start, RADIUS) {
+            } else if b.max_y > head && (b.depth(self.pos, RADIUS) > b.depth(start, RADIUS) || b.crosses(start, self.pos)) {
                 if b.climb && walking && top >= start_feet - reach {
                     climb_to = Some(climb_to.map_or(top, |c: i32| c.min(top)));
                 } else {
@@ -611,6 +611,34 @@ impl Box3 {
     /// from above.
     pub fn covers(&self, p: [i32; 3], r: i32) -> bool {
         self.depth(p, r) > 0.0
+    }
+
+    /// Whether the step from `a` to `b` (x, z) passes through the box's
+    /// own rectangle seen from above (0x80069c40 tests the movement
+    /// segment): a thin wall cannot be stepped across.
+    pub fn crosses(&self, a: [i32; 3], b: [i32; 3]) -> bool {
+        let local = |p: [i32; 3]| self.rot.transpose() * (Vec3::new(p[0] as f32, self.pos.y, p[2] as f32) - self.pos);
+        let (p, q) = (local(a), local(b));
+        let (mut t0, mut t1) = (0.0f32, 1.0f32);
+        for (o, d, lo, hi) in [(p.x, q.x - p.x, self.lo[0] as f32, self.hi[0] as f32), (p.z, q.z - p.z, self.lo[2] as f32, self.hi[2] as f32)] {
+            if d.abs() < 1e-6 {
+                if o < lo || o > hi {
+                    return false;
+                }
+            } else {
+                let (mut u, mut v) = ((lo - o) / d, (hi - o) / d);
+                if u > v {
+                    std::mem::swap(&mut u, &mut v);
+                }
+                t0 = t0.max(u);
+                t1 = t1.min(v);
+                if t0 > t1 {
+                    return false;
+                }
+            }
+        }
+        // Not when the step only leaves it (it began inside).
+        t0 > 0.0
     }
 
     /// How deep a circle of radius `r` at `p` is in the box seen from above:

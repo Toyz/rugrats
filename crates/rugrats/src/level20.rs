@@ -3,6 +3,10 @@
 //! go: cine 64 wins). Triangle lobs the box to the baby in front; when it
 //! comes near, the player becomes that baby. Angelica runs after the box;
 //! her lunge knocks it away: a lost round (cine 65).
+//!
+//! Level 21, Touchdown Tommy (docs/levels/level-21.md), runs the same
+//! code with a bottle: 20 drinks, a throw costs one too, only a drink
+//! wins; the round start gives the bottle back to Tommy's body.
 
 use crate::disc::GameDisc;
 use crate::game::Game;
@@ -29,7 +33,25 @@ const CINE_LOST: usize = 65;
 const EAT: i16 = 42;
 const EAT_WAIT: i32 = 20;
 
+/// What differs between levels 20 and 21.
+#[derive(Clone, Copy)]
+struct Rules {
+    item: u16,
+    count: i32,
+    won: usize,
+    lost: usize,
+    eat: i16,
+    /// A throw costs one (the bottle's +0x50 effect, 0x80060e3c).
+    throw_costs: bool,
+    /// The round start swaps the player back into Tommy (0x8007a0ec).
+    back_to_tommy: bool,
+}
+
+const RULES_20: Rules = Rules { item: BOX, count: COOKIES, won: CINE_WON, lost: CINE_LOST, eat: EAT, throw_costs: false, back_to_tommy: false };
+const RULES_21: Rules = Rules { item: 259, count: 20, won: 50, lost: 51, eat: 40, throw_costs: true, back_to_tommy: true };
+
 pub struct Level20 {
+    rules: Rules,
     cookies: i32,
     /// The registry id the player's body carries.
     me: u16,
@@ -48,17 +70,39 @@ fn find(g: &Game, id: u16) -> Option<usize> {
 impl Level20 {
     /// EpisodeStart (0x80079ff0) and the round start (0x80079cb0).
     pub fn start(g: &mut Game, _disc: &GameDisc) -> Result<Level20, String> {
-        let mut l = Level20 { cookies: COOKIES, me: 1492, target: None, catcher: None, eat_wait: 0, lunge: 0, ended: false };
+        let mut l = Level20 { rules: RULES_20, cookies: COOKIES, me: 1492, target: None, catcher: None, eat_wait: 0, lunge: 0, ended: false };
+        l.round(g);
+        g.checkpoint = Some((g.player.pos, g.player.heading));
+        Ok(l)
+    }
+
+    /// Level 21's EpisodeStart (0x8007a444) and cine 49's end
+    /// (0x8007a314): Lil's new home, the grown-ups hidden, the round.
+    pub fn start21(g: &mut Game, _disc: &GameDisc) -> Result<Level20, String> {
+        for id in [13, 15, 16] {
+            g.hide(id, true);
+        }
+        if let Some(k) = find(g, 609) {
+            g.npcs[k].home = [10030, 779, 10051];
+        }
+        let mut l = Level20 { rules: RULES_21, cookies: 20, me: 1492, target: None, catcher: None, eat_wait: 0, lunge: 0, ended: false };
         l.round(g);
         g.checkpoint = Some((g.player.pos, g.player.heading));
         Ok(l)
     }
 
     fn round(&mut self, g: &mut Game) {
-        self.cookies = COOKIES;
+        // Level 21 hands the bottle back to Tommy's body.
+        if self.rules.back_to_tommy && self.me != 1492 {
+            if let Some(k) = find(g, 1492) {
+                self.swap(g, k);
+            }
+        }
+        self.cookies = self.rules.count;
         self.catcher = None;
         self.ended = false;
-        if let Some(k) = g.things.iter().position(|t| t.template == BOX) {
+        let item = self.rules.item;
+        if let Some(k) = g.things.iter().position(|t| t.template == item) {
             g.things[k].keep = true;
             g.give(k);
         }
@@ -116,7 +160,8 @@ impl Level20 {
         n.id = old_id;
         g.player.pos = there;
         g.player.v = [0; 3];
-        if let Some(b) = g.things.iter().position(|t| t.template == BOX) {
+        let item = self.rules.item;
+        if let Some(b) = g.things.iter().position(|t| t.template == item) {
             g.give(b);
         }
     }
@@ -131,7 +176,7 @@ impl Level20 {
         g.tries -= 1;
         g.effects.push((121, crate::sound::EFFECTS_VOLUME));
         g.drop_carried();
-        g.cine = Some(CINE_LOST);
+        g.cine = Some(self.rules.lost);
     }
 }
 
@@ -142,17 +187,19 @@ impl crate::game::Script for Level20 {
             return;
         }
         self.eat_wait = (self.eat_wait - 1).max(0);
-        let holding = g.carried().is_some_and(|k| g.things[k].template == BOX);
+        let item = self.rules.item;
+        let holding = g.carried().is_some_and(|k| g.things[k].template == item);
         // Eating (0x80057950): Circle or Square, standing.
         let standing = matches!(g.player.state, crate::player::State::Stand);
         if holding && standing && self.eat_wait == 0 && (pads.pressed(0, input::CIRCLE) || pads.pressed(0, input::SQUARE)) {
             self.cookies -= 1;
             self.eat_wait = EAT_WAIT;
-            g.player.act(EAT, &g.anims);
-            g.effects.push((123, crate::sound::EFFECTS_VOLUME));
+            g.player.act(self.rules.eat, &g.anims);
+            let sound = if self.rules.throw_costs { 43 + (g.rand.next() & 15) as u8 } else { 123 };
+            g.effects.push((sound, crate::sound::EFFECTS_VOLUME));
             if self.cookies <= 0 {
                 self.ended = true;
-                g.cine = Some(CINE_WON);
+                g.cine = Some(self.rules.won);
                 return;
             }
         }
@@ -173,13 +220,16 @@ impl crate::game::Script for Level20 {
                 g.player.act(crate::player::anim::THROW, &g.anims);
                 g.effects.push((if g.rand.next() & 1 == 0 { 159 } else { 167 }, crate::sound::EFFECTS_VOLUME));
                 g.throw_carried(v);
+                if self.rules.throw_costs {
+                    self.cookies = (self.cookies - 1).max(0);
+                }
                 self.catcher = Some(k);
                 g.npcs[k].mode = Mode::Idle;
             }
         }
         // The catch (0x80057518): the box within 1400 of the catcher.
         if let Some(k) = self.catcher {
-            if let Some(b) = g.things.iter().find(|t| t.template == BOX) {
+            if let Some(b) = g.things.iter().find(|t| t.template == item) {
                 let q = g.npcs[k].pos;
                 if (b.pos.x as i32 - q[0]).abs() < CATCH && (b.pos.z as i32 - q[2]).abs() < CATCH {
                     self.catcher = None;
@@ -210,7 +260,7 @@ impl crate::game::Script for Level20 {
     }
 
     fn cine_finished(&mut self, g: &mut Game, n: usize) {
-        if n == CINE_LOST {
+        if n == self.rules.lost {
             if g.tries <= 0 {
                 g.won = Some(false);
                 g.exit = Some((crate::game::HUB, None));
@@ -233,7 +283,14 @@ impl crate::game::Script for Level20 {
 
     fn draw(&self, g: &Game, moving: &mut Vec<rugrats_render::Vtx>, overlay: &mut Vec<rugrats_render::Vtx>) {
         if let Some(s) = &g.sprites {
-            s.draw(COUNTER, (-160, 50), 48.0, 48.0, 1024.0, 0.0, g.focal(), overlay);
+            if self.rules.throw_costs {
+                // Level 21's bottle gauge (0x8008c7f0: 366 over 365, max 20).
+                let top = 2.0 * 54.0 * (self.rules.count - self.cookies.max(0)) as f32 / self.rules.count as f32;
+                s.draw(365, (-172, 73), 36.0, 54.0, 1024.0, top, g.focal(), overlay);
+                s.draw(366, (-172, 73), 36.0, 64.0, 1024.0, 0.0, g.focal(), overlay);
+            } else {
+                s.draw(COUNTER, (-160, 50), 48.0, 48.0, 1024.0, 0.0, g.focal(), overlay);
+            }
             // The arrow over the target (0x80031a28; a battery-sized
             // marker, guess).
             if let Some(k) = self.target {
@@ -242,7 +299,9 @@ impl crate::game::Script for Level20 {
                 s.billboard(COUNTER, at, 150.0, 150.0, g.view.1.row(0), g.view.1.row(1), moving);
             }
         }
-        crate::game::shadowed(&g.fonts, -130, 43, format!("{}", self.cookies.max(0)), overlay);
+        if !self.rules.throw_costs {
+            crate::game::shadowed(&g.fonts, -130, 43, format!("{}", self.cookies.max(0)), overlay);
+        }
     }
 
     fn describe(&self) -> String {

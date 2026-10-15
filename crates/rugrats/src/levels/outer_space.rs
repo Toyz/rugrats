@@ -75,8 +75,20 @@ struct SlidingDoor {
     open: bool,
 }
 
+/// The level's progress (0x800c4cd0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+enum Phase {
+    /// The upper deck, from cine 37's end.
+    UpperDeck = 1,
+    /// The lower deck, from room 42.
+    LowerDeck = 2,
+    /// Floating through the ducts after cine 38, one try.
+    Float = 3,
+}
+
 pub struct OuterSpace {
-    pub phase: u8,
+    phase: Phase,
     respawn: Pose,
     charge: i32,
     doors: Vec<SlidingDoor>,
@@ -116,10 +128,10 @@ impl OuterSpace {
         let respawn = Pose::new(START, START_HEADING);
         g.checkpoint = Some(respawn);
         let mesh = Mesh::load(disc, &BEAM).ok();
-        Ok(OuterSpace { phase: 1, respawn, charge: CHARGE, doors, beams: Vec::new(), mesh })
+        Ok(OuterSpace { phase: Phase::UpperDeck, respawn, charge: CHARGE, doors, beams: Vec::new(), mesh })
     }
 
-    fn set_phase(&mut self, g: &mut Game, phase: u8, at: [i32; 3], heading: i32) {
+    fn set_phase(&mut self, g: &mut Game, phase: Phase, at: [i32; 3], heading: i32) {
         self.phase = phase;
         self.respawn = Pose::new(at, heading);
         g.checkpoint = Some(self.respawn);
@@ -242,7 +254,7 @@ impl Script for OuterSpace {
 
     fn room(&mut self, g: &mut Game, room: usize) {
         match room {
-            DECK_ROOM => self.set_phase(g, 2, DECK, 1015),
+            DECK_ROOM => self.set_phase(g, Phase::LowerDeck, DECK, 1015),
             DUCT_ROOM if g.player.float.is_some() => g.cry(),
             GARAGE_ROOM => g.player.float = None,
             _ => {}
@@ -258,7 +270,7 @@ impl Script for OuterSpace {
             g.hide(8801, false);
             Self::put(g, FLOAT_AT, 441);
             g.player.float = Some((FLOAT_AT[1], 0));
-            self.set_phase(g, 3, FLOAT_AT, 441);
+            self.set_phase(g, Phase::Float, FLOAT_AT, 441);
             g.tries = 1;
             g.song = Some(1);
         }
@@ -271,14 +283,14 @@ impl Script for OuterSpace {
             g.exit = Some(Exit::to(Level::HUB));
             return true;
         }
-        if self.phase <= 1 {
+        if self.phase == Phase::UpperDeck {
             for m in g.movers.iter_mut().filter(|m| m.id == ELEVATOR) {
                 m.reset();
             }
         }
         let Pose { pos: at, heading } = self.respawn;
         Self::put(g, at, heading);
-        if self.phase == 3 {
+        if self.phase == Phase::Float {
             g.player.float = Some((at[1], 0));
         }
         true
@@ -302,13 +314,13 @@ impl Script for OuterSpace {
     }
 
     fn phase(&self) -> u8 {
-        self.phase
+        self.phase as u8
     }
 
     fn describe(&self) -> String {
         let b: Vec<_> = self.beams.iter().map(|b| (b.from, b.pos, b.done)).collect();
         format!(
-            "phase {} charge {} beams {:?} doors open {}",
+            "phase {:?} charge {} beams {:?} doors open {}",
             self.phase,
             self.charge,
             b,

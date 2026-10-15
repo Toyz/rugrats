@@ -76,8 +76,32 @@ enum Step {
     Waiting,
 }
 
+/// The ring under way (0x800c4cd0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+enum Phase {
+    /// Ring 1: Spike eats the bones.
+    Bones = 1,
+    /// Ring 2: the tricycle takes the ramp to the net.
+    Tricycle = 2,
+    /// Ring 3: Angelica's meter launches Chuckie off the seesaw.
+    Seesaw = 3,
+}
+
+impl Phase {
+    /// The phase numbered `n` (1 to 3).
+    fn from_number(n: u8) -> Option<Phase> {
+        Some(match n {
+            1 => Phase::Bones,
+            2 => Phase::Tricycle,
+            3 => Phase::Seesaw,
+            _ => return None,
+        })
+    }
+}
+
 pub struct Circus {
-    pub phase: u8,
+    phase: Phase,
     step: Step,
     bones: u32,
     group: usize,
@@ -107,7 +131,7 @@ impl Circus {
         };
         let bodies = [body(6)?, body(34)?, body(3)?, body(2)?];
         let mut l = Circus {
-            phase: 1,
+            phase: Phase::Bones,
             step: Step::Bones,
             bones: 0,
             group: FIRST_GROUP,
@@ -183,7 +207,7 @@ impl Circus {
         }
         let look = Vec3::new(BOARD_END[0] as f32, (BOARD_END[1] - 1000) as f32, BOARD_END[2] as f32);
         g.fixed = Some((RING3_EYE, look));
-        self.phase = 3;
+        self.phase = Phase::Seesaw;
         self.respawn = Pose::new(TOWER, 3072);
         g.checkpoint = Some(self.respawn);
         self.step = Step::Meter { first: None, first_up: true, second: None, done_first: None };
@@ -361,7 +385,7 @@ impl Script for Circus {
             TRIKE_INTRO => {
                 // 0x8007dadc: Tommy away; ring 2 from here, phase 2.
                 g.hide(TOMMY, true);
-                self.phase = 2;
+                self.phase = Phase::Tricycle;
                 self.respawn = g.player.pose();
                 g.checkpoint = Some(self.respawn);
                 g.song = Some(0);
@@ -401,9 +425,9 @@ impl Script for Circus {
     fn cry(&mut self, g: &mut Game) -> bool {
         if self.lose_try(g) {
             match self.phase {
-                1 => self.ring1(g),
-                3 => self.ring3(g),
-                _ => {
+                Phase::Bones => self.ring1(g),
+                Phase::Seesaw => self.ring3(g),
+                Phase::Tricycle => {
                     let Pose { pos: at, heading: h } = self.respawn;
                     self.become_body(g, 1, at, h);
                     self.step = Step::Ride;
@@ -441,13 +465,13 @@ impl Script for Circus {
     }
 
     fn skip_to(&mut self, g: &mut Game, phase: u8) {
-        match phase {
-            2 => {
+        match Phase::from_number(phase) {
+            Some(Phase::Tricycle) => {
                 self.cine_finished(g, WIN1);
                 self.cine_finished(g, TRIKE_INTRO);
                 g.cine = None;
             }
-            3 => {
+            Some(Phase::Seesaw) => {
                 g.hide(TRIKE, true);
                 self.ring3(g);
             }
@@ -466,10 +490,10 @@ impl Script for Circus {
     }
 
     fn phase(&self) -> u8 {
-        self.phase
+        self.phase as u8
     }
 
     fn describe(&self) -> String {
-        format!("{} ", self.bones) + &format!("phase {} step {:?} bones {}", self.phase, self.step, self.bones)
+        format!("{} ", self.bones) + &format!("phase {:?} step {:?} bones {}", self.phase, self.step, self.bones)
     }
 }

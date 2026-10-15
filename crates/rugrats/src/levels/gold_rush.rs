@@ -28,8 +28,18 @@ const GOLD_ICON: u32 = 240;
 const CINE_WON: usize = 26;
 const CINE_LOST: usize = 27;
 
+/// The round under way (0x800c4cd0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+enum Phase {
+    /// Phil's round.
+    Phil = 1,
+    /// Lil's round, after cine 27.
+    Lil = 2,
+}
+
 pub struct GoldRush {
-    pub phase: u8,
+    phase: Phase,
     taken: u32,
     gold: bool,
     /// Lil's body plays (after cine 27).
@@ -44,7 +54,7 @@ impl GoldRush {
             g.hide(id, true);
         }
         let activity = g.activity;
-        let mut l = GoldRush { phase: 1, taken: 0, gold: false, lil: false, activity };
+        let mut l = GoldRush { phase: Phase::Phil, taken: 0, gold: false, lil: false, activity };
         l.round(g);
         Ok(l)
     }
@@ -155,7 +165,7 @@ impl Script for GoldRush {
                 g.hide(*id, true);
             }
             self.swap_lil(g);
-            self.phase = 2;
+            self.phase = Phase::Lil;
             self.round(g);
         }
     }
@@ -171,10 +181,10 @@ impl Script for GoldRush {
     }
 
     fn phase(&self) -> u8 {
-        self.phase
+        self.phase as u8
     }
 
     fn describe(&self) -> String {
-        format!("phase {} taken {} gold {} lil {}", self.phase, self.taken, self.gold, self.lil)
+        format!("phase {:?} taken {} gold {} lil {}", self.phase, self.taken, self.gold, self.lil)
     }
 }

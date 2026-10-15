@@ -64,8 +64,20 @@ struct Puck {
     travelled: i32,
 }
 
+/// The level's progress (0x800c4cd0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+enum Phase {
+    /// The yard to the gap in the fence.
+    Yard = 1,
+    /// Tommy rides Spike after the goose to the court.
+    Chase = 2,
+    /// Tommy kicks pucks at the goose on the court, 130 s.
+    Court = 3,
+}
+
 pub struct GrandpasTeeth {
-    pub phase: u8,
+    phase: Phase,
     tries: i32,
     respawn: Pose,
     puck: Option<Puck>,
@@ -84,7 +96,7 @@ impl GrandpasTeeth {
         let spike_h = g.set.hierarchies.get(SPIKE_CHAR as usize).cloned().flatten().ok_or("no hierarchy for Spike")?;
         let spike = (spike_h, Animator::load(disc, SPIKE_CHAR)?);
         let mut l = GrandpasTeeth {
-            phase: 1,
+            phase: Phase::Yard,
             tries: TRIES,
             respawn: Pose::new(RESPAWN, g.player.heading),
             puck: None,
@@ -210,7 +222,7 @@ impl GrandpasTeeth {
         if !back {
             self.respawn = g.player.pose();
         }
-        self.phase = 2;
+        self.phase = Phase::Chase;
     }
 
     /// Phase 3 (0x8007c6e0): Tommy at the end of the court, kicking pucks;
@@ -261,7 +273,7 @@ impl GrandpasTeeth {
             g.npcs[s].mode = Mode::Idle;
         }
         g.timer = Some(CLOCK);
-        self.phase = 3;
+        self.phase = Phase::Court;
     }
 
     /// ForceCry (0x8007fd0c): a try gone; back to the respawn, or out.
@@ -272,7 +284,7 @@ impl GrandpasTeeth {
         self.tries -= 1;
         g.player.health = 255;
         if self.tries <= 0 {
-            if self.phase == 3 {
+            if self.phase == Phase::Court {
                 // 0x8007ec48: the loss, cine 16, then the hub.
                 g.timer = None;
                 g.cine = Some(CINE_LOSE);
@@ -283,15 +295,15 @@ impl GrandpasTeeth {
         }
         let Pose { pos: at, heading } = self.respawn;
         match self.phase {
-            1 => {
+            Phase::Yard => {
                 g.player.pos = at;
                 g.player.heading = heading;
                 if let Some(c) = find(g, CHUCKIE) {
                     g.npcs[c].place(at, &g.col);
                 }
             }
-            _ => {
-                if self.phase == 3 {
+            Phase::Chase | Phase::Court => {
+                if self.phase == Phase::Court {
                     // Back to phase 2, the court's cinematic armed again.
                     if let Some(r) = g.set.room_info.get_mut(44) {
                         r.flags |= 2;
@@ -320,7 +332,7 @@ impl GrandpasTeeth {
         if g.player.health <= 0 {
             g.cry();
         }
-        if self.phase != 3 {
+        if self.phase != Phase::Court {
             return;
         }
         // A kick (state 12, the puck's use 0x8004d1a8): along the facing.
@@ -381,7 +393,7 @@ impl GrandpasTeeth {
             let pos = rrt::glam::Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32);
             models::model_triangles(m, rrt::glam::Mat3::IDENTITY, pos, moving);
         }
-        if self.phase == 3 {
+        if self.phase == Phase::Court {
             // The two gauges (0x8008c5e0 in 0x8007c6e0): the goose's (278)
             // bottom left, Chuckie's (279) bottom right.
             if let Some(s) = &g.sprites {
@@ -421,10 +433,10 @@ impl Script for GrandpasTeeth {
 
     /// +0x30 bit 8: phase 3.
     fn cue(&self) -> i32 {
-        (self.phase == 3) as i32
+        (self.phase == Phase::Court) as i32
     }
 
     fn phase(&self) -> u8 {
-        self.phase
+        self.phase as u8
     }
 }

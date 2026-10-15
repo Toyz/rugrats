@@ -68,8 +68,20 @@ struct Toss {
     pies: Vec<Pie>,
 }
 
+/// The level's progress (0x800c4cd0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+enum Phase {
+    /// The store, to the bakery and the pie toss.
+    Store = 1,
+    /// The lobster aisles, after the toss is won.
+    Aisles = 2,
+    /// The boss lobster's area, from room 22 or 36.
+    Boss = 3,
+}
+
 pub struct AisleSeven {
-    pub phase: u8,
+    phase: Phase,
     respawn: Pose,
     toss: Option<Toss>,
 }
@@ -102,7 +114,7 @@ impl AisleSeven {
             let n = &mut g.npcs[k];
             n.mode = Mode::Block { heading: n.heading };
         }
-        Ok(AisleSeven { phase: 1, respawn: Pose::new(START, heading), toss: None })
+        Ok(AisleSeven { phase: Phase::Store, respawn: Pose::new(START, heading), toss: None })
     }
 
     /// The pie toss (0x8007bc60).
@@ -168,7 +180,7 @@ impl AisleSeven {
 
     /// 0x8007ece4: the lobsters back home, Tommy at the aisles, phase 2.
     fn aisles(&mut self, g: &mut Game) {
-        if self.phase == 3 {
+        if self.phase == Phase::Boss {
             g.hide(LADDER, true);
             if let Some(r) = g.set.room_info.get_mut(BOSS_ROOM) {
                 r.flags |= 2;
@@ -187,7 +199,7 @@ impl AisleSeven {
         self.put(g, AISLES, 2048);
         self.respawn = Pose::new(AISLES, 2048);
         g.checkpoint = Some(self.respawn);
-        self.phase = 2;
+        self.phase = Phase::Aisles;
     }
 
     fn put(&self, g: &mut Game, at: [i32; 3], heading: i32) {
@@ -321,7 +333,7 @@ impl Script for AisleSeven {
         // Script 1 (0x8007dfe0): phase 3, the respawn here, the bullies
         // grown to a half size of 1000.
         if n == 1 {
-            self.phase = 3;
+            self.phase = Phase::Boss;
             self.respawn = g.player.pose();
             g.checkpoint = Some(self.respawn);
             for id in BULLIES {
@@ -340,9 +352,9 @@ impl Script for AisleSeven {
             g.exit = Some(Exit::to(Level::HUB));
             return true;
         }
-        if self.phase == 3 {
+        if self.phase == Phase::Boss {
             self.aisles(g);
-        } else if self.phase == 2 {
+        } else if self.phase == Phase::Aisles {
             for id in LOBSTERS {
                 if let Some(k) = find(g, id)
                     && g.npcs[k].health > 0
@@ -372,6 +384,6 @@ impl Script for AisleSeven {
     }
 
     fn phase(&self) -> u8 {
-        self.phase
+        self.phase as u8
     }
 }

@@ -24,8 +24,20 @@ const KICK_REACH: i64 = 1100;
 const CINE_MORE: usize = 18;
 const CINE_WON: usize = 19;
 
+/// The level's progress (0x800c4cd0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+enum Phase {
+    /// The first Mr. Friend, until his death and cine 18.
+    First = 1,
+    /// After cine 18: all three after Tommy.
+    AllThree = 2,
+    /// One death to go: one try left.
+    OneLeft = 3,
+}
+
 pub struct MrFriend {
-    pub phase: u8,
+    phase: Phase,
     /// 0x800c4cd8: deaths to go.
     counter: i32,
     /// Level 14 (docs/levels/level-14.md, a cut level the retail game
@@ -60,7 +72,7 @@ impl MrFriend {
         }
         g.aim = true;
         g.checkpoint = Some(g.player.pose());
-        Ok(MrFriend { phase: 1, counter: 4, l14: false })
+        Ok(MrFriend { phase: Phase::First, counter: 4, l14: false })
     }
 
     /// Level 14's EpisodeStart (0x8007b17c): Mr. Friend follows, the
@@ -74,7 +86,7 @@ impl MrFriend {
             n.mode = Mode::Follow(Target::Player);
         }
         g.checkpoint = Some(g.player.pose());
-        Ok(MrFriend { phase: 1, counter: 1, l14: true })
+        Ok(MrFriend { phase: Phase::First, counter: 1, l14: true })
     }
 
     /// Mode 1 (0x800841cc): staggered, its callbacks off, 300 + (rand & 3)
@@ -113,7 +125,7 @@ impl MrFriend {
             3 => g.cine = Some(CINE_MORE),
             1 => {
                 // 0x8007cc00: phase 3, one try.
-                self.phase = 3;
+                self.phase = Phase::OneLeft;
                 g.checkpoint = Some(g.player.pose());
                 g.tries = 1;
             }
@@ -177,7 +189,7 @@ impl Script for MrFriend {
                     }
                 }
             }
-            self.phase = 2;
+            self.phase = Phase::AllThree;
             g.checkpoint = Some(g.player.pose());
             g.song = Some(0);
         }
@@ -189,10 +201,10 @@ impl Script for MrFriend {
     }
 
     fn phase(&self) -> u8 {
-        self.phase
+        self.phase as u8
     }
 
     fn describe(&self) -> String {
-        format!("phase {} counter {}", self.phase, self.counter)
+        format!("phase {:?} counter {}", self.phase, self.counter)
     }
 }

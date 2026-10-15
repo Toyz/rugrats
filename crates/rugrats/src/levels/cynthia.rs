@@ -41,8 +41,22 @@ const HURT_EVERY: i32 = 180;
 const BITE: i32 = 3;
 const BITE_SOUND: u8 = 168;
 
+/// The level's progress (0x800c4cd0): where the respawn is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+enum Phase {
+    /// The sewers from the start.
+    Start = 1,
+    /// Past room 26: the brown water hurts from here on.
+    Sewer = 2,
+    /// Past room 21.
+    Water = 3,
+    /// The dump (room 40): the 130 s search for Cynthia.
+    Dump = 4,
+}
+
 pub struct Cynthia {
-    pub phase: u8,
+    phase: Phase,
     respawn: Pose,
     /// Where Cynthia waits, and whether the win was asked for.
     cynthia: [i32; 3],
@@ -68,7 +82,7 @@ impl Cynthia {
             s.pos[1] = 100;
         }
         let mut l = Cynthia {
-            phase: 1,
+            phase: Phase::Start,
             respawn: g.player.pose(),
             cynthia: place.map_or([0; 3], |p| p.pos),
             shape,
@@ -99,7 +113,7 @@ impl Cynthia {
         rrt::tracing::info!("level 4: Cynthia at {:?}", self.cynthia);
     }
 
-    fn set_phase(&mut self, g: &mut Game, phase: u8) {
+    fn set_phase(&mut self, g: &mut Game, phase: Phase) {
         self.phase = phase;
         self.respawn = g.player.pose();
         g.checkpoint = Some(self.respawn);
@@ -119,7 +133,7 @@ impl Script for Cynthia {
         // The brown water (0x8005d8e0, 0x8005eab0): from phase 2, on a
         // water floor and not on an object.
         self.hurt = self.hurt.map(|t| (t - DT).max(0));
-        if self.phase >= 2 {
+        if self.phase >= Phase::Sewer {
             let p = g.player.pos;
             let feet = p[1] - g.player.feet();
             let q = collide::query(&g.col, [p[0], feet - 1, p[2]]);
@@ -146,8 +160,8 @@ impl Script for Cynthia {
 
     fn room(&mut self, g: &mut Game, room: usize) {
         match room {
-            SEWER if self.phase < 2 => self.set_phase(g, 2),
-            WATER if self.phase < 3 => self.set_phase(g, 3),
+            SEWER if self.phase < Phase::Sewer => self.set_phase(g, Phase::Sewer),
+            WATER if self.phase < Phase::Water => self.set_phase(g, Phase::Water),
             _ => {}
         }
     }
@@ -157,7 +171,7 @@ impl Script for Cynthia {
         if n == 2 && g.timer.is_none() {
             g.timer = Some(CLOCK);
             g.card = Some(CARD);
-            self.set_phase(g, 4);
+            self.set_phase(g, Phase::Dump);
         }
     }
 
@@ -174,7 +188,7 @@ impl Script for Cynthia {
             g.exit = Some(Exit::to(Level::HUB));
             return true;
         }
-        if self.phase == 4 {
+        if self.phase == Phase::Dump {
             g.timer = Some(CLOCK);
             self.hide_cynthia(g);
         }
@@ -192,7 +206,7 @@ impl Script for Cynthia {
             let pos = Vec3::new(self.cynthia[0] as f32, self.cynthia[1] as f32, self.cynthia[2] as f32);
             models::model_triangles(m, Mat3::IDENTITY, pos, moving);
         }
-        if self.phase == 4
+        if self.phase == Phase::Dump
             && let Some(s) = &g.sprites
         {
             s.draw(PORTRAIT, (-60, -70), 32.0, 64.0, 1024.0, 0.0, g.focal(), overlay);
@@ -200,10 +214,10 @@ impl Script for Cynthia {
     }
 
     fn phase(&self) -> u8 {
-        self.phase
+        self.phase as u8
     }
 
     fn describe(&self) -> String {
-        format!("phase {} cynthia {:?} found {}", self.phase, self.cynthia, self.found)
+        format!("phase {:?} cynthia {:?} found {}", self.phase, self.cynthia, self.found)
     }
 }

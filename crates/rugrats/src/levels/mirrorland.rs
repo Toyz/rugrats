@@ -45,8 +45,20 @@ enum Slot {
     Done,
 }
 
+/// The level's progress (0x800c4cd0): the checkpoints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+enum Phase {
+    /// No colour done yet.
+    Start = 1,
+    /// The first colour done: the first checkpoint.
+    OneColour = 2,
+    /// The third colour done: the second checkpoint.
+    ThreeColours = 3,
+}
+
 pub struct Mirrorland {
-    pub phase: u8,
+    phase: Phase,
     slots: [Slot; 6],
     /// The slot running, its group, balloons to take and taken.
     running: Option<(usize, u16)>,
@@ -74,7 +86,7 @@ impl Mirrorland {
             }
         }
         Ok(Mirrorland {
-            phase: 1,
+            phase: Phase::Start,
             slots: [Slot::Idle; 6],
             running: None,
             total: 0,
@@ -134,7 +146,7 @@ impl Mirrorland {
         let count = self.slots.iter().filter(|s| **s == Slot::Done).count();
         match count {
             1 | 3 => {
-                self.phase = if count == 1 { 2 } else { 3 };
+                self.phase = if count == 1 { Phase::OneColour } else { Phase::ThreeColours };
                 self.respawn = g.player.pose();
                 g.checkpoint = Some(self.respawn);
                 self.since.clear();
@@ -232,10 +244,13 @@ impl Script for Mirrorland {
     }
 
     fn phase(&self) -> u8 {
-        self.phase
+        self.phase as u8
     }
 
     fn describe(&self) -> String {
-        format!("phase {} slots {:?} running {:?} {}/{}", self.phase, self.slots, self.running, self.taken, self.total)
+        format!(
+            "phase {:?} slots {:?} running {:?} {}/{}",
+            self.phase, self.slots, self.running, self.taken, self.total
+        )
     }
 }

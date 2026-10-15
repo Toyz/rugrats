@@ -35,7 +35,8 @@ struct Baby {
 }
 
 pub struct ChuckiesGlasses {
-    pub phase: u8,
+    /// Races a baby has won home first (0x800c4cd0, the phase, less 1).
+    races_lost: u8,
     babies: Vec<Baby>,
     /// The running babies' line countdown (0x800c4ce4).
     talk_wait: i32,
@@ -65,7 +66,7 @@ impl ChuckiesGlasses {
             p.flags |= GOAL;
         }
         let mut l = ChuckiesGlasses {
-            phase: 1,
+            races_lost: 0,
             babies: BABIES.iter().map(|b| Baby { id: b.0, spot: None, caught: false }).collect(),
             talk_wait: 0,
         };
@@ -96,7 +97,7 @@ impl ChuckiesGlasses {
         self.babies.iter().any(|b| find(g, b.id).is_some_and(|k| matches!(g.npcs[k].mode, Mode::Posts { .. })))
     }
 
-    /// A lost race without the cry (phase below 4): a try, back to the
+    /// A lost race without the cry (the first two): a try, back to the
     /// start; the last try is the hub.
     fn lose_try(&mut self, g: &mut Game) {
         g.tries -= 1;
@@ -120,9 +121,9 @@ impl Script for ChuckiesGlasses {
             if let Event::Goal(k) = e {
                 let id = g.npcs[k].id;
                 let Some(i) = self.babies.iter().position(|b| b.id == id && !b.caught) else { continue };
-                self.phase += 1;
+                self.races_lost += 1;
                 g.npcs[k].mode = Mode::Idle;
-                if self.phase < 4 {
+                if self.races_lost < 3 {
                     g.cine = Some(BABIES[i].2);
                 } else {
                     g.cry();
@@ -195,7 +196,7 @@ impl Script for ChuckiesGlasses {
         }
     }
 
-    /// ForceCry's level 10 case: the cry only in phase 4.
+    /// ForceCry's level 10 case: the cry only at the third race lost.
     fn cry(&mut self, g: &mut Game) -> bool {
         g.tries -= 1;
         if g.tries <= 0 {
@@ -204,12 +205,13 @@ impl Script for ChuckiesGlasses {
         true
     }
 
+    /// The game's phase: 1 plus the races lost.
     fn phase(&self) -> u8 {
-        self.phase
+        self.races_lost + 1
     }
 
     fn describe(&self) -> String {
         let s: Vec<_> = self.babies.iter().map(|b| (b.id, b.spot, b.caught)).collect();
-        format!("phase {} babies {s:?}", self.phase)
+        format!("races lost {} babies {s:?}", self.races_lost)
     }
 }

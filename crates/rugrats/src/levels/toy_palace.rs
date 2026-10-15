@@ -52,8 +52,20 @@ struct Burst {
     reach: i64,
 }
 
+/// The level's progress (0x800c4cd0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+enum Phase {
+    /// Chuckie from the start.
+    Chuckie = 1,
+    /// Chuckie past room 2, the respawn there.
+    RoomTwo = 2,
+    /// Tommy after cine 46, stacking boxes to the switch.
+    Tommy = 3,
+}
+
 pub struct ToyPalace {
-    pub phase: u8,
+    phase: Phase,
     scary: Vec<Scary>,
     scared: bool,
     bursts: Vec<Burst>,
@@ -108,7 +120,7 @@ impl ToyPalace {
             Ok((h, Animator::load(disc, c as u16)?))
         };
         let (tommy, chuckie) = (body(1)?, body(2)?);
-        Ok(ToyPalace { phase: 1, scary, scared: false, bursts, clock: 0, breakables, tommy, chuckie })
+        Ok(ToyPalace { phase: Phase::Chuckie, scary, scared: false, bursts, clock: 0, breakables, tommy, chuckie })
     }
 
     /// Cine 46's end (0x8007b670, 0x800585b0): the player becomes Tommy at
@@ -133,7 +145,7 @@ impl ToyPalace {
         n.hidden = false;
         n.mode = Mode::Idle;
         g.tries = 3;
-        self.phase = 3;
+        self.phase = Phase::Tommy;
         g.checkpoint = Some(Pose::new(there, g.player.heading));
         g.song = Some(1);
         g.set_camera_yaw(g.player.heading as f32);
@@ -201,24 +213,24 @@ impl Script for ToyPalace {
 
     fn room(&mut self, g: &mut Game, room: usize) {
         if room == ROOM_PHASE2 {
-            if self.phase < 3 {
-                self.phase = 2;
+            if self.phase < Phase::Tommy {
+                self.phase = Phase::RoomTwo;
             }
             g.checkpoint = Some(g.player.pose());
         }
     }
 
     fn cine_finished(&mut self, g: &mut Game, n: usize) {
-        if n == CINE_SWAP && self.phase < 3 {
+        if n == CINE_SWAP && self.phase < Phase::Tommy {
             self.swap(g);
         }
     }
 
     fn phase(&self) -> u8 {
-        self.phase
+        self.phase as u8
     }
 
     fn describe(&self) -> String {
-        format!("phase {} scared {}", self.phase, self.scared)
+        format!("phase {:?} scared {}", self.phase, self.scared)
     }
 }

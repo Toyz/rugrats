@@ -310,7 +310,14 @@ impl Rugrats {
                 Boot::Game { game }
             }
             Then::Scene(n, db, then) => self.scene(n, db, *then, now),
-            Then::Title => self.title(now),
+            Then::Title => {
+                let back = self.progress.activity();
+                let mut boot = self.title(now);
+                if let (true, Boot::Title { title }) = (back, &mut boot) {
+                    title.activities();
+                }
+                boot
+            }
             Then::Pages(pages, then) => {
                 let db = self.level.unwrap_or(1);
                 self.screen(pages, db, *then, None, now)

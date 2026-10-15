@@ -198,10 +198,11 @@ pub enum Menu {
 
 /// The Activities menu's items (0x800bb6a4..b0), where they sit, and
 /// what they play (0x80013030: Cookie Race 13, Gold Rush 17, Mini-Golf
-/// -2 (its course menu 0x80096134; for now golf level 23), Egg Hunt 18).
+/// -2 (its course menu 0x80096134; for now Hole One, level 25), Egg Hunt
+/// 18).
 const ACTIVITY_STRINGS: [u32; 4] = [0x800b_b6a4, 0x800b_b6a8, 0x800b_b6ac, 0x800b_b6b0];
 const ACTIVITY_AT: [(i16, i16); 4] = [(-225, 50), (-225, 75), (80, 50), (80, 75)];
-const ACTIVITY_LEVELS: [u8; 4] = [13, 17, 23, 18];
+const ACTIVITY_LEVELS: [u8; 4] = [13, 17, 25, 18];
 
 /// Database 0's models (file 242 + 0) and the sign among them.
 const DB00_MOD: usize = 242;
@@ -805,6 +806,13 @@ impl Title {
         };
         title.draw(true);
         Ok(title)
+    }
+
+    /// The Activities menu at once (back from an activity: 0x8003b7bc).
+    pub fn activities(&mut self) {
+        self.menu = Menu::Activities;
+        self.items = activity_items(&self.fonts, &self.activity_strings);
+        self.chosen = 0;
     }
 
     /// Whether tick `now` starts one of the menu's frames (every other).

@@ -260,6 +260,9 @@ pub struct World<'a> {
     pub walls: &'a [Box3],
 }
 
+/// A prowler's bite to its next (the oracle's lobster, level 16).
+const BITE_EVERY: i32 = 180;
+
 /// One frame of every NPC (the scheduler running each think, 0x80072bf0).
 pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
     let mut events = Vec::new();
@@ -370,10 +373,12 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 let p = w.player;
                 let reach = 2 * n.half_size().max(1);
                 if n.dist(p) <= reach && (p[1] - n.pos[1]).abs() < 1200 {
-                    // Mode 5: the bite, then mode 1.
+                    // Mode 5: the bite, then mode 1 when its animation
+                    // ends: every 36 VSyncs (180 dt) in the oracle while
+                    // the lobster stays on Tommy (level-16.md).
                     n.speed = 0;
                     events.push(Event::Bite { by: k, target: Target::Player, amount: n.damage });
-                    n.mode = Mode::Hit { left: 900, then: Box::new(Mode::Prowl { prev, cur }) };
+                    n.mode = Mode::Hit { left: BITE_EVERY, then: Box::new(Mode::Prowl { prev, cur }) };
                 } else if n.dist(post.pos) <= 2 * n.range && n.dist(p) <= n.range {
                     n.go(p, base, w);
                 } else if n.dist(post.pos) <= n.post_reach {

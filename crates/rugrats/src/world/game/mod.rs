@@ -337,6 +337,8 @@ pub struct Game {
     /// Speech lines asked for this frame (0x8008da4c), and the level's
     /// lines.
     pub speech: Vec<u16>,
+    /// A line said at once over whatever plays (0x8008df78: the cry's).
+    pub say_now: Option<u16>,
     pub lines: Speech,
     /// Placements that speak when the player comes near (LP +0x4c, the
     /// trigger list 0x80072d38).
@@ -877,6 +879,7 @@ impl Game {
             flags: progress.flags(),
             training: Training::load(disc, level),
             speech: Vec::new(),
+            say_now: None,
             lines: Speech::load(disc, db),
             talkers: Vec::new(),
             ambience: ambience::setup(level).0,

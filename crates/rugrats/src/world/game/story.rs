@@ -99,6 +99,11 @@ impl Game {
         }
         self.crying = CRY_TIME;
         self.player.act(CRY, &self.anims);
+        // 0x8007f920: characters 1-5 say 2040 + character at once
+        // (0x8008df78).
+        if (1..=5).contains(&self.character) {
+            self.say_now = Some(2040 + self.character as u16);
+        }
     }
 
     /// After the cry: health back to 255; the level's own respawn, or by

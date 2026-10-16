@@ -23,6 +23,9 @@ impl Rugrats {
         game.state_block = self.progress.block;
         game.frame(&self.pads);
         self.play_effects(game.effects.iter().copied());
+        if let Some(n) = game.say_now.take() {
+            self.say_now(&mut game.lines, n);
+        }
         self.say(&mut game.lines, &game.speech);
         let mut bought = false;
         for &n in &game.found {

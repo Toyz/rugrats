@@ -752,3 +752,45 @@ fn golf_course_is_played() {
         assert_eq!(r, Some(next), "hole {level}: {}", stage(&g));
     }
 }
+
+/// The cry says 2040 + the character at once (0x8007f920, 0x8008df78):
+/// Tommy's 2041 in level 2, a line its speech set holds.
+#[test]
+fn the_cry_has_its_line() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 2);
+    g.cry();
+    assert_eq!(g.say_now, Some(2041));
+    assert!(g.lines.line(&disc, 2041).is_some_and(|s| !s.is_empty()));
+}
+
+/// A lobster on Tommy bites every 180 dt (36 VSyncs in the oracle's
+/// level 16), here in level 3's aisles.
+#[test]
+fn the_lobster_bites_every_36_vsyncs() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 3);
+    g.cine_finished(13);
+    let Some(k) = g
+        .npcs
+        .iter()
+        .position(|n| matches!(n.mode, rugrats::actors::npc::Mode::Prowl { .. }) && !n.hidden && n.damage > 0)
+    else {
+        panic!("no lobster")
+    };
+    let at = g.npcs[k].pos;
+    put(&mut g, [at[0], at[1], at[2] - 300], 0);
+    let mut hits = Vec::new();
+    let mut last = g.player.health;
+    run(&mut g, &[(&[], 120)], |g, f| {
+        if g.player.health < last {
+            hits.push(f);
+        }
+        last = g.player.health;
+        let n = &g.npcs[k];
+        let p = n.pos;
+        g.player.pos = [p[0], p[1], p[2] - 300];
+    });
+    let gaps: Vec<usize> = hits.windows(2).map(|w| w[1] - w[0]).collect();
+    assert!(hits.len() >= 4 && gaps.iter().all(|&d| (17..=20).contains(&d)), "bites at {hits:?}");
+}

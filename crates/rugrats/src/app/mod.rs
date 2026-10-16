@@ -159,6 +159,13 @@ impl Rugrats {
         }
     }
 
+    /// A line at once, cutting off what was said (0x8008df78).
+    fn say_now(&self, lines: &mut Speech, n: u16) {
+        if let (Ok(mut s), Some(sound)) = (self.soundtrack.lock(), lines.line(&self.disc, n)) {
+            *s = Soundtrack::new(sound);
+        }
+    }
+
     /// Stops a movie's or a cinematic's sound.
     fn silence(&self) {
         if let Ok(mut s) = self.soundtrack.lock() {

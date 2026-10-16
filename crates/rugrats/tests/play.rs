@@ -479,6 +479,28 @@ fn level_9_mr_friend_waits_after_his_return() {
     assert_ne!(home(&g), at, "46 chases");
 }
 
+/// Level 9: a can (template 716, bounce 3200) thrown at Mr. Friend hurts
+/// him 30, bounces off him and comes back into Tommy, hurting him 30
+/// (0x80087594; the oracle's 100 -> 70 and 255 -> 225).
+#[test]
+fn level_9_a_can_bounces_back() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 9);
+    let Some(can) = g.things.iter().position(|t| t.template == 716) else { panic!("no can") };
+    let k = g.npcs.iter().position(|n| n.id == 46).unwrap();
+    let p = g.npcs[k].pos;
+    put(&mut g, [p[0], p[1], p[2] - 1500], 0);
+    g.npcs[k].mode = rugrats::actors::npc::Mode::Idle;
+    g.give(can);
+    let (his, mine) = (g.npcs[k].health, g.player.health);
+    run(&mut g, &[(&[], 5), (&[input::TRIANGLE], 1), (&[], 60)], |g, _| {
+        let n = g.npcs.iter().position(|n| n.id == 46).unwrap();
+        g.npcs[n].mode = rugrats::actors::npc::Mode::Idle;
+    });
+    assert_eq!(g.npcs[k].health, his - 30, "Mr. Friend hit");
+    assert_eq!(g.player.health, mine - 30, "the can came back");
+}
+
 /// Turns the player to face `to` (the stick's turn, done at once).
 fn face(g: &mut Game, to: [i32; 3]) {
     let me = g.player.pos;

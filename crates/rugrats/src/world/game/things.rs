@@ -35,6 +35,40 @@ pub struct Thing {
     pub pos: Vec3,
     pub rot: Mat3,
     pub state: ThingState,
+    /// What its flight last hit (record +0x98): an NPC, or the player as
+    /// `PLAYER_HIT`; and whether it has bounced off anything.
+    pub last_hit: Option<usize>,
+    pub bounced: bool,
+}
+
+/// [`Thing::last_hit`] for the player.
+pub(super) const PLAYER_HIT: usize = usize::MAX;
+
+/// A template's bounce (+0x36, into the object's +0xa2, clamped to 4095).
+fn bounce_of(templates: &[Template], template: u16) -> i32 {
+    templates.get(template as usize).map_or(0, |t| u16::from_le_bytes([t.raw[0x36], t.raw[0x37]]).min(4095) as i32)
+}
+
+/// Whether a template's flights take 0x80087594's path (template +0x30
+/// not 1: flags without 0x10000000), which hurts any class 1 object,
+/// the player too.
+fn hurts_player(templates: &[Template], template: u16) -> bool {
+    templates.get(template as usize).is_some_and(|t| t.raw[0x30] != 1)
+}
+
+/// The bounce off a surface of normal `n` (0x8007666c, 0x80087594): back
+/// out along the reflection at (|v| - 95) * bounce >> 12; None when
+/// moving away from it, without a bounce, or too slow.
+fn rebound(v: [i32; 3], n: [i32; 3], bounce: i32) -> Option<[i32; 3]> {
+    let u = collide::unit(v);
+    let c = collide::fix(n[0], u[0]) + collide::fix(n[1], u[1]) + collide::fix(n[2], u[2]);
+    let speed = collide::length(v) - 95;
+    if bounce == 0 || c >= 0 || speed <= 0 {
+        return None;
+    }
+    let r = [0, 1, 2].map(|k| u[k] - (c.wrapping_mul(n[k]) >> 11));
+    let s = (speed * bounce) >> 12;
+    Some(r.map(|r| collide::fix(r, s)))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -234,12 +268,16 @@ impl Game {
             .collect();
         for (k, t) in self.things.iter_mut().enumerate() {
             let ThingState::Flying(mut v) = t.state else { continue };
-            // A flight that reaches a character (0x80086ef0): its touch
-            // (0x800511a8) with the thing's +0x6d; the thing drops.
+            // A flight that reaches a character (0x80086ef0, 0x80087594):
+            // its touch (0x800511a8) with the thing's +0x6d, then the bounce
+            // off it by the template's bounce (none: the thing drops).
+            let bounce = bounce_of(&self.set.templates, t.template);
             if v[0] != 0 || v[2] != 0 {
-                let hit = self.npcs.iter().position(|n| {
+                let last = t.last_hit;
+                let hit = self.npcs.iter().enumerate().position(|(i, n)| {
                     let (dx, dz) = (n.pos[0] as f32 - t.pos.x, n.pos[2] as f32 - t.pos.z);
-                    !n.hidden
+                    last != Some(i)
+                        && !n.hidden
                         && !matches!(n.mode, Mode::Ride { .. })
                         && dx * dx + dz * dz < (STRIKE * STRIKE) as f32
                         && (t.pos.y - (n.pos[1] - n.feet() / 2) as f32).abs() < 900.0
@@ -249,6 +287,35 @@ impl Game {
                     let c = self.npcs[n].character;
                     let r = self.rand.next() & 1;
                     self.speech.extend(hit_line(c, self.level, r));
+                    t.last_hit = Some(n);
+                    // The face of its bounds cube (+0x78..+0x84, an axis-
+                    // aligned cube about it) the thing came at.
+                    let p = self.npcs[n].pos;
+                    let (dx, dz) = (t.pos.x as i32 - p[0], t.pos.z as i32 - p[2]);
+                    let out = if dx.abs() > dz.abs() { [dx.signum() * 4096, 0, 0] } else { [0, 0, dz.signum() * 4096] };
+                    match rebound(v, out, bounce) {
+                        Some(b) => {
+                            v = b;
+                            t.bounced = true;
+                        }
+                        None => {
+                            v[0] = 0;
+                            v[2] = 0;
+                        }
+                    }
+                }
+                // Coming back into Tommy after a bounce: 0x80087594 hurts
+                // any class 1 object (Damage(player, player, +0x8e)).
+                let me = self.player.pos;
+                let (dx, dz) = (me[0] as f32 - t.pos.x, me[2] as f32 - t.pos.z);
+                if t.bounced
+                    && t.last_hit != Some(PLAYER_HIT)
+                    && hurts_player(&self.set.templates, t.template)
+                    && dx * dx + dz * dz < (STRIKE * STRIKE) as f32
+                    && (t.pos.y - (me[1] - self.player.feet() / 2) as f32).abs() < 900.0
+                {
+                    t.last_hit = Some(PLAYER_HIT);
+                    self.player.hurt(t.damage);
                     v[0] = 0;
                     v[2] = 0;
                 }
@@ -268,10 +335,34 @@ impl Game {
             let here = collide::query(&self.col, [before.x as i32, y, before.z as i32]);
             let higher = side.kind != 0 && (here.kind == 0 || side.floor < here.floor);
             if side.kind == 2 || side.tile.is_none() || higher {
+                // The bounce (0x80087594): off the wall's normal from the
+                // segment test.
+                let mut hit = collide::Segment::default();
+                let u = collide::unit(v);
+                let from = [before.x as i32, y, before.z as i32];
+                let to = [t.pos.x as i32 + collide::fix(u[0], 10), y, t.pos.z as i32 + collide::fix(u[2], 10)];
+                let n = if collide::segment(&self.col, from, to, &mut hit) == 1 {
+                    hit.normal
+                } else if v[0].abs() >= v[2].abs() {
+                    [-v[0].signum() * 4096, 0, 0]
+                } else {
+                    [0, 0, -v[2].signum() * 4096]
+                };
+                // Slower than 95 + 382 on a floor it stops (0x80087414).
+                let speed = collide::length(v) - 95;
+                let on_floor = here.kind == 0 && (here.floor as f32 - (before.y + bottom)).abs() < 100.0;
+                match rebound(v, n, bounce).filter(|_| !(on_floor && (0..382).contains(&speed))) {
+                    Some(b) => {
+                        v = b;
+                        t.bounced = true;
+                    }
+                    None => {
+                        v[0] = 0;
+                        v[2] = 0;
+                    }
+                }
                 t.pos.x = before.x;
                 t.pos.z = before.z;
-                v[0] = 0;
-                v[2] = 0;
             }
             t.pos.y += ((v[1] * dt + THING_GRAVITY * dt * dt / 2) >> 6) as f32;
             v[1] += THING_GRAVITY * dt;
@@ -290,6 +381,8 @@ impl Game {
                     t.pos.y = floor - bottom;
                 }
                 t.state = ThingState::Rest;
+                t.last_hit = None;
+                t.bounced = false;
             } else {
                 t.state = ThingState::Flying(v);
             }

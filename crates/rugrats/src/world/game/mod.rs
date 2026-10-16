@@ -524,6 +524,8 @@ impl Game {
                     pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
                     rot: models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
                     state: ThingState::Rest,
+                    last_hit: None,
+                    bounced: false,
                 }
             })
             .collect();

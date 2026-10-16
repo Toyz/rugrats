@@ -456,6 +456,29 @@ fn a_jump_sounds_at_its_states() {
     assert!(fall > Some(2), "the 6 is not the take-off: {heard:?}");
 }
 
+/// Level 9's phase 2 (0x8007cac4 after cine 18): 46 is home still in
+/// state 19 and waits there while the other two chase; Tommy within a
+/// bite wakes him and he chases from then on.
+#[test]
+fn level_9_mr_friend_waits_after_his_return() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 9);
+    g.cine_finished(18);
+    let home = |g: &Game| g.npcs.iter().find(|n| n.id == 46).map(|n| n.pos).unwrap();
+    let at = home(&g);
+    put(&mut g, [at[0] + 6000, at[1], at[2]], 0);
+    run(&mut g, &[(&[], 120)], |_, _| {});
+    assert_eq!(home(&g), at, "46 waits at home");
+    put(&mut g, [at[0] + 300, at[1], at[2]], 0);
+    let health = g.player.health;
+    run(&mut g, &[(&[], 60)], |_, _| {});
+    assert!(g.player.health < health, "46 bites");
+    let me = [at[0] + 6000, at[1], at[2]];
+    put(&mut g, me, 0);
+    run(&mut g, &[(&[], 60)], |_, _| {});
+    assert_ne!(home(&g), at, "46 chases");
+}
+
 /// Turns the player to face `to` (the stick's turn, done at once).
 fn face(g: &mut Game, to: [i32; 3]) {
     let me = g.player.pos;

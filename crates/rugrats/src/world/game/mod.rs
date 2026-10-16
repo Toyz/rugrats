@@ -785,6 +785,7 @@ impl Game {
                 first_post: p.post,
                 loops: (p.level as i32, p.level as i32),
                 size: 0,
+                rooted: false,
                 reach: 600,
                 bite_wait: 900,
                 run_speed: None,

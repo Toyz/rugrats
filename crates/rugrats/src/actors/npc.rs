@@ -123,6 +123,10 @@ pub struct Npc {
     pub loops: (i32, i32),
     /// Half its size (the hierarchy's, which a level may grow).
     pub size: i32,
+    /// Left in a state that does not walk (Mr. Friend's 19 after his
+    /// return in level 9's phase 2): following, it stays put until the
+    /// target is within a bite.
+    pub rooted: bool,
     /// How near a guard bites (+0x690; 600 by default, level 5's robots
     /// 1536).
     pub reach: i32,
@@ -287,7 +291,11 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
             Mode::Follow(t) => {
                 let p = at(t).pos;
                 let d = n.dist(p);
-                if d > 2 * n.range {
+                if n.rooted && d >= n.range / 2 {
+                    // Still in its hurt state (19), which does not walk:
+                    // it waits for the target to come within a bite.
+                    n.speed = 0;
+                } else if d > 2 * n.range {
                     n.go(p, 2 * base, w);
                 } else if d >= n.range / 2 {
                     n.go(p, base, w);
@@ -296,6 +304,8 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     if n.attacks && n.cooldown == 0 && (p[1] - n.pos[1]).abs() < 1200 {
                         events.push(Event::Bite { by: k, target: t, amount: n.damage });
                         n.cooldown = n.bite_wait.min(600);
+                        // The bite's state ends in state 0 (mode 1's end).
+                        n.rooted = false;
                     }
                 }
             }

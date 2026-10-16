@@ -99,6 +99,8 @@ impl MrFriend {
             return;
         }
         n.hurt(amount);
+        // Mode 1 ends in state 0: a hit wakes a waiting 46 too.
+        n.rooted = false;
         if !l14 {
             g.effects.push(Effect::new(19));
             // His line (0x800833a4 / 0x800834b0 in level 9: 0x800b96c8).
@@ -186,6 +188,11 @@ impl Script for MrFriend {
                     n.attacks = true;
                     if i > 0 {
                         n.speed_index = speed;
+                    } else {
+                        // 46 died in state 19 and 0x80083728 does not reset
+                        // it: home, he waits there until Tommy comes within
+                        // a bite (oracle, 4222 to 6400).
+                        n.rooted = true;
                     }
                 }
             }

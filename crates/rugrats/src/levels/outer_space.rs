@@ -36,8 +36,9 @@ const STUN: i32 = 6000;
 /// Sliding doors (template 843): open within 5000, sound 71.
 const DOOR: u32 = 843;
 const DOOR_REACH: i64 = 5000;
-/// The elevator (id 1969): 60 a frame in level 5 (0x80046ed8).
-const ELEVATOR: u16 = 1969;
+/// The elevator (template 855, id 1969): 60 a frame in level 5
+/// (0x80046ed8).
+const ELEVATOR_TEMPLATE: u16 = 855;
 /// Phase 2's respawn (0x8007b3d0) and the float's start (0x8007b4a0).
 const DECK_ROOM: usize = 42;
 const DECK: [i32; 3] = [73246, 6697, 9170];
@@ -116,7 +117,9 @@ impl OuterSpace {
             n.reach = ROBOT_REACH;
             n.bite_wait = 230;
         }
-        for m in g.movers.iter_mut().filter(|m| m.id == ELEVATOR) {
+        // The init sets template 855's y step to 60 (0x80046ed8: template
+        // +0x1a), so every mover of it.
+        for m in g.movers.iter_mut().filter(|m| m.template == ELEVATOR_TEMPLATE) {
             m.set_step(1, 60);
         }
         let doors = g
@@ -303,7 +306,7 @@ impl Script for OuterSpace {
             return true;
         }
         if self.phase == Phase::UpperDeck {
-            for m in g.movers.iter_mut().filter(|m| m.id == ELEVATOR) {
+            for m in g.movers.iter_mut().filter(|m| m.template == ELEVATOR_TEMPLATE) {
                 m.reset();
             }
         }

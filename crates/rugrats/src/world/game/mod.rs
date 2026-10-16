@@ -607,6 +607,7 @@ impl Game {
                 let h = |at: usize| i16::from_le_bytes([t.raw[at], t.raw[at + 1]]) as i32;
                 Mover {
                     id: p.id,
+                    template: p.template as u16,
                     shape: t.shape as u32,
                     start: p.pos,
                     pos: p.pos,
@@ -614,12 +615,14 @@ impl Game {
                     step: [h(0x18), h(0x1a), h(0x1c)],
                     range: [h(0x1e), h(0x20), h(0x22)],
                     gone: [0; 3],
-                    out: [true; 3],
+                    out: [false; 3],
                     back_and_forth: t.flags & 0x1000_0000 != 0,
                     delta: [0; 3],
                     radius: u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32,
                     armed: false,
+                    inside: false,
                     ridden_only: t.flags & 0x4000_0000 != 0,
+                    calls: p.template == 855,
                 }
             })
             .collect();
@@ -1034,8 +1037,12 @@ impl Game {
         // Movers step (0x8004ee00), carrying a player who stands on one.
         let standing_on = self.mover_under_player();
         let me = self.player.pos;
+        let level5 = self.level == Level::OUTER_SPACE;
+        let tests: Vec<(bool, bool)> = self.movers.iter().map(|m| self.mover_tests(m)).collect();
         for (k, m) in self.movers.iter_mut().enumerate() {
-            m.step(me, standing_on == Some(k));
+            let (over, blocked) = tests[k];
+            let elevator = level5 && m.template == 855;
+            m.step(me, standing_on == Some(k), over, blocked, elevator);
         }
         if let Some(k) = standing_on {
             let d = self.movers[k].delta;

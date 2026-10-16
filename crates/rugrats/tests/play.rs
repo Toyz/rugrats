@@ -545,6 +545,31 @@ fn golf_watches_the_ball_near_the_cup() {
     assert!(watched, "no post camera on the way to the cup");
 }
 
+/// Level 5's elevator (template 855): ridden from the top it goes down its
+/// 12288 at 60 a frame (the oracle: -4578 to about 7710 in 410 VSyncs,
+/// 205 frames, from its arming by the landing), carrying Tommy.
+#[test]
+fn level_5_the_elevator_goes_down() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 5);
+    let k = g.movers.iter().position(|m| m.template == 855).expect("the elevator");
+    let at = g.movers[k].pos;
+    put(&mut g, [at[0], at[1] - 1500, at[2]], 0);
+    let (mut lowest, mut moving) = ((0, 0), 0);
+    run(&mut g, &[(&[], 260)], |g, f| {
+        let y = g.movers[k].pos[1];
+        if y > lowest.0 {
+            lowest = (y, f);
+        }
+        if moving == 0 && y != at[1] {
+            moving = f;
+        }
+    });
+    // 205 steps of 60 pass the range by 12 (the think does not clamp).
+    assert_eq!(lowest.0, at[1] + 12300, "down by its range");
+    assert!((204..=206).contains(&(lowest.1 - moving)), "in about 205 frames: {lowest:?} from {moving}");
+}
+
 /// Turns the player to face `to` (the stick's turn, done at once).
 fn face(g: &mut Game, to: [i32; 3]) {
     let me = g.player.pos;

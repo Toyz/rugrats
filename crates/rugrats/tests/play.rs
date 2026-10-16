@@ -1240,10 +1240,12 @@ fn level_10_chuckies_glasses_is_won() {
 
 /// Level 10 won by play (the test above).
 fn win_10(g: &mut Game) {
-    // Chuckie starts in the playpen. A baby on his floor first; a race lost
+    // Home is the playpen. A baby on his floor first; a race lost
     // (cine 41-43) hides that baby again elsewhere and costs a try, three
     // lost end the level.
-    let pen = g.player.pos;
+    // The playpen (template 1032 at (5926, -1387, 21212)), on its floor:
+    // cine 44 leaves Chuckie outside it.
+    let pen = [5648, 670, 19228];
     let mut left = vec![608u16, 609, 1492];
     let mut lost = 0;
     while !left.is_empty() {
@@ -1320,11 +1322,14 @@ fn win_11(g: &mut Game) {
         // A running jump through it (Spike's rises past the bone's height
         // from about 800 to 1750 along): the takeoff 1250 short, on the
         // floor, from a side with its run-up clear.
-        // The side facing the way Spike comes first.
+        // The side whose run-up starts nearest Spike first.
         let me = g.player.pos;
-        let toward_bone = ((((bone[0] - me[0]) as f32).atan2((bone[1] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU) as i32).rem_euclid(4096);
         let mut sides: Vec<i32> = (0..16).map(|d| d * 256).collect();
-        sides.sort_by_key(|&h| ((h - toward_bone + 2048).rem_euclid(4096) - 2048).abs());
+        sides.sort_by_key(|&h| {
+            let a = h as f32 * std::f32::consts::TAU / 4096.0;
+            let back = [bone[0] - (a.sin() * 1762.0) as i32, bone[1] - (a.cos() * 1762.0) as i32];
+            ((back[0] - me[0]) as i64).pow(2) + ((back[1] - me[2]) as i64).pow(2)
+        });
         let takeoff = sides.into_iter().find_map(|h| {
             let a = h as f32 * std::f32::consts::TAU / 4096.0;
             let at = |t: f32| [bone[0] - (a.sin() * t) as i32, bone[1] - (a.cos() * t) as i32];
@@ -1344,8 +1349,12 @@ fn win_11(g: &mut Game) {
         };
         // To the run-up's start (`leap_by_play` backs up there).
         let a = h as f32 * std::f32::consts::TAU / 4096.0;
-        put(g, [x - (a.sin() * 512.0) as i32, ground_y, z - (a.cos() * 512.0) as i32], h);
-        leap_by_play(g, x, z, h);
+        // Up to 700 behind the run-up, then along the line to it: there
+        // facing the bone, with no turn to make.
+        put(g, [x - (a.sin() * 1212.0) as i32, ground_y, z - (a.cos() * 1212.0) as i32], 0);
+        // Within 128 (240 at the bone, its box 375 each way) will do.
+        leap_within(g, x, z, h, 128);
+
         run(g, &[(&[], 4)], |g, _| cine = cine.or(g.cine.take()));
         cine = cine.or(g.cine.take());
         if std::env::var_os("WALKLOG").is_some() {
@@ -2333,11 +2342,16 @@ fn stride_to(g: &mut Game, x: i32, z: i32, near: i32, frames: usize) -> bool {
 /// stick turned to `h` (`turn_to`), the camera put behind (R1), the way
 /// ahead held, and Cross held from the takeoff until the body is down.
 fn leap_by_play(g: &mut Game, tx: i32, tz: i32, h: i32) -> bool {
+    leap_within(g, tx, tz, h, 48)
+}
+
+/// `leap_by_play`, the turn left as it is within `near` of `h`.
+fn leap_within(g: &mut Game, tx: i32, tz: i32, h: i32, near: i32) -> bool {
     let a = h as f32 * std::f32::consts::TAU / 4096.0;
     let back = [(tx as f32 - a.sin() * 512.0) as i32, (tz as f32 - a.cos() * 512.0) as i32];
     stride_to(g, back[0], back[1], 64, 60);
     run(g, &[(&[], 4)], |_, _| {});
-    turn_near(g, h, 48);
+    turn_near(g, h, near);
     if g.fixed.is_none() {
         run(g, &[(&[input::R1], 1), (&[], 2)], |_, _| {});
     }
@@ -2789,4 +2803,24 @@ fn spike_stops_short_of_a_wall_as_the_original() {
     let mut zs = Vec::new();
     run(&mut g, &[(&[input::UP], 9)], |g, _| zs.push(g.player.pos[2]));
     assert_eq!(zs, [4700, 4900, 5100, 5300, 5500, 5700, 5700, 5700, 5700]);
+}
+
+/// A level's start cinematic leaves the player where its last frame put
+/// him (its actors move the level's objects, 0x80073c34): the oracle, with
+/// the start cinematics played, after each.
+#[test]
+fn the_start_cinematics_leave_the_player_as_the_original() {
+    let Some(disc) = disc() else { return };
+    for (level, at, heading) in [
+        (2u8, [-5334, -245, 10864], 2881),
+        (13, [22739, -5365, -5925], 711),
+        (15, [44863, 8587, 12281], 2899),
+        (18, [2333, 779, -926], 1647),
+        (21, [4225, 779, 4176], 734),
+    ] {
+        let g = open(&disc, level);
+        let off = (g.player.heading - heading + 2048).rem_euclid(4096) - 2048;
+        assert_eq!(g.player.pos, at, "level {level}");
+        assert!(off.abs() <= 16, "level {level} heading {} not {heading}", g.player.heading);
+    }
 }

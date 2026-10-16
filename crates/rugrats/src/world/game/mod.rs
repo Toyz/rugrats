@@ -521,6 +521,7 @@ impl Game {
         let mine = |p: &&Placement| {
             p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy() == Some(body))
         };
+        let player_id = set.placements.iter().find(mine).map(|p| p.id as i16);
         let (start, heading) = match set.placements.iter().find(mine) {
             Some(p) => {
                 let [_, y, _, w] = p.rotation.map(|v| v as f64);
@@ -976,6 +977,35 @@ impl Game {
         let hazard_skip: Vec<bool> =
             (0..g.apart.len()).map(|k| g.apart[k] && !g.spinners.iter().any(|s| s.placement == k)).collect();
         g.hazards = hazards(&g.set, &hazard_skip);
+        // The start cinematic (0x80074958) moves the level's own objects
+        // (its actors, 0x80073c34) and leaves them where its last frame put
+        // them: the player and the characters by id, before EpisodeStart.
+        if let Some(n) = intro(level, progress)
+            && let Ok(stream) = crate::media::cine::Stream::read(disc, n)
+            && let Some((_, last)) = stream.frames.last()
+        {
+            for pose in &last.poses {
+                if Some(pose.id) == player_id {
+                    let feet = g.player.feet();
+                    let q = crate::world::collide::query(&g.col, [pose.pos[0], pose.pos[1] - feet - 400, pose.pos[2]]);
+                    let y = if q.kind == 0 && q.tile.is_some() { q.floor + feet } else { pose.pos[1] };
+                    g.player.pos = [pose.pos[0], y, pose.pos[2]];
+                    if let Some(&(_, q)) = pose.keys.iter().find(|k| k.0 == 0) {
+                        let [_, y, _, w] = q.map(|v| v as f64);
+                        let yaw = ((-2.0 * y.atan2(w) / std::f64::consts::TAU * 4096.0).round() as i32).rem_euclid(4096);
+                        g.player.heading = yaw;
+                        g.player.target = yaw;
+                    }
+                } else if let Some(k) = g.npcs.iter().position(|n| n.id as i16 == pose.id) {
+                    // A character the loader put in no room (level 7's
+                    // babies) stays out of play, wherever the cine left it.
+                    if g.room_of(g.npcs[k].pos).is_some() {
+                        let col = &g.col;
+                        g.npcs[k].place(pose.pos, col);
+                    }
+                }
+            }
+        }
         g.script = crate::levels::script(level, &mut g, disc)?;
         // The camera reset behind the player (0x800290a4).
         let heading = g.player.heading;
@@ -1621,4 +1651,17 @@ mod tests {
         assert_eq!(falloff(16385, 127), 0);
         assert_eq!(falloff(0, 100), 100);
     }
+}
+
+/// The start cinematic `open_from` follows, as the app plays it (0x80074958):
+/// not the hub's (its start depends on where the player comes from), golf's
+/// (cameras) or Grandpa's Teeth's from its checkpoint.
+fn intro(level: Level, progress: &Progress) -> Option<usize> {
+    if level == Level::HUB || level.is_hole() || level == Level::GOLF_DOOR {
+        return None;
+    }
+    if level == Level::GRANDPAS_TEETH && progress.flags() & 2 != 0 {
+        return None;
+    }
+    start_cine(level)
 }

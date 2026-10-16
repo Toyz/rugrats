@@ -106,7 +106,7 @@ impl AisleSeven {
         }
         g.player.pos = START;
         let heading = g.player.heading;
-        g.yaw = heading as f32;
+        g.set_camera_yaw(heading as f32);
         g.checkpoint = Some(Pose::new(START, heading));
         // Lobsters prowl their posts from the start (0x8008395c, mode 9),
         // the boss blocks (0x800839f8, mode 3).
@@ -160,7 +160,6 @@ impl AisleSeven {
         g.player.target = 2048;
         g.player.speed = 0;
         g.player.frozen = true;
-        g.yaw = 2048.0;
         let look = Vec3::new(COUNTER[0] as f32, -500.0, 8000.0);
         g.fixed = Some((TOSS_EYE, look));
         // The pie on the counter is the pool's: the toss draws its own.

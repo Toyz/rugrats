@@ -201,9 +201,12 @@ pub struct Game {
     pub stage: Stage,
     pub trig: Trig,
     focal: f32,
-    /// The camera's eye and its heading (4096 a turn).
+    /// The camera's eye as drawn, and the follow camera (0x80027304).
     pub eye: Vec3,
-    pub yaw: f32,
+    follow: Follow,
+    /// The follow camera ran last frame (camera +0x4a = 1); a fixed
+    /// camera's end sets it up again (0x80025e90).
+    following: bool,
     /// The look aside (L1, L2, R2).
     look: Look,
     /// The rooms and objects at rest, drawn under the player.
@@ -308,8 +311,8 @@ pub struct Game {
     pub fixed: Option<(Vec3, Vec3)>,
     /// The follow camera's height (0x800c3f5c) and distance (0x800c4a4c),
     /// and the post a room's fixed camera stands at (kind 3, 0x800259a0).
-    eye_up: f32,
-    behind: f32,
+    eye_up: i32,
+    behind: i32,
     post_camera: Option<usize>,
     /// Objects that hurt on touch (not pickable, not characters, +0x6d
     /// over 0: Damage(player, 0, +0x6d), 0x8005e1f4), and the time until
@@ -817,7 +820,6 @@ impl Game {
             npcs.push(n);
         }
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
-        let yaw = heading as f32;
         let boxes = object_boxes(&set, |k| apart[k]);
         let posts = npc::posts(&set.placements);
         let mut g = Game {
@@ -830,7 +832,8 @@ impl Game {
             trig,
             focal,
             eye: Vec3::ZERO,
-            yaw,
+            follow: Follow::default(),
+            following: true,
             look: Look::default(),
             scenery,
             exit: None,
@@ -884,7 +887,7 @@ impl Game {
             walkers,
             fixed: None,
             eye_up: default_eye_up(level),
-            behind: if level == Level::REPTAR_2010 { 6400.0 } else { BEHIND },
+            behind: if level == Level::REPTAR_2010 { BEHIND_LEVEL_7 } else { BEHIND },
             post_camera: None,
             hazards: Vec::new(),
             hurt_wait: 0,
@@ -924,8 +927,9 @@ impl Game {
             (0..g.apart.len()).map(|k| g.apart[k] && !g.spinners.iter().any(|s| s.placement == k)).collect();
         g.hazards = hazards(&g.set, &hazard_skip);
         g.script = crate::levels::script(level, &mut g, disc)?;
-        g.eye = g.eye_goal();
-        g.draw();
+        // The camera reset behind the player (0x800290a4).
+        let heading = g.player.heading;
+        g.set_camera_yaw(heading as f32);
         Ok(g)
     }
 
@@ -1152,7 +1156,10 @@ impl Game {
         // ledges of type 14 (906-1033) in level 10 (0x80058e14).
         self.player.climb_off = matches!(self.level, Level::HUB | Level::LET_THERE_BE_LIGHT) && self.room == Some(4);
         self.player.climb_max = if self.level == Level::CHUCKIES_GLASSES { 905 } else { crate::actors::player::CLIMB };
-        self.player.frame(pads, self.yaw.round() as i32, &self.col, &boxes, &self.anims, &self.trig);
+        let start = self.player.pos;
+        self.player.frame(pads, self.camera_heading(), &self.col, &boxes, &self.anims, &self.trig);
+        // Moved across (+0x188 bit 32, from the displacement +0xd8).
+        let moved = self.player.pos[0] != start[0] || self.player.pos[2] != start[2];
         for n in std::mem::take(&mut self.player.hints) {
             // The slip's start (state 3, 0x8005b3c4): speech 212 in level 16.
             if n == 32 && self.level == Level::TRAINING {
@@ -1288,17 +1295,11 @@ impl Game {
         }
         self.look.step(&self.trig);
         // R1: the camera back behind the player (0x80026ddc), the look
-        // dropped; ignored while level 5's float holds it.
-        if pads.pressed(0, input::R1) && !self.cam_hold {
-            self.yaw = self.player.heading as f32;
-            self.look.cancel();
+        // dropped; only with the follow camera, not while level 5's float
+        // holds it.
+        if pads.pressed(0, input::R1) && following && !self.shaft && !self.cam_hold {
+            self.camera_behind();
         }
-        // Follow: swing behind the player as it runs, ease 1/8 a frame.
-        if self.player.speed > 0 {
-            let d = ((self.player.heading as f32 - self.yaw + 2048.0).rem_euclid(4096.0)) - 2048.0;
-            self.yaw += d / 16.0;
-        }
-        self.yaw = self.yaw.rem_euclid(4096.0);
         let world = World {
             player: self.player.pos,
             player_heading: self.player.heading,
@@ -1356,15 +1357,28 @@ impl Game {
         }
         self.room_change();
         self.talk();
+        self.camera_frame(moved);
+    }
+
+    /// The camera's frame (0x8002953c) and the picture from it, `moved`
+    /// when the player moved across this frame. [`Game::frame`] ends with
+    /// it; a tool that moves the player itself can run it alone.
+    pub fn camera_frame(&mut self, moved: bool) {
         // Level 5: a held camera stays put; the shaft camera stands 5800
-        // along z and AIM_UP + height up (0x80025c64 kind 12).
+        // along z and AIM_UP + height up (0x80025c64 kind 12). A fixed
+        // camera's end sets the follow camera up behind the player again
+        // (0x800291f8 into 0x80025e90).
+        let follows = self.fixed.is_none() && self.post_camera.is_none() && !self.shaft;
         if self.shaft {
             let t = self.target();
-            self.eye = t + Vec3::new(0.0, -self.eye_up, 5800.0);
-        } else if !self.cam_hold {
-            let goal = self.clear_eye(self.eye_goal());
-            self.eye += (goal - self.eye) / 8.0;
+            self.eye = t + Vec3::new(0.0, -self.eye_up as f32, 5800.0);
+        } else if follows && !self.following {
+            let heading = self.player.heading;
+            self.set_camera_yaw(heading as f32);
+        } else if follows && !self.cam_hold {
+            self.follow(moved);
         }
+        self.following = follows;
         self.draw();
     }
 
@@ -1489,7 +1503,10 @@ impl Game {
             .post_camera
             .and_then(|k| self.posts.get(k.wrapping_sub(1)))
             .map(|p| (Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32), self.target()));
-        let (eye, target) = self.fixed.or(post).unwrap_or((self.eye, self.target()));
+        // The follow camera looks at its look-at (0x800de454); the shaft
+        // and the held camera at the player.
+        let look = if self.shaft || self.cam_hold { self.target() } else { self.follow_look() };
+        let (eye, target) = self.fixed.or(post).unwrap_or((self.eye, look));
         let f = (target - eye).normalize_or(Vec3::Z);
         let x = Vec3::Y.cross(f).normalize_or(Vec3::X);
         let y = f.cross(x);

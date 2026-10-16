@@ -92,7 +92,6 @@ impl Training {
         g.player.frozen = true;
         g.set_room(Some(START_ROOM));
         // The stick turns him camera-relative: the camera looks east.
-        g.yaw = 1024.0;
         let at = Vec3::new(COUNTER[0] as f32, COUNTER[1] as f32, COUNTER[2] as f32);
         g.fixed = Some((at + EYE, at - Vec3::new(0.0, LOOK_UP, 0.0)));
         // The counter's pie is the pool's: the toss draws its own, and

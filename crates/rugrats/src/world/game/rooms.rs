@@ -148,10 +148,10 @@ impl Game {
                         default_eye_up(Level::REPTAR_2010)
                     } else {
                         match r.camera {
-                            6 => 200.0,
-                            7 | 11 => 500.0,
-                            8 => 1600.0,
-                            9 => 2000.0,
+                            6 => 200,
+                            7 | 11 => 500,
+                            8 => 1600,
+                            9 => 2000,
                             _ => default_eye_up(self.level),
                         }
                     };

@@ -98,7 +98,8 @@ impl Game {
             return;
         }
         self.crying = CRY_TIME;
-        self.player.act(CRY, &self.anims);
+        // 0x8007f920: 0x800572a8(player, 16, 2560).
+        self.player.act_at(CRY, 2560, &self.anims);
         // 0x8007f920: characters 1-5 say 2040 + character at once
         // (0x8008df78).
         if (1..=5).contains(&self.character) {

@@ -128,21 +128,35 @@ fn level_6_box_stack_reaches_the_platform() {
     assert!(g.player.pos[2] > 14336 && g.player.pos[1] < -4800, "on the platform: {:?}", g.player.pos);
 }
 
-/// Level 16's pie toss: five hits on Angelica win it.
+/// Level 16's pie toss: five hits on Angelica win it. The oracle's run:
+/// heading 913, a press every 24 VSyncs (12 frames); a press while a throw
+/// is under way is ignored.
 #[test]
 fn level_16_toss_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 16);
     put(&mut g, [31600, -1750, -8141], 1024);
     let mut steps: Vec<(&[usize], usize)> = vec![(&[input::UP], 15), (&[], 330)];
-    for _ in 0..60 {
-        steps.push((&[input::UP, input::TRIANGLE], 1));
-        steps.push((&[input::UP], 14));
+    for _ in 0..80 {
+        steps.push((&[input::TRIANGLE], 1));
+        steps.push((&[], 11));
     }
     // Won, not timed out: the clock goes off with Angelica stopped
     // (mode 0) and her health back to full.
     let mut ended = None;
+    let mut hits = 0;
+    let mut health = 250;
     run(&mut g, &steps, |g, f| {
+        if f > 340 && f < 350 {
+            g.player.heading = 913;
+            g.player.target = 913;
+        }
+        if let Some(h) = g.npcs.iter().find(|n| n.id == 600).map(|n| n.health) {
+            if h < health {
+                hits += 1;
+            }
+            health = h;
+        }
         if ended.is_none() && f > 20 && g.timer.is_none() {
             let a = g
                 .npcs
@@ -152,7 +166,7 @@ fn level_16_toss_is_won() {
             ended = Some((f, a));
         }
     });
-    assert!(matches!(ended, Some((_, Some((true, true))))), "toss ended {ended:?}");
+    assert!(matches!(ended, Some((_, Some((true, true))))), "toss ended {ended:?} after {hits} hits");
 }
 
 /// Every reachable level opens and plays a few seconds of running about.
@@ -350,7 +364,9 @@ fn play(g: &mut Game, frames: usize, mut pick: impl FnMut(&mut Game, usize) -> V
 #[test]
 fn levels_20_and_21_are_won() {
     let Some(disc) = disc() else { return };
-    for (level, won, lob) in [(20, 64, 3000i64), (21, 50, 2200)] {
+    // The box leaves the hand at the throw's release, so throw before
+    // Angelica is in reach of it.
+    for (level, won, lob) in [(20, 64, 4500i64), (21, 50, 3300)] {
         let mut g = open(&disc, level);
         let mut cine = None;
         for _ in 0..3 {
@@ -515,7 +531,7 @@ fn the_camera_after_a_cry() {
         enter_room(&mut g, room);
         g.fixed_camera()?;
         g.cry();
-        run(&mut g, &[(&[], 200)], |_, _| {});
+        run(&mut g, &[(&[], 400)], |_, _| {});
         Some(g.fixed_camera().is_some())
     };
     assert_eq!(fixed_after_cry(9), Some(true), "level 9 keeps it");
@@ -595,6 +611,32 @@ fn hub_spike_fetches_a_toy() {
     assert!(carried, "in his mouth");
     assert!(put_down, "brought back");
     assert_eq!(mouth(&g), Some(79), "his own mouth again");
+}
+
+/// The throw (logical 18, table 26, over the base on track 1) at speed
+/// 0x2000 lets go at its event 16 and ends with its track.
+#[test]
+fn a_throw_runs_at_its_speed() {
+    use rugrats::actors::player::anim::THROW;
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 3);
+    run(&mut g, &[(&[], 5)], |_, _| {});
+    g.player.act_at(THROW, rugrats::world::game::THROW_ANIM_SPEED, &g.anims);
+    let (mut released, mut frames) = (None, 0);
+    for f in 0..200 {
+        g.player.animator.step(&g.anims);
+        if released.is_none() && g.player.animator.events & 16 != 0 {
+            released = Some(f);
+        }
+        if !g.player.animator.playing(THROW) {
+            frames = f;
+            break;
+        }
+    }
+    // Raw durations 30, 10, 10, 10, 10, 10 (x 5 in the port's units) at
+    // 20 a frame: the release after 25 of 400, the end at 400.
+    assert_eq!(released, Some(12));
+    assert_eq!(frames, 19);
 }
 
 /// Turns the player to face `to` (the stick's turn, done at once).

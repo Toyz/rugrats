@@ -2,7 +2,7 @@
 title: Pickups, level goals, hint cards, HUD and pause
 status: partial
 discs: US
-covers: US SLUS_006.50:0x800601e4, US SLUS_006.50:0x80060910, US SLUS_006.50:0x80060b44, US SLUS_006.50:0x8005ff88, US SLUS_006.50:0x80062ac4, US SLUS_006.50:0x80061f88, US SLUS_006.50:0x8008864c, US SLUS_006.50:0x80087c5c, US SLUS_006.50:0x8004df94, US SLUS_006.50:0x800b7e90, US SLUS_006.50:0x800514b0, US SLUS_006.50:0x80076d6c, US SLUS_006.50:0x8007914c, US SLUS_006.50:0x8007c6e0, US SLUS_006.50:0x8007eb68, US SLUS_006.50:0x80077864, US SLUS_006.50:0x80078e7c, US SLUS_006.50:0x80091a44, US SLUS_006.50:0x80094bfc, US SLUS_006.50:0x800930c8, US SLUS_006.50:0x80044434, US SLUS_006.50:0x80097788, US SLUS_006.50:0x8008ba70, US SLUS_006.50:0x8008c7f0, US SLUS_006.50:0x8007f5a8, US SLUS_006.50:0x8003e05c, US SLUS_006.50:0x800398bc, US SLUS_006.50:0x80035fec, US SLUS_006.50:0x800bb4e8, US /DATA/HINTS
+covers: US SLUS_006.50:0x800601e4, US SLUS_006.50:0x80086114, US SLUS_006.50:0x80088388, US SLUS_006.50:0x8008a954, US SLUS_006.50:0x80087594, US SLUS_006.50:0x800899c8, US SLUS_006.50:0x80089bb8, US SLUS_006.50:0x80085f44, US /DATA/DB00/TEXACTRL.DAT, US SLUS_006.50:0x80060910, US SLUS_006.50:0x80060b44, US SLUS_006.50:0x8005ff88, US SLUS_006.50:0x80062ac4, US SLUS_006.50:0x80061f88, US SLUS_006.50:0x8008864c, US SLUS_006.50:0x80087c5c, US SLUS_006.50:0x8004df94, US SLUS_006.50:0x800b7e90, US SLUS_006.50:0x800514b0, US SLUS_006.50:0x80076d6c, US SLUS_006.50:0x8007914c, US SLUS_006.50:0x8007c6e0, US SLUS_006.50:0x8007eb68, US SLUS_006.50:0x80077864, US SLUS_006.50:0x80078e7c, US SLUS_006.50:0x80091a44, US SLUS_006.50:0x80094bfc, US SLUS_006.50:0x800930c8, US SLUS_006.50:0x80044434, US SLUS_006.50:0x80097788, US SLUS_006.50:0x8008ba70, US SLUS_006.50:0x8008c7f0, US SLUS_006.50:0x8007f5a8, US SLUS_006.50:0x8003e05c, US SLUS_006.50:0x800398bc, US SLUS_006.50:0x80035fec, US SLUS_006.50:0x800bb4e8, US /DATA/HINTS
 worklog:
 ---
 
@@ -219,6 +219,168 @@ if the flight hit an object (+0x98), 0x8006c7a0 decides which rests on
 which (+0x70 / +0x74); +0x90 = 0, +0x6b = 0, +0x44 = 0, returns -1 (off
 the scheduler). In training (state +0x30 bit 64) it posts ForceCry and
 clears bit 64.
+
+### Effect flights (0x8008864c, 0x80086114, 0x80087c5c, 0x80088388)
+
+The same records carry sprites and particles. A record from a descriptor
+(0x8008864c), the fields the effect kinds use:
+
+| desc | record | what |
+|---|---|---|
+| +0x00 | +0x08 | flags; 0x80000 is added when +0x6a is not 0 |
+| +0x04..+0x0c | +0x10..+0x18 | start (clamped into its room's box; no room, no flight) |
+| +0x10 | +0x1c | radius, at least 0 |
+| +0x14, +0x18 | +0x20, +0x24 | angles; +0x24 is the quad's roll |
+| +0x28 | +0x0c | lifetime, ms (0 or less: none) |
+| +0x2c..+0x38 | +0x3c..+0x44 | direction and speed: v = dir * (speed << 16 / 6000) >> 12 |
+| +0x3c..+0x40 | +0x4c..+0x50 | spin axis (flag 0x4000000: three draws from 0x800c445c, (r >> 16 & 0x1fff) - 4096) |
+| +0x42 | +0x52 | spin rate, (x << 6) / 300 |
+| +0x44 | +0x28 | bounce (4096 keeps it all) |
+| +0x48 | +0x94 | delay, ms: above 0 the record waits on list 0x800c4cf8 |
+| +0x4c | +0x80 | called on a hit (a pie's splat) |
+| +0x54 | +0x6c | a pointer to the colour (four bytes) |
+| +0x58, +0x5c, +0x60 | +0x74, +0x78, +0x70 | texture (a TEXPOS entry), half size (w, h), face flags |
+| +0x6a | +0x8e | damage |
+
+The pool holds 64 (0x80085d1c); both lists are newest first (0x80081b04
+pushes at the head).
+
+By kind (flags & 15), 0x8008864c and then 0x80086114:
+
+| kind | drawn by | set up |
+|---|---|---|
+| 0 | nothing | |
+| 1 | 0x8006d948 (a model part) | colour from +0x54 |
+| 2, 4 | 0x80087afc (+0x84's model) | colour 255 |
+| 3 | quad | sequence 0x101b shared (0x8008a2a4), then +0x7c cleared, so it is never let go; colour 255 |
+| 5 | quad | colour 255 (texels doubled; not 128) |
+| 6 | quad | face 0xc0800000, colour 255, size 225 x 225, sprite 298 (TEXPOS + 3576) |
+| 7 | quad | sequence 0x1016; face 0xd2a00000; colour from +0x54 |
+| 8 | quad | sequence 0x101d shared, as 3 |
+| 9 | quad | sequence 0x1018; face 0xc2a00000; colour from +0x54 |
+| 10 | quad | sequence 0x1021; face 0xd2a00000; colour from +0x54 |
+| 11 | quad | sequence 0x1017; face 0xd2a00000; colour from +0x54; grows 0x800c41ec << 6 = 256 a dt / 64 |
+
+For 7 and 9-11 the sequence's record goes in +0x7c and its texture in
++0x74, and the half size becomes (radius, radius); with the pool full
+(0x8008a22c gives 0) the texture and size stay the descriptor's.
+
+Each frame 0x8008851c(dt) first counts the waiting records down by
+0x800b44d4[dt] (33 ms at dt 10) and moves those at 0 or below to the
+front of the flying list, then 0x80087c5c steps every flying one:
+
+1. Growth: +0x78 and +0x7a += (+0x90 * dt) >> 6; the radius becomes the
+   larger.
+2. Gravity (bits 8-11, above) and 0x8004fbb4: pos += ((a dt dt) >> 1 + v
+   dt) >> 6, v += a dt.
+3. Spin: s = (+0x52 * dt) >> 6; +0x24 += s * axis.x >> 12, +0x20 += s *
+   axis.y >> 12, +0x22 += s * axis.z >> 12, each & 4095.
+4. Collision when bits 16-19 are set (0x10000000: 0x80086ef0, else
+   0x80087594). The world part (0x80086668 with 0x10000) walks the
+   segment test (0x8002cd7c) from the old position to the new one carried
+   on by max(radius, 10) along the velocity; a hit sets result bits 1
+   and 8, calls +0x80(normal, point) and plays +0x88. When the velocity
+   meets the surface head on (0x8007666c: acos of normal . unit(v) over
+   1024) the record backs off max(radius, 10) from the hit point; if a
+   segment from there down by its radius hits (0x80087414) and |v| - 95
+   is under 382 it stops (bit 2), else v = reflection * ((|v| - 95) *
+   bounce >> 12) >> 12; either way +0x52 *= bounce >> 12. A glancing hit
+   clears bit 1 and leaves the position. 0x20000 adds the objects
+   (0x80086340), 0x80000 damage.
+5. Ends: flag 0x1000000 and bit 2, 0x2000000 and bit 1, 0x20000000 and
+   bit 8.
+6. Fading (bits 12-14): s = (k * dt) >> 6 with k 19, 38, 57, 153, 9 for
+   0x1000-0x5000; the colour to hue / saturation / value (0x8001f238: hue
+   6144 a turn, s = ((max - min) << 8 - 1) / max), the value less s (black
+   below s), back (0x8001f360).
+7. The lifetime, when above 0, less 0x800b44d4[dt]; at 0 or below, done.
+8. Done: +0x34's byte 255, the sequence let go (0x8008a1b8); the record
+   back to the pool.
+
+Then 0x8008a358 steps the sequences. Order in the game frame: the player
+and object thinks (which make flights), 0x8008851c, 0x8008a358, ...,
+0x800884ac (the draw). A flight is stepped once before it is first drawn.
+
+Drawing (0x80088388): kinds 3 and 5-11 queue a camera-facing quad
+(0x8008afc4: position, the roll +0x24, face flags, half size, colour,
+texture; 64 a frame, 0x8008b088(64)). 0x8008a954 takes each into the
+camera (skipped unless 0 <= z < 65536), builds the corners (-w, -h), (w,
+-h), (-w, h), (w, h) turned by the roll (rcos, -rsin; rsin, rcos) and
+scaled as the view is (0x8001e0f4), and draws it through 0x8002390c
+(face 0x8000000: as four quads). The FT4 (0x800233f4) takes the colour,
+the semi-transparency bit 25 (0x02000000) and the tpage | (flags &
+0x600000), so 0xd2a00000 and 0xc2a00000 blend additively (mode 1) and
+0xd0800000 / 0xc0800000 are opaque.
+
+The cone of directions (0x80088bac -> 0x80085f44(axis, matrix, min,
+max)): tilt = (r >> 16 & 4095) % max (max 0 or less counts as 1), at
+least min; spin = r >> 16 & 4095 (two draws of 0x800c445c); (0, 0, 4096)
+turned by (Rx(tilt) Rz(spin)) transposed (0x80010bb4 loads it so), then
+by Ry(yaw) Rx(pitch) of the axis (0x800760f4: yaw = ratan2(x, z), pitch
+= -asin(y); 0x80024424), then by the matrix transposed. 0x800b4578 is the
+identity.
+
+### Animated sprites (0x800899c8, 0x80089bb8, TEXACTRL.DAT)
+
+DB00/TEXACTRL.DAT (file 551) is loaded once (0x8008946c) and made
+absolute (0x800893a8): a size; a count and a table of offsets for ids
+0x1000 | n (36 in the game); the same for 0x2000 ids (none). A 0x1000
+sequence: u16 frame time (ms), u8 looping, u8 last frame, then the
+offset of its u16 TEXPOS entries. The explosion 0x1016 runs 150 ms a
+frame; the flame 0x1017 200 ms.
+
+0x8008a3d8(32) makes a pool of 32 running records of 44 bytes (their
+textures listed at 0x800e6690); every level start calls it. A record:
++0x08 id (0x4000 while stepped), +0x0a its index, +0x0c the TEXPOS entry
+it shows (a copy), +0x18 holders, +0x1c the sequence, +0x20 the time
+left in its frame, +0x24 the frame.
+
+- 0x8008a22c(id, &first): a new record (0x800899c8 with a start of 0):
+  held once, not stepped, first frame; *first its index.
+- 0x8008a2a4: the record already running the id (the stepped list
+  first), held once more, else a new one.
+- 0x8008a154: onto the stepped list (0x800c4d18).
+- 0x8008a1b8: let go; the last holder frees it.
+- 0x8008a358(dt): each stepped record's time less 0x800b44d4[dt]; while
+  below 0 it gets a frame's time back and moves on a frame (0x80089b8c:
+  the next, the first again when looping, else the end). A record that
+  ends leaves the stepped list showing its last frame.
+- 0x800895ac(n): TEXPOS + 12 n, no wrap (0x80089fa4 wraps at 428); an
+  entry with no page gives the menu's 0x800b9ba4.
+
+### Effect flights in the game
+
+| maker | flags | what |
+|---|---|---|
+| 0x8005cd74 | 0x8030b | Reptar's flame (level 7; docs/levels/level-07.md) |
+| 0x80053d28 | 7 | explosion: radius 3000, 5000 ms, still (its cone 120 about +z is drawn) |
+| 0x80053e10 | 9 | smaller burst: radius 1500, 3000 ms |
+| 0x8005202c | 0x30705 | debris (touch 14): ten sprites from 392-405 by rand mod 10 (0x800c419c), speed rand mod 200 (100 at most), cone 2048 about up, 1000 ms, spin 3391, face 0xc0800000, 200 x 200, bounce 2048 |
+| 0x8005282c | 0x30705 | a pie's splat (the pie's +0x80, called with the hit's normal and point): five of sprite 359, speed rand mod 150 (50 at most, 0x800c41a4), cone 2048 about the normal, 2000 ms, spin 3391, face 0xd0800000, 200 x 200, bounce 1000 |
+| 0x800529cc | 0x10705 | five of sprite 275 (TEXPOS + 3300), speed rand mod 500 from a seed set to 0xb0a5 on each call (the same five every time), cone 1024 about its first argument, 500 ms, bounce 2048, 100 x 100, face 0xd0800000 |
+| 0x80054894 | 0x10505 | use callback 2's burst: five, sprite by the object's +0x3b (2: 303, 5: 300, 19: 304, 21: 299, 25: 301, 45: 302, else 0), 240 x 300, speed rand mod 400 (0x800c41d0), cone 1024 about up turned by the object's +0x04 matrix, 1000 ms, bounce 2048, face 0xc0800000 |
+| 0x80054ae0 | 0x10505 | sparks (from level 6's player code, 0x8005ad20) |
+| 0x800514b0 | | a collectible's three sparks (touch 10) |
+| 0x80050140, 0x80050348 (via 0x800504a4..0x80050590), 0x800505b0, 0x80050b5c, 0x80054238, 0x8005444c, 0x800858d4 | kind 2 | model parts |
+| 0x80050770, 0x800509d8, 0x80050c48, 0x80050fd0, 0x80051db4, 0x800522ec, 0x80053ef8, 0x80054d5c | kind 5 | sprites (touches 8, 13, 15; not traced further) |
+| 0x80050900 | 0x508 | kind 8 |
+| 0x80052b60 | the caller's | a descriptor filled by the hit table 0x800b7eb0 (0x80053604 ...) |
+| 0x8004a84c, 0x80060b44, 0x80062928, 0x80062ac4, 0x8004d1a8, 0x80058278 | kind 0 | thrown and dropped objects (world::game::things) |
+
+Uninitialised: 0x80053d28, 0x8005cd74, 0x8005282c and 0x8005202c leave
+some descriptor words as the stack had them. Seen: the explosion's delay
+a negative pointer (no delay), the flame's 0 (once 1, a one-frame
+delay); the splat's and debris's spin axis is never set (so their roll's
+turn is whatever was there; the port takes 0, no roll).
+
+Checked in the oracle (level 7, Circle at VSync 3300, the lamps broken at
+2931 and 2950): the descriptors and records as made (a hook on
+0x8008864c and on 0x80088b5c after 0x80086114), then the records and
+their sequence records peeked every VSync: the flame's position, life,
+size and frame step by step at dt 20 and 15, the explosion's life and
+frames. The cone, asin / acos / ratan2 and the colour conversions are
+checked against the original's functions in rrt-emu
+(crates/rugrats/tests/flights.rs).
 
 ### Use callbacks (+0x54, table 0x800b7e90 by template +0x07)
 
@@ -531,8 +693,11 @@ here (guess: dead, or left from an older menu).
 
 - What sets +0xe0 bits 2048 and 16 (guess: animation key events) and the
   hand slots' real names (12, 15).
-- The world and object collision of a flight (0x80087594, 0x80086ef0),
-  the bounce (+0x44), and 0x8006c7a0's stacking rule.
+- The object collision of a flight (0x80086340, 0x80086ef0, flag
+  0x20000) and 0x8006c7a0's stacking rule (the world part and the bounce
+  are under "Effect flights").
+- What the hit callbacks 0x800b7eb0 (0x80053604 ...) and the kind 5
+  touches (8, 13, 15) throw; kinds 1, 2 and 4's drawing.
 - The +0x50 table 0x800b7eb0: its entries (0x80053604, 0x80052ba0,
   0x80052ed8, 0x80053090, 0x80053170) read object +0x98 and spawn
   particles; what +0x98 holds.

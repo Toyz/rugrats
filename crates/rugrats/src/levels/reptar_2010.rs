@@ -7,10 +7,13 @@
 use crate::actors::player::{Pose, State};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
+use crate::world::flights;
 use crate::world::game::{Game, Script};
 
-/// Where cine 79 leaves Reptar.
+/// Where cine 79 leaves Reptar, facing +z (heading 0, seen at 2890 and
+/// 2950).
 const START: [i32; 3] = [25162, -703, -9351];
+const START_HEADING: i32 = 0;
 /// How near Reptar's body breaks a building (seen 1670 .. 2240 from his
 /// origin).
 const BODY: i32 = 1700;
@@ -23,21 +26,38 @@ const TAKE_REACH: i64 = 1400;
 /// with sound 89.
 const CHOMP: i16 = 49;
 const FIRE: i16 = 51;
+/// The fire starts at its animation's event (+0xe0 bit 2048) and breathes
+/// from the part on hand slot 16 (the head).
+const FIRE_EVENT: u32 = 2048;
+const HEAD: usize = 16;
+/// The touch (+0x58, template byte +0x0a) of a building that leaves
+/// debris (0x8005202c); 1135 and 1071 have none.
+const DEBRIS_TOUCH: u8 = 14;
+/// Template 795 explodes when taken.
+const EXPLODES: u32 = 795;
 
 pub struct Reptar2010 {
     taken: Vec<usize>,
     was_air: bool,
     broken: u32,
+    /// The fire's event came this state (0x800c41f6).
+    breathing: bool,
 }
 
 impl Reptar2010 {
     /// EpisodeStart (0x8007b748).
     pub fn start(g: &mut Game, _disc: &GameDisc) -> Result<Reptar2010, String> {
         g.player.pos = START;
+        g.player.heading = START_HEADING;
+        g.player.target = START_HEADING;
+        g.set_camera_yaw(START_HEADING as f32);
         g.player.gait = (10, 10);
+        // Reptar's body (template 8) enters its states at half speed
+        // (0x8005a068: 2048).
+        g.player.animator.written_speed = 2048;
         g.checkpoint = Some(Pose::new(START, g.player.heading));
         g.flags |= 512;
-        Ok(Reptar2010 { taken: Vec::new(), was_air: false, broken: 0 })
+        Ok(Reptar2010 { taken: Vec::new(), was_air: false, broken: 0, breathing: false })
     }
 
     /// The building think (0x8004d7c4): the body against its boxes.
@@ -73,6 +93,7 @@ impl Reptar2010 {
             });
             if hit {
                 let t = b.template;
+                let at = [b.pos.x as i32, b.pos.y as i32, b.pos.z as i32];
                 let b = &mut g.breakables[k];
                 if t == GONE {
                     b.gone = true;
@@ -92,7 +113,15 @@ impl Reptar2010 {
                 if t == 931 {
                     g.speech.push(1183);
                 }
-                let sound = if g.rand.next() & 1 == 0 { 91 } else { 92 };
+                // Its touch (debris, with its +0x6d) and the explosion at it.
+                let template = g.set.templates.get(t as usize);
+                if template.is_some_and(|t| t.raw[0x0a] == DEBRIS_TOUCH) {
+                    let damage = template.map_or(0, |t| t.raw[0x32] as i16);
+                    g.flights.debris(at, damage, g.sprites.as_ref());
+                }
+                g.flights.explosion(at, g.sprites.as_ref());
+                // 1240's sound is 91 alone.
+                let sound = if t == GONE || g.rand.next() & 1 == 0 { 91 } else { 92 };
                 g.play(sound);
             }
         }
@@ -110,6 +139,20 @@ impl Script for Reptar2010 {
                 g.play(89);
                 g.player.act(FIRE, &g.anims);
             }
+        }
+        // The fire (state 30, 0x8005ce74): from its animation's event, a
+        // flame a frame from the head (0x8005cd74).
+        if g.player.action == Some(FIRE) {
+            self.breathing |= g.player.animator.events & FIRE_EVENT != 0;
+            let parts = g.player.parts(&g.anims, &g.trig);
+            if self.breathing
+                && let Some(&(rot, at)) = g.player.slot_part(HEAD).and_then(|i| parts.get(i))
+            {
+                let (start, dir) = flights::flame_from(&g.flights.angles, &g.trig, rot, at);
+                g.flights.flame(start, dir, g.sprites.as_ref());
+            }
+        } else {
+            self.breathing = false;
         }
         // The landing's rumble (0x8005cba8 for char 9): sound 93.
         let air = matches!(g.player.state, State::Jump | State::Fall);
@@ -129,6 +172,9 @@ impl Script for Reptar2010 {
             if dx * dx + dz * dz < TAKE_REACH * TAKE_REACH {
                 self.taken.push(k);
                 g.hide_placement(k, true);
+                if q.template == EXPLODES {
+                    g.flights.explosion(q.pos, g.sprites.as_ref());
+                }
                 g.play(sound);
             }
         }

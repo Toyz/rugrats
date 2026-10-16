@@ -121,12 +121,8 @@ impl Mover {
             }
             called = self.calls && !over && self.call(player[1], elevator);
         }
-        let mut done = [true; 3];
+        let done = [0, 1, 2].map(|i| self.done(i));
         for i in 0..3 {
-            if self.range[i] == 0 {
-                continue;
-            }
-            done[i] = self.done(i);
             if done[i] {
                 continue;
             }
@@ -142,9 +138,9 @@ impl Mover {
         }
         if self.back_and_forth {
             if !self.ridden_only || ridden || over {
-                for i in 0..3 {
-                    if self.range[i] != 0 && done[i] {
-                        self.out[i] = !self.out[i];
+                for (out, (&range, &done)) in self.out.iter_mut().zip(self.range.iter().zip(&done)) {
+                    if range != 0 && done {
+                        *out = !*out;
                     }
                 }
             }

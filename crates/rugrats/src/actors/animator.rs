@@ -149,6 +149,22 @@ pub struct Animator {
     /// The idle's fidget to come and the time standing still before it
     /// (+0xf0, +0xf2).
     fidget: (i16, i32),
+    /// A state without a base column (the throw), played over the base
+    /// on track 1 and, where it has them, tracks 2 and 3 (0x800571d8,
+    /// 0x800561b0): the legs go on with the base state.
+    upper: Option<i16>,
+    /// The event bits of the frames that ended this step (FRM +0x00 into
+    /// +0xe0, 0x80055d40): 16 a throw's release, 2048 a grab, 0x2000 a
+    /// hurt state's wait, 1 an animation's last frame.
+    pub events: u32,
+    /// The speed its tracks run at (+0xe4, 4096 as written): each
+    /// 0x800572a8 call sets it from its third argument, clamped to 2048 ..
+    /// 16384 (0x80057214); a frame's time runs down by dt times it >> 12
+    /// (0x80056834).
+    speed: i32,
+    /// The speed a state's entry asks for (0x8005a068: 4096, or 2048 for
+    /// a body of template 8, Reptar).
+    pub written_speed: i32,
 }
 
 impl Animator {
@@ -176,6 +192,10 @@ impl Animator {
             climb: 0,
             entered: Vec::new(),
             fidget: (FIDGETS.0, FIDGET_AFTER),
+            upper: None,
+            events: 0,
+            speed: 4096,
+            written_speed: 4096,
         })
     }
 
@@ -202,11 +222,36 @@ impl Animator {
     /// Whether logical animation `a` plays on the base track and has
     /// frames to go.
     pub fn playing(&self, a: i16) -> bool {
+        let Some(s) = table_state(a, self.climb, self.tracks[0].anim) else { return false };
+        if self.upper == Some(s) {
+            // Over the base, until track 1 completes.
+            let t = &self.tracks[1];
+            return self.asked == a && t.anim == s && t.count > 0;
+        }
         let t = &self.tracks[0];
-        self.asked == a
-            && table_state(a, self.climb, t.anim) == Some(t.anim)
-            && t.cur + 1 < t.first + t.count
-            && t.left != i32::MAX
+        self.asked == a && t.anim == s && t.cur + 1 < t.first + t.count && t.left != i32::MAX
+    }
+
+    /// Whether table state `a` has no base column: it plays over the base.
+    fn over_base(&self, a: i16) -> bool {
+        self.remap
+            .get(a as usize)
+            .and_then(|&e| self.entries.get(e as usize))
+            .is_some_and(|e| e[0] < 0 && e[1..].iter().any(|&c| c >= 0))
+    }
+
+    /// Track `k` from the first frame of state `a`'s column `k` (none:
+    /// empty), blending from the frame it showed.
+    fn set_track(&mut self, k: usize, a: i16, anims: &Anims) {
+        let old = self.tracks[k];
+        let Some((first, count)) = self.anm_on(a, k).and_then(|id| anims.index.get(id).copied().flatten()) else {
+            self.tracks[k] = Track { anim: a, ..Track::default() };
+            return;
+        };
+        let (first, count) = (first as usize, count as usize);
+        let prev = if old.count > 0 { old.cur } else { first };
+        let left = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
+        self.tracks[k] = Track { anim: a, first, count, prev, cur: first, left, back: false };
     }
 
     /// The ANM animation of logical animation `a` on the base track
@@ -231,12 +276,24 @@ impl Animator {
         self.start(a, anims);
     }
 
+    /// Starts logical animation `a` from its first frame at speed
+    /// `speed` (0x800572a8's third argument, 4096 as written).
+    pub fn start_at(&mut self, a: i16, speed: i32, anims: &Anims) {
+        self.start(a, anims);
+        self.speed = speed.clamp(2048, 0x4000);
+    }
+
     /// Starts logical animation `a` from its first frame, even if it is
-    /// playing.
+    /// playing, at the written speed.
     pub fn start(&mut self, a: i16, anims: &Anims) {
+        self.speed = if self.written_speed > 0 { self.written_speed } else { 4096 };
         let Some(s) = table_state(a, self.climb, self.tracks[0].anim) else { return };
         self.asked = a;
-        self.tracks[0].count = 0;
+        if self.over_base(s) {
+            self.upper = None;
+        } else {
+            self.tracks[0].count = 0;
+        }
         self.play(s, anims);
     }
 
@@ -245,25 +302,37 @@ impl Animator {
         std::mem::take(&mut self.entered)
     }
 
-    /// Plays table state `a`, unless it is playing.
+    /// Plays table state `a`, unless it is playing: over the base when
+    /// it has no base column, else as the base, with tracks 1-3 not
+    /// taken by a state over it.
     fn play(&mut self, a: i16, anims: &Anims) {
+        if self.over_base(a) {
+            if self.upper == Some(a) && self.tracks[1].count > 0 {
+                return;
+            }
+            self.upper = Some(a);
+            if self.entered.len() < 8 {
+                self.entered.push(a);
+            }
+            for k in 1..4 {
+                if self.anm_on(a, k).is_some() {
+                    self.set_track(k, a, anims);
+                }
+            }
+            return;
+        }
         if self.tracks[0].anim == a && self.tracks[0].count > 0 {
             return;
         }
         if self.entered.len() < 8 {
             self.entered.push(a);
         }
-        for k in 0..4 {
-            let old = self.tracks[k];
-            let Some((first, count)) = self.anm_on(a, k).and_then(|id| anims.index.get(id).copied().flatten()) else {
-                self.tracks[k] = Track { anim: a, ..Track::default() };
+        self.set_track(0, a, anims);
+        for k in 1..4 {
+            if self.upper.is_some_and(|u| self.tracks[k].anim == u) {
                 continue;
-            };
-            let (first, count) = (first as usize, count as usize);
-            // Blend from the frame showing into the new animation's first.
-            let prev = if old.count > 0 { old.cur } else { first };
-            let left = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
-            self.tracks[k] = Track { anim: a, first, count, prev, cur: first, left, back: false };
+            }
+            self.set_track(k, a, anims);
         }
     }
 
@@ -288,14 +357,26 @@ impl Animator {
             self.fidget.1 = FIDGET_AFTER;
         }
         let mut done = None;
+        let mut upper_done = false;
+        let upper = self.upper;
+        let self_speed = self.speed;
+        let mut events = 0u32;
         for (k, t) in self.tracks.iter_mut().enumerate() {
             if t.count == 0 {
                 continue;
             }
-            t.left -= DT;
+            t.left -= (DT * self_speed) >> 12;
             while t.left <= 0 {
                 let last = t.first + t.count - 1;
-                let ends = if k == 0 { ENDS.get(t.anim as usize).copied().unwrap_or(1) } else { 2 };
+                // The base and a state over it on track 1 end as their
+                // word says (0x8005562c, 0x8005678c); the rest loop.
+                let ends = if k == 0 || (k == 1 && upper == Some(t.anim)) {
+                    ENDS.get(t.anim as usize).copied().unwrap_or(1)
+                } else {
+                    2
+                };
+                // The frame that ended gives its events (0x80055d40).
+                events |= anims.frames.get(t.cur).map_or(0, |f| f.unknown_0 as u32);
                 t.prev = t.cur;
                 if t.back {
                     if t.cur > t.first {
@@ -311,6 +392,11 @@ impl Animator {
                     t.cur = if t.count > 1 { last - 1 } else { t.first };
                 } else if ends & 2 != 0 {
                     t.cur = t.first;
+                } else if k == 1 && upper == Some(t.anim) {
+                    // The state over the base completes: tracks 1-3 go
+                    // back to the base (0x8005678c, 0x800561b0).
+                    upper_done = true;
+                    break;
                 } else if ends & 1 != 0 {
                     done = Some(t.anim);
                     break;
@@ -321,6 +407,14 @@ impl Animator {
                 }
                 let d = anims.frames.get(t.cur).map_or(1, |f| f.duration.max(1) as i32);
                 t.left += d;
+            }
+        }
+        self.events = events;
+        if upper_done {
+            self.upper = None;
+            let base = self.tracks[0].anim;
+            for k in 1..4 {
+                self.set_track(k, base, anims);
             }
         }
         if let Some(s) = done {

@@ -9,7 +9,12 @@
 //! 258, 32 x 24) over a fill (260, 32 x 60) at depth 768, at (192, 76)
 //! from the centre (0x800c45bc); the fill's top comes down as health
 //! falls. It shows for 1500 dt after a change.
+//!
+//! The animated sprites ([`Sequences`], 0x800899c8 and its wrappers): a
+//! running sequence keeps its own copy of the TEXPOS entry it shows and
+//! changes it as its frames come round.
 
+use rrt::glam::Vec3;
 use rugrats_data::level::Texture;
 use rugrats_render::{Vram, Vtx};
 
@@ -19,6 +24,7 @@ const TEXPOS: u32 = 0x800b_9b20;
 const ENTRIES: usize = 428;
 
 pub struct Sprites {
+    /// Every entry in the file (428 in each database's).
     textures: Vec<Texture>,
 }
 
@@ -43,12 +49,19 @@ impl Sprites {
         let k = if db < 32 { db + 1 } else { 0 };
         let file = disc.exe_u32(TEXPOS + 4 * k as u32)? as usize;
         let raw = disc.file(file)?;
-        Ok(Sprites { textures: raw.as_chunks::<12>().0.iter().take(ENTRIES).map(|t| Texture::parse(t)).collect() })
+        Ok(Sprites { textures: raw.as_chunks::<12>().0.iter().map(|t| Texture::parse(t)).collect() })
     }
 
     /// Sprite `n` (0x80089fa4: n mod 428; an entry with no page is none).
     pub fn texture(&self, n: u32) -> Option<&Texture> {
         self.textures.get(n as usize % ENTRIES).filter(|t| t.tpage != 0)
+    }
+
+    /// Entry `n` as 0x800895ac takes it: no wrap (a sequence's frames, a
+    /// flight's sprite). An entry with no page is the menu's (0x800b9ba4),
+    /// which is not kept here: none.
+    pub fn entry(&self, n: u32) -> Option<&Texture> {
+        self.textures.get(n as usize).filter(|t| t.tpage != 0)
     }
 
     /// Copies sprite `n`'s texels and CLUT from `from` into `to` (a screen
@@ -98,30 +111,13 @@ impl Sprites {
         &self,
         n: u32,
         at: rrt::glam::Vec3,
-        (u, v): (rrt::glam::Vec3, rrt::glam::Vec3),
+        axes: (rrt::glam::Vec3, rrt::glam::Vec3),
         look: Look,
         out: &mut Vec<Vtx>,
     ) {
         let Some(t) = self.texture(n) else { return };
-        let mode = t.clut as u32 | (t.tpage as u32) << 16 | if look.semi { Vtx::SEMI } else { 0 };
-        let window = Vtx::window_of(
-            [t.uv[0][0], t.uv[1][0], t.uv[2][0], t.uv[3][0]],
-            [t.uv[0][1], t.uv[1][1], t.uv[2][1], t.uv[3][1]],
-        );
-        let corners = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)];
-        let grey = look.grey;
-        let vtx = |k: usize| {
-            let p = at + u * corners[k].0 + v * corners[k].1;
-            Vtx {
-                pos: p.to_array(),
-                colour: u32::from_le_bytes([grey, grey, grey, 0]),
-                uv: Vtx::uv_of(t.uv[k][0] as u32, t.uv[k][1] as u32),
-                mode,
-                window,
-            }
-        };
-        // Wound for the world pass, which culls back faces.
-        out.extend([vtx(0), vtx(2), vtx(1), vtx(1), vtx(2), vtx(3)]);
+        let flags = if look.semi { FACE_SEMI } else { 0 };
+        face(t, at, axes, [look.grey; 3], flags, out);
     }
 
     /// Sprite `n` at its own size in pixels, centred on screen point `at`
@@ -175,6 +171,242 @@ impl Sprites {
             Vtx { pos: [cx + x * sx, cy + y * sy, 0.0], colour: 0x80_8080, uv: Vtx::uv_of(u, vv), mode, window }
         };
         out.extend([v(0), v(1), v(2), v(1), v(3), v(2)]);
+    }
+}
+
+/// A face flag (packet bit 25): the polygon is semi-transparent.
+pub const FACE_SEMI: u32 = 0x0200_0000;
+/// The face flags' bits that are added to the page's blend mode
+/// (0x800233f4: the packet's tpage | flags & 0x600000).
+pub const FACE_BLEND: u32 = 0x0060_0000;
+
+/// Texture `t` on a quad in the world, as 0x8008a954 sends a
+/// camera-facing one through 0x8002390c: centre `at`, the texture's u
+/// along `u` and v along `v` (half extents), its texels times `rgb` / 128;
+/// face flags [`FACE_SEMI`] make it semi-transparent and [`FACE_BLEND`]
+/// goes into the page's blend. Front facing when u x v points away from
+/// the eye.
+pub fn face(t: &Texture, at: Vec3, (u, v): (Vec3, Vec3), rgb: [u8; 3], flags: u32, out: &mut Vec<Vtx>) {
+    let semi = if flags & FACE_SEMI != 0 { Vtx::SEMI } else { 0 };
+    let mode = t.clut as u32 | (t.tpage as u32) << 16 | (flags & FACE_BLEND) | semi;
+    let window = Vtx::window_of(
+        [t.uv[0][0], t.uv[1][0], t.uv[2][0], t.uv[3][0]],
+        [t.uv[0][1], t.uv[1][1], t.uv[2][1], t.uv[3][1]],
+    );
+    // Corners in 0x8008a954's order: (-w, -h), (w, -h), (-w, h), (w, h).
+    let corners = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)];
+    let colour = u32::from_le_bytes([rgb[0], rgb[1], rgb[2], 0]);
+    let vtx = |k: usize| {
+        let p = at + u * corners[k].0 + v * corners[k].1;
+        Vtx { pos: p.to_array(), colour, uv: Vtx::uv_of(t.uv[k][0] as u32, t.uv[k][1] as u32), mode, window }
+    };
+    // Wound for the world pass, which culls back faces.
+    out.extend([vtx(0), vtx(2), vtx(1), vtx(1), vtx(2), vtx(3)]);
+}
+
+/// The sequences' file (DB00/TEXACTRL.DAT, loaded once by 0x8008946c and
+/// made absolute by 0x800893a8): a size, then a count and a table of
+/// offsets for each of two kinds (0x1000 and 0x2000 ids; the second is
+/// empty in the game's file).
+const TEXACTRL: usize = 551;
+/// The running sequences' pool (0x8008a3d8(32), 0x8008931c: 44 bytes
+/// each, their textures listed at 0x800e6690).
+pub const SEQUENCE_SLOTS: usize = 32;
+
+/// A sequence (a 0x1000 id): each frame `time` ms (+0x00), looping or not
+/// (+0x02), its last frame (+0x03) and the TEXPOS entries it shows (+0x04).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Sequence {
+    pub time: i32,
+    pub looping: bool,
+    pub frames: Vec<u16>,
+}
+
+/// A running sequence (a pool record): its id (+0x08), how many hold it
+/// (+0x18), whether it is on the stepped list (0x800c4d18, flag 0x4000),
+/// the time left in its frame (+0x20), the frame (+0x24) and the entry it
+/// shows (+0x0c).
+#[derive(Clone, Debug)]
+struct Running {
+    id: u16,
+    sequence: usize,
+    refs: i32,
+    active: bool,
+    /// When it last joined a list: the lists are newest first.
+    joined: u32,
+    timer: i32,
+    frame: usize,
+    texture: Option<Texture>,
+}
+
+/// The animated sprites: the sequences and the pool that runs them.
+#[derive(Clone, Debug, Default)]
+pub struct Sequences {
+    sequences: Vec<Sequence>,
+    slots: Vec<Option<Running>>,
+    clock: u32,
+}
+
+impl Sequences {
+    pub fn load(disc: &GameDisc) -> Result<Sequences, String> {
+        Ok(Sequences::parse(&disc.file(TEXACTRL)?))
+    }
+
+    /// TEXACTRL.DAT's 0x1000 sequences.
+    pub fn parse(raw: &[u8]) -> Sequences {
+        let word = |at: usize| raw.get(at..at + 4).map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])) as usize;
+        let half = |at: usize| raw.get(at..at + 2).map_or(0, |b| u16::from_le_bytes([b[0], b[1]]));
+        let (count, table) = (word(4), word(8));
+        let sequences = (0..count)
+            .map(|k| {
+                let at = word(table + 4 * k);
+                let last = raw.get(at + 3).copied().unwrap_or(0) as usize;
+                let frames = word(at + 4);
+                Sequence {
+                    time: half(at) as i32,
+                    looping: raw.get(at + 2).is_some_and(|&b| b != 0),
+                    frames: (0..=last).map(|f| half(frames + 2 * f)).collect(),
+                }
+            })
+            .collect();
+        Sequences { sequences, slots: vec![None; SEQUENCE_SLOTS], clock: 0 }
+    }
+
+    /// The sequence an id names (0x800897a8: 0x1000 | index).
+    pub fn sequence(&self, id: u16) -> Option<&Sequence> {
+        (id & 0x3000 == 0x1000).then(|| self.sequences.get((id & 0xfff) as usize)).flatten()
+    }
+
+    fn tick(&mut self) -> u32 {
+        self.clock += 1;
+        self.clock
+    }
+
+    /// Starts sequence `id` on a free record (0x8008a22c, 0x800899c8 with
+    /// a start of 0): held once, not yet stepped, on its first frame. None
+    /// without the sequence or a free record.
+    pub fn start(&mut self, id: u16, sprites: Option<&Sprites>) -> Option<usize> {
+        let k = self.sequence(id).map(|_| (id & 0xfff) as usize)?;
+        let slot = self.slots.iter().position(Option::is_none)?;
+        let first = self.sequences[k].frames.first().copied();
+        let texture = first.and_then(|n| sprites.and_then(|s| s.entry(n as u32))).cloned();
+        let joined = self.tick();
+        self.slots[slot] = Some(Running {
+            id: id & 0x3fff,
+            sequence: k,
+            refs: 1,
+            active: false,
+            joined,
+            timer: self.sequences[k].time,
+            frame: 0,
+            texture,
+        });
+        Some(slot)
+    }
+
+    /// The record already running `id`, held once more (0x8008a2a4: the
+    /// stepped list first, then the rest, each newest first), or a new one.
+    pub fn start_shared(&mut self, id: u16, sprites: Option<&Sprites>) -> Option<usize> {
+        let id = id & 0x3fff;
+        let find = |active: bool| {
+            self.slots
+                .iter()
+                .enumerate()
+                .filter_map(|(k, r)| r.as_ref().map(|r| (k, r)))
+                .filter(|(_, r)| r.id == id && r.active == active)
+                .max_by_key(|(_, r)| r.joined)
+                .map(|(k, _)| k)
+        };
+        if let Some(k) = find(true).or_else(|| find(false)) {
+            if let Some(r) = self.slots[k].as_mut() {
+                r.refs += 1;
+            }
+            return Some(k);
+        }
+        self.start(id, sprites)
+    }
+
+    /// Puts record `slot` on the stepped list (0x8008a154, 0x80089624).
+    pub fn activate(&mut self, slot: usize) {
+        let joined = self.tick();
+        if let Some(r) = self.slots.get_mut(slot).and_then(Option::as_mut)
+            && !r.active
+        {
+            r.active = true;
+            r.joined = joined;
+        }
+    }
+
+    /// Lets go of record `slot` (0x8008a1b8, 0x8008976c): the last holder
+    /// frees it.
+    pub fn release(&mut self, slot: usize) {
+        let Some(entry) = self.slots.get_mut(slot) else { return };
+        match entry {
+            Some(r) if r.refs == 1 => *entry = None,
+            Some(r) => r.refs -= 1,
+            None => {}
+        }
+    }
+
+    /// One frame of `ms` (0x8008a358, 0x80089f20, 0x80089bb8): each stepped
+    /// record's time runs down; at below 0 it gets a frame's time back and
+    /// moves on a frame, round to the first when it loops; a sequence that
+    /// ends goes off the stepped list showing its last frame.
+    pub fn step(&mut self, ms: i32, sprites: Option<&Sprites>) {
+        let mut ended = Vec::new();
+        for (k, slot) in self.slots.iter_mut().enumerate() {
+            let Some(r) = slot.as_mut().filter(|r| r.active) else { continue };
+            let s = &self.sequences[r.sequence];
+            let last = s.frames.len().saturating_sub(1);
+            r.timer -= ms;
+            let (mut frame, mut moved, mut done) = (r.frame, false, false);
+            while r.timer < 0 {
+                r.timer += s.time;
+                // 0x80089b8c: the next frame, the first again, or the end.
+                let next = if frame != last {
+                    Some(frame + 1)
+                } else if s.looping {
+                    Some(0)
+                } else {
+                    None
+                };
+                let Some(next) = next else {
+                    done = true;
+                    break;
+                };
+                frame = next;
+                moved = true;
+            }
+            if moved {
+                r.frame = frame;
+                r.texture = s.frames.get(frame).and_then(|&n| sprites.and_then(|t| t.entry(n as u32))).cloned();
+            }
+            if done {
+                ended.push(k);
+            }
+        }
+        for k in ended {
+            let joined = self.tick();
+            if let Some(r) = self.slots[k].as_mut() {
+                r.active = false;
+                r.joined = joined;
+            }
+        }
+    }
+
+    /// The entry record `slot` shows (0x8008a018's 0x800e6690[slot]).
+    pub fn texture(&self, slot: usize) -> Option<&Texture> {
+        self.slots.get(slot).and_then(Option::as_ref).and_then(|r| r.texture.as_ref())
+    }
+
+    /// Record `slot`'s frame and the time left in it, if it is running.
+    pub fn frame(&self, slot: usize) -> Option<(usize, i32)> {
+        self.slots.get(slot).and_then(Option::as_ref).map(|r| (r.frame, r.timer))
+    }
+
+    /// How many records are in use.
+    pub fn running(&self) -> usize {
+        self.slots.iter().flatten().count()
     }
 }
 

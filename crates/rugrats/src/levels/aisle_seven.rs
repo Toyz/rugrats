@@ -15,7 +15,7 @@ use crate::actors::player::anim::THROW;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::Level;
-use crate::levels::pie_toss::{Pie, Splats, draw_pies, roll_pies};
+use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
 use crate::ui::hud;
 use crate::world::collide;
 use crate::world::game::{self, Exit, Game, Script, Strike};
@@ -73,7 +73,6 @@ const STUN: i32 = 600;
 struct Toss {
     holding: bool,
     pies: Vec<Pie>,
-    splats: Splats,
 }
 
 /// The level's progress (0x800c4cd0).
@@ -146,7 +145,7 @@ impl AisleSeven {
             let dd = d.iter().map(|v| v * v).sum::<f64>().max(1.0);
             let f = (r.iter().zip(&d).map(|(a, b)| a * b).sum::<f64>() / dd).clamp(0.0, 1.0);
             let q = [0, 1, 2].map(|k| p[k] + (d[k] * f) as i32);
-            let half = n.half_size().max(1) as i32;
+            let half = n.half_size().max(1);
             if (0..3).all(|k| (q[k] - n.pos[k]).abs() <= half) && len(q) < len(to) {
                 to = q;
             }
@@ -180,7 +179,7 @@ impl AisleSeven {
                 n.mode = Mode::Posts { prev: 0, cur: n.first_post };
             }
         }
-        self.toss = Some(Toss { holding: true, pies: Vec::new(), splats: Splats::default() });
+        self.toss = Some(Toss { holding: true, pies: Vec::new() });
         g.song = Some(1);
     }
 
@@ -256,13 +255,13 @@ impl AisleSeven {
                 let aim = find(g, LARRY).map(|k| g.npcs[k].pos);
                 toss.pies.push(Pie::thrown(g, COUNTER, g.player.heading, aim));
                 toss.holding = false;
-                g.player.act(THROW, &g.anims);
+                g.player.act_at(THROW, crate::world::game::THROW_ANIM_SPEED, &g.anims);
             } else {
                 toss.holding = true;
             }
         }
         let targets: Vec<usize> = [LARRY, STEVE].iter().filter_map(|&id| find(g, id)).collect();
-        let hits = roll_pies(g, &mut toss.pies, &mut toss.splats, &targets);
+        let hits = roll_pies(g, &mut toss.pies, &targets);
         // A hit (0x800511a8, 0x8007e308): both lose 50, the one hit
         // flinches; at 0 the toss is won.
         for hit in hits {
@@ -411,7 +410,7 @@ impl Script for AisleSeven {
 
     fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         let Some(toss) = &self.toss else { return };
-        draw_pies(g, &toss.pies, &toss.splats, toss.holding, moving);
+        draw_pies(g, &toss.pies, toss.holding, moving);
         if toss.holding
             && let Some(s) = &g.sprites
         {

@@ -129,7 +129,9 @@ fn project(m: &Model, rows: Mat3, pos: Vec3, eye: [i32; 3], h: f32, out: &mut Ve
     model_triangles(m, rows, pos, &mut world);
     let eye = Vec3::new(eye[0] as f32, eye[1] as f32, eye[2] as f32);
     let mut tris: Vec<(f32, [Vtx; 3])> = world
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .filter_map(|t| {
             let mut z = 0.0;
             let mut tri = [t[0], t[1], t[2]];

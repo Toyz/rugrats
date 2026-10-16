@@ -303,12 +303,14 @@ impl Script for BoxToss {
         self.target = self.aim(g);
         // The throw (0x80060b44's levels 20-21 branch): a lob to the
         // target.
+        // A press while a throw is under way is ignored (+0x188 bit 4).
         if holding
+            && g.pending_throw.is_none()
             && pads.pressed(0, input::TRIANGLE)
             && let Some(k) = self.target
         {
             let v = lob(&g.trig, g.player.pos, g.npcs[k].pos);
-            g.player.act(THROW, &g.anims);
+            g.player.act_at(THROW, crate::world::game::THROW_ANIM_SPEED, &g.anims);
             // 0x8005d11c: speech 1159 or 1167.
             g.speech.push(if g.rand.next() & 1 != 0 { 1159 } else { 1167 });
             g.throw_carried(v);

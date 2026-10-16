@@ -56,7 +56,7 @@ pub use goodies::{Collected, Goodie, goodie, spawn};
 pub use movers::Mover;
 pub use pause::PauseEnd;
 pub use story::{hit_line, start_cine};
-pub use things::{Breakable, Strike, Thing, ThingState};
+pub use things::{Breakable, Strike, THROW_ANIM_SPEED, Thing, ThingState};
 pub use toys::{Spinner, Walker};
 
 const COL: usize = 466;
@@ -225,6 +225,8 @@ pub struct Game {
     pub won: Option<bool>,
     /// The HUD's sprites, and the health meter's time left and last value.
     pub sprites: Option<Sprites>,
+    /// The effect flights and their animated sprites (0x8008864c).
+    pub flights: crate::world::flights::Flights,
     meter_shown: i32,
     meter_health: i32,
     /// The placed objects' collision boxes in the world.
@@ -283,6 +285,10 @@ pub struct Game {
     unusable: std::collections::HashSet<usize>,
     /// The moving platforms (template class 11).
     pub movers: Vec<Mover>,
+    /// A throw waiting for its animation's release, and a pick-up for its
+    /// grab.
+    pub pending_throw: Option<things::PendingThrow>,
+    pub pending_grab: Option<usize>,
     /// The breakables (template class 14: level 7's buildings).
     pub breakables: Vec<Breakable>,
     /// The hinged and sliding doors (classes 4 and 3).
@@ -829,6 +835,7 @@ impl Game {
             script: None,
             won: None,
             sprites: Sprites::load(disc, db).ok(),
+            flights: crate::world::flights::Flights::load(disc)?,
             meter_shown: 0,
             meter_health: 255,
             boxes,
@@ -861,6 +868,8 @@ impl Game {
             collected: Vec::new(),
             struck: Vec::new(),
             movers,
+            pending_throw: None,
+            pending_grab: None,
             breakables,
             doors,
             spinners,
@@ -1280,6 +1289,7 @@ impl Game {
         };
         self.npc_events = npc::step(&mut self.npcs, &world, &mut self.rand);
         self.with_script(|s, g| s.frame(g, pads));
+        self.flights.step(&self.col, self.sprites.as_ref(), DT);
         // Hazards (0x8005e1f4, the walk and run states): walking into one
         // costs its +0x6d; the next only after 300 dt (guess).
         self.hurt_wait = (self.hurt_wait - DT).max(0);
@@ -1391,6 +1401,7 @@ impl Game {
         for n in &self.npcs {
             npc::triangles(n, &self.set.models, &self.anims, &self.trig, &mut moving);
         }
+        self.flights.draw(self.view, self.sprites.as_ref(), &mut moving);
         let mut overlay = Vec::new();
         if let Some(s) = &self.script {
             s.draw(self, &mut moving, &mut overlay);

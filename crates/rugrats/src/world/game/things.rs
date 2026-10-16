@@ -41,6 +41,18 @@ pub struct Thing {
     pub bounced: bool,
 }
 
+/// A throw asked for, waiting for its release: the carried thing, aimed
+/// at release as a plain or level 9 throw, or with a level's velocity.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PendingThrow {
+    Aimed(usize),
+    Given(usize, [i32; 3]),
+}
+
+/// The throw's animation speed (0x8005d11c: 0x800572a8(player, 18,
+/// 0x2000)).
+pub const THROW_ANIM_SPEED: i32 = 0x2000;
+
 /// [`Thing::last_hit`] for the player.
 pub(super) const PLAYER_HIT: usize = usize::MAX;
 
@@ -132,10 +144,32 @@ impl Game {
         Some(Vec3::new(d.x, -300.0 / 4096.0, d.z))
     }
 
-    /// Throws the carried thing with velocity `v` (a level's own throw).
+    /// Throws the carried thing with velocity `v` (a level's own throw),
+    /// letting go at the throw animation's release.
     pub fn throw_carried(&mut self, v: [i32; 3]) {
-        if let Some(k) = self.carried.take() {
+        if let Some(k) = self.carried {
+            self.pending_throw = Some(PendingThrow::Given(k, v));
+        }
+    }
+
+    /// Lets go of a thrown thing (0x80060b44's release): the direction
+    /// and speed of the plain or aimed throw as they are now, or the
+    /// level's own velocity.
+    fn release(&mut self, throw: PendingThrow) {
+        let (k, v) = match throw {
+            PendingThrow::Given(k, v) => (k, v),
+            PendingThrow::Aimed(k) => {
+                let rot = self.player.rotation(&self.trig);
+                let v = match if self.aim { self.aim_at() } else { None } {
+                    Some(d) => d * THROW_SPEED,
+                    None => (rot * Vec3::new(0.0, -384.0, 1024.0)).normalize() * THROW_SPEED,
+                };
+                (k, [v.x as i32, v.y as i32, v.z as i32])
+            }
+        };
+        if self.carried == Some(k) {
             self.things[k].state = ThingState::Flying(v);
+            self.carried = None;
             self.player.carrying = false;
         }
     }
@@ -178,6 +212,26 @@ impl Game {
     /// touched object up (state 7) or puts the carried one down (state 8);
     /// Triangle throws it (0x80060b44).
     pub(super) fn carry(&mut self, pads: &Pads) {
+        // A throw asked for lets go at its animation's release event (16,
+        // 0x80060b44), or when the animation ends without one.
+        if let Some(k) = self.pending_grab {
+            let anim = &self.player.animator;
+            if anim.events & 2048 != 0 || !anim.playing(PICK_UP) {
+                self.pending_grab = None;
+                if self.things[k].state == ThingState::Rest && !self.things[k].hidden {
+                    self.grab(k);
+                }
+            }
+            return;
+        }
+        if let Some(throw) = self.pending_throw {
+            let anim = &self.player.animator;
+            if anim.events & 16 != 0 || !anim.playing(THROW) {
+                self.pending_throw = None;
+                self.release(throw);
+            }
+            return;
+        }
         let p = &self.player;
         let standing = matches!(p.state, State::Stand | State::Walk | State::Run) && p.action.is_none();
         if !standing {
@@ -193,7 +247,14 @@ impl Game {
             // GRAB never puts down in levels 5, 20 and 21 (0x8005d11c).
             let put_down = pads.pressed(0, input::CIRCLE)
                 && !matches!(self.level, Level::OUTER_SPACE | Level::NO_MORE_COOKIES | Level::TOUCHDOWN_TOMMY);
-            if throw || put_down {
+            if throw {
+                // The stand handler asks for 18 at 0x2000 (0x8005d11c).
+                self.player.act_at(THROW, THROW_ANIM_SPEED, &self.anims);
+                self.player.jump_lock = 300;
+                self.pending_throw = Some(PendingThrow::Aimed(k));
+                return;
+            }
+            if put_down {
                 // Level 9 aims (0x80061c98): at the nearest visible character
                 // within 512 of the facing, the direction's y -300.
                 let aimed = if throw && self.aim { self.aim_at() } else { None };
@@ -230,6 +291,16 @@ impl Game {
             .filter(|&(_, d, dy)| d < REACH && dy < 1200.0)
             .min_by(|a, b| a.1.total_cmp(&b.1));
         let Some((k, _, _)) = near else { return };
+        // State 7: the pick-up's animation, the object taken at its grab
+        // event (2048, 0x800601e4).
+        self.player.act(PICK_UP, &self.anims);
+        self.pending_grab = Some(k);
+    }
+
+    /// The grab (0x800601e4 at +0xe0 bit 2048): the object in hand, held
+    /// where the hands are now.
+    fn grab(&mut self, k: usize) {
+        let rot = self.player.rotation(&self.trig);
         // The grip (0x8005ff88 mode 0): the hands' midpoint less hand 15,
         // in the player's frame, pushed forward by half the object's depth.
         let parts = self.player.parts(&self.anims, &self.trig);
@@ -246,7 +317,6 @@ impl Game {
         self.things[k].state = ThingState::Carried;
         self.carried = Some(k);
         self.player.carrying = true;
-        self.player.act(PICK_UP, &self.anims);
         // The grab (0x800601e4): message 5.
         self.training.show(5);
     }

@@ -2,7 +2,7 @@
 title: Level 7, Reptar 2010
 status: partial
 discs: US
-covers: US SLUS_006.50:0x8007b748, US SLUS_006.50:0x8007871c, US SLUS_006.50:0x8005a068, US SLUS_006.50:0x8005b2d8, US SLUS_006.50:0x8005cc2c, US SLUS_006.50:0x8005ce74, US SLUS_006.50:0x8005cd74, US SLUS_006.50:0x8005cba8, US SLUS_006.50:0x8005e1f4, US SLUS_006.50:0x80059008, US SLUS_006.50:0x800590d4, US SLUS_006.50:0x8005be24, US SLUS_006.50:0x80049c50, US SLUS_006.50:0x8004d7c4, US SLUS_006.50:0x8006baa8, US SLUS_006.50:0x8005202c, US SLUS_006.50:0x80053d28, US SLUS_006.50:0x80049e18, US SLUS_006.50:0x80049e5c, US SLUS_006.50:0x80048804, US SLUS_006.50:0x800495d0, US SLUS_006.50:0x80048364, US SLUS_006.50:0x8004e2ac, US SLUS_006.50:0x8004cdfc, US SLUS_006.50:0x80080cd8, US SLUS_006.50:0x80080318, US SLUS_006.50:0x800819a4, US SLUS_006.50:0x80078e3c, US SLUS_006.50:0x80077a54, US SLUS_006.50:0x8007737c, US SLUS_006.50:0x800783d8, US SLUS_006.50:0x80072ef0, US SLUS_006.50:0x800732d4, US SLUS_006.50:0x80074958, US SLUS_006.50:0x8007fd0c, US SLUS_006.50:0x80077864, US SLUS_006.50:0x800780ac, US SLUS_006.50:0x80017c0c, US SLUS_006.50:0x8008b1e4, US SLUS_006.50:0x8008b2c8, US SLUS_006.50:0x8008b448, US SLUS_006.50:0x80078e7c, US SLUS_006.50:0x80018598, US SLUS_006.50:0x800291f8, US SLUS_006.50:0x80025e90, US SLUS_006.50:0x800290a4, US SLUS_006.50:0x8004d3f0, US /DATA/DB07/DB07LP.BIN, US /DATA/DB07/LEVEL07.BIN, US /DATA/DB07/LEVEL07.COL, US /DATA/DB00/TEMPLATE.BIN, US /DATA/HINTS, US /DATA/OPEN/CREDITS.STR
+covers: US SLUS_006.50:0x8007b748, US SLUS_006.50:0x80053d28, US SLUS_006.50:0x8005202c, US SLUS_006.50:0x8007871c, US SLUS_006.50:0x8005a068, US SLUS_006.50:0x8005b2d8, US SLUS_006.50:0x8005cc2c, US SLUS_006.50:0x8005ce74, US SLUS_006.50:0x8005cd74, US SLUS_006.50:0x8005cba8, US SLUS_006.50:0x8005e1f4, US SLUS_006.50:0x80059008, US SLUS_006.50:0x800590d4, US SLUS_006.50:0x8005be24, US SLUS_006.50:0x80049c50, US SLUS_006.50:0x8004d7c4, US SLUS_006.50:0x8006baa8, US SLUS_006.50:0x8005202c, US SLUS_006.50:0x80053d28, US SLUS_006.50:0x80049e18, US SLUS_006.50:0x80049e5c, US SLUS_006.50:0x80048804, US SLUS_006.50:0x800495d0, US SLUS_006.50:0x80048364, US SLUS_006.50:0x8004e2ac, US SLUS_006.50:0x8004cdfc, US SLUS_006.50:0x80080cd8, US SLUS_006.50:0x80080318, US SLUS_006.50:0x800819a4, US SLUS_006.50:0x80078e3c, US SLUS_006.50:0x80077a54, US SLUS_006.50:0x8007737c, US SLUS_006.50:0x800783d8, US SLUS_006.50:0x80072ef0, US SLUS_006.50:0x800732d4, US SLUS_006.50:0x80074958, US SLUS_006.50:0x8007fd0c, US SLUS_006.50:0x80077864, US SLUS_006.50:0x800780ac, US SLUS_006.50:0x80017c0c, US SLUS_006.50:0x8008b1e4, US SLUS_006.50:0x8008b2c8, US SLUS_006.50:0x8008b448, US SLUS_006.50:0x80078e7c, US SLUS_006.50:0x80018598, US SLUS_006.50:0x800291f8, US SLUS_006.50:0x80025e90, US SLUS_006.50:0x800290a4, US SLUS_006.50:0x8004d3f0, US /DATA/DB07/DB07LP.BIN, US /DATA/DB07/LEVEL07.BIN, US /DATA/DB07/LEVEL07.COL, US /DATA/DB00/TEMPLATE.BIN, US /DATA/HINTS, US /DATA/OPEN/CREDITS.STR
 worklog:
 ---
 
@@ -235,6 +235,8 @@ case 7); 0x8007737c case 78 does nothing.
 
 No respawn, no phase, no timer, no HUD.
 
+Reptar faces +z after cine 79 (heading 0 at 2890 and 2950).
+
 Seen: cine 79 from 1819 to 2887 (1068 VSyncs): the babies and two grown-ups
 in the living room (room 12), then Reptar walking from (916, -702, -435) in
 room 6 to (25170, -702, -9032) in room 9 (the player object, moved by the
@@ -298,12 +300,29 @@ Entering clears 0x800c41f6; the animation event sets it. While it is set,
 each game frame: the matrix of bone 16 (0x80044fec), the facing into
 +0x200 (0x80076040), the start = bone 16's position + (0, -1400, 512)
 (s16 at 0x800c41f0) turned by the bone matrix (0x8009fbe8), then 0x8005cd74(start, +0x200): one
-flight (0x8008864c) with flags 0x8030b, speed 1000, and 0x800c41e0 (750),
-0x800c41e4 (1500), 0x800c41e8 (70) in its record. Seen: Circle at 3300:
-state 30 3310-3380, 21 flights 3345-3387 (one a game frame), a flame cone
-from the mouth. A building 2744 ahead did not break: the flames break
-nothing (seen; guess from 0x8006baa8, which tests only the player and
-objects with 0x10000 or 0x4000).
+flight (0x8008864c) with flags 0x8030b: kind 11, no gravity, collision
+bits 0x80000 only (damage, but neither the world 0x10000 nor objects
+0x20000, so it hits nothing); radius 750 (0x800c41e0), lifetime 1500 ms
+(0x800c41e4), speed 70 (0x800c41e8), colour 0x800c42d0 (grey 128) and
+damage 1000 (desc +0x6a; not a speed). Kind 11 (0x80086114) runs sequence
+0x1017 (five frames of 200 ms) on a quad of half size 750 that grows by
+256 * dt / 64 a frame (0x800c41ec << 6), additive (face 0xd2a00000). The
+direction is the head's yaw and pitch: the part's matrix as the game
+keeps it is world to part; its transpose's (1, 2) gives -asin pitch,
+(2, 0) and (2, 2) the yaw (0x800210b0), back to a unit vector
+(0x80076040, 0x8007652c). docs/engine/objectives.md "Effect flights" has
+the record and the step.
+
+Seen: Circle at 3300: state 30 3310-3380, 21 flights 3345-3387 (one a
+game frame) in one run, 12 (3344-3385, dt 15-20) in another: a flame
+cone from the mouth, sweeping right to left. A building 2744 ahead did
+not break: the flames break nothing (their flags have no collision).
+The first flame: head part 2 (slot 16) with matrix rows (3514, 128,
+-2120), (121, 4079, 447), (2119, -448, 3487) at (25225, -2236, -8706);
+start (25448, -3687, -8423), direction (2118, -446, 3485), velocity (395,
+-84, 650); its position, life, size and sequence frame then went as
+crates/rugrats/tests/flights.rs pins (dt 20: life 1500, 1434, 1368;
+size 750, 830, 910; frame 1 after 600 ms).
 
 ### Rumble jump
 
@@ -333,11 +352,18 @@ On a hit:
   Templates 793 and 688 are class 0 in DB07, so their sound case is not
   reached here.
 
-Debris (0x8005202c): ten flights with models picked by (rand mod 10) from
-392, 393, 394, 395, 396, 397, 399, 401, 403, 405 (records at 0x800c4484
-+ 12 x n), a value of rand mod 200 capped at 100 (guess: the speed). Explosion (0x80053d28):
-a burst (0x80088bac with 0x800b4578, 120) and a flight with flags 7 at the
-object.
+Debris (0x8005202c): ten kind 5 flights (flags 0x30705: gravity 13, the
+world and objects collide) of TEXPOS sprites picked by (rand mod 10,
+0x800c419c) from 392, 393, 394, 395, 396, 397, 399, 401, 403, 405, at
+speed rand mod 200 capped at 100, thrown within half a turn of up
+(0x80088bac(up, identity, 0, 2048)), 1000 ms, bounce 2048, 200 x 200,
+opaque (0xc0800000), colour 255, damage the object's +0x6d. Explosion
+(0x80053d28): one kind 7 flight at the object's position, radius (and
+half size) 3000, 5000 ms, still, white, sequence 0x1016 (150 ms a
+frame), additive; its direction is drawn (0x80088bac(+z, identity, 0,
+120): two draws of 0x800c445c) though the speed is 0. Seen: the lamps at
+2931 and 2950 made explosions at (26004, -1701, -7911) and (26079, -1701,
+-11540), the lamps' positions.
 
 Seen: lamps (1135) broke 1670 to 2240 from Reptar's origin as he stood or
 walked by (2931, 2950, 2966, 3052: sound 90 then 91, no debris); building
@@ -538,7 +564,13 @@ needs, in order:
 3. The three buttons, on raw Triangle / Circle presses in any state,
    with sound 89: state 29 (animation 49; at its event a touched building
    breaks) and state 30 (animation 51; from its event, one flame a game
-   frame from bone 16 along the facing, speed 1000, drawn only). The
+   frame from bone 16 along the head's yaw and pitch, speed 70, hitting
+   nothing). Done (world::flights, levels::reptar_2010); the port's
+   animation 51 runs about twice as fast as the original's: its event 10
+   frames (20 VSyncs) after the press and its end 19 frames (38 VSyncs)
+   after, where the oracle's state 30 has the event 34 VSyncs in and ends
+   at 70, so the port breathes 9 flames where the original breathes
+   about 18 at dt 10. The
    rumble jump: in the land state for char 9, sound 93 and the camera
    shake (0x8001e318 with 160, 450) every frame. Walking into a wall goes
    to stand, not state 9. GRAB and ACTION do nothing else.
@@ -547,11 +579,13 @@ needs, in order:
    template += 1 (so the rubble's template flag 8 decides whether it
    still blocks), the per-template sound, debris (ten flights of
    particles), the explosion, sound 91 / 92; template 1240 goes away
-   entirely; lamps (1135) get no debris and sound 90. The port needs a
+   entirely; lamps (1135) get no debris and sound 90. The debris and the
+   explosion are done (world::flights). The port needs a
    runtime template change for an object (collision and model from the
    new template).
 5. Touch-collect in the player update: templates 401 (sound 88) and 795
-   (sound 91, explosion) are removed with shards (0x8004cdfc, 200).
+   (sound 91, explosion) are removed with shards (0x8004cdfc, 200). The
+   explosion is done; the shards are not.
 6. The camera in level 7: keep -1000 on every CameraSwitch (the port's
    room change sets 200 for kind 6, which every DB07 room is); aim at the
    floor height (+0x148), not the bobbing origin; 0x800c4a68 7200.
@@ -571,8 +605,9 @@ needs, in order:
 
 - Whether anything can hurt Reptar in normal play (none found; guess:
   no).
-- What the flames' flight record does on hitting the world (flags
-  0x8030b), and what 0x800c41e0..0x800c41e8 mean in it.
+- Why animation 51 (and 49) take about 70 (110) VSyncs in the original
+  and half that in the port (the animator's rate for char 9 or the
+  state's own timing; not traced).
 - The exact test in 0x8006b6d0 (the player's shape against a model box)
   and why a building broke 2400 from Reptar while he stood (guess: the
   tail).

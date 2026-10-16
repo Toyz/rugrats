@@ -591,9 +591,15 @@ impl Player {
 
     /// Starts action animation `a`.
     pub fn act(&mut self, a: i16, anims: &Anims) {
+        self.act_at(a, self.animator.written_speed.max(2048), anims);
+    }
+
+    /// Starts action animation `a` at animation speed `speed` (0x800572a8's
+    /// third argument).
+    pub fn act_at(&mut self, a: i16, speed: i32, anims: &Anims) {
         self.action = Some(a);
         self.speed = 0;
-        self.animator.start(a, anims);
+        self.animator.start_at(a, speed, anims);
     }
 
     /// The heading as a rotation (0x80020d10's matrix).

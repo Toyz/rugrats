@@ -487,6 +487,15 @@ impl Renderer {
                     pass.draw(from..to, 0..1);
                 }
             }
+            if let Some(slice) = self.overlay.slice()
+                && self.overlay_count > 0
+            {
+                pass.set_pipeline(&self.overlay_pipeline);
+                pass.set_bind_group(0, &self.overlay_group, &[]);
+                pass.set_vertex_buffer(0, slice);
+                pass.draw(0..self.overlay_count, 0..1);
+            }
+            // Last: a screen fade (0x8001cf2c) goes over everything.
             if let Some(slice) = self.overlay_semi.slice() {
                 pass.set_vertex_buffer(0, slice);
                 for (k, &(from, to)) in self.overlay_semi_ranges.iter().enumerate() {
@@ -498,14 +507,6 @@ impl Renderer {
                     pass.set_blend_constant(wgpu::Color { r: BLEND[k], g: BLEND[k], b: BLEND[k], a: BLEND[k] });
                     pass.draw(from..to, 0..1);
                 }
-            }
-            if let Some(slice) = self.overlay.slice()
-                && self.overlay_count > 0
-            {
-                pass.set_pipeline(&self.overlay_pipeline);
-                pass.set_bind_group(0, &self.overlay_group, &[]);
-                pass.set_vertex_buffer(0, slice);
-                pass.draw(0..self.overlay_count, 0..1);
             }
         }
         encoder.finish()

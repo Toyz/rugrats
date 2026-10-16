@@ -20,6 +20,7 @@ fn main() -> Result<(), String> {
     r.clear = stage.clear;
     r.set_under(&gpu.device, &gpu.queue, &stage.under);
     r.set_overlay(&gpu.device, &gpu.queue, &stage.overlay);
+    r.set_overlay_semi(&gpu.device, &gpu.queue, &stage.overlay_semi());
     let cmd = r.draw(&gpu.device, &gpu.queue, &target.view, (w, h), stage.camera);
     gpu.queue.submit([cmd]);
     let rgba = target.read_back(&gpu).rgba;

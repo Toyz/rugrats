@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-96 entries: audio 14, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 12, format 9, input 4, play 40, render 12, save 4, test 17, tooling 18, ui 9, video 9.
+97 entries: audio 14, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 12, format 9, input 4, play 40, render 12, save 4, test 17, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -108,3 +108,4 @@ The [reference](docs/README.md) says what is true now.
 | 94 | [Pie splats](worklog/0094-pie-splats.md) | 2026-10-15 | play |
 | 95 | [The song around cinematics; retro_rt's libsnd pause](worklog/0095-the-song-around-cinematics-retro-rt-s-libsnd-pause.md) | 2026-10-15 | audio |
 | 96 | [The fade before a cinematic in a level](worklog/0096-the-fade-before-a-cinematic-in-a-level.md) | 2026-10-15 | video |
+| 97 | [Cinematics fade out at their end; the overlay's semi-transparent shapes are drawn](worklog/0097-cinematics-fade-out-at-their-end-the-overlay-s-semi.md) | 2026-10-15 | video |

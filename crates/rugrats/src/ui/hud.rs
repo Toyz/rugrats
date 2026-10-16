@@ -154,6 +154,21 @@ impl Sprites {
     }
 }
 
+/// The screen's fade (0x8001cf2c): a POLY_F4 over the whole screen,
+/// semi-transparent with draw mode 0x640 (blend 2: the screen less
+/// `grey`), so 255 is black.
+pub fn fade(grey: u8, out: &mut Vec<Vtx>) {
+    let g = grey as u32;
+    let v = |x: f32, y: f32| Vtx {
+        pos: [x, y, 0.0],
+        colour: g | g << 8 | g << 16,
+        uv: 0,
+        mode: Vtx::FLAT | Vtx::SEMI | 2 << 21,
+        window: 0,
+    };
+    out.extend([v(0.0, 0.0), v(512.0, 0.0), v(0.0, 240.0), v(512.0, 0.0), v(512.0, 240.0), v(0.0, 240.0)]);
+}
+
 /// The health meter's sprites and place (0x8008ba70).
 pub const METER_FRAME: u32 = 258;
 pub const METER_FILL: u32 = 260;

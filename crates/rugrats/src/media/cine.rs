@@ -24,6 +24,7 @@ use crate::media::ending::{self, Ending};
 use crate::media::face::{Blinks, Faces};
 use crate::media::movie::Soundtrack;
 use crate::stage::Stage;
+use crate::ui::hud;
 use crate::ui::text::{FONT_AT, FONT_FILE, FONT_SIZE, Fonts};
 
 /// A database's files, by the game's numbering (file + db).
@@ -363,6 +364,9 @@ pub struct Cine {
     /// What the frame shown leaves on screen: the rooms, the objects, the
     /// camera, the backdrop.
     pub stage: Stage,
+    /// Whether it fades out at its end, and how far it has.
+    fades: bool,
+    fade: i32,
 }
 
 impl Cine {
@@ -383,7 +387,18 @@ impl Cine {
         stage.clear = BACKDROP;
         let ending =
             if n == ending::CINE { Some((Ending::new(), Trig::load(disc)?, Fonts::load(disc)?)) } else { None };
-        Ok(Cine { set, stream, started: now, shown: None, blinks: Blinks::new(n as u32), ending, stage })
+        let fades = music_flags(disc, n) & 1 == 0;
+        Ok(Cine {
+            set,
+            stream,
+            started: now,
+            shown: None,
+            blinks: Blinks::new(n as u32),
+            ending,
+            stage,
+            fades,
+            fade: 0,
+        })
     }
 
     /// The stream frame shown, from 1.
@@ -414,6 +429,13 @@ impl Cine {
             && Ending::started(Some(f.number))
         {
             e.draw(&self.set.models, trig, fonts, &mut self.stage.overlay);
+        }
+        // The last 13 frames fade out, 25 a frame shown, unless the music
+        // byte has 1 (0x8007424c).
+        let last = self.stream.frames.last().map_or(0, |l| l.1.number);
+        if self.fades && last.saturating_sub(f.number) < 13 {
+            self.fade = (self.fade + 25).min(255);
+            hud::fade(self.fade as u8, &mut self.stage.overlay);
         }
         self.shown = Some(k);
         true

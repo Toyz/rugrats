@@ -4,8 +4,6 @@
 
 use rrt::prelude::Tick;
 
-use rugrats_render::Vtx;
-
 use super::Rugrats;
 use super::flow::{Boot, Then, piece_pages};
 use crate::actors::player::DT;
@@ -13,6 +11,7 @@ use crate::levels::Level;
 use crate::levels::golf::LEVELS;
 use crate::media::cine;
 use crate::ui::front::Card;
+use crate::ui::hud;
 use crate::ui::screens::{Page, message};
 use crate::world::game::{Exit, Game};
 
@@ -22,8 +21,8 @@ const FADE_TIME: i32 = 127;
 
 impl Rugrats {
     /// One frame of the fade before cinematic `n`: the level as it
-    /// stopped under a full-screen subtracted grey (0x8001cf2c: POLY_F4,
-    /// draw mode 0x640, so B - F), then the cinematic.
+    /// stopped under the screen's fade ([`hud::fade`]), then the
+    /// cinematic.
     pub(super) fn fade(
         &mut self,
         mut game: Box<Game>,
@@ -41,22 +40,7 @@ impl Rugrats {
         }
         let level = level + 256 / (FADE_TIME / DT);
         game.stage.overlay.truncate(overlay);
-        let grey = level.min(255) as u32;
-        let v = |x: f32, y: f32| Vtx {
-            pos: [x, y, 0.0],
-            colour: grey | grey << 8 | grey << 16,
-            uv: 0,
-            mode: Vtx::FLAT | Vtx::SEMI | 2 << 21,
-            window: 0,
-        };
-        game.stage.overlay.extend([
-            v(0.0, 0.0),
-            v(512.0, 0.0),
-            v(0.0, 240.0),
-            v(512.0, 0.0),
-            v(512.0, 240.0),
-            v(0.0, 240.0),
-        ]);
+        hud::fade(level.min(255) as u8, &mut game.stage.overlay);
         Boot::Fade { game, n, left: left - DT, level, overlay }
     }
 

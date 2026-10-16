@@ -32,6 +32,11 @@ impl Stage {
         self.moving = tris;
     }
 
+    /// The semi-transparent triangles of `overlay`, blended over it.
+    pub fn overlay_semi(&self) -> Vec<Vtx> {
+        self.overlay.as_chunks::<3>().0.iter().filter(|t| t[0].mode & Vtx::SEMI != 0).flatten().copied().collect()
+    }
+
     pub fn new(vram: Vram, fixed: Vec<Vtx>) -> Stage {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         Stage {

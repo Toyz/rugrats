@@ -92,4 +92,3 @@ impl Pack for Vtx {
         [self.colour, self.uv, self.mode, self.window].pack(out);
     }
 }
-

@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-83 entries: audio 13, bug 4, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 11, save 4, test 17, tooling 18, ui 9, video 8.
+84 entries: audio 13, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 12, save 4, test 17, tooling 18, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -95,3 +95,4 @@ The [reference](docs/README.md) says what is true now.
 | 81 | [Mini golf played hole by hole; every level now won by play](worklog/0081-mini-golf-played-hole-by-hole-every-level-now-won-by-play.md) | 2026-10-15 | test |
 | 82 | [libsnd ticks are vblanks; 14 sequencer voices](worklog/0082-libsnd-ticks-are-vblanks-14-sequencer-voices.md) | 2026-10-15 | audio |
 | 83 | [Rugrats never turns reverb up](worklog/0083-rugrats-never-turns-reverb-up.md) | 2026-10-15 | audio |
+| 84 | [Faces lost their eyes: model faces drawn in AddPrim's order](worklog/0084-faces-lost-their-eyes-model-faces-drawn-in-addprim-s-order.md) | 2026-10-15 | bug, render |

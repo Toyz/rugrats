@@ -23,7 +23,11 @@ pub fn mesh_triangles(m: &Mesh, at: [i32; 3], textures: &[Texture], out: &mut Ve
         let corner = |i: usize| {
             let v = m.vertices[f.v[i] as usize];
             Vtx {
-                pos: [(at[0] + v.pos[0] as i32) as f32, (at[1] + v.pos[1] as i32) as f32, (at[2] + v.pos[2] as i32) as f32],
+                pos: [
+                    (at[0] + v.pos[0] as i32) as f32,
+                    (at[1] + v.pos[1] as i32) as f32,
+                    (at[2] + v.pos[2] as i32) as f32,
+                ],
                 colour: rgb(v.rgb),
                 uv: uv(t.uv[i]),
                 mode: t.clut as u32 | (t.tpage as u32) << 16,

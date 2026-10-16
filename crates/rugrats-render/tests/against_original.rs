@@ -20,7 +20,9 @@ fn quaternion_matrices_match_the_original() {
     let mut m = machine_with_exe(&exe).unwrap();
     m.cpu.r[28] = 0x800c_3e80;
     let (q_at, out_at) = (0x8010_0000u32, 0x8010_0100u32);
-    for q in [[0i16, 0, 0, 2048], [1000, 0, 0, 1800], [0, -1500, 0, 1200], [300, 700, -900, 1500], [-2000, 1500, 800, 300]] {
+    for q in
+        [[0i16, 0, 0, 2048], [1000, 0, 0, 1800], [0, -1500, 0, 1200], [300, 700, -900, 1500], [-2000, 1500, 800, 300]]
+    {
         for (k, v) in q.iter().enumerate() {
             m.bus.write_u32(q_at + 4 * k as u32, *v as i32 as u32).unwrap();
         }
@@ -55,7 +57,8 @@ fn camera_quaternion_matrices() {
         m.call(0x8002_0580, &[q_at as u64, out_at as u64]).unwrap();
         let theirs: Vec<i16> = (0..9).map(|k| m.bus.read_u16(out_at + 2 * k).unwrap() as i16).collect();
         let ours = rugrats_render::models::quat_matrix(q);
-        let transposed = (0..9).all(|k| ((ours.col(k / 3)[k % 3] * 4096.0).round() as i32 - theirs[k] as i32).abs() <= 8);
+        let transposed =
+            (0..9).all(|k| ((ours.col(k / 3)[k % 3] * 4096.0).round() as i32 - theirs[k] as i32).abs() <= 8);
         assert!(transposed, "q {q:?}: theirs {theirs:?}");
     }
 }
@@ -111,7 +114,9 @@ fn object_rotations() {
     let mut m = machine_with_exe(&exe).unwrap();
     m.cpu.r[28] = 0x800c_3e80;
     let (q_at, inv_at, angles_at, out_at) = (0x8010_0000u32, 0x8010_0040u32, 0x8010_0080u32, 0x8010_0100u32);
-    let read = |m: &mut rrt::emu::Machine<_>| -> Vec<i32> { (0..9).map(|k| m.bus.read_u16(out_at + 2 * k).unwrap() as i16 as i32).collect() };
+    let read = |m: &mut rrt::emu::Machine<_>| -> Vec<i32> {
+        (0..9).map(|k| m.bus.read_u16(out_at + 2 * k).unwrap() as i16 as i32).collect()
+    };
     let ours = |q: [i16; 4], t: bool| -> Vec<i32> {
         let r = rugrats_render::models::quat_matrix(q);
         let r = if t { r.transpose() } else { r };

@@ -25,14 +25,21 @@ pub const FACE_SEMI: u32 = 1 << 7;
 /// blend is the flags' bits 5-6 (0x800106c0), a textured one its page's.
 /// A face with bit 0 skips the back-face test (0x800102b4), so it goes in
 /// both windings.
+///
+/// The faces go out last first: the game adds each face's packet at the
+/// head of its ordering-table slot (AddPrim), so of two at the same depth
+/// the earlier face is drawn later, on top (a pupil over its eye white).
+/// The renderer's depth test lets the later of equal depths win.
 pub fn model_triangles(m: &Model, rot: Mat3, pos: Vec3, out: &mut Vec<Vtx>) {
-    for f in &m.faces {
+    for f in m.faces.iter().rev() {
         let semi = if f.flags & FACE_SEMI != 0 { Vtx::SEMI } else { 0 };
         let corner = |i: usize| {
             let v = m.vertices[f.v[i] as usize];
             let p = rot * Vec3::new(v[0] as f32, v[1] as f32, v[2] as f32) + pos;
             let (uv, mode) = match f.texture {
-                Some((uv, clut, tpage)) => (Vtx::uv_of(uv[i][0] as u32, uv[i][1] as u32), clut as u32 | (tpage as u32) << 16 | semi),
+                Some((uv, clut, tpage)) => {
+                    (Vtx::uv_of(uv[i][0] as u32, uv[i][1] as u32), clut as u32 | (tpage as u32) << 16 | semi)
+                }
                 None => (0, Vtx::FLAT | semi | (f.flags >> 5 & 3) << 21),
             };
             Vtx { pos: p.to_array(), colour: rgb(f.rgb[i]), uv, mode, window: Vtx::WHOLE }
@@ -91,7 +98,12 @@ pub fn posed_triangles(
 
 /// Each part's rotation and joint in the world, as UpdatePartRotations
 /// (0x8004a5dc) composes them.
-pub fn posed_parts(h: &rugrats_data::hierarchy::Hierarchy, local: &[Option<Mat3>], base: Mat3, pos: Vec3) -> Vec<(Mat3, Vec3)> {
+pub fn posed_parts(
+    h: &rugrats_data::hierarchy::Hierarchy,
+    local: &[Option<Mat3>],
+    base: Mat3,
+    pos: Vec3,
+) -> Vec<(Mat3, Vec3)> {
     let mut world: Vec<(Mat3, Vec3)> = Vec::with_capacity(h.parts.len());
     for (i, part) in h.parts.iter().enumerate() {
         let rot = local.get(i).copied().flatten().unwrap_or(Mat3::IDENTITY);

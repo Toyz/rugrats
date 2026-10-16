@@ -6,7 +6,9 @@ use super::*;
 use crate::save::card::{Art, STATE_SIZE};
 use crate::ui::card_menu::{self, BACK, CardMenu, HEADING, ITEM, ON, Outcome, Strings};
 use crate::ui::front;
-use crate::ui::screens::PRESS;
+use crate::ui::hud::Sprites;
+use crate::ui::screens::{Backing, PRESS};
+use rugrats_render::Vram;
 use crate::ui::text::Fonts;
 
 /// How the pause menu ends.
@@ -41,6 +43,11 @@ pub(super) struct Pause {
     pub(super) spot: [i32; 3],
     /// Frames since the pause opened (the cursor's blink).
     pub(super) frames: u32,
+    /// The screen it is drawn on (the front end's backdrop, burst and
+    /// cubes), and its cubes: CANCEL's, ACCEPT's, PRESS X's (0x800398bc
+    /// makes them anew).
+    pub(super) view: Backing,
+    pub(super) cubes: [front::Button; 3],
 }
 
 /// Where the items sit (0x80035fec), from the screen's centre.
@@ -78,18 +85,44 @@ impl Pause {
             art: disc.card.clone(),
             spot,
             frames: 0,
+            view: Backing::load(disc)?,
+            cubes: front::card_cubes(),
         })
     }
 
-    pub(super) fn open(&mut self) {
+    /// Opened from play: the level's counter icons (`icons`, by the
+    /// level's sprites) copied into the screen's VRAM from the level's.
+    pub(super) fn open(&mut self, sprites: Option<&Sprites>, level: &Vram, icons: &[u32]) {
         self.cursor = 1;
         self.confirm = None;
         self.card = None;
         self.frames = 0;
+        self.cubes = front::card_cubes();
+        self.view.open();
+        if let Some(sp) = sprites {
+            for &n in icons {
+                sp.copy(n, level, &mut self.view.stage.vram);
+            }
+            self.view.stage.vram_rev += 1;
+        }
+    }
+
+    /// The cubes shown: PRESS X's on a card page's footer, else CANCEL's
+    /// and ACCEPT's (0x80035798; 0x80035550, 0x80035674).
+    pub(super) fn shown_cubes(&self) -> Vec<front::Button> {
+        let footer = self.card.as_ref().is_some_and(|c| c.footer());
+        self.cubes.iter().enumerate().filter(|(k, _)| (*k == 2) == footer).map(|(_, c)| c.clone()).collect()
     }
 
     pub(super) fn frame(&mut self, pads: &Pads, state: &[u8; STATE_SIZE]) -> Option<PauseEnd> {
         self.frames += 1;
+        // The cubes shown turn (0x8003f934 steps them as it draws them).
+        let footer = self.card.as_ref().is_some_and(|c| c.footer());
+        for (k, c) in self.cubes.iter_mut().enumerate() {
+            if (k == 2) == footer {
+                c.step();
+            }
+        }
         if let Some(card) = &mut self.card {
             let out = card.frame(pads);
             self.sounds.append(&mut card.sounds);
@@ -176,6 +209,17 @@ impl Pause {
         if let Some(card) = &self.card {
             card.triangles(&self.card_strings, fonts, &self.press, &self.labels, out);
             return;
+        }
+        // CANCEL and ACCEPT by their cubes (0x80035550, 0x80035674: font
+        // 2, white, at (-192, -93) and (115, -93)).
+        for (label, x) in self.labels.iter().zip([-192, 115]) {
+            let t = Text { font: 2, spacing: 1, string: label.clone(), x, y: -93, rgb: [255; 3], ..Default::default() };
+            let mut shadow = t.clone();
+            shadow.rgb = [1, 1, 1];
+            shadow.x += 2;
+            shadow.y += 2;
+            shadow.triangles(fonts, out);
+            t.triangles(fonts, out);
         }
         // The heading in font 1 and pink, the items in font 0 and light
         // blue, the cursor's blinking (0x80035fec, 0x800391d4).

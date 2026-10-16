@@ -1118,6 +1118,12 @@ impl Game {
         }
     }
 
+    /// The stage shown this frame: the pause's screen while paused, else
+    /// the level's.
+    pub fn view(&self) -> &Stage {
+        if self.paused { &self.pause.view.stage } else { &self.stage }
+    }
+
     /// One frame of the level (0x80018c38): the player, then the camera,
     /// then the draw.
     pub fn frame(&mut self, pads: &Pads) {
@@ -1126,7 +1132,7 @@ impl Game {
         self.speech.clear();
         if !self.paused && pads.pressed(0, input::START) {
             self.paused = true;
-            self.pause.open();
+            self.pause.open(self.sprites.as_ref(), &self.stage.vram, &[PIECE_ICON, BAR_ICON]);
             self.effects.clear();
             self.draw();
             return;
@@ -1603,19 +1609,24 @@ impl Game {
         self.stage.set_moving(moving);
         self.stage.overlay = overlay;
         if self.paused {
-            self.pause.triangles(&self.fonts, &mut self.stage.overlay);
+            // The pause is a screen of its own (0x8003e05c): the front
+            // end's backdrop, burst and cubes, the menu over them.
+            let mut over = Vec::new();
+            self.pause.triangles(&self.fonts, &mut over);
             // The counters (0x8003e05c): pieces earned with model 292 at
             // (-192, 76), bars available with 291 at (192, 76); on the
             // pause page only (0x80090174).
             let page = self.pause.card.is_none();
             if let (Some(sp), true) = (&self.sprites, page) {
-                sp.draw(PIECE_ICON, (-192, 76), 26.0, 32.0, METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
-                sp.draw(BAR_ICON, (192, 76), 26.0, 32.0, METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
+                sp.draw(PIECE_ICON, (-192, 76), 26.0, 32.0, METER_DEPTH, 0.0, self.focal, &mut over);
+                sp.draw(BAR_ICON, (192, 76), 26.0, 32.0, METER_DEPTH, 0.0, self.focal, &mut over);
             }
             if page {
-                shadowed(&self.fonts, -160, 70, format!("{}", self.pieces), &mut self.stage.overlay);
-                shadowed(&self.fonts, 150, 70, format!("{}", self.bars), &mut self.stage.overlay);
+                shadowed(&self.fonts, -160, 70, format!("{}", self.pieces), &mut over);
+                shadowed(&self.fonts, 150, 70, format!("{}", self.bars), &mut over);
             }
+            let cubes = self.pause.shown_cubes();
+            self.pause.view.draw(&cubes, over);
         } else {
             // The level timer: "%ld" seconds at the top by the clock
             // (model 375).

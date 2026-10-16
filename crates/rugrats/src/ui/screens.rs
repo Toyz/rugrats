@@ -310,6 +310,75 @@ fn order(rand: &mut Rand) -> [usize; 35] {
     order
 }
 
+/// What an in-game menu is drawn on (the pause, 0x8003e05c, and its card
+/// pages, 0x800398bc): the front end's VRAM, its backdrop, the burst
+/// sign (0x8003f184) and the button cubes by the second camera
+/// (0x80040010), the camera where the front end's stops.
+pub struct Backing {
+    pub stage: Stage,
+    backdrop: Backdrop,
+    burst: Option<Model>,
+    button: Option<Model>,
+    trig: Trig,
+    pub focal: f32,
+    frames: u32,
+}
+
+impl Backing {
+    pub fn load(disc: &GameDisc) -> Result<Backing, String> {
+        let mut stage = Stage::new(front::menu_vram(disc)?, Vec::new());
+        stage.clear = [0, 0, 0];
+        let trig = Trig::load(disc)?;
+        let focal = trig.geom_screen(FOV).unwrap_or(386) as f32;
+        let raw = disc.file(BURST)?;
+        let burst = Models::parse(&raw)
+            .ok()
+            .and_then(|m| m.iter().next().map(|(_, m)| m.clone()))
+            .or_else(|| Model::parse(&raw).ok());
+        let db00 = Models::parse(&disc.file(DB00_MOD)?).ok();
+        let button = db00.as_ref().and_then(|m| m.get(BUTTON_MODEL).cloned());
+        Ok(Backing { stage, backdrop: Backdrop::default(), burst, button, trig, focal, frames: 0 })
+    }
+
+    /// Opened again: the backdrop as the executable starts it.
+    pub fn open(&mut self) {
+        self.backdrop = Backdrop::default();
+        self.frames = 0;
+    }
+
+    /// One frame's drawing: the backdrop (its fade every 30 frames), the
+    /// burst, `cubes`, and `overlay` over them.
+    pub fn draw(&mut self, cubes: &[Button], overlay: Vec<Vtx>) {
+        self.frames += 1;
+        if self.frames.is_multiple_of(30) {
+            self.backdrop.fading = true;
+        }
+        if self.backdrop.fading {
+            self.backdrop.fading = self.backdrop.step();
+        }
+        self.stage.under.clear();
+        self.backdrop.triangles(&mut self.stage.under);
+        let eye = Vec3::new(0.0, CAMERA_Y, NEAR as f32);
+        self.stage.camera = crate::stage::view(eye, Mat3::IDENTITY, self.focal);
+        let mut moving = Vec::new();
+        if let Some(m) = &self.burst {
+            models::model_triangles(m, Mat3::IDENTITY, Vec3::ZERO, &mut moving);
+        }
+        if let Some(m) = &self.button {
+            for c in cubes {
+                let e = self.trig.euler(c.angles);
+                let rows = Mat3::from_cols_array(
+                    &e.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap(),
+                );
+                let pos = Vec3::new(c.pos[0] as f32, c.pos[1] as f32, c.pos[2] as f32) + (eye - BUTTON_CAMERA);
+                models::model_triangles(m, rows, pos, &mut moving);
+            }
+        }
+        self.stage.set_moving(moving);
+        self.stage.overlay = overlay;
+    }
+}
+
 impl Screen {
     /// The screen with `pages`; sprites from database `db`'s TEXPOS.
     /// `level` is the VRAM the level left, for the bar icon.

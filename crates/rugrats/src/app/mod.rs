@@ -257,7 +257,7 @@ impl rrt::prelude::Game for Rugrats {
             Boot::Card { card, .. } => &card.stage,
             Boot::Screen { screen, .. } => &screen.stage,
             Boot::Title { title } => &title.stage,
-            Boot::Game { game } | Boot::Fade { game, .. } => &game.stage,
+            Boot::Game { game } | Boot::Fade { game, .. } => game.view(),
             _ => {
                 d.present_picture(&self.picture, None);
                 return;

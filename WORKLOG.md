@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-166 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 76, render 27, save 4, test 23, tooling 18, ui 10, video 10.
+167 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 76, render 27, save 4, test 23, tooling 18, ui 11, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -178,3 +178,4 @@ The [reference](docs/README.md) says what is true now.
 | 164 | [Slides, one bump, air control and the analog stick](worklog/0164-slides-one-bump-air-control-and-the-analog-stick.md) | 2026-10-16 | play |
 | 165 | [The analog stick's dead zone and reach](worklog/0165-the-analog-stick-s-dead-zone-and-reach.md) | 2026-10-16 | input |
 | 166 | [The Load Game pages' button cubes](worklog/0166-the-load-game-pages-button-cubes.md) | 2026-10-16 | ui |
+| 167 | [The pause is a screen of its own](worklog/0167-the-pause-is-a-screen-of-its-own.md) | 2026-10-16 | ui |

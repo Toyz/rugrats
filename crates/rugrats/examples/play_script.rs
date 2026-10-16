@@ -223,10 +223,11 @@ fn main() -> Result<(), String> {
                     sp.draw(258, (192, 76), 32.0, 24.0, 768.0, 0.0, f, &mut game.stage.overlay);
                     sp.draw(258, (0, 0), 32.0, 24.0, 768.0, 0.0, f, &mut game.stage.overlay);
                 }
-                let stage = &game.stage;
+                let stage = game.view();
                 let mut r = Renderer::new(&gpu.device, &gpu.queue, Target::FORMAT, &stage.vram, &stage.fixed);
                 r.clear = stage.clear;
                 r.set_moving(&gpu.device, &gpu.queue, &stage.moving);
+                r.set_under(&gpu.device, &gpu.queue, &stage.under);
                 r.set_semi(&gpu.device, &gpu.queue, &stage.semi);
                 r.set_overlay(&gpu.device, &gpu.queue, &stage.overlay);
                 r.set_overlay_semi(&gpu.device, &gpu.queue, &stage.overlay_semi());

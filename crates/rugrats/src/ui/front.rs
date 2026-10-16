@@ -319,7 +319,7 @@ impl Button {
 /// The card page's cubes, new: CANCEL's at (-600, -400, 1298) turning to
 /// a half turn, ACCEPT's at (600, -400, 1298) and PRESS X's at (-60, 414,
 /// 1298) to a quarter, 128 a frame (0x80035550, 0x80035674, 0x80035798).
-fn card_cubes() -> [Button; 3] {
+pub fn card_cubes() -> [Button; 3] {
     let cube = |pos: [i32; 3], target: i16| Button { pos, angles: [0; 3], targets: [target, 0, 0], speed: 128 };
     [cube([-600, -400, 1298], 2048), cube([600, -400, 1298], 1024), cube([-60, 414, 1298], 1024)]
 }

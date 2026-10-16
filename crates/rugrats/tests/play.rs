@@ -254,3 +254,116 @@ fn level_4_cynthia_is_found() {
     run(&mut g, &[(&[], 10)], |g, _| cine = cine.or(g.cine.take()));
     assert_eq!(cine, Some(48));
 }
+
+/// Walks into room `room` (put at its middle, a step), and the cinematic
+/// it plays, if any.
+fn enter_room(g: &mut Game, room: usize) -> Option<usize> {
+    let r = &g.set.room_info[room];
+    let mid = [0, 1, 2].map(|i| (r.min[i] + r.max[i]) / 2);
+    put(g, mid, g.player.heading);
+    let mut cine = None;
+    run(g, &[(&[input::UP], 2), (&[], 10)], |g, _| cine = cine.or(g.cine.take()));
+    cine
+}
+
+/// Level 5: room 30's cine 38 sets Angelica floating through the ducts;
+/// the garage, room 38, plays cine 40: won.
+#[test]
+fn level_5_outer_space_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 5);
+    assert_eq!(enter_room(&mut g, 30), Some(38));
+    g.cine_finished(38);
+    assert!(g.player.float.is_some(), "floating after cine 38");
+    assert_eq!(enter_room(&mut g, 38), Some(40));
+    g.cine_finished(40);
+    assert_eq!(g.won, Some(true));
+}
+
+/// Level 6 from the hand-over: room 11's cine 46 gives the level to Tommy,
+/// four Reptar boxes stacked by the step take him onto the platform, and
+/// Triangle at the switch there plays cine 47: won.
+#[test]
+fn level_6_toy_palace_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 6);
+    assert_eq!(enter_room(&mut g, 11), Some(46));
+    g.cine_finished(46);
+    let boxes: Vec<usize> = (0..g.things.len()).filter(|&k| g.things[k].template == 1016).take(4).collect();
+    for (i, &k) in boxes.iter().enumerate() {
+        g.things[k].pos = rrt::glam::Vec3::new(44500.0, -2304.0 - 506.0 * i as f32, 13900.0);
+    }
+    put(&mut g, [44500, -2293, 12900], 0);
+    run(&mut g, &[(&[], 3), (&[input::UP], 60)], |_, _| {});
+    assert!(g.player.pos[1] < -4800, "on the platform: {:?}", g.player.pos);
+    let switch = g.set.placements.iter().find(|p| p.kind == 1 && p.cine == 47).expect("the switch").pos;
+    let me = g.player.pos;
+    let heading = ((switch[0] - me[0]) as f32).atan2((switch[2] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU;
+    put(&mut g, [switch[0], me[1], switch[2] - 600], heading as i32 & 4095);
+    let mut cine = None;
+    run(&mut g, &[(&[], 3), (&[input::TRIANGLE], 1), (&[], 5)], |g, _| cine = cine.or(g.cine.take()));
+    assert_eq!(cine, Some(47), "at {:?}, switch {switch:?}", g.player.pos);
+    g.cine_finished(47);
+    assert_eq!(g.won, Some(true));
+}
+
+/// Plays with a policy: each frame `pick` chooses the buttons from the
+/// game; until a cinematic or `frames` run out.
+fn play(g: &mut Game, frames: usize, mut pick: impl FnMut(&mut Game, usize) -> Vec<usize>) -> Option<usize> {
+    let mut pads = Pads::default();
+    for f in 0..frames {
+        let bits = pick(g, f).iter().fold(0u16, |a, &b| a | 1 << b);
+        pads.push_bits(0, bits);
+        g.frame(&pads);
+        if let Some(n) = g.cine.take() {
+            return Some(n);
+        }
+    }
+    None
+}
+
+/// Levels 20 and 21: eat (Circle) while Angelica is away, lob the box or
+/// the bottle (Triangle) to another baby when she comes near; the last
+/// cookie or drink wins (cines 64 and 50).
+#[test]
+fn levels_20_and_21_are_won() {
+    let Some(disc) = disc() else { return };
+    for (level, won, lob) in [(20, 64, 3000i64), (21, 50, 2200)] {
+        let mut g = open(&disc, level);
+        let mut cine = None;
+        for _ in 0..3 {
+            cine = play(&mut g, 6000, |g, f| {
+                let me = g.player.pos;
+                let d2 = |p: [i32; 3], q: [i32; 3]| {
+                    let (dx, dz) = ((p[0] - q[0]) as i64, (p[2] - q[2]) as i64);
+                    dx * dx + dz * dz
+                };
+                let Some(angelica) = g.npcs.iter().find(|n| n.id == 600).map(|n| n.pos) else { return vec![] };
+                if d2(angelica, me) > lob * lob {
+                    return if f % 2 == 0 { vec![input::CIRCLE] } else { vec![] };
+                }
+                // Turn to the baby farthest from her (the stick's turn,
+                // done at once) and lob.
+                let babies = [1776u16, 609, 608, 1492];
+                let far =
+                    g.npcs.iter().filter(|n| babies.contains(&n.id) && !n.hidden).max_by_key(|n| d2(n.pos, angelica));
+                if let Some(b) = far {
+                    let h =
+                        ((b.pos[0] - me[0]) as f32).atan2((b.pos[2] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU;
+                    let h = (h as i32).rem_euclid(4096);
+                    g.player.heading = h;
+                    g.player.target = h;
+                }
+                if f % 2 == 0 { vec![input::TRIANGLE] } else { vec![] }
+            });
+            if cine == Some(won) {
+                break;
+            }
+            // A lost round: its cinematic, then the next.
+            if let Some(n) = cine {
+                g.cine_finished(n);
+            }
+        }
+        assert_eq!(cine, Some(won), "level {level}: {}", g.script.as_ref().map_or(String::new(), |s| s.describe()));
+    }
+}

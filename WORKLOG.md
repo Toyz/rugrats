@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-76 entries: audio 11, bug 3, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 11, save 4, test 12, tooling 18, ui 9, video 8.
+77 entries: audio 11, bug 4, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 11, save 4, test 13, tooling 18, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -88,3 +88,4 @@ The [reference](docs/README.md) says what is true now.
 | 74 | [Gold Rush and Egg Hunt won by walking onto the pickups](worklog/0074-gold-rush-and-egg-hunt-won-by-walking-onto-the-pickups.md) | 2026-10-15 | test |
 | 75 | [The sound engine moves to retro_rt's libsnd](worklog/0075-the-sound-engine-moves-to-retro-rt-s-libsnd.md) | 2026-10-15 | audio, tooling |
 | 76 | [Mirrorland, Mr. Friend and Cynthia won by play](worklog/0076-mirrorland-mr-friend-and-cynthia-won-by-play.md) | 2026-10-15 | test |
+| 77 | [Touchdown Tommy's throws fell at his feet; more levels won by play](worklog/0077-touchdown-tommy-s-throws-fell-at-his-feet-more-levels-won.md) | 2026-10-15 | bug, test |

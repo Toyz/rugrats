@@ -260,9 +260,14 @@ impl Game {
                 t.pos[k] += ((v[k] * dt) >> 6) as f32;
             }
             // The wall test (0x80060810): a step into a wall or a higher
-            // column is taken back, and the thing drops where it was.
-            let side = collide::query(&self.col, [t.pos.x as i32, (t.pos.y + bottom - 1.0) as i32, t.pos.z as i32]);
-            if side.kind != 0 || side.tile.is_none() {
+            // column is taken back, and the thing drops where it was. A
+            // step onto level ground is not one, even with the thing's
+            // bottom a little under it (a lob from the hand).
+            let y = (t.pos.y + bottom - 1.0) as i32;
+            let side = collide::query(&self.col, [t.pos.x as i32, y, t.pos.z as i32]);
+            let here = collide::query(&self.col, [before.x as i32, y, before.z as i32]);
+            let higher = side.kind != 0 && (here.kind == 0 || side.floor < here.floor);
+            if side.kind == 2 || side.tile.is_none() || higher {
                 t.pos.x = before.x;
                 t.pos.z = before.z;
                 v[0] = 0;

@@ -35,8 +35,9 @@ impl GolfRound {
         }
     }
 
-    /// The score card (0x80095768): a row a player with his face.
-    pub fn card(&self, press: bool) -> Page {
-        Page::Scores { rows: self.slots.iter().copied().zip(self.strokes.iter().copied()).collect(), press }
+    /// The score card (0x80095768): a row a player with his face; PRESS X
+    /// at the bottom, or "Loading Hole n..." between holes.
+    pub fn card(&self, loading: Option<u32>) -> Page {
+        Page::Scores { rows: self.slots.iter().copied().zip(self.strokes.iter().copied()).collect(), loading }
     }
 }

@@ -303,7 +303,16 @@ impl Rugrats {
         // The "already earned" notes (0x80017c0c): coming from another
         // level into one whose piece was given, or into Cookie Race or Egg
         // Hunt with their bars won.
-        let mut notes = vec![message::loading(&self.disc, level, self.progress.activity(), false)];
+        // A golf round's holes after the first: the score card was the
+        // loading screen, and player 1's banner follows the cine.
+        let round = self.golf_round.as_ref().filter(|r| r.hole > 0 && level.is_hole());
+        if let Some(r) = round {
+            then = Then::Pages(vec![r.banner(&self.disc)], Box::new(then));
+        }
+        let mut notes = Vec::new();
+        if round.is_none() {
+            notes.push(message::loading(&self.disc, level, self.progress.activity(), false));
+        }
         if level != Level::HUB && self.level != Some(level) && self.progress.piece_given(level) {
             notes.push(message::had_piece(&self.disc));
         }
@@ -319,7 +328,7 @@ impl Rugrats {
             Some(n) => Then::Scene(n, level, Box::new(then)),
             None => then,
         };
-        self.screen(notes, level, next, None, now)
+        if notes.is_empty() { self.after(next, 0, now) } else { self.screen(notes, level, next, None, now) }
     }
 
     /// Cinematic `n` in `level`'s database, then `then`.

@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-66 entries: audio 8, bug 2, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 31, render 11, save 4, test 9, tooling 15, ui 9, video 8.
+67 entries: audio 8, bug 2, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 32, render 11, save 4, test 9, tooling 15, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -78,3 +78,4 @@ The [reference](docs/README.md) says what is true now.
 | 64 | [L1, L2 and R2 look aside](worklog/0064-l1-l2-and-r2-look-aside.md) | 2026-10-15 | play |
 | 65 | [Level 5's beam reflects off the first wall](worklog/0065-level-5-s-beam-reflects-off-the-first-wall.md) | 2026-10-15 | play |
 | 66 | [Audio settings kept: restored at boot, kept by a new game](worklog/0066-audio-settings-kept-restored-at-boot-kept-by-a-new-game.md) | 2026-10-15 | save |
+| 67 | [Golf round: the Loading Hole card and player 1's banner](worklog/0067-golf-round-the-loading-hole-card-and-player-1-s-banner.md) | 2026-10-15 | play |

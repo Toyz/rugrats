@@ -39,7 +39,7 @@ fn main() -> Result<(), String> {
         None if std::env::var_os("RESTART").is_some() => vec![Page::Restart],
         None if std::env::var_os("SCORES").is_some() => vec![Page::Scores {
             rows: vec![(0, [3, 5, 4, 6, 5, 4, 0, 0, 0]), (2, [5, 4, 6, 0, 0, 0, 0, 0, 0])],
-            press: true,
+            loading: std::env::var("SCORES").ok().and_then(|v| v.parse().ok()),
         }],
         None if std::env::var("LOADING").is_ok() => {
             let l = rugrats::levels::Level(std::env::var("LOADING").unwrap().parse().unwrap_or(2));

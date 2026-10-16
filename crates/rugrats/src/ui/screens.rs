@@ -115,7 +115,7 @@ pub enum Page {
     Loading(Vec<(String, [u8; 3], u8, i16)>),
     /// Mini-golf's score card (0x80095768): each player's face slot and
     /// strokes by hole; with PRESS X until Cross, else one frame.
-    Scores { rows: Vec<(usize, [u32; 9])>, press: bool },
+    Scores { rows: Vec<(usize, [u32; 9])>, loading: Option<u32> },
 }
 
 /// The messages (0x800930c8 and its siblings), by kind.
@@ -285,6 +285,7 @@ pub struct Screen {
     restart_text: [String; 3],
     /// "Hole", "Total", "Par" (strings 123-125).
     score_text: [String; 3],
+    loading_hole: String,
     held: u32,
     pub sounds: Vec<u8>,
     /// Speech lines asked for this frame.
@@ -371,6 +372,7 @@ impl Screen {
             held: 0,
             restart_text: [229, 11, 12].map(|n| front::string(disc, n)),
             score_text: [123, 124, 125].map(|n| front::string(disc, n)),
+            loading_hole: front::string(disc, 202),
             sounds: Vec::new(),
             speech: Vec::new(),
         };
@@ -413,14 +415,22 @@ impl Screen {
         let done = match page {
             Page::Message { .. } => self.message_frame(pads),
             Page::Restart => self.restart_frame(pads),
-            Page::Scores { press, .. } => {
+            Page::Scores { loading: None, .. } => {
                 self.z = NEAR;
                 self.fly = Fly::Hold;
-                let done = !press || pads.pressed(0, input::CROSS);
+                let done = pads.pressed(0, input::CROSS);
                 if done {
                     self.sounds.push(OK);
                 }
                 done
+            }
+            // "Loading Hole %d...": held through the next load, like a
+            // loading page.
+            Page::Scores { loading: Some(_), .. } => {
+                self.z = NEAR;
+                self.fly = Fly::Hold;
+                self.held += 1;
+                self.held > LOADING_HOLD
             }
             Page::Loading(_) => {
                 // Flies in, holds (two frames, and the port's load), ends
@@ -713,7 +723,7 @@ impl Screen {
                     }
                 }
             }
-            (Some(Page::Scores { rows: players, .. }), _) => {
+            (Some(Page::Scores { rows: players, loading }), _) => {
                 // 0x80095768: "Hole" (-200, -95) and the hole numbers from
                 // x -124 by 27 in 0x5d17c6's colour, "Par" (-200, -75) and
                 // the pars in light blue, "Total" at x 169 in yellow; each
@@ -747,7 +757,15 @@ impl Screen {
                     }
                     self.text_at(&row.iter().sum::<u32>().to_string(), 169, y, WHITE, &mut overlay);
                 }
-                self.press_cube(eye, &mut moving, &mut overlay);
+                // The bottom line: PRESS X, or "Loading Hole %d..." (202)
+                // in 0x1ec8c8 (0x80095c2c step 3).
+                match loading {
+                    Some(n) => {
+                        let s = self.loading_hole.replace("%d", &n.to_string());
+                        self.text_at(&s, 0, 80, [0xc8, 0xc8, 0x1e], &mut overlay);
+                    }
+                    None => self.press_cube(eye, &mut moving, &mut overlay),
+                }
             }
             (Some(Page::Restart), _) => {
                 if let Some(m) = &self.burst {

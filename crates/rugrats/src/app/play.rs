@@ -119,13 +119,16 @@ impl Rugrats {
             }
             r.player = 0;
             if hole < 8 {
+                // One frame of the card with "Loading Hole n..." through
+                // the load, then the card until Cross (0x80095c2c).
                 r.hole += 1;
-                let (next, card) = (LEVELS[r.hole], r.card(true));
-                return self.screen(vec![card], Level::HUB, Then::Enter(next), None, now);
+                let next = LEVELS[r.hole];
+                let cards = vec![r.card(Some(r.hole as u32 + 1)), r.card(None)];
+                return self.screen(cards, Level::HUB, Then::Enter(next), None, now);
             }
             // After hole nine: the card, then the Activities menu (no
             // "Returning to").
-            let card = r.card(true);
+            let card = r.card(None);
             self.golf_round = None;
             self.level = None;
             self.stop_song();
@@ -168,6 +171,55 @@ impl Rugrats {
         match cine {
             Some(n) => self.scene(n, here, Then::Level(level), now),
             None => self.enter(level, now),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::app::GolfRound;
+    use crate::disc::GameDisc;
+
+    fn app() -> Option<Rugrats> {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/disc");
+        let disc = GameDisc::open(&rrt::disc::Image::find(&dir).ok()?).ok()?;
+        Rugrats::new(disc, false).ok()
+    }
+
+    fn holed(app: &mut Rugrats, mut game: Box<Game>, strokes: u32) -> Boot {
+        game.strokes = Some(strokes);
+        let exit = Exit::to(game.level);
+        game.exit = Some(exit);
+        app.exit(game, exit, 0)
+    }
+
+    /// A two-player round (0x80096a30): player 2's banner on the same
+    /// hole, then the "Loading Hole 2..." card and the card with PRESS X,
+    /// then hole two's cine and player 1's banner.
+    #[test]
+    fn a_golf_round_takes_turns_and_holes() {
+        let Some(mut app) = app() else { return };
+        app.progress.set_activity(true);
+        app.golf_round = Some(GolfRound::new(vec![0, 1]));
+        let Boot::Game { game } = app.start(LEVELS[0], 0) else { panic!("hole one did not open") };
+        let Boot::Screen { screen: _, then: Then::Back(game) } = holed(&mut app, game, 3) else {
+            panic!("no banner for player 2")
+        };
+        assert_eq!(app.golf_round.as_ref().map(|r| (r.hole, r.player)), Some((0, 1)));
+        let Boot::Screen { then: Then::Enter(next), .. } = holed(&mut app, game, 5) else {
+            panic!("no card after the last player")
+        };
+        assert_eq!(next, LEVELS[1]);
+        let r = app.golf_round.as_ref().unwrap();
+        assert_eq!((r.hole, r.player, r.strokes[0][0], r.strokes[1][0]), (1, 0, 3, 5));
+        match app.enter(next, 0) {
+            Boot::Scene { then: Then::Pages(pages, _), .. } => {
+                assert!(matches!(pages.as_slice(), [Page::Message { .. }]), "player 1's banner");
+            }
+            _ => panic!("hole two did not start with its cine and the banner"),
         }
     }
 }

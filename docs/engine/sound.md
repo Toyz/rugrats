@@ -92,8 +92,15 @@ See `rrt::kit::libsnd::sep`:
   expression (CC 11) and bank master volumes, each out of 127; a slot's
   volume is applied as the voices mix, so SsSeqSetVol and the fades
   change notes already sounding.
-- libsnd's ticks are taken as 60 a second (guess), so the switch's 30 is
-  half a second.
+- libsnd's ticks are 60 a second: the sound init (0x8006e7e8) sets
+  SsSetTickMode(0x1000), SS_NOTICK, and the VSync callback (0x800192b4)
+  calls SsSeqCalledTbyT (0x800a48b8) every vblank. The switch's 30 is half
+  a second.
+- The sequencer has 14 voices (SsSetReservedVoice(14), 0x800ad588);
+  effects key on 17-23 directly.
+- No tone in the game's 1779 has vibrato or portamento, and one has the
+  reverb bit, so libsnd's unmodelled vibrato, portamento and reverb do
+  not change what Rugrats plays.
 - Pans add up around 64.
 - `Mix` puts the SPU's voices over the XA soundtrack for the audio device.
 - `song_wav` renders a song offline. Song 0 at 90: peak 21990, RMS 2859.

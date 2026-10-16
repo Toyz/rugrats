@@ -18,6 +18,9 @@ use crate::media::movie::Soundtrack;
 
 /// Voices the effects take in turn (0x8006f26c: 17 to 23).
 const EFFECT_VOICES: std::ops::Range<usize> = 17..24;
+/// The sequencer's voices (SsSetReservedVoice(14), 0x800ad588 in the
+/// sound init 0x8006e7e8).
+const SONG_VOICES: usize = 14;
 
 /// The bank whose body is file `vb` (its header is `vb + 1`).
 pub fn load_bank(disc: &GameDisc, vb: usize) -> Result<Bank, String> {
@@ -76,7 +79,9 @@ pub struct Spu {
 
 impl Default for Spu {
     fn default() -> Spu {
-        Spu { spu: libsnd::Spu::new(2, EFFECT_VOICES), current: 0, ids: [None; 2] }
+        let mut spu = libsnd::Spu::new(2, EFFECT_VOICES);
+        spu.set_reserved_voices(SONG_VOICES);
+        Spu { spu, current: 0, ids: [None; 2] }
     }
 }
 
@@ -94,8 +99,9 @@ impl Spu {
     }
 
     /// A room's song (0x8006efcc with time 30): the song playing fades
-    /// out while `song` fades in, both over `ticks` libsnd ticks (60 a
-    /// second, guess). Nothing when `id` is the song playing or the one
+    /// out while `song` fades in, both over `ticks` libsnd ticks: 60 a
+    /// second, SsSetTickMode(SS_NOTICK) with SsSeqCalledTbyT called from
+    /// the VSync callback (0x800192b4). Nothing when `id` is the song playing or the one
     /// fading out; a fade under way drops its old song.
     pub fn switch_song(&mut self, song: &Song, id: usize, volume: i32, ticks: u32) {
         if (0..2).any(|s| self.ids[s] == Some(id) && self.spu.playing(s)) {

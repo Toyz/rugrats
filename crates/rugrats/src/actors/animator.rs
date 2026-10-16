@@ -97,6 +97,25 @@ fn next(state: i16) -> Option<i16> {
     }
 }
 
+/// The sound a body makes entering table state `state` (0x800562bc, at
+/// its position): the footsteps of the walk's halves (1, 2) for Spike in
+/// levels 9 and 14 (132) and characters 47 (166), 33 (164) and 22 (165);
+/// 6 for a jump's fall and the moving jump (6, 41); 11 landing (8).
+pub fn entry_sound(state: i16, character: usize, level: u8) -> Option<u8> {
+    match state {
+        1 | 2 => match character {
+            16 if matches!(level, 9 | 14) => Some(132),
+            47 => Some(166),
+            33 => Some(164),
+            22 => Some(165),
+            _ => None,
+        },
+        6 | 41 => Some(6),
+        8 => Some(11),
+        _ => None,
+    }
+}
+
 /// One track playing: state, its animation's frames, the frame before,
 /// the frame showing, and time left in it.
 #[derive(Clone, Copy, Debug, Default)]
@@ -120,6 +139,8 @@ pub struct Animator {
     /// the next climb (logical 5).
     asked: i16,
     pub climb: i32,
+    /// The table states entered since last taken (for their sounds).
+    entered: Vec<i16>,
 }
 
 impl Animator {
@@ -139,7 +160,7 @@ impl Animator {
         let count = remap.iter().copied().filter(|&e| (0..256).contains(&e)).max().unwrap_or(0) as usize + 1;
         let entries =
             s16s(entries_at, 4 * count)?.as_chunks::<4>().0.iter().map(|e| [e[0], e[1], e[2], e[3]]).collect();
-        Ok(Animator { tracks: [Track::default(); 4], remap, entries, asked: 0, climb: 0 })
+        Ok(Animator { tracks: [Track::default(); 4], remap, entries, asked: 0, climb: 0, entered: Vec::new() })
     }
 
     /// State `a` plays `ids` on its four tracks (0x8008a668).
@@ -203,10 +224,18 @@ impl Animator {
         self.play(s, anims);
     }
 
+    /// The table states entered since the last call.
+    pub fn take_entered(&mut self) -> Vec<i16> {
+        std::mem::take(&mut self.entered)
+    }
+
     /// Plays table state `a`, unless it is playing.
     fn play(&mut self, a: i16, anims: &Anims) {
         if self.tracks[0].anim == a && self.tracks[0].count > 0 {
             return;
+        }
+        if self.entered.len() < 8 {
+            self.entered.push(a);
         }
         for k in 0..4 {
             let old = self.tracks[k];

@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-91 entries: audio 13, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 11, format 9, input 4, play 38, render 12, save 4, test 17, tooling 18, ui 9, video 8.
+92 entries: audio 13, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 11, format 9, input 4, play 39, render 12, save 4, test 17, tooling 18, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -103,3 +103,4 @@ The [reference](docs/README.md) says what is true now.
 | 89 | [The box toss arrow and lob](worklog/0089-the-box-toss-arrow-and-lob.md) | 2026-10-15 | play |
 | 90 | [Golf: the stance, the club, the aim line and Circle's camera](worklog/0090-golf-the-stance-the-club-the-aim-line-and-circle-s-camera.md) | 2026-10-15 | play |
 | 91 | [Animations: logical numbers, the table's states, and the sequencer](worklog/0091-animations-logical-numbers-the-table-s-states-and-the.md) | 2026-10-15 | engine |
+| 92 | [Jumps land; the states' entry sounds](worklog/0092-jumps-land-the-states-entry-sounds.md) | 2026-10-15 | play |

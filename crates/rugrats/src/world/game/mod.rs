@@ -9,7 +9,7 @@ use rugrats_data::col::Col;
 use rugrats_data::placement::{Placement, Spot, Template};
 use rugrats_render::{Vtx, models};
 
-use crate::actors::animator::Animator;
+use crate::actors::animator::{self, Animator};
 use crate::actors::npc::{self, Event, Mode, Post, REACH, World};
 use crate::actors::player::anim::{CRY, IDLE};
 use crate::actors::player::{Box3, DT, HEIGHT, Player, RADIUS, SLOW_TURN, State, TURN};
@@ -1115,9 +1115,24 @@ impl Game {
         self.touch();
         self.effects.extend(closed.into_iter().map(Effect::new));
         // The player's sounds are in the world (0x800562bc's 0x8006f644).
-        for sound in std::mem::take(&mut self.player.effects) {
+        let level = self.level.0;
+        let entered = self.player.animator.take_entered();
+        let sounds = entered.into_iter().filter_map(|s| animator::entry_sound(s, self.character, level));
+        let sounds: Vec<u8> = std::mem::take(&mut self.player.effects).into_iter().chain(sounds).collect();
+        for sound in sounds {
             let at = self.player.pos;
             self.play_at(sound, at);
+        }
+        for k in 0..self.npcs.len() {
+            let n = &mut self.npcs[k];
+            let (c, at) = (n.character, n.pos);
+            let sounds: Vec<u8> =
+                n.animator.take_entered().into_iter().filter_map(|s| animator::entry_sound(s, c, level)).collect();
+            if !n.hidden {
+                for sound in sounds {
+                    self.play_at(sound, at);
+                }
+            }
         }
         // Using an object (the stand handler's ACTION, Triangle, on the
         // touched object): a door (use 0x8004f78c, LP +0x42) goes to its

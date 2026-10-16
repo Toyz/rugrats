@@ -37,8 +37,6 @@ pub const TURN: i32 = 1025;
 pub const SLOW_TURN: i32 = 298;
 /// The player's character: Tommy (0x800c5680 = 1).
 const TOMMY: u16 = 1;
-/// The jump's take-off sound.
-const TAKE_OFF: u8 = 6;
 /// Gravity (0x80061330): vy += 14 * dt, less 5 while jump is held.
 const GRAVITY: i32 = 14;
 const LIFT: i32 = -5;
@@ -325,8 +323,6 @@ impl Player {
                 let along = factor * self.speed;
                 self.v = [(s * along) >> 12, up, (c * along) >> 12];
                 self.state = State::Jump;
-                // The take-off's sound (0x800562bc: effect 6).
-                self.effects.push(TAKE_OFF);
             }
         } else {
             // The air (0x80061330): gravity 14, less 5 while jump is held
@@ -353,7 +349,15 @@ impl Player {
         let walking = matches!(self.state, State::Walk | State::Run) && self.speed > 0 && !acting && !self.climb_off;
         let reach = if self.carrying { CLIMB_CARRYING.min(self.climb_max) } else { self.climb_max };
         let mut climb_to: Option<i32> = None;
-        if q.kind != 0 && q.tile.is_none() || q.kind == 2 {
+        // Falling through the floor this step (0x8005f1b4 lands when y +
+        // vy reaches it): onto the floor under where the step began.
+        let landing = (!on_ground && self.v[1] > 0 && q.kind != 0)
+            .then(|| collide::query(col, [self.pos[0], start[1] - self.feet - 1, self.pos[2]]))
+            .filter(|f| f.kind == 0 && f.tile.is_some() && self.pos[1] - self.feet >= f.floor);
+        if let Some(f) = landing {
+            self.pos[1] = f.floor + self.feet;
+            self.floor = f.floor;
+        } else if q.kind != 0 && q.tile.is_none() || q.kind == 2 {
             self.pos = start;
         } else if q.kind != 0 && walking && {
             let feet_y = start[1] - self.feet;
@@ -464,7 +468,12 @@ impl Player {
         }
         if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
             self.state = match self.speed {
-                0 if self.state == State::Land && self.animator.playing(anim::LAND) => State::Land,
+                // The landing (state 10, animation 4) plays out first.
+                0 if self.state == State::Land
+                    && (self.animator.asked() != anim::LAND || self.animator.playing(anim::LAND)) =>
+                {
+                    State::Land
+                }
                 0 => State::Stand,
                 s if s <= WALK => State::Walk,
                 _ => State::Run,

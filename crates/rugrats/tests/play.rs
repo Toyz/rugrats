@@ -436,6 +436,23 @@ fn the_animations_follow_the_original_states() {
     assert!(jump.windows(2).any(|w| w == [5, 6]), "{jump:?}");
 }
 
+/// A standing jump sounds 6 when its rise gives way to its fall (state 6)
+/// and 11 on landing (state 8): 0x800562bc on entering them.
+#[test]
+fn a_jump_sounds_at_its_states() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 3);
+    run(&mut g, &[(&[], 20)], |_, _| {});
+    let mut heard = Vec::new();
+    run(&mut g, &[(&[input::CROSS], 2), (&[], 60)], |g, f| {
+        heard.extend(g.effects.iter().map(|e| (f, e.sound)));
+    });
+    let at = |n: u8| heard.iter().find(|h| h.1 == n).map(|h| h.0);
+    let (fall, land) = (at(6), at(11));
+    assert!(fall.is_some() && land.is_some() && fall < land, "{heard:?}");
+    assert!(fall > Some(2), "the 6 is not the take-off: {heard:?}");
+}
+
 /// Turns the player to face `to` (the stick's turn, done at once).
 fn face(g: &mut Game, to: [i32; 3]) {
     let me = g.player.pos;

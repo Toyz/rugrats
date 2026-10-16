@@ -367,3 +367,53 @@ fn levels_20_and_21_are_won() {
         assert_eq!(cine, Some(won), "level {level}: {}", g.script.as_ref().map_or(String::new(), |s| s.describe()));
     }
 }
+
+/// Turns the player to face `to` (the stick's turn, done at once).
+fn face(g: &mut Game, to: [i32; 3]) {
+    let me = g.player.pos;
+    let h = ((to[0] - me[0]) as f32).atan2((to[2] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU;
+    let h = (h as i32).rem_euclid(4096);
+    g.player.heading = h;
+    g.player.target = h;
+}
+
+/// Level 13: Tommy into the kitchen (room 20) before Angelica reaches her
+/// last post plays cine 21: won.
+#[test]
+fn level_13_cookie_race_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 13);
+    run(&mut g, &[(&[], 30)], |_, _| {});
+    assert_eq!(enter_room(&mut g, 20), Some(21));
+}
+
+/// Level 2: the gap in the fence (room 69, cine 3), the ride after the
+/// goose to the court (room 44, cine 4), then pucks kicked at the goose
+/// (Triangle, facing it) until it falls: cine 5.
+#[test]
+fn level_2_grandpas_teeth_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 2);
+    assert_eq!(enter_room(&mut g, 69), Some(3));
+    g.cine_finished(3);
+    assert_eq!(enter_room(&mut g, 44), Some(4));
+    g.cine_finished(4);
+    // A clear shot: the goose in range, Chuckie off the line to it.
+    let cine = play(&mut g, 30 * 130, |g, f| {
+        let pos = |id: u16| g.npcs.iter().find(|n| n.id == id).map(|n| n.pos);
+        let (Some(goose), Some(chuckie)) = (pos(11), pos(1776)) else { return vec![] };
+        let me = g.player.pos;
+        let (gx, gz) = ((goose[0] - me[0]) as f64, (goose[2] - me[2]) as f64);
+        let (cx, cz) = ((chuckie[0] - me[0]) as f64, (chuckie[2] - me[2]) as f64);
+        let len = gx.hypot(gz).max(1.0);
+        let along = (cx * gx + cz * gz) / len;
+        let off = (cx * gz - cz * gx).abs() / len;
+        let clear = off > 900.0 || along < 0.0 || along > len + 600.0;
+        face(g, goose);
+        if f % 4 == 0 && len < 14000.0 && clear { vec![input::TRIANGLE] } else { vec![] }
+    });
+    let goose = g.npcs.iter().find(|n| n.id == 11).map(|n| (n.pos, n.health, n.hidden, format!("{:?}", n.mode)));
+    let chuckie = g.npcs.iter().find(|n| n.id == 1776).map(|n| (n.pos, format!("{:?}", n.mode)));
+    let court = g.set.room_info.get(44).map(|r| (r.min, r.max));
+    assert_eq!(cine, Some(5), "goose {goose:?}, chuckie {chuckie:?}, court {court:?}, Tommy at {:?}", g.player.pos);
+}

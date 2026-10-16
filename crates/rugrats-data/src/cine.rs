@@ -35,6 +35,8 @@ pub struct Placed {
     pub pos: [i32; 3],
     pub mouth: u8,
     pub eyes: u8,
+    /// The record's u16 after the id (unknown).
+    pub unknown_16: u16,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -50,6 +52,8 @@ pub struct Pose {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Frame {
     pub number: u16,
+    /// The u16 after the frame number (unknown).
+    pub unknown_02: u16,
     pub camera_pos: [i32; 3],
     pub camera_q: [i16; 4],
     pub actors: Vec<Placed>,
@@ -99,9 +103,9 @@ pub fn frame(d: &[u8]) -> Option<Frame> {
         .map(|_| {
             let (x, y) = (w(d, p)?, w(d, p + 4)?);
             let pos = [w(d, p + 8)? as i32, w(d, p + 12)? as i32, w(d, p + 16)? as i32];
-            let id = w(d, p + 20)? as i16;
+            let (id, unknown_16) = (w(d, p + 20)? as i16, (w(d, p + 20)? >> 16) as u16);
             p += 24;
-            Some(Placed { id, q: quat(x, y), pos, mouth: (x >> 26 & 15) as u8, eyes: (x >> 30) as u8 })
+            Some(Placed { id, q: quat(x, y), pos, mouth: (x >> 26 & 15) as u8, eyes: (x >> 30) as u8, unknown_16 })
         })
         .collect::<Option<Vec<_>>>()?;
     let poses = (0..b >> 26)
@@ -120,5 +124,6 @@ pub fn frame(d: &[u8]) -> Option<Frame> {
             Some(Pose { id: h as u16 as i16, pos, mouth: (h >> 24 & 15) as u8, eyes: (h >> 28 & 3) as u8, keys })
         })
         .collect::<Option<Vec<_>>>()?;
-    Some(Frame { number, camera_pos, camera_q: quat(a, b), actors, poses })
+    let unknown_02 = u16::from_le_bytes([d[2], d[3]]);
+    Some(Frame { number, unknown_02, camera_pos, camera_q: quat(a, b), actors, poses })
 }

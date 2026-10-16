@@ -19,10 +19,12 @@ use rugrats_render::models::{model_triangles, posed_triangles, quat_matrix};
 use rugrats_render::{Vram, Vtx, rooms};
 
 use crate::disc::GameDisc;
+use crate::gte::Trig;
+use crate::media::ending::{self, Ending};
 use crate::media::face::{Blinks, Faces};
 use crate::media::movie::Soundtrack;
 use crate::stage::Stage;
-use crate::ui::text::{FONT_AT, FONT_FILE, FONT_SIZE};
+use crate::ui::text::{FONT_AT, FONT_FILE, FONT_SIZE, Fonts};
 
 /// A database's files, by the game's numbering (file + db).
 const MOD: usize = 242;
@@ -349,6 +351,8 @@ pub struct Cine {
     started: u64,
     shown: Option<usize>,
     blinks: Blinks,
+    /// The opening's timed call (cine 0 only), and what it draws with.
+    ending: Option<(Ending, Trig, Fonts)>,
     /// What the frame shown leaves on screen: the rooms, the objects, the
     /// camera, the backdrop.
     pub stage: Stage,
@@ -370,7 +374,9 @@ impl Cine {
         }
         let mut stage = Stage::new(set.vram.clone(), set.rooms.clone());
         stage.clear = BACKDROP;
-        Ok(Cine { set, stream, started: now, shown: None, blinks: Blinks::new(n as u32), stage })
+        let ending =
+            if n == ending::CINE { Some((Ending::new(), Trig::load(disc)?, Fonts::load(disc)?)) } else { None };
+        Ok(Cine { set, stream, started: now, shown: None, blinks: Blinks::new(n as u32), ending, stage })
     }
 
     /// The stream frame shown, from 1.
@@ -388,11 +394,20 @@ impl Cine {
         // frame passed over too.
         for (_, f) in &self.stream.frames[self.shown.map_or(0, |s| s + 1)..=k] {
             self.set.faces(f, &mut self.blinks, &mut self.stage.vram);
+            if let Some((e, ..)) = &mut self.ending {
+                e.step(f.number);
+            }
         }
         self.stage.vram_rev += 1;
         let f = &self.stream.frames[k].1;
         self.stage.set_moving(self.set.objects(f));
         self.stage.camera = camera(f);
+        self.stage.overlay.clear();
+        if let Some((e, trig, fonts)) = &self.ending
+            && Ending::started(Some(f.number))
+        {
+            e.draw(&self.set.models, trig, fonts, &mut self.stage.overlay);
+        }
         self.shown = Some(k);
         true
     }

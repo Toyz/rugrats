@@ -262,7 +262,7 @@ impl Sign {
 
 /// The trademark beside the sign (0x8003f0f0): a raw textured quad from
 /// page 0x1e, CLUT 0x64fb, drawn while the sign is still.
-fn trademark(out: &mut Vec<Vtx>) {
+pub(crate) fn trademark(out: &mut Vec<Vtx>) {
     let mode = 0x64fb | 0x1e << 16;
     let window = Vtx::window_of([192, 212, 192, 212], [148, 148, 160, 160]);
     let v = |x: f32, y: f32, u: u32, v: u32| Vtx {

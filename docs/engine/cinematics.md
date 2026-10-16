@@ -98,9 +98,33 @@ Each frame play_cine samples the pads after drawing (0x8001d3e8 calls
 the entry's flag 0x01 clear it fades out over the last 13 frames (25 a
 frame into 0x800c3f2c); the opening has it set.
 
-The opening's one timed call (frames 1184 to 1413, 0x8008ea70) is the
-title card: the logo object moved by the frame, and "Search For Reptar"
-and "Loading" drawn through the text system (0x8002e144).
+The opening's one timed call (entry 0x800b8bc8: frames 1184 to 1413,
+0x8008ea70, called with the counter) is the ending: the milk at the lens,
+then the title card. Opening Cine Init (0x8008f078) makes two objects at
+the origin, unturned: the milk (model 948, D_800c4da8) and the sign
+(model 1038, D_800c4dac), and two unturned cameras (0x8008e8c0(1),
+0x8008e99c(1)): A at (2250, -2450, -5000) (0x800b8ba8), B at (0, 30,
+-17048) (0x800b8bb8). Each call:
+
+- While the milk flies (+0xd0 = 1), k = min(counter, 1213) - 1183: A at
+  (2250 - 75k, -2450 + 81k, -5000 + 160k), the milk's +0x28 = 273k. The
+  milk is drawn from A (0x80031b84, layer 1): it shows small at the
+  bottle's tip and fills the screen by frame 1213.
+- While A's x is above 0, nothing more.
+- Then the flight ends (+0xd0 = 0). While B's z is below -500 it moves 600
+  a frame; reaching -500 it stops there, A's z becomes -300 and B gets
+  field of view 512 (0x8001dfb8: H 386, set for all that follows). The
+  sign is drawn from B (layer 2).
+- From the next call: "Search For Reptar" (font 1, y 60) and "Loading"
+  (font 0, y 85), both (100, 200, 0) with shadows (1, 1, 1) 2 down and
+  right, centred (0x8002e144, 0x8002e67c), and the trademark (0x8003f0f0).
+
+The squirt's sound is in the soundtrack (its loudest moment at 40.0-40.5 s,
+frame 1213 at 40.4 s); the stream carries no sound cues (frame +0x02 is
+1380 throughout, the actors' +0x16 is 0).
+
+The port: media::ending, checked against the oracle's pictures at
+vblanks 9220-9400 (counter 1218 at 9220, 1246 at 9250).
 
 ## Applying a frame
 

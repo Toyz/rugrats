@@ -10,8 +10,12 @@ worklog: 18, 19, 21
 
 ## Main's chooser (0x80030158)
 
-Main runs it with mode -1. It cycles: the front end (0x8003eb28(30)),
-then a demo, then the opening cinematic (0x80074958(-1, 0)), and back. It
+Main (0x800185f8) first shows the legal still, the THQ, Nickelodeon and
+n-Space logos, and the opening cinematic (0x80074958(-1, 0)), then runs
+it with mode -1. It cycles: the front end (0x8003eb28(30)), then a demo,
+then the opening, and back. A demo skipped with a button (the movie
+player 0x8008b448 returns 1; 0 when it ran to its end) goes straight back
+to the front end, with no opening. It
 returns the mode the front end picks. A demo is movie 3, 4 or 5
 (DEMO01-03.STR, 0x8008b100/14c/198), chosen by `rand() % 3`. `rand`
 (0x8002fb7c) is x = x * 214013 + 2531011 from 0x2dcf1a5, returning bits

@@ -89,6 +89,23 @@ impl Rugrats {
         })
     }
 
+    /// The boot state's name (for tools and tests).
+    pub fn state(&self) -> &'static str {
+        match &self.boot {
+            Boot::Legal { .. } => "legal",
+            Boot::Logo { .. } => "logo",
+            Boot::Title { .. } => "title",
+            Boot::Demo { .. } => "demo",
+            Boot::Opening { .. } => "opening",
+            Boot::Scene { .. } => "scene",
+            Boot::Card { .. } => "card",
+            Boot::Game { .. } => "game",
+            Boot::Credits { .. } => "credits",
+            Boot::Screen { .. } => "screen",
+            Boot::FrontEnd => "front end",
+        }
+    }
+
     /// The level in play, if one is (for tools and tests).
     pub fn level_in_play(&self) -> Option<Level> {
         match &self.boot {
@@ -173,19 +190,21 @@ impl Rugrats {
         }
     }
 
-    /// One movie tick, skippable once a frame of it (every other tick);
-    /// whether it still plays.
-    fn movie(&mut self, movie: &mut Movie, t: &Tick, now: u64) -> bool {
+    /// One movie tick, skippable once a frame of it (every other tick).
+    /// None while it plays; when it ends, whether a button skipped it
+    /// (0x8008b448 returns 1 for a skip, 0 for the end).
+    fn movie(&mut self, movie: &mut Movie, t: &Tick, now: u64) -> Option<bool> {
         let skip = now.is_multiple_of(2) && {
             self.pads.update([Some(&t.pad), None]);
             self.pads.find(crate::input::Query::Pressed).is_some()
         };
         let playing = movie.tick(now, skip, &self.disc.mdec);
         self.picture = movie.picture.clone();
-        if !playing {
-            self.silence();
+        if playing {
+            return None;
         }
-        playing
+        self.silence();
+        Some(skip)
     }
 }
 

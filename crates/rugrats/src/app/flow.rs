@@ -58,7 +58,8 @@ pub(super) enum Boot {
     /// after an idle title (0x8008b100, 0x8008b14c, 0x8008b198).
     Demo { movie: Box<Movie> },
     /// The opening cinematic, cine 0 on database 22 (`Opening Cine Init`,
-    /// 0x8008f078), which the chooser plays when the title is left idle.
+    /// 0x8008f078): main plays it after the logos, and the chooser after
+    /// a demo that played to its end.
     Opening { cine: Box<Cine> },
     /// A cinematic between levels: a level's start (0x80074958) or a
     /// door's (0x8004f78c), then level `then`.
@@ -93,29 +94,24 @@ impl Rugrats {
         let now = t.frame;
         match boot {
             Boot::Legal { until } if now >= until => self.logo(0, now),
-            Boot::Logo { n, mut movie } => {
-                if self.movie(&mut movie, t, now) {
-                    Boot::Logo { n, movie }
-                } else if n + 1 < 3 {
-                    self.logo(n + 1, now)
-                } else {
-                    self.title(now)
-                }
-            }
-            Boot::Credits { mut movie } => {
-                if self.movie(&mut movie, t, now) {
-                    Boot::Credits { movie }
-                } else {
-                    self.start(Level::HUB, now)
-                }
-            }
-            Boot::Demo { mut movie } => {
-                if self.movie(&mut movie, t, now) {
-                    Boot::Demo { movie }
-                } else {
-                    self.opening(now)
-                }
-            }
+            // Main (0x800185f8): the three logos, then the opening
+            // (0x80074958(-1, 0)), then the chooser's title.
+            Boot::Logo { n, mut movie } => match self.movie(&mut movie, t, now) {
+                None => Boot::Logo { n, movie },
+                Some(_) if n + 1 < 3 => self.logo(n + 1, now),
+                Some(_) => self.opening(now),
+            },
+            Boot::Credits { mut movie } => match self.movie(&mut movie, t, now) {
+                None => Boot::Credits { movie },
+                Some(_) => self.start(Level::HUB, now),
+            },
+            // The chooser (0x80030158): a demo played to its end goes on
+            // to the opening; one skipped goes back to the title.
+            Boot::Demo { mut movie } => match self.movie(&mut movie, t, now) {
+                None => Boot::Demo { movie },
+                Some(false) => self.opening(now),
+                Some(true) => self.title(now),
+            },
             Boot::Scene { cine, n, then } => self.scene_tick(cine, n, then, t, now),
             Boot::Screen { screen, then } => self.screen_tick(screen, then, t, now),
             Boot::Card { mut card, n, then } => {

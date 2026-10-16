@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-131 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 15, format 9, input 4, play 52, render 25, save 4, test 17, tooling 18, ui 9, video 10.
+132 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 52, render 25, save 4, test 17, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -143,3 +143,4 @@ The [reference](docs/README.md) says what is true now.
 | 129 | [The speech call sites, surveyed; a struck goose honks](worklog/0129-the-speech-call-sites-surveyed-a-struck-goose-honks.md) | 2026-10-16 | audio |
 | 130 | [Hole 26's Reptar roars](worklog/0130-hole-26-s-reptar-roars.md) | 2026-10-16 | audio |
 | 131 | [The follow camera, from 0x80027304](worklog/0131-the-follow-camera-from-0x80027304.md) | 2026-10-16 | engine |
+| 132 | [The camera's line test meets objects](worklog/0132-the-camera-s-line-test-meets-objects.md) | 2026-10-16 | engine |

@@ -311,13 +311,27 @@ impl Game {
         if self.level == Level::MIRRORLAND { 256 } else { 0 }
     }
 
-    /// The line test against the room (0x80090554): the room's polygons,
-    /// then the height field. Only the height field is ported (the walk
-    /// 0x8002cd7c it ends with), so a polygon of the room's geometry does
-    /// not stop it here.
+    /// The line test (0x80090554): the objects in the rooms along the
+    /// segment (0x80090340 -> 0x8006a9cc with 0x8000: not template flag 16
+    /// or 8, no characters; here their boxes, `solid`), then the height
+    /// field (0x8002cd7c); the nearer stop wins.
     fn blocked(&self, from: [i32; 3], to: [i32; 3]) -> Option<Segment> {
         let mut hit = Segment::default();
-        (collide::segment(&self.col, from, to, &mut hit) != 0).then_some(hit)
+        let ground = (collide::segment(&self.col, from, to, &mut hit) != 0).then_some(hit);
+        let span = |p: [i32; 3]| {
+            let d: [f32; 3] = std::array::from_fn(|k| (p[k] - from[k]) as f32);
+            d.iter().map(|v| v * v).sum::<f32>()
+        };
+        let object = self
+            .solid
+            .iter()
+            .filter_map(|b| b.segment_hit(from, to))
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, point, normal)| Segment { depth: 0, point, normal, ..Segment::default() });
+        match (ground, object) {
+            (Some(g), Some(o)) => Some(if span(o.point) < span(g.point) { o } else { g }),
+            (g, o) => g.or(o),
+        }
     }
 
     /// The reset (0x80026ddc): the eye to the first offset of [`RESETS`]

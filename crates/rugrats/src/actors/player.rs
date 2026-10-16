@@ -728,6 +728,50 @@ impl Box3 {
         t0 > 0.0
     }
 
+    /// Where the segment from `a` to `b` first enters the box (in 3D, in
+    /// the box's own frame): the fraction along it, the point, and the
+    /// outward normal (4096 a unit) of the face it enters by. None when it
+    /// misses or starts inside.
+    pub fn segment_hit(&self, a: [i32; 3], b: [i32; 3]) -> Option<(f32, [i32; 3], [i32; 3])> {
+        let local = |p: [i32; 3]| self.rot.transpose() * (Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32) - self.pos);
+        let (p, q) = (local(a), local(b));
+        let d = q - p;
+        let (mut t0, mut t1, mut axis) = (0.0f32, 1.0f32, None);
+        for k in 0..3 {
+            let (lo, hi) = (self.lo[k] as f32, self.hi[k] as f32);
+            if d[k].abs() < 1e-6 {
+                if p[k] < lo || p[k] > hi {
+                    return None;
+                }
+                continue;
+            }
+            let (mut u, mut v, mut sign) = ((lo - p[k]) / d[k], (hi - p[k]) / d[k], -1.0);
+            if u > v {
+                std::mem::swap(&mut u, &mut v);
+                sign = 1.0;
+            }
+            if u > t0 {
+                t0 = u;
+                axis = Some((k, sign));
+            }
+            t1 = t1.min(v);
+            if t0 > t1 {
+                return None;
+            }
+        }
+        let (k, sign) = axis?;
+        let mut n = Vec3::ZERO;
+        n[k] = sign;
+        let n = self.rot * n;
+        let at =
+            Vec3::new(a[0] as f32, a[1] as f32, a[2] as f32).lerp(Vec3::new(b[0] as f32, b[1] as f32, b[2] as f32), t0);
+        Some((
+            t0,
+            [at.x as i32, at.y as i32, at.z as i32],
+            [(n.x * 4096.0) as i32, (n.y * 4096.0) as i32, (n.z * 4096.0) as i32],
+        ))
+    }
+
     /// The outward normal (4096 a unit, in the world) of the side of the
     /// box seen from above that `p`, outside it, is beyond the most.
     pub fn side_normal(&self, p: [i32; 3]) -> [i32; 3] {

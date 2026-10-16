@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-72 entries: audio 10, bug 3, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 11, save 4, test 9, tooling 16, ui 9, video 8.
+73 entries: audio 10, bug 3, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 11, save 4, test 10, tooling 17, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -84,3 +84,4 @@ The [reference](docs/README.md) says what is true now.
 | 70 | [Triage: open questions answered by later work](worklog/0070-triage-open-questions-answered-by-later-work.md) | 2026-10-15 | tooling |
 | 71 | [Room songs crossfade](worklog/0071-room-songs-crossfade.md) | 2026-10-15 | audio |
 | 72 | [Nine song banks crashed their levels; the whole game as a test](worklog/0072-nine-song-banks-crashed-their-levels-the-whole-game-as-a.md) | 2026-10-15 | bug |
+| 73 | [retro_rt 5d20233: the program driven tick by tick in tests](worklog/0073-retro-rt-5d20233-the-program-driven-tick-by-tick-in-tests.md) | 2026-10-15 | tooling, test |

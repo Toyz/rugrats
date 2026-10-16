@@ -89,6 +89,14 @@ impl Rugrats {
         })
     }
 
+    /// The level in play, if one is (for tools and tests).
+    pub fn level_in_play(&self) -> Option<Level> {
+        match &self.boot {
+            Boot::Game { game } => Some(game.level),
+            _ => None,
+        }
+    }
+
     /// Loads song set `set` (0x8006e96c) unless it is the one loaded.
     fn song_set(&mut self, set: sound::SongSet) {
         if self.songs.as_ref().is_some_and(|l| l.set == set) {

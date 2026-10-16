@@ -158,7 +158,7 @@ pub struct Player {
     /// top at once; the original's climb moves it by the animation's root
     /// keys (0x80055904 into +0xd8..+0xdc, moved by 0x80066e60), so the
     /// body is drawn where that motion has it.
-    climb_rise: Option<i32>,
+    climb: Option<Climb>,
 }
 
 impl Player {
@@ -222,7 +222,7 @@ impl Player {
             falls_hurt: true,
             support: None,
             landed: false,
-            climb_rise: None,
+            climb: None,
         };
         let q = collide::query(col, start);
         if q.tile.is_some() {
@@ -279,7 +279,24 @@ impl Player {
                 magnitude = 0;
             } else {
                 self.action = None;
-                self.climb_rise = None;
+                // The climb ends where its root motion got to (+0xd8,
+                // +0xdc moved by 0x80066e60), on the ledge it rose to.
+                if let Some(c) = self.climb.take() {
+                    let at = [c.from[0] + c.moved[0], self.pos[1], c.from[2] + c.moved[2]];
+                    let top = self.floor;
+                    let q = collide::query(col, [at[0], top - 1, at[2]]);
+                    let on_col = q.kind == 0 && (q.floor - top).abs() <= STEP_UP;
+                    let on_box = boxes.iter().any(|b| b.covers(at, 0) && (b.min_y - top).abs() <= STEP_UP);
+                    // Room for the body there: no box over the top within
+                    // its height.
+                    let room = !boxes
+                        .iter()
+                        .any(|b| b.covers(at, RADIUS) && b.min_y < top - STEP_UP && b.max_y > top - HEIGHT);
+                    if (on_col || on_box) && room {
+                        self.pos[0] = at[0];
+                        self.pos[2] = at[2];
+                    }
+                }
                 // The slip's fall ends (state 18): Damage 5, message 30.
                 if self.slipping {
                     self.slipping = false;
@@ -439,7 +456,7 @@ impl Player {
         if let Some(top) = climb_to {
             // The rise picks the climb (+0x144, 0x80056e44).
             self.animator.climb = self.floor - top;
-            self.climb_rise = Some(self.floor - top);
+            self.climb = Some(Climb { rise: self.floor - top, from: start, moved: [0; 3] });
             self.pos[1] = top + self.feet;
             self.floor = top;
             self.state = State::Stand;
@@ -520,6 +537,11 @@ impl Player {
         };
         self.animator.set(a, anims);
         self.animator.step(anims);
+        if let Some((_, m, _)) = self.climb_motion(anims, trig)
+            && let Some(c) = &mut self.climb
+        {
+            c.moved = m;
+        }
     }
 
     /// Floating (state 21, 0x8005db28): the stick moves at half speed, no
@@ -628,18 +650,28 @@ impl Player {
         )
     }
 
-    /// Each part's rotation and joint in the world.
-    /// Where the body is drawn: its position, less what is left of a
-    /// climb's root motion (back along the heading by the forward move to
-    /// come, down by the rise to come, in proportion to the animation's
-    /// own rise).
+    /// A climb's root motion so far, turned and scaled into the world
+    /// (0x80055904: a body other than 0x800c5680's, 1 Tommy, moves by its
+    /// root offset, hierarchy +0x4c, over 0x800c41dc's -561), and the part
+    /// of the rise still to come (in proportion to the animation's own y).
+    fn climb_motion(&self, anims: &Anims, trig: &Trig) -> Option<(Climb, [i32; 3], f32)> {
+        let c = self.climb?;
+        (self.action == Some(anim::CLIMB)).then_some(())?;
+        let (done, total) = self.animator.root_progress(anims)?;
+        let left_y = if total[1] != 0 { c.rise as f32 * (1.0 - done[1] as f32 / total[1] as f32) } else { 0.0 };
+        let scale = if self.animator.character == TOMMY { 1.0 } else { self.feet as f32 / ROOT_SCALE };
+        let m = self.rotation(trig) * Vec3::new(done[0] as f32, 0.0, done[2] as f32) * scale;
+        Some((c, [m.x as i32, 0, m.z as i32], left_y))
+    }
+
+    /// Where the body is drawn: during a climb, where its root motion has
+    /// carried it from where the climb began; else its position.
     fn drawn_at(&self, anims: &Anims, trig: &Trig) -> Vec3 {
         let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
-        let (Some(rise), Some(anim::CLIMB)) = (self.climb_rise, self.action) else { return pos };
-        let Some((done, total)) = self.animator.root_progress(anims) else { return pos };
-        let left_y = if total[1] != 0 { rise as f32 * (1.0 - done[1] as f32 / total[1] as f32) } else { 0.0 };
-        let back = self.rotation(trig) * Vec3::new((done[0] - total[0]) as f32, 0.0, (done[2] - total[2]) as f32);
-        pos + back + Vec3::new(0.0, left_y, 0.0)
+        match self.climb_motion(anims, trig) {
+            Some((c, m, left_y)) => Vec3::new((c.from[0] + m[0]) as f32, pos.y + left_y, (c.from[2] + m[2]) as f32),
+            None => pos,
+        }
     }
 
     pub fn parts(&self, anims: &Anims, trig: &Trig) -> Vec<(Mat3, Vec3)> {
@@ -679,6 +711,18 @@ const STEP_UP: i32 = 384;
 /// The body's radius and height for the object test.
 pub const RADIUS: i32 = 160;
 pub const HEIGHT: i32 = 600;
+/// A climb under way: its rise, where it began, and its root motion so
+/// far in the world.
+#[derive(Clone, Copy, Debug)]
+struct Climb {
+    rise: i32,
+    from: [i32; 3],
+    moved: [i32; 3],
+}
+
+/// The root motion's reference height (0x800c41dc, as peeked).
+const ROOT_SCALE: f32 = -561.0;
+
 /// The highest ledge a climb takes (0x80056e44: under 1034; under 522
 /// while carrying).
 pub const CLIMB: i32 = 1033;

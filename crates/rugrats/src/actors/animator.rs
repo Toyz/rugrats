@@ -165,6 +165,8 @@ pub struct Animator {
     /// The speed a state's entry asks for (0x8005a068: 4096, or 2048 for
     /// a body of template 8, Reptar).
     pub written_speed: i32,
+    /// The character whose tables these are (the body's +0x15c).
+    pub character: u16,
 }
 
 impl Animator {
@@ -196,6 +198,7 @@ impl Animator {
             events: 0,
             speed: 4096,
             written_speed: 4096,
+            character,
         })
     }
 

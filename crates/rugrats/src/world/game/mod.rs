@@ -307,6 +307,9 @@ pub struct Game {
     /// The objects' boxes this frame, without things and characters: what
     /// a thrown thing lands on and bounces off.
     pub solid: Vec<Box3>,
+    /// Every box the player met this frame: `solid`, the things at rest
+    /// and the characters' bodies (for tools and tests).
+    pub bodies: Vec<Box3>,
     /// Which carried-over faces its VRAM has (the app's count).
     pub face_serial: u64,
     /// Touch 1's sound count (0x800c4ba0).
@@ -922,6 +925,7 @@ impl Game {
             pending_grab: None,
             water_steps: 0,
             solid: Vec::new(),
+            bodies: Vec::new(),
             face_serial: 0,
             shelf_sound: 0,
             last_note: None,
@@ -1029,6 +1033,20 @@ impl Game {
             };
             self.scenery = self.set.objects_except(&Frame::default(), skip);
             self.boxes = object_boxes(&self.set, skip);
+            // This frame's lists lose a hidden object's boxes now (the next
+            // frame makes them again from `boxes`).
+            if hidden {
+                let gone: Vec<Vec3> = self
+                    .set
+                    .placements
+                    .iter()
+                    .filter(|p| p.kind == 1 && p.id == id)
+                    .map(|p| Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32))
+                    .collect();
+                let kept = |b: &Box3| !gone.iter().any(|p| (b.pos - *p).length() < 1.0);
+                self.solid.retain(kept);
+                self.bodies.retain(kept);
+            }
         }
     }
 
@@ -1205,6 +1223,7 @@ impl Game {
         self.player.climb_max = if self.level == Level::CHUCKIES_GLASSES { 905 } else { crate::actors::player::CLIMB };
         let start = self.player.pos;
         self.player.frame(pads, self.camera_heading(), &self.col, &boxes, &self.anims, &self.trig);
+        self.bodies = boxes.clone();
         // Moved across (+0x188 bit 32, from the displacement +0xd8).
         let moved = self.player.pos[0] != start[0] || self.player.pos[2] != start[2];
         for n in std::mem::take(&mut self.player.hints) {

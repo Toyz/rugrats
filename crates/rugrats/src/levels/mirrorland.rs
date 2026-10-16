@@ -77,6 +77,11 @@ impl Mirrorland {
             g.hide(id, true);
         }
         g.tries = 0;
+        // The balloons wait in the loader's spawn lists (0x800e2710) until
+        // a box places its colour's (0x8007ccb4): none in the world yet.
+        for b in g.goodies.iter_mut().filter(|b| BALLOON_KINDS.contains(&b.kind)) {
+            b.taken = true;
+        }
         let respawn = g.player.pose();
         g.checkpoint = Some(respawn);
         let mut slot_group = [0; 6];

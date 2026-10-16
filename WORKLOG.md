@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-151 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 65, render 27, save 4, test 21, tooling 18, ui 9, video 10.
+152 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 66, render 27, save 4, test 21, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -163,3 +163,4 @@ The [reference](docs/README.md) says what is true now.
 | 149 | [Every place the tests put the player is walked to first](worklog/0149-every-place-the-tests-put-the-player-is-walked-to-first.md) | 2026-10-16 | test |
 | 150 | [Level 6's boxes are carried up the steps by play](worklog/0150-level-6-s-boxes-are-carried-up-the-steps-by-play.md) | 2026-10-16 | play |
 | 151 | [The tests turn the player with the stick](worklog/0151-the-tests-turn-the-player-with-the-stick.md) | 2026-10-16 | play |
+| 152 | [The body slides along walls; the tests walk where they put the player](worklog/0152-the-body-slides-along-walls-the-tests-walk-where-they-put.md) | 2026-10-16 | play |

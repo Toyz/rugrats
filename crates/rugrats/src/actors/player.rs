@@ -357,8 +357,9 @@ impl Player {
             // The ground move along the facing (0x8005caac); none while
             // landing.
             if !self.frozen && self.state != State::Land {
-                self.pos[0] += (s * self.speed * DT) >> 12;
-                self.pos[2] += (c * self.speed * DT) >> 12;
+                let (dx, dz) = self.ground_step(col, (s * self.speed * DT) >> 12, (c * self.speed * DT) >> 12);
+                self.pos[0] += dx;
+                self.pos[2] += dz;
             }
             if pressed(input::CROSS) && !acting && self.jump_lock == 0 && !self.no_jump && !self.frozen {
                 // The launch (0x80060f1c): up 1000, and along the facing
@@ -389,8 +390,17 @@ impl Player {
         // Asked from a step's height above the feet, so a slope or a
         // step up within STEP_UP is floor, not wall.
         let lift = if on_ground { STEP_UP } else { 1 };
-        let probe = [self.pos[0], self.pos[1] - self.feet - lift, self.pos[2]];
-        let q = collide::query(col, probe);
+        let mut probe = [self.pos[0], self.pos[1] - self.feet - lift, self.pos[2]];
+        let mut q = collide::query(col, probe);
+        // In the air the move goes across, then down (0x8005f1b4 through
+        // 0x8005ee78): across into a place with no floor record stops the
+        // across part only, and the fall goes on.
+        if !on_ground && (q.kind != 0 && q.tile.is_none() || q.kind == 2) {
+            self.pos[0] = start[0];
+            self.pos[2] = start[2];
+            probe = [self.pos[0], self.pos[1] - self.feet - lift, self.pos[2]];
+            q = collide::query(col, probe);
+        }
         // Climbing (state 6, 0x8005f310): walking into a ledge or a
         // climbable object up to 1033 above the feet (521 carrying,
         // 0x80056e44, 0x80058da4) brings the player onto it.
@@ -567,7 +577,7 @@ impl Player {
         if !self.landed {
             self.animator.step(anims);
         }
-        self.root_step(anims);
+        self.root_step(anims, col);
         if let Some((_, m)) = self.climb_motion(anims, trig)
             && let Some(c) = &mut self.climb
         {
@@ -640,6 +650,58 @@ impl Player {
 
     /// Runs as another body (0x80059328 swaps +0x154 and +0x15c): its
     /// hierarchy, its animations, its turn rate, the feet kept on the floor.
+    /// The body's half width across a move and its reach along one: the
+    /// larger x extent of the hierarchy's box (header +4 and +0xc,
+    /// 0x80067ba4), both ways. Seen in the oracle: Tommy (250) stops 268
+    /// short of a wall at 170 a frame; Spike (x 315, z -220..1000) 479
+    /// short at 200, so his reach is not the box's 1000 along z.
+    fn extents(&self) -> (i32, i32) {
+        let h = |at: usize| self.hierarchy.header.get(at..at + 2).map_or(0, |b| i16::from_le_bytes([b[0], b[1]]) as i32).abs();
+        let x = h(0x04).max(h(0x0c));
+        (x, x)
+    }
+
+    /// The ground step (dx, dz) as the wall test lets it (0x80066014): three
+    /// points ahead of the body, its reach past the step straight on and its
+    /// half width to each side, must be in the open at a step's height; a
+    /// wall there turns the whole step along whichever axis is open (the
+    /// slide, 0x80061a64 / 0x80061b28: seen in the oracle, a run at 45
+    /// degrees into a wall goes on along it at full speed). A ledge low
+    /// enough to climb is left to the climb.
+    fn ground_step(&self, col: &Col, dx: i32, dz: i32) -> (i32, i32) {
+        if dx == 0 && dz == 0 {
+            return (0, 0);
+        }
+        let feet = self.pos[1] - self.feet;
+        let (side, ahead) = self.extents();
+        let reach = if self.carrying && self.carry_climbs { CLIMB_CARRYING.min(self.climb_max) } else { self.climb_max };
+        let open = |dx: i32, dz: i32| {
+            let len = ((dx as f32).hypot(dz as f32)).max(1.0);
+            let (ux, uz) = (dx as f32 / len, dz as f32 / len);
+            let far = len + ahead as f32;
+            [0.0, side as f32, -side as f32].iter().all(|&w| {
+                let x = self.pos[0] + (ux * far + uz * w) as i32;
+                let z = self.pos[2] + (uz * far - ux * w) as i32;
+                let q = collide::query(col, [x, feet - STEP_UP, z]);
+                if q.kind == 0 {
+                    return true;
+                }
+                // A ledge the body can climb: the climb takes it.
+                let up = collide::query(col, [x, feet - reach, z]);
+                up.kind == 0 && up.floor >= feet - reach
+            })
+        };
+        if open(dx, dz) {
+            return (dx, dz);
+        }
+        // The whole speed along the wall (seen: 170 a frame at 17).
+        let len = self.speed * DT;
+        let along_x = (dx.signum() * len, 0);
+        let along_z = (0, dz.signum() * len);
+        let ways = if dx.abs() >= dz.abs() { [along_x, along_z] } else { [along_z, along_x] };
+        ways.into_iter().find(|&(x, z)| (x != 0 || z != 0) && open(x, z)).unwrap_or((0, 0))
+    }
+
     pub fn set_body(&mut self, hierarchy: Hierarchy, animator: Animator, turn_rate: i32, anims: &Anims) {
         let floor = self.pos[1] - self.feet;
         self.feet = hierarchy.parts.first().map_or(0, |p| p.offset[1]);
@@ -685,7 +747,7 @@ impl Player {
 
     /// The base track's root y this step (0x80055904 into +0xda), and the
     /// jump's take-off when its airborne state comes.
-    fn root_step(&mut self, anims: &Anims) {
+    fn root_step(&mut self, anims: &Anims, col: &Col) {
         let (state, first, count, cur, _) = self.animator.track();
         let (done, total) = self.animator.root_progress(anims).map_or((0, 0), |r| (r.0[1], r.1[1]));
         let was = self.root_seen;
@@ -723,11 +785,19 @@ impl Player {
                 // Off this frame: the air's first step with it (the
                 // animation steps before the state's handler, 0x8005a068).
                 self.v = v;
+                let before = self.pos;
                 for k in [0, 2] {
                     self.pos[k] += (self.v[k] * DT) >> 6;
                 }
                 self.pos[1] += (self.v[1] * DT + GRAVITY * DT * DT / 2) >> 6;
                 self.v[1] += GRAVITY * DT;
+                // The step across meets walls as any air step does
+                // (0x8005ee78): into one, it is not had.
+                let q = collide::query(col, [self.pos[0], self.pos[1] - self.feet - 1, self.pos[2]]);
+                if q.kind != 0 {
+                    self.pos[0] = before[0];
+                    self.pos[2] = before[2];
+                }
             }
             return;
         }

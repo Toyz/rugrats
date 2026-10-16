@@ -634,13 +634,28 @@ fn level_9_mr_friend_is_won() {
 
 /// Level 9 won by play (the test above).
 fn win_9(g: &mut Game) {
+    // He comes after Tommy: one far off (46 waits at home after cine 18)
+    // is gone up to; one near is steered at and kicked (Triangle within
+    // 1100 of him).
     let friends = [46u16, 91, 800];
-    for _ in 0..400 {
-        let Some(k) = g.npcs.iter().position(|n| friends.contains(&n.id) && !n.hidden) else { break };
-        let p = g.npcs[k].pos;
-        put(g, [p[0], p[1], p[2] - 500], 0);
-        let mut cine = None;
-        run(g, &[(&[input::TRIANGLE], 1), (&[], 40)], |g, _| cine = cine.or(g.cine.take()));
+    let nearest = |g: &Game| {
+        let me = g.player.pos;
+        let d2 = |p: [i32; 3]| ((p[0] - me[0]) as i64).pow(2) + ((p[2] - me[2]) as i64).pow(2);
+        g.npcs.iter().filter(|n| friends.contains(&n.id) && !n.hidden).map(|n| (n.id, n.pos, d2(n.pos))).min_by_key(|p| p.2)
+    };
+    for _ in 0..60 {
+        let Some((id, _, d2)) = nearest(g) else { break };
+        if d2 > 1500 * 1500 {
+            up_to(g, id, 1000);
+        }
+        let cine = play(g, 30 * 6, |g, f| {
+            let Some((_, at, d2)) = nearest(g) else { return vec![] };
+            let mut keys = if d2 > 700 * 700 { steer_at(g, at).to_vec() } else { vec![] };
+            if d2 < 1000 * 1000 && f % 4 == 0 {
+                keys.push(input::TRIANGLE);
+            }
+            keys
+        });
         match cine {
             Some(18) => g.played(18),
             Some(19) => return,
@@ -1260,8 +1275,8 @@ fn win_10(g: &mut Game) {
         // of them.
         let d = |p: [i32; 3]| ((p[1] - pen[1]).abs() > 1000, ((p[0] - pen[0]) as i64).pow(2) + ((p[2] - pen[2]) as i64).pow(2));
         let id = *left.iter().min_by_key(|&&id| g.npcs.iter().find(|n| n.id == id).map_or((true, i64::MAX), |n| d(n.pos))).unwrap();
+        up_to(g, id, 700);
         let baby = g.npcs.iter().find(|n| n.id == id).expect("a baby").pos;
-        put(g, [baby[0], baby[1], baby[2] - 500], 0);
         // Roughly toward her is enough for the tag; the race starts at it.
         let me = g.player.pos;
         let h = ((baby[0] - me[0]) as f32).atan2((baby[2] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU;
@@ -1998,6 +2013,47 @@ fn bodies(g: &Game) -> &[rugrats::actors::player::Box3] {
     if g.bodies.is_empty() { &g.solid } else { &g.bodies }
 }
 
+/// Goes up to character `id` until within `reach` of it, as a player
+/// does: walked to a place within reach of it on its floor, then steered at
+/// it with the stick (it may move); twice. Whether it got there.
+fn up_to(g: &mut Game, id: u16, reach: i64) -> bool {
+    let pos = |g: &Game| g.npcs.iter().find(|n| n.id == id && !n.hidden).map(|n| n.pos);
+    let d2 = |g: &Game, p: [i32; 3]| ((p[0] - g.player.pos[0]) as i64).pow(2) + ((p[2] - g.player.pos[2]) as i64).pow(2);
+    for _ in 0..2 {
+        let Some(at) = pos(g) else { return false };
+        if d2(g, at) > reach * reach {
+            let land = floor_under(g, at[0], at[2], at[1] - 1500, 0).unwrap_or(at[1] - g.player.feet());
+            let r = (reach - 128).pow(2);
+            let near = |s: Spot| {
+                ((centre(s.0) - at[0]) as i64).pow(2) + ((centre(s.1) - at[2]) as i64).pow(2) < r && (s.2 - land).abs() < 300
+            };
+            if !(walking() && walk_to(g, near, None)) {
+                put(g, beside(g, at, 600.0), 0);
+            }
+        }
+        for _ in 0..90 {
+            let Some(at) = pos(g) else { return false };
+            if d2(g, at) < reach * reach {
+                return true;
+            }
+            let keys = steer_at(g, at).to_vec();
+            run(g, &[(&keys, 1)], |_, _| {});
+        }
+    }
+    false
+}
+
+/// The place `r` short of `at` on the player's side, on the floor there
+/// (a character is gone up to from where the player is, not round him).
+fn beside(g: &Game, at: [i32; 3], r: f64) -> [i32; 3] {
+    let me = g.player.pos;
+    let (dx, dz) = ((me[0] - at[0]) as f64, (me[2] - at[2]) as f64);
+    let len = dx.hypot(dz).max(1.0);
+    let (x, z) = (at[0] + (dx * r / len) as i32, at[2] + (dz * r / len) as i32);
+    let y = floor_under(g, x, z, at[1] - 1500, 0).map_or(at[1], |f| f + g.player.feet());
+    [x, y, z]
+}
+
 /// The floor under (x, z) from height `y` down: the COL's or the top of an
 /// object or a thing at rest within `near` of it, the higher; None in a
 /// wall.
@@ -2420,10 +2476,15 @@ fn walk_to(g: &mut Game, goal: impl Fn(Spot) -> bool + Copy, end: Option<[i32; 2
         let path = Ground::path(&places, to);
         if path.is_empty() {
             // To the spot itself, or as near as a thing there lets him.
-            return end.is_none_or(|[x, z]| stride_to(g, x, z, 64, 90) || {
+            let from = g.player.pos;
+            let there = end.is_none_or(|[x, z]| stride_to(g, x, z, 64, 90) || {
                 let me = g.player.pos;
                 ((x - me[0]) as i64).pow(2) + ((z - me[2]) as i64).pow(2) < 256 * 256
             });
+            if log && !there {
+                eprintln!("short of {end:?}: from {from:?} to {:?} ({:?})", g.player.pos, g.player.state);
+            }
+            return there;
         }
         if log {
             eprintln!("t{} from {:?}: {} ways to {:?}, jumps {:?}", g.frames, g.player.pos, path.len(), (centre(to.0), centre(to.1), to.2), path.iter().filter(|p| p.1 != Way::Step).collect::<Vec<_>>());

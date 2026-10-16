@@ -119,6 +119,10 @@ pub struct Player {
     pub hold: Option<i16>,
     /// Jump ignored (golf, 0x8005d11c).
     pub no_jump: bool,
+    /// The highest ledge a climb takes, and climbing refused here
+    /// (0x80058da4: room 4 in levels 1 and 12; level 10's type 14).
+    pub climb_max: i32,
+    pub climb_off: bool,
     /// The moving jump's lift and factor (0x80060f1c case 25: -1000 and
     /// 40; Spike in level 11 -1700 and 20).
     pub moving_jump: (i32, i32),
@@ -193,6 +197,8 @@ impl Player {
             action: None,
             hold: None,
             no_jump: false,
+            climb_max: CLIMB,
+            climb_off: false,
             moving_jump: (-1000, 40),
             standing_jump: false,
             gait: (RUN, WALK),
@@ -342,8 +348,8 @@ impl Player {
         // Climbing (state 6, 0x8005f310): walking into a ledge or a
         // climbable object up to 1033 above the feet (521 carrying,
         // 0x80056e44, 0x80058da4) brings the player onto it.
-        let walking = matches!(self.state, State::Walk | State::Run) && self.speed > 0 && !acting;
-        let reach = if self.carrying { CLIMB_CARRYING } else { CLIMB };
+        let walking = matches!(self.state, State::Walk | State::Run) && self.speed > 0 && !acting && !self.climb_off;
+        let reach = if self.carrying { CLIMB_CARRYING.min(self.climb_max) } else { self.climb_max };
         let mut climb_to: Option<i32> = None;
         if q.kind != 0 && q.tile.is_none() || q.kind == 2 {
             self.pos = start;
@@ -621,7 +627,7 @@ pub const RADIUS: i32 = 160;
 pub const HEIGHT: i32 = 600;
 /// The highest ledge a climb takes (0x80056e44: under 1034; under 522
 /// while carrying).
-const CLIMB: i32 = 1033;
+pub const CLIMB: i32 = 1033;
 const CLIMB_CARRYING: i32 = 521;
 /// The highest step message 16 calls too tall (0x80058da4).
 const TOO_TALL: i32 = 3071;

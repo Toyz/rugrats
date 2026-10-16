@@ -1098,6 +1098,10 @@ impl Game {
                 character: true,
             });
         }
+        // Climbs refused (0x80058da4): room 4 in levels 1 and 12 (0x80058e04),
+        // ledges of type 14 (906-1033) in level 10 (0x80058e14).
+        self.player.climb_off = matches!(self.level, Level::HUB | Level::LET_THERE_BE_LIGHT) && self.room == Some(4);
+        self.player.climb_max = if self.level == Level::CHUCKIES_GLASSES { 905 } else { crate::actors::player::CLIMB };
         self.player.frame(pads, self.yaw.round() as i32, &self.col, &boxes, &self.anims, &self.trig);
         for n in std::mem::take(&mut self.player.hints) {
             // The slip's start (state 3, 0x8005b3c4): speech 212 in level 16.

@@ -157,7 +157,12 @@ fn level_6_box_stack_reaches_the_platform() {
 fn level_16_toss_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 16);
-    put(&mut g, [31600, -1750, -8141], 1024);
+    win_16(&mut g);
+}
+
+/// Level 16 won by play (the test above).
+fn win_16(g: &mut Game) {
+    put(g, [31600, -1750, -8141], 1024);
     let mut steps: Vec<(&[usize], usize)> = vec![(&[input::UP], 15), (&[], 330)];
     for _ in 0..80 {
         steps.push((&[input::TRIANGLE], 1));
@@ -168,7 +173,7 @@ fn level_16_toss_is_won() {
     let mut ended = None;
     let mut hits = 0;
     let mut health = 250;
-    run(&mut g, &steps, |g, f| {
+    run(g, &steps, |g, f| {
         if f > 340 && f < 350 {
             g.player.heading = 913;
             g.player.target = 913;
@@ -247,7 +252,12 @@ fn collect(g: &mut Game, want: impl Fn(&rugrats::world::game::Goodie) -> bool) -
 fn level_17_gold_rush_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 17);
-    assert_eq!(collect(&mut g, |n| n.template == 446), Some(26));
+    win_17(&mut g);
+}
+
+/// Level 17 won by play (the test above).
+fn win_17(g: &mut Game) {
+    assert_eq!(collect(g, |n| n.template == 446), Some(26));
 }
 
 /// Level 18: the 35th egg ends the clock and wins (cine 24).
@@ -255,7 +265,12 @@ fn level_17_gold_rush_is_won() {
 fn level_18_egg_hunt_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 18);
-    assert_eq!(collect(&mut g, |e| e.template == 496), Some(24));
+    win_18(&mut g);
+}
+
+/// Level 18 won by play (the test above).
+fn win_18(g: &mut Game) {
+    assert_eq!(collect(g, |e| e.template == 496), Some(24));
 }
 
 /// Level 15: Triangle beside each ? box starts its colour, and its
@@ -265,6 +280,11 @@ fn level_18_egg_hunt_is_won() {
 fn level_15_mirrorland_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 15);
+    win_15(&mut g);
+}
+
+/// Level 15 won by play (the test above).
+fn win_15(g: &mut Game) {
     let mut won = None;
     for id in 207..=212u16 {
         let b = g.set.placements.iter().find(|p| p.kind == 1 && p.id == id).unwrap().pos;
@@ -275,14 +295,12 @@ fn level_15_mirrorland_is_won() {
             .into_iter()
             .find(|&p| g.room_of(p) == room)
             .unwrap_or(b);
-        put(&mut g, at, 0);
+        put(g, at, 0);
         let mut pieces = 0;
-        run(&mut g, &[(&[], 4), (&[input::TRIANGLE], 1), (&[], 2)], |g, _| {
-            pieces = pieces.max(g.flights.shards().count())
-        });
+        run(g, &[(&[], 4), (&[input::TRIANGLE], 1), (&[], 2)], |g, _| pieces = pieces.max(g.flights.shards().count()));
         assert!(g.is_hidden(id), "box {id} did not open");
         assert!((1..=10).contains(&pieces), "box {id} broke into {pieces}");
-        won = collect(&mut g, |b| (6..=11).contains(&b.kind));
+        won = collect(g, |b| (6..=11).contains(&b.kind));
     }
     assert_eq!(won, Some(72));
 }
@@ -293,13 +311,18 @@ fn level_15_mirrorland_is_won() {
 fn level_9_mr_friend_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 9);
+    win_9(&mut g);
+}
+
+/// Level 9 won by play (the test above).
+fn win_9(g: &mut Game) {
     let friends = [46u16, 91, 800];
     for _ in 0..400 {
         let Some(k) = g.npcs.iter().position(|n| friends.contains(&n.id) && !n.hidden) else { break };
         let p = g.npcs[k].pos;
-        put(&mut g, [p[0], p[1], p[2] - 500], 0);
+        put(g, [p[0], p[1], p[2] - 500], 0);
         let mut cine = None;
-        run(&mut g, &[(&[input::TRIANGLE], 1), (&[], 40)], |g, _| cine = cine.or(g.cine.take()));
+        run(g, &[(&[input::TRIANGLE], 1), (&[], 40)], |g, _| cine = cine.or(g.cine.take()));
         match cine {
             Some(18) => g.cine_finished(18),
             Some(19) => return,
@@ -316,10 +339,15 @@ fn level_9_mr_friend_is_won() {
 fn level_4_cynthia_is_found() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 4);
+    win_4(&mut g);
+}
+
+/// Level 4 won by play (the test above).
+fn win_4(g: &mut Game) {
     let at = g.spots.iter().find(|s| s.group == 0 && s.used).unwrap().pos;
-    put(&mut g, [at[0], at[1], at[2] - 1000], 0);
+    put(g, [at[0], at[1], at[2] - 1000], 0);
     let mut cine = None;
-    run(&mut g, &[(&[], 10)], |g, _| cine = cine.or(g.cine.take()));
+    run(g, &[(&[], 10)], |g, _| cine = cine.or(g.cine.take()));
     assert_eq!(cine, Some(48));
 }
 
@@ -340,10 +368,15 @@ fn enter_room(g: &mut Game, room: usize) -> Option<usize> {
 fn level_5_outer_space_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 5);
-    assert_eq!(enter_room(&mut g, 30), Some(38));
+    win_5(&mut g);
+}
+
+/// Level 5 won by play (the test above).
+fn win_5(g: &mut Game) {
+    assert_eq!(enter_room(g, 30), Some(38));
     g.cine_finished(38);
     assert!(g.player.float.is_some(), "floating after cine 38");
-    assert_eq!(enter_room(&mut g, 38), Some(40));
+    assert_eq!(enter_room(g, 38), Some(40));
     g.cine_finished(40);
     assert_eq!(g.won, Some(true));
 }
@@ -355,23 +388,28 @@ fn level_5_outer_space_is_won() {
 fn level_6_toy_palace_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 6);
-    assert_eq!(enter_room(&mut g, 11), Some(46));
+    win_6(&mut g);
+}
+
+/// Level 6 won by play (the test above).
+fn win_6(g: &mut Game) {
+    assert_eq!(enter_room(g, 11), Some(46));
     g.cine_finished(46);
     let boxes: Vec<usize> = (0..g.things.len()).filter(|&k| g.things[k].template == 1016).take(4).collect();
     for (i, &k) in boxes.iter().enumerate() {
         g.things[k].pos = rrt::glam::Vec3::new(44500.0, -2304.0 - 506.0 * i as f32, 13900.0);
     }
-    put(&mut g, [44500, -2293, 12900], 0);
+    put(g, [44500, -2293, 12900], 0);
     // The step's edge pushes him 155 aside as he lands; R1 puts the camera
     // straight behind him again, so Up climbs the column.
-    run(&mut g, &[(&[], 3), (&[input::R1], 1), (&[input::UP], 120)], |_, _| {});
+    run(g, &[(&[], 3), (&[input::R1], 1), (&[input::UP], 120)], |_, _| {});
     assert!(g.player.pos[1] < -4800, "on the platform: {:?}", g.player.pos);
     let switch = g.set.placements.iter().find(|p| p.kind == 1 && p.cine == 47).expect("the switch").pos;
     let me = g.player.pos;
     let heading = ((switch[0] - me[0]) as f32).atan2((switch[2] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU;
-    put(&mut g, [switch[0], me[1], switch[2] - 600], heading as i32 & 4095);
+    put(g, [switch[0], me[1], switch[2] - 600], heading as i32 & 4095);
     let mut cine = None;
-    run(&mut g, &[(&[], 3), (&[input::TRIANGLE], 1), (&[], 5)], |g, _| cine = cine.or(g.cine.take()));
+    run(g, &[(&[], 3), (&[input::TRIANGLE], 1), (&[], 5)], |g, _| cine = cine.or(g.cine.take()));
     assert_eq!(cine, Some(47), "at {:?}, switch {switch:?}", g.player.pos);
     g.cine_finished(47);
     assert_eq!(g.won, Some(true));
@@ -402,42 +440,47 @@ fn levels_20_and_21_are_won() {
     // Angelica is in reach of it.
     for (level, won, lob) in [(20, 64, 4500i64), (21, 50, 3300)] {
         let mut g = open(&disc, level);
-        let mut cine = None;
-        for _ in 0..3 {
-            cine = play(&mut g, 6000, |g, f| {
-                let me = g.player.pos;
-                let d2 = |p: [i32; 3], q: [i32; 3]| {
-                    let (dx, dz) = ((p[0] - q[0]) as i64, (p[2] - q[2]) as i64);
-                    dx * dx + dz * dz
-                };
-                let Some(angelica) = g.npcs.iter().find(|n| n.id == 600).map(|n| n.pos) else { return vec![] };
-                if d2(angelica, me) > lob * lob {
-                    return if f % 2 == 0 { vec![input::CIRCLE] } else { vec![] };
-                }
-                // Turn to the baby farthest from her (the stick's turn,
-                // done at once) and lob.
-                let babies = [1776u16, 609, 608, 1492];
-                let far =
-                    g.npcs.iter().filter(|n| babies.contains(&n.id) && !n.hidden).max_by_key(|n| d2(n.pos, angelica));
-                if let Some(b) = far {
-                    let h =
-                        ((b.pos[0] - me[0]) as f32).atan2((b.pos[2] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU;
-                    let h = (h as i32).rem_euclid(4096);
-                    g.player.heading = h;
-                    g.player.target = h;
-                }
-                if f % 2 == 0 { vec![input::TRIANGLE] } else { vec![] }
-            });
-            if cine == Some(won) {
-                break;
-            }
-            // A lost round: its cinematic, then the next.
-            if let Some(n) = cine {
-                g.cine_finished(n);
-            }
-        }
-        assert_eq!(cine, Some(won), "level {level}: {}", g.script.as_ref().map_or(String::new(), |s| s.describe()));
+        win_box_toss(&mut g, won, lob);
     }
+}
+
+/// A box toss level (20, 21) won by play: `won` its ending, `lob` the
+/// reach at which the box goes.
+fn win_box_toss(g: &mut Game, won: usize, lob: i64) {
+    let level = g.level.0;
+    let mut cine = None;
+    for _ in 0..3 {
+        cine = play(g, 6000, |g, f| {
+            let me = g.player.pos;
+            let d2 = |p: [i32; 3], q: [i32; 3]| {
+                let (dx, dz) = ((p[0] - q[0]) as i64, (p[2] - q[2]) as i64);
+                dx * dx + dz * dz
+            };
+            let Some(angelica) = g.npcs.iter().find(|n| n.id == 600).map(|n| n.pos) else { return vec![] };
+            if d2(angelica, me) > lob * lob {
+                return if f % 2 == 0 { vec![input::CIRCLE] } else { vec![] };
+            }
+            // Turn to the baby farthest from her (the stick's turn,
+            // done at once) and lob.
+            let babies = [1776u16, 609, 608, 1492];
+            let far = g.npcs.iter().filter(|n| babies.contains(&n.id) && !n.hidden).max_by_key(|n| d2(n.pos, angelica));
+            if let Some(b) = far {
+                let h = ((b.pos[0] - me[0]) as f32).atan2((b.pos[2] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU;
+                let h = (h as i32).rem_euclid(4096);
+                g.player.heading = h;
+                g.player.target = h;
+            }
+            if f % 2 == 0 { vec![input::TRIANGLE] } else { vec![] }
+        });
+        if cine == Some(won) {
+            break;
+        }
+        // A lost round: its cinematic, then the next.
+        if let Some(n) = cine {
+            g.cine_finished(n);
+        }
+    }
+    assert_eq!(cine, Some(won), "level {level}: {}", g.script.as_ref().map_or(String::new(), |s| s.describe()));
 }
 
 /// Level 20's lob (0x80057bc4) carries the box to a baby near or far: the
@@ -688,8 +731,13 @@ fn face(g: &mut Game, to: [i32; 3]) {
 fn level_13_cookie_race_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 13);
-    run(&mut g, &[(&[], 30)], |_, _| {});
-    assert_eq!(enter_room(&mut g, 20), Some(21));
+    win_13(&mut g);
+}
+
+/// Level 13 won by play (the test above).
+fn win_13(g: &mut Game) {
+    run(g, &[(&[], 30)], |_, _| {});
+    assert_eq!(enter_room(g, 20), Some(21));
 }
 
 /// Level 2: the gap in the fence (room 69, cine 3), the ride after the
@@ -700,13 +748,18 @@ fn level_13_cookie_race_is_won() {
 fn level_2_grandpas_teeth_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 2);
-    assert_eq!(enter_room(&mut g, 69), Some(3));
+    win_2(&mut g);
+}
+
+/// Level 2 won by play (the test above).
+fn win_2(g: &mut Game) {
+    assert_eq!(enter_room(g, 69), Some(3));
     g.cine_finished(3);
-    assert_eq!(enter_room(&mut g, 44), Some(4));
+    assert_eq!(enter_room(g, 44), Some(4));
     g.cine_finished(4);
     // A clear shot: the goose in range, Chuckie off the line to it.
     let feathers = std::cell::Cell::new(0);
-    let cine = play(&mut g, 30 * 130, |g, f| {
+    let cine = play(g, 30 * 130, |g, f| {
         let n = g.flights.iter().filter(|f| f.kind() == 5 && f.skin == flights::Skin::Sprite(276)).count();
         feathers.set(feathers.get().max(n));
         let pos = |id: u16| g.npcs.iter().find(|n| n.id == id).map(|n| n.pos);
@@ -744,11 +797,16 @@ fn use_at(g: &mut Game, at: [i32; 3]) -> Option<usize> {
 fn level_12_let_there_be_light_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 12);
+    win_12(&mut g);
+}
+
+/// Level 12 won by play (the test above).
+fn win_12(g: &mut Game) {
     let fridge = g.set.placements.iter().find(|p| p.kind == 1 && p.id == 602).expect("the refrigerator").pos;
-    assert_eq!(use_at(&mut g, fridge), Some(67));
+    assert_eq!(use_at(g, fridge), Some(67));
     g.cine_finished(67);
     let spike = g.npcs.iter().find(|n| n.id == 14 && !n.hidden).expect("Spike out").pos;
-    assert_eq!(use_at(&mut g, spike), Some(68));
+    assert_eq!(use_at(g, spike), Some(68));
 }
 
 /// Level 3: the cart ride (room 19, cine 9) to the bakery; the pie toss,
@@ -759,9 +817,14 @@ fn level_12_let_there_be_light_is_won() {
 fn level_3_aisle_seven_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 3);
-    assert_eq!(enter_room(&mut g, 19), Some(9));
+    win_3(&mut g);
+}
+
+/// Level 3 won by play (the test above).
+fn win_3(g: &mut Game) {
+    assert_eq!(enter_room(g, 19), Some(9));
     g.cine_finished(9);
-    let cine = play(&mut g, 30 * 120, |g, f| {
+    let cine = play(g, 30 * 120, |g, f| {
         let me = g.player.pos;
         let near = g.npcs.iter().filter(|n| matches!(n.id, 75 | 76) && !n.hidden).min_by_key(|n| {
             let (dx, dz) = ((n.pos[0] - me[0]) as i64, (n.pos[2] - me[2]) as i64);
@@ -775,11 +838,11 @@ fn level_3_aisle_seven_is_won() {
     });
     assert_eq!(cine, Some(13), "the toss");
     g.cine_finished(13);
-    assert_eq!(enter_room(&mut g, 36), Some(86));
+    assert_eq!(enter_room(g, 36), Some(86));
     g.cine_finished(86);
     // The switch, LP 278 (+0x44 16, which 0x8004691c makes cine 14).
     let switch = g.set.placements[278].pos;
-    assert_eq!(use_at(&mut g, switch), Some(14));
+    assert_eq!(use_at(g, switch), Some(14));
 }
 
 /// Level 7: Reptar walks the city to City Hall (room 6): cine 85, the end
@@ -788,7 +851,12 @@ fn level_3_aisle_seven_is_won() {
 fn level_7_reptar_2010_reaches_city_hall() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 7);
-    assert_eq!(enter_room(&mut g, 6), Some(85));
+    win_7(&mut g);
+}
+
+/// Level 7 won by play (the test above).
+fn win_7(g: &mut Game) {
+    assert_eq!(enter_room(g, 6), Some(85));
     g.cine_finished(85);
     assert!(g.ending);
 }
@@ -800,15 +868,20 @@ fn level_7_reptar_2010_reaches_city_hall() {
 fn level_10_chuckies_glasses_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 10);
+    win_10(&mut g);
+}
+
+/// Level 10 won by play (the test above).
+fn win_10(g: &mut Game) {
     for id in [608u16, 609, 1492] {
         let baby = g.npcs.iter().find(|n| n.id == id).expect("a baby").pos;
-        put(&mut g, [baby[0], baby[1], baby[2] - 500], 0);
-        face(&mut g, baby);
-        run(&mut g, &[(&[input::TRIANGLE], 1), (&[], 2)], |_, _| {});
+        put(g, [baby[0], baby[1], baby[2] - 500], 0);
+        face(g, baby);
+        run(g, &[(&[input::TRIANGLE], 1), (&[], 2)], |_, _| {});
         let y = g.player.pos[1];
-        put(&mut g, [5926, y, 21212], 0);
+        put(g, [5926, y, 21212], 0);
         let mut cine = None;
-        run(&mut g, &[(&[], 30)], |g, _| cine = cine.or(g.cine.take()));
+        run(g, &[(&[], 30)], |g, _| cine = cine.or(g.cine.take()));
         assert!(matches!(cine, Some(75..=77)), "baby {id}: {cine:?}");
         g.cine_finished(cine.unwrap());
     }
@@ -835,23 +908,28 @@ fn finish(g: &mut Game, mut n: usize) {
 fn level_11_circus_is_won() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 11);
+    win_11(&mut g);
+}
+
+/// Level 11 won by play (the test above).
+fn win_11(g: &mut Game) {
     // Ring 1: the bone moves to the next stand each time.
     // Ring 1: the bone moves to the next stand each time; Spike eats it
     // from the stand's top.
     let mut cine = None;
     for _ in 0..12 {
         let b = g.goodies.iter().find(|b| b.kind == 14 && !b.taken).expect("a bone").pos;
-        put(&mut g, [b.x as i32, b.y as i32 - 50, b.z as i32 - 100], 0);
-        run(&mut g, &[(&[input::UP], 3), (&[], 3)], |g, _| cine = cine.or(g.cine.take()));
+        put(g, [b.x as i32, b.y as i32 - 50, b.z as i32 - 100], 0);
+        run(g, &[(&[input::UP], 3), (&[], 3)], |g, _| cine = cine.or(g.cine.take()));
     }
     assert_eq!(cine, Some(54), "ring 1");
-    finish(&mut g, 54);
+    finish(g, 54);
     // Ring 2: along +x into the ramp's zone (x 15000..22700), Cross 6700
     // in.
     let y = g.player.pos[1];
-    put(&mut g, [13500, y, 34300], 1024);
+    put(g, [13500, y, 34300], 1024);
     let mut from = None;
-    let cine = play(&mut g, 30 * 20, |g, _| {
+    let cine = play(g, 30 * 20, |g, _| {
         let x = g.player.pos[0];
         if x >= 15000 && from.is_none() {
             from = Some(x);
@@ -862,14 +940,14 @@ fn level_11_circus_is_won() {
         }
     });
     assert_eq!(cine, Some(57), "ring 2 at {:?}", g.player.pos);
-    finish(&mut g, 57);
+    finish(g, 57);
     // Ring 3: the meter rises 6 a frame from 6; stop it at 174 (28
     // frames), then the second from 46 at 172 (21 frames).
     let presses = [0usize, 28, 49];
-    let cine = play(&mut g, 120, |_, f| if presses.contains(&f) { vec![input::TRIANGLE] } else { vec![] });
+    let cine = play(g, 120, |_, f| if presses.contains(&f) { vec![input::TRIANGLE] } else { vec![] });
     assert_eq!(cine, Some(39), "ring 3's leap");
     g.cine_finished(39);
-    let cine = play(&mut g, 30 * 10, |_, _| vec![]);
+    let cine = play(g, 30 * 10, |_, _| vec![]);
     assert_eq!(cine, Some(62), "ring 3");
 }
 
@@ -1044,6 +1122,12 @@ fn golf_course_search() {
 #[test]
 fn golf_course_is_played() {
     let Some(disc) = disc() else { return };
+    win_golf(&disc);
+}
+
+/// The golf course played hole by hole at par or under (the shot list
+/// golf_course_search found).
+fn win_golf(disc: &GameDisc) {
     let course: [(u8, usize, &[(i32, i32)], usize); 9] = [
         (25, 4, &[(-128, 183), (-896, 200)], 1028),
         (28, 5, &[(0, 217), (0, 64)], 1024),
@@ -1058,7 +1142,7 @@ fn golf_course_is_played() {
     for (level, par, shots, next) in course {
         let shots: Vec<Shot> = shots.iter().map(|&(offset, power)| Shot { offset, power }).collect();
         assert!(shots.len() <= par);
-        let (r, g) = replay(&disc, level, &shots);
+        let (r, g) = replay(disc, level, &shots);
         assert_eq!(r, Some(next), "hole {level}: {}", stage(&g));
     }
 }
@@ -1308,5 +1392,96 @@ fn chuckies_climb_moves_as_the_original() {
     assert!(seen.len() >= oracle.len(), "{seen:?}");
     for (k, (&y, &o)) in seen.iter().zip(&oracle).enumerate() {
         assert!((y - o).abs() <= 2, "frame {k}: {y} against {o} ({seen:?})");
+    }
+}
+
+/// The door in the hub to `level` (a placement whose LP +0x42 names it,
+/// 0x8004f78c): Tommy put before it, Triangle; where the exit leads.
+fn through_door(g: &mut Game, level: u8) -> Option<Level> {
+    let spots: Vec<[i32; 3]> =
+        g.set.placements.iter().filter(|p| p.kind == 1 && p.level == level as i16).map(|p| p.pos).collect();
+    for at in spots {
+        for (dx, dz) in [(0, -600), (0, 600), (-600, 0), (600, 0)] {
+            let from = [at[0] + dx, at[1], at[2] + dz];
+            let q = rugrats::world::collide::query(&g.col, [from[0], from[1] - 2000, from[2]]);
+            if q.kind != 0 {
+                continue;
+            }
+            put(g, [from[0], q.floor + g.player.feet(), from[2]], 0);
+            face(g, at);
+            let mut exit = None;
+            run(g, &[(&[], 3), (&[input::TRIANGLE], 1), (&[], 3)], |g, _| exit = exit.or(g.exit.take()));
+            if let Some(e) = exit {
+                return Some(e.level);
+            }
+        }
+    }
+    None
+}
+
+/// Level `level` opened as the game opens it (from the hub, with the
+/// progress so far) and won by play.
+fn win_level(disc: &GameDisc, level: Level, progress: &Progress) {
+    if level.is_hole() || level == Level::GOLF_DOOR {
+        win_golf(disc);
+        return;
+    }
+    let mut g = Game::open_from(disc, level, Some(Level::HUB), progress).unwrap();
+    match level.0 {
+        2 => win_2(&mut g),
+        3 => win_3(&mut g),
+        4 => win_4(&mut g),
+        5 => win_5(&mut g),
+        6 => win_6(&mut g),
+        7 => win_7(&mut g),
+        9 => win_9(&mut g),
+        10 => win_10(&mut g),
+        11 => win_11(&mut g),
+        12 => win_12(&mut g),
+        13 => win_13(&mut g),
+        15 => win_15(&mut g),
+        16 => win_16(&mut g),
+        17 => win_17(&mut g),
+        18 => win_18(&mut g),
+        20 => win_box_toss(&mut g, 64, 4500),
+        21 => win_box_toss(&mut g, 50, 3300),
+        n => panic!("no way to win level {n}"),
+    }
+}
+
+/// The whole game from a new one, by play: each of the hub's doors walked
+/// to and used (Triangle), its level won by playing it, the progress kept
+/// (pieces, the count that opens the bonus levels, Mirrorland's doors),
+/// every bonus level a win opens played at once, and with all twelve
+/// pieces the board's Reptar 2010 to City Hall.
+#[test]
+fn the_whole_game_by_play() {
+    let Some(disc) = disc() else { return };
+    let mut progress = Progress::default();
+    let mut rand = rugrats::rand::Rand::default();
+    let mut played = Vec::new();
+    // A new game's first entry to the hub: Reptar Puzzle (+0x30 bit 4)
+    // gives the first piece (0x80094bfc(1)), as the app does then.
+    progress.set_flags(progress.flags() | 4);
+    assert!(progress.give_piece(Level::HUB, &mut rand));
+    // Doors 3, 4 and 6 open with Mirrorland won (+0x30 bit 16), which the
+    // count opens after the third main level.
+    for door in [2u8, 5, 9, 10, 11, 12, 25, 3, 4, 6] {
+        let mut hub = Game::open_from(&disc, Level::HUB, None, &progress).unwrap();
+        run(&mut hub, &[(&[], 3)], |_, _| {});
+        assert_eq!(through_door(&mut hub, door), Some(Level(door)), "the door to {door}, after {played:?}");
+        let mut next = Some(Level(door));
+        while let Some(level) = next.filter(|&l| l != Level::HUB) {
+            progress.enter(level);
+            win_level(&disc, level, &progress);
+            played.push(level.0);
+            let record = if level == Level::GOLF_DOOR { Level::GOLF } else { level };
+            next = progress.finish(record, true, &mut rand).next;
+        }
+    }
+    assert_eq!(progress.pieces(), 12, "after {played:?}");
+    win_level(&disc, Level::REPTAR_2010, &progress);
+    for l in [2, 3, 4, 5, 6, 9, 10, 11, 12, 15, 17, 20, 21] {
+        assert!(played.contains(&l), "level {l} not played: {played:?}");
     }
 }

@@ -15,6 +15,7 @@ use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::Level;
 use crate::ui::front;
+use crate::ui::hud::Look;
 use crate::ui::screens::{PINK, Page};
 use crate::ui::text::Text;
 use crate::world::collide;
@@ -45,12 +46,23 @@ const OTHERS: [u16; 5] = [15, 600, 608, 609, 1776];
 /// Templates: the ball and the cup (0x800494d8).
 const BALL: u16 = 724;
 const CUP: u16 = 789;
-/// Animations: walk-in (29), the stance (30), the stroke (31).
-const WALK_IN: i16 = 29;
-const STANCE: i16 = 30;
-const STROKE: i16 = 31;
+/// Animations: walk-in, the stance, the stroke. States 13-15 ask for 29,
+/// 30 and 31 (0x800572a8), which 0x80056fe4 turns into the table's states
+/// 42, 43 and 44; 29-31 themselves are other animations, missing from the
+/// golf databases for most babies (the T-pose).
+const WALK_IN: i16 = 42;
+const STANCE: i16 = 43;
+const STROKE: i16 = 44;
 /// The walk-up reach (0x80058538: d^2 <= 0xfffff).
 const REACH2: i64 = 0xfffff;
+/// The clubs (0x80057404) and bare hands (0x80057468) by character.
+const CLUBS: [(usize, u32, u32); 6] =
+    [(1, 1069, 7), (2, 1216, 22), (3, 1215, 37), (4, 1218, 54), (5, 1217, 69), (37, 1219, 1185)];
+/// Circle's camera heights (0x800c4730), counted 1-3; the fourth press
+/// returns to the base.
+const HEIGHTS: [i32; 4] = [0, -2200, -6000, 1400];
+/// The hand's slot (hierarchy +0x23).
+const HAND_SLOT: usize = 0x23 - 0x14;
 /// The meter: 1 idle, 4..220, 3 a frame.
 const POWER_MAX: i32 = 220;
 /// Aim steps a frame (0x8005be24): 25, 8 with Square.
@@ -82,6 +94,13 @@ const PRESS: u32 = 67;
 const YELLOW: [u8; 3] = [0xec, 0xcd, 0x13];
 /// The meter's sprites: the frame (293, half 110 x 12) and the bar (294,
 /// half height 10), depth 512, at (0, 76).
+/// The aim line (0x8005f68c, state 14): five flat sprites 364 (flags
+/// 0xd2803000: semi-transparent), half-size 200 x 250, grey 128, at 250,
+/// 750 .. 2250 from the ball along the heading, laid down (angles -1024,
+/// heading, 0) with the sprite's top ahead.
+const AIM_SPRITE: u32 = 364;
+const AIM_SIZE: (f32, f32) = (200.0, 250.0);
+const AIM_STEP: f32 = 500.0;
 const METER_FRAME: u32 = 293;
 const METER_BAR: u32 = 294;
 /// The golf camera (mode 12): eye (440, -768 - 1600, -4096) and aim (440,
@@ -130,6 +149,10 @@ pub struct Golf {
     tee: [i32; 3],
     turn_strings: [String; 2],
     turn: Option<(usize, [u8; 3])>,
+    /// Circle's camera height (camera +0x9c): the cycle's count and base
+    /// (0x800c46d0 +0x862, +0x864).
+    height: i32,
+    heights: (u16, i32),
 }
 
 /// Activity play's characters, by face slot (0x800bb4ac).
@@ -167,8 +190,10 @@ impl Golf {
     pub fn start(g: &mut Game, disc: &GameDisc) -> Result<Golf, String> {
         let hole = LEVELS.iter().position(|&l| l == g.level).unwrap_or(0);
         g.record = g.level;
-        // The hole's baby (0x8005928c).
+        // The hole's baby (0x8005928c), who is the character too
+        // (0x800c5680).
         let baby = BABY[hole];
+        g.character = baby;
         if baby != 1
             && let Some(Some(h)) = g.set.hierarchies.get(baby).cloned()
         {
@@ -225,6 +250,8 @@ impl Golf {
             tee: ball,
             turn_strings,
             turn: None,
+            height: 0,
+            heights: (0, 0),
         };
         golf.settle(g);
         Ok(golf)
@@ -248,12 +275,25 @@ impl Golf {
         g.player.pos[2] = self.ball[2] + tdiv(r as i64 * -c, 4096) + tdiv(-c2, 32);
     }
 
+    /// The hand part (hierarchy +0x23) each frame (0x8005a678): the club
+    /// while walking in, aiming and swinging (states 13-15), else the
+    /// bare hand.
+    fn club(&self, g: &mut Game) {
+        let swinging = matches!(self.stage, Stage::WalkIn(_) | Stage::Aim { .. } | Stage::Stroke(..));
+        let Some(&(_, club, hand)) = CLUBS.iter().find(|c| c.0 == g.character) else { return };
+        if let Some(k) = g.player.slot_part(HAND_SLOT)
+            && let Some(p) = g.player.hierarchy.parts.get_mut(k)
+        {
+            p.model = if swinging { club } else { hand };
+        }
+    }
+
     /// The golf camera: behind and above the player's frame.
     fn camera(&self, g: &mut Game) {
         let rot = g.player.rotation(&g.trig);
         let p = Vec3::new(g.player.pos[0] as f32, g.player.pos[1] as f32, g.player.pos[2] as f32);
         let at = |o: Vec3| p + rot * o;
-        g.fixed = Some((at(EYE), at(LOOK)));
+        g.fixed = Some((at(EYE + Vec3::Y * self.height as f32), at(LOOK)));
     }
 
     /// The hit (0x80058278): along the heading at k = (power << 16) /
@@ -518,6 +558,7 @@ impl Script for Golf {
     }
 
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
+        self.club(g);
         // Level 23's callback (0x80081758): a ball at rest within x +-2000,
         // z +-1000 of template 1264 goes to (x, 280, 2753).
         if g.level == Level::FIRST_HOLE
@@ -550,6 +591,8 @@ impl Script for Golf {
                 if n + 1 >= WALK_IN_TIME {
                     self.stage = Stage::Aim { power: 1, down: false };
                     g.player.hold = Some(STANCE);
+                    // State 14's entry (0x80097288): the cycle's base.
+                    self.heights.1 = self.height;
                 } else {
                     self.stage = Stage::WalkIn(n + 1);
                 }
@@ -579,6 +622,16 @@ impl Script for Golf {
                     g.player.heading = (g.player.heading + turn).rem_euclid(4096);
                     g.player.target = g.player.heading;
                 }
+                // Circle (0x800972c4): the next camera height.
+                if pads.pressed(0, input::CIRCLE) {
+                    self.heights.0 += 1;
+                    if self.heights.0 == 4 {
+                        self.heights.0 = 0;
+                        self.height = self.heights.1;
+                    } else {
+                        self.height = HEIGHTS[self.heights.0 as usize];
+                    }
+                }
                 if pads.pressed(0, input::TRIANGLE) {
                     if power == 1 {
                         power = 4;
@@ -586,6 +639,9 @@ impl Script for Golf {
                     } else {
                         g.player.hold = Some(STROKE);
                         self.stage = Stage::Stroke(0, power);
+                        // State 15's entry (0x800972ac, 0x80097288).
+                        self.heights = (0, HEIGHTS[0]);
+                        self.height = HEIGHTS[0];
                         return;
                     }
                 }
@@ -699,6 +755,16 @@ impl Script for Golf {
         text(-192, -100, self.strings[0].replace("%d", &PAR[self.hole].to_string()), overlay);
         text(50, -100, self.strings[1].clone(), overlay);
         text(150, -100, shown.to_string(), overlay);
+        if let (Stage::Aim { .. }, Some(s)) = (self.stage, &g.sprites) {
+            let rot = g.player.rotation(&g.trig);
+            let (ahead, side) = (rot * Vec3::Z, rot * Vec3::X);
+            let ball = Vec3::new(self.ball[0] as f32, self.ball[1] as f32, self.ball[2] as f32);
+            for k in 0..5 {
+                let at = ball + ahead * (AIM_STEP / 2.0 + AIM_STEP * k as f32);
+                let axes = (side * AIM_SIZE.0, -ahead * AIM_SIZE.1);
+                s.quad(AIM_SPRITE, at, axes, Look { grey: 128, semi: true }, moving);
+            }
+        }
         // The power meter (0x8008cef0, 0x8008cd00): the bar grows from
         // the frame's right end to the left.
         if let (Stage::Aim { power, .. }, Some(s)) = (self.stage, &g.sprites) {

@@ -189,6 +189,12 @@ the shift.) y is not touched.
 
 ### State 13, walk-in (0x8005faf4)
 
+The animations states 13-15 ask for, 29, 30 and 31, are logical: like
+every 0x800572a8 argument they go through 0x80056fe4 first, which makes
+them the table states 42, 43 and 44 (ANM 762, 766 and 770 for Lil and
+Phil). The table's own states 29-31 are other animations, and for most
+babies the golf databases do not have them.
+
 Entry (0x8005b2d8 case 13): handler 0x8005faf4, animation 29;
 0x8005ba44(player, ball, 1024): heading += the turn toward the ball
 (0x80075e4c direction, 0x80075d7c difference), target heading = heading,
@@ -257,6 +263,13 @@ room) at 250, 750, 1250, 1750 and 2250 from the ball along (0, 0, 4096)
 turned by the heading (0x80075ee8). Only drawn in state 14. Seen: arrows
 on the green toward the aim.
 
+The pool entry (0x8008e36c, drawn by 0x8008e508) is the sprite quad
+D_800b6da8, (+-4096, +-4096, 0), through the matrix Ry Rx Rz times
+diag(200, 250, 4096) / 4096 (0x80024424): half-size 200 x 250, laid flat
+by the -1024 about x with the texture's top ahead. Flags 0xd2803000 are
+an FT4 (0x800233f4) whose packet has bit 25 set: semi-transparent,
+blended by the sprite's page.
+
 ### State 15, the stroke (0x8005fcb8)
 
 Entry: camera +0x9c = 0x800972ac() (resets the height cycle, returns
@@ -279,7 +292,8 @@ animation 31).
 Each frame in levels 23-31 (0x8005a678) the hand part (hierarchy slot
 +0x23, part +0x58) gets a model: in states 13-15 the club
 (0x80057404: char 1 1069, 2 1216, 3 1215, 4 1218, 5 1217, 37 1219),
-else the bare hand (0x80057468: 7, 22, 37, 54, 69, 1185).
+else the bare hand (0x80057468: 7, 22, 37, 54, 69, 1185). The character
+is 0x800c5680, which 0x8005928c sets to the hole's baby.
 
 ## The hit (0x80058278)
 

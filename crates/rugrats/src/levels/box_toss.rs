@@ -16,6 +16,7 @@ use crate::actors::player::{Pose, State};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::Level;
+use crate::ui::hud::Look;
 use crate::world::game::{self, Exit, Game, Script, ThingState};
 
 /// The box (template 442) and the cookies in it.
@@ -396,8 +397,8 @@ impl Script for BoxToss {
                 let n = &g.npcs[k];
                 let at = rrt::glam::Vec3::new(n.pos[0] as f32, (n.pos[1] - ARROW_RISE) as f32, n.pos[2] as f32);
                 let grey = if g.frames % 10 < 5 { 208 } else { 128 };
-                let (right, down) = (-g.view.1.row(0), -g.view.1.row(1));
-                s.billboard_lit(ARROW, at, ARROW_SIZE, (right, down), grey, moving);
+                let (right, down) = (-g.view.1.row(0) * ARROW_SIZE.0, -g.view.1.row(1) * ARROW_SIZE.1);
+                s.quad(ARROW, at, (right, down), Look { grey, semi: false }, moving);
             }
         }
         if !self.rules.throw_costs {

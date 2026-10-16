@@ -22,6 +22,21 @@ pub struct Sprites {
     textures: Vec<Texture>,
 }
 
+/// How a world sprite is coloured: its texels scaled by `grey` (128 as
+/// they are), and blended by its page when `semi` (packet bit 25, the
+/// face flags' 0x02000000).
+#[derive(Clone, Copy, Debug)]
+pub struct Look {
+    pub grey: u8,
+    pub semi: bool,
+}
+
+impl Default for Look {
+    fn default() -> Look {
+        Look { grey: 128, semi: false }
+    }
+}
+
 impl Sprites {
     pub fn load(disc: &GameDisc, db: usize) -> Result<Sprites, String> {
         // 0x8008a328 is called with db + 1; entry 0 is the menu's.
@@ -72,29 +87,31 @@ impl Sprites {
         down: rrt::glam::Vec3,
         out: &mut Vec<Vtx>,
     ) {
-        self.billboard_lit(n, at, (w, h), (right, down), 128, out);
+        self.quad(n, at, (right * w, down * h), Look::default(), out);
     }
 
-    /// [`Sprites::billboard`] with its texels scaled by `grey` (128 as
-    /// they are).
-    pub fn billboard_lit(
+    /// Sprite `n` as a quad in the world: centre `at`, its texture's u
+    /// running along `u` and v along `v` (half extents), as 0x8008a954
+    /// and 0x8008e508 draw the sprite quad (+-4096 scaled, turned, D_800b6da8).
+    /// Front facing when u x v points away from the eye.
+    pub fn quad(
         &self,
         n: u32,
         at: rrt::glam::Vec3,
-        (w, h): (f32, f32),
-        (right, down): (rrt::glam::Vec3, rrt::glam::Vec3),
-        grey: u8,
+        (u, v): (rrt::glam::Vec3, rrt::glam::Vec3),
+        look: Look,
         out: &mut Vec<Vtx>,
     ) {
         let Some(t) = self.texture(n) else { return };
-        let mode = t.clut as u32 | (t.tpage as u32) << 16;
+        let mode = t.clut as u32 | (t.tpage as u32) << 16 | if look.semi { Vtx::SEMI } else { 0 };
         let window = Vtx::window_of(
             [t.uv[0][0], t.uv[1][0], t.uv[2][0], t.uv[3][0]],
             [t.uv[0][1], t.uv[1][1], t.uv[2][1], t.uv[3][1]],
         );
-        let corners = [(-w, -h), (w, -h), (-w, h), (w, h)];
-        let v = |k: usize| {
-            let p = at + right * corners[k].0 + down * corners[k].1;
+        let corners = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)];
+        let grey = look.grey;
+        let vtx = |k: usize| {
+            let p = at + u * corners[k].0 + v * corners[k].1;
             Vtx {
                 pos: p.to_array(),
                 colour: u32::from_le_bytes([grey, grey, grey, 0]),
@@ -104,7 +121,7 @@ impl Sprites {
             }
         };
         // Wound for the world pass, which culls back faces.
-        out.extend([v(0), v(2), v(1), v(1), v(2), v(3)]);
+        out.extend([vtx(0), vtx(2), vtx(1), vtx(1), vtx(2), vtx(3)]);
     }
 
     /// Sprite `n` at screen `at` (from the centre), half-size `w` x `h` at

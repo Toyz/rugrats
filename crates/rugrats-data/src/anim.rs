@@ -11,7 +11,8 @@
 //!        w0: bits 0-13 q0, 14-27 q1 (signed), bit 29 a lift key
 //!        w1: bits 0-13 q2, 14-26 q3 (signed), 27-31 channel
 //!      a rotation key is the quaternion (q0, q1, q2, q3) = (x, y, z, w)
-//!      for its channel; a lift key moves the object's y by w0's bits 14-27
+//!      for its channel; a lift key is the root's move over its frame:
+//!      x w0's bits 0-13, y w0's bits 14-27, z w1's bits 0-13
 //! ```
 //!
 //! A hierarchy's header maps channels to parts (hierarchy + 0x14 +
@@ -30,8 +31,18 @@ pub struct Frame {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
-    Rotation { channel: u8, q: [i16; 4] },
-    Lift { channel: u8, dy: i16 },
+    Rotation {
+        channel: u8,
+        q: [i16; 4],
+    },
+    /// The root's displacement over the frame (0x800557ec): x in w0's
+    /// bits 0-13, y in 14-27, z in w1's bits 0-13.
+    Lift {
+        channel: u8,
+        dx: i16,
+        dy: i16,
+        dz: i16,
+    },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -49,7 +60,7 @@ impl Key {
     pub fn parse(w0: u32, w1: u32) -> Key {
         let channel = (w1 >> 27) as u8;
         if (w0 >> 28) & 2 != 0 {
-            Key::Lift { channel, dy: sext(w0 >> 14, 14) }
+            Key::Lift { channel, dx: sext(w0, 14), dy: sext(w0 >> 14, 14), dz: sext(w1, 14) }
         } else {
             Key::Rotation { channel, q: [sext(w0, 14), sext(w0 >> 14, 14), sext(w1, 14), sext(w1 >> 14, 13)] }
         }
@@ -103,7 +114,7 @@ mod tests {
         let w1 = 3 | (2048 << 14) | (9 << 27);
         assert_eq!(Key::parse(w0, w1), Key::Rotation { channel: 9, q: [-1, 2, 3, 2048] });
         let lift = (2 << 28) | ((-5i32 as u32 & 0x3fff) << 14);
-        assert_eq!(Key::parse(lift, 1 << 27), Key::Lift { channel: 1, dy: -5 });
+        assert_eq!(Key::parse(lift, 1 << 27), Key::Lift { channel: 1, dx: 0, dy: -5, dz: 0 });
     }
 
     /// Every database's three files read, every frame's keys in range.

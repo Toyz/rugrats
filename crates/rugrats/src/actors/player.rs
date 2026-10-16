@@ -154,6 +154,11 @@ pub struct Player {
     pub support: Option<usize>,
     /// The landing began this frame (state 10's entry, 0x8005b624).
     pub landed: bool,
+    /// A climb under way: how far it rises. The port puts the body at the
+    /// top at once; the original's climb moves it by the animation's root
+    /// keys (0x80055904 into +0xd8..+0xdc, moved by 0x80066e60), so the
+    /// body is drawn where that motion has it.
+    climb_rise: Option<i32>,
 }
 
 impl Player {
@@ -217,6 +222,7 @@ impl Player {
             falls_hurt: true,
             support: None,
             landed: false,
+            climb_rise: None,
         };
         let q = collide::query(col, start);
         if q.tile.is_some() {
@@ -273,6 +279,7 @@ impl Player {
                 magnitude = 0;
             } else {
                 self.action = None;
+                self.climb_rise = None;
                 // The slip's fall ends (state 18): Damage 5, message 30.
                 if self.slipping {
                     self.slipping = false;
@@ -432,6 +439,7 @@ impl Player {
         if let Some(top) = climb_to {
             // The rise picks the climb (+0x144, 0x80056e44).
             self.animator.climb = self.floor - top;
+            self.climb_rise = Some(self.floor - top);
             self.pos[1] = top + self.feet;
             self.floor = top;
             self.state = State::Stand;
@@ -621,8 +629,21 @@ impl Player {
     }
 
     /// Each part's rotation and joint in the world.
-    pub fn parts(&self, anims: &Anims, trig: &Trig) -> Vec<(Mat3, Vec3)> {
+    /// Where the body is drawn: its position, less what is left of a
+    /// climb's root motion (back along the heading by the forward move to
+    /// come, down by the rise to come, in proportion to the animation's
+    /// own rise).
+    fn drawn_at(&self, anims: &Anims, trig: &Trig) -> Vec3 {
         let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
+        let (Some(rise), Some(anim::CLIMB)) = (self.climb_rise, self.action) else { return pos };
+        let Some((done, total)) = self.animator.root_progress(anims) else { return pos };
+        let left_y = if total[1] != 0 { rise as f32 * (1.0 - done[1] as f32 / total[1] as f32) } else { 0.0 };
+        let back = self.rotation(trig) * Vec3::new((done[0] - total[0]) as f32, 0.0, (done[2] - total[2]) as f32);
+        pos + back + Vec3::new(0.0, left_y, 0.0)
+    }
+
+    pub fn parts(&self, anims: &Anims, trig: &Trig) -> Vec<(Mat3, Vec3)> {
+        let pos = self.drawn_at(anims, trig);
         models::posed_parts(&self.hierarchy, &self.animator.locals(&self.hierarchy, anims), self.rotation(trig), pos)
     }
 
@@ -638,7 +659,7 @@ impl Player {
             &e.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap(),
         )
         .transpose();
-        let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
+        let pos = self.drawn_at(anims, trig);
         posed_triangles(
             &self.hierarchy,
             models,

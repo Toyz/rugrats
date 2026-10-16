@@ -424,6 +424,43 @@ impl Animator {
         }
     }
 
+    /// The base track's root motion (its frames' root keys, 0x800557ec):
+    /// what it has moved so far, the frame showing taken in proportion to
+    /// its time gone (0x80055904), and its whole move. None without root
+    /// keys.
+    pub fn root_progress(&self, anims: &Anims) -> Option<([i32; 3], [i32; 3])> {
+        let t = &self.tracks[0];
+        if t.count == 0 {
+            return None;
+        }
+        let root = |k: usize| {
+            anims.frames.get(k).and_then(|f| {
+                anims.keys_of(f).iter().find_map(|key| match *key {
+                    Key::Lift { dx, dy, dz, .. } => Some([dx as i32, dy as i32, dz as i32]),
+                    _ => None,
+                })
+            })
+        };
+        let (mut done, mut total, mut any) = ([0; 3], [0; 3], false);
+        for k in t.first..t.first + t.count {
+            let Some(r) = root(k) else { continue };
+            any = true;
+            let part = if k < t.cur {
+                4096
+            } else if k == t.cur {
+                let dur = anims.frames.get(k).map_or(1, |f| f.duration.max(1) as i32);
+                ((dur - t.left).clamp(0, dur) << 12) / dur
+            } else {
+                0
+            };
+            for i in 0..3 {
+                total[i] += r[i];
+                done[i] += (r[i] * part) >> 12;
+            }
+        }
+        any.then_some((done, total))
+    }
+
     /// The parts' rotations, each track blended from the frame before
     /// into the frame showing (0x800552bc, 0x800202ec).
     pub fn locals(&self, hierarchy: &Hierarchy, anims: &Anims) -> Vec<Option<Mat3>> {

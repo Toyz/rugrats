@@ -16,7 +16,7 @@
 
 use crate::levels::Level;
 use crate::rand::Rand;
-use crate::save::card::STATE_SIZE;
+use crate::save::card::{Art, Cards, STATE_SIZE};
 use crate::ui::audio_menu::Settings;
 
 /// What finishing a level brought (0x80076d6c).
@@ -55,6 +55,27 @@ impl Progress {
 
     fn set_u32(&mut self, at: usize, v: u32) {
         self.block[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    /// A new game that keeps the audio settings: the new game's reset
+    /// (0x80091a44) leaves +0x0c..+0x14 alone.
+    pub fn new_game(&self) -> Progress {
+        let mut p = Progress::default();
+        p.set_audio(self.audio());
+        p
+    }
+
+    /// At boot (0x80070c24, from show_still): the settings of the last
+    /// record saved (word 3, 0x800702d8) on the first card that has one.
+    pub fn restore_audio(&mut self, cards: &Cards, art: &Art) -> bool {
+        let last = (0..2)
+            .filter(|&port| cards.present(port))
+            .filter_map(|port| cards.load(port, art))
+            .find_map(|save| save.record(save.words[3] as usize));
+        if let Some(block) = last {
+            self.set_audio(Progress { block }.audio());
+        }
+        last.is_some()
     }
 
     /// The audio settings (+0x0c music, +0x10 effects, +0x14 mono).

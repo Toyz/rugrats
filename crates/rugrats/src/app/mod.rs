@@ -19,6 +19,7 @@ use crate::levels::Level;
 use crate::media::movie::{Movie, Soundtrack};
 use crate::media::still;
 use crate::rand::Rand;
+use crate::save::card::Cards;
 use crate::save::progress::Progress;
 use crate::stage::Stage;
 use crate::world::game::Effect;
@@ -66,6 +67,10 @@ impl Rugrats {
         let audio = with_audio
             .then(|| Output::open(Arc::new(Mutex::new(sound::Mix { track: soundtrack.clone(), spu: spu.clone() }))))
             .and_then(|r| r.map_err(|e| rrt::tracing::warn!("no audio: {e}")).ok());
+        let mut progress = Progress::default();
+        if progress.restore_audio(&Cards::default(), &disc.card) {
+            rrt::tracing::info!("audio settings from the card: {:?}", progress.audio());
+        }
         Ok(Rugrats {
             disc,
             boot: Boot::Legal { until: still::HOLD },
@@ -76,7 +81,7 @@ impl Rugrats {
             songs: None,
             effect_table,
             level: None,
-            progress: Default::default(),
+            progress,
             _audio: audio,
             world: None,
             rand: Default::default(),

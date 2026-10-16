@@ -145,3 +145,27 @@ fn a_record_round_trips() {
     assert_eq!(q.bars_available(), 2);
     assert_eq!(q.level(), Level::GRANDPAS_TEETH);
 }
+
+/// At boot the settings come back from the last record saved
+/// (0x80070c24); a new game keeps them (0x80091a44).
+#[test]
+fn settings_come_back_at_boot() {
+    let Some((_, art)) = exe() else {
+        eprintln!("skipped: no work/fs");
+        return;
+    };
+    let dir = root().join("work/test/settings");
+    let _ = std::fs::remove_dir_all(&dir);
+    let cards = card::Cards::at(&dir.join("slot1"), &dir.join("slot2"));
+    let mut p = rugrats::save::progress::Progress::default();
+    assert!(!p.restore_audio(&cards, &art));
+    let set = rugrats::ui::audio_menu::Settings { music: 40, effects: 70, mono: true };
+    p.set_audio(set);
+    let mut save = Save::default();
+    save.put_record(3, &p.block);
+    cards.store(0, &art, &save).unwrap();
+    let mut q = rugrats::save::progress::Progress::default();
+    assert!(q.restore_audio(&cards, &art));
+    assert_eq!(q.audio(), set);
+    assert_eq!(q.new_game().audio(), set);
+}

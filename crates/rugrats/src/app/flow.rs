@@ -232,7 +232,7 @@ impl Rugrats {
             }
             Some(Outcome::Golf(slots)) => {
                 // Mini-golf's round (0x80096a30) after its setup.
-                self.progress = Default::default();
+                self.progress = self.progress.new_game();
                 self.progress.set_activity(true);
                 self.golf_round = Some(GolfRound::new(slots));
                 self.stop_song();
@@ -240,9 +240,9 @@ impl Rugrats {
             }
             Some(Outcome::Play(mode)) => {
                 if mode == front::MAIN_GAME {
-                    self.progress = Default::default();
+                    self.progress = self.progress.new_game();
                 } else if mode != front::TRAINING {
-                    self.progress = Default::default();
+                    self.progress = self.progress.new_game();
                     self.progress.set_activity(true);
                 }
                 self.stop_song();

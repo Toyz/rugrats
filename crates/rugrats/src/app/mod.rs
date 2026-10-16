@@ -119,12 +119,13 @@ impl Rugrats {
         }
     }
 
-    /// Effects asked for this frame, scaled by the effects setting.
+    /// Effects asked for this frame: a world sound at its own volumes,
+    /// the rest at the effects setting.
     fn play_effects(&self, effects: impl IntoIterator<Item = Effect>) {
         let Ok(mut spu) = self.spu.lock() else { return };
         let setting = self.progress.audio().effects;
         for e in effects {
-            spu.effect(&self.effect_table, e.sound as usize, e.volume * setting / sound::EFFECTS_VOLUME);
+            spu.effect(&self.effect_table, e.sound as usize, e.at.unwrap_or((setting, setting)));
         }
     }
 

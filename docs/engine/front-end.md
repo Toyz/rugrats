@@ -122,7 +122,24 @@ called from show_still (0x80030010) while the boot stills show, tries
 both cards and copies the three back from the last record used
 (0x800702d8). The mono flag is read by the positional sounds (0x8006f4c0,
 0x8006f644, 0x8006f88c): with it set they get one volume for both sides
-(0x8006fd68), otherwise a pan (0x8006fc40) (guess on the pan).
+(0x8006fd68), otherwise a pan (0x8006fc40).
+
+The positional sounds (0x8006f644(sound, position)):
+
+- The listener is the camera (0x800de460's position, copied to 0x800e3498
+  each frame by 0x8006f88c) and its heading, the bearing of its forward
+  axis (0x800c4be4).
+- Out of range when |dx| or |dz| exceeds 0xfffe or |dy| reaches 0x7fff.
+- Distance d = dx^2 >> 14 + dy^2 >> 12 + dz^2 >> 14 (0x800c435c = 14).
+- 0x8006fd68 with the table at 0x800b8024 (near 128, far 16384, max
+  127): 127 under 128, 0 past 16384, else 127 - (d - 128) / 128; then no
+  more than the effects setting (+0x10), and not below 0.
+- 0x8006fc40, the angle a = the sound's bearing less the camera's: the
+  volume loses (v * 89 >> 8) * max(0, -rcos a) / 4096 (up to about a third
+  from behind); then the side away from the sound loses
+  (v * 192 >> 8) * |rsin a| / 4096 (up to three quarters). rsin a > 0 (to
+  the right) lowers the left. Both clamp to 0-127, as SsUtKeyOn's voll
+  and volr.
 
 ### The frames
 

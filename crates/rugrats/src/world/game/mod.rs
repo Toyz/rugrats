@@ -14,7 +14,6 @@ use crate::actors::npc::{self, Event, Mode, Post, REACH, World};
 use crate::actors::player::anim::{CRY, IDLE};
 use crate::actors::player::{Box3, DT, HEIGHT, Player, RADIUS, SLOW_TURN, State, TURN};
 use crate::audio::ambience::{self, Tables};
-use crate::audio::sound::EFFECTS_VOLUME;
 use crate::audio::speech::Speech;
 use crate::disc::GameDisc;
 use crate::gte::Trig;
@@ -96,19 +95,56 @@ impl Exit {
     }
 }
 
-/// A sound effect asked for this frame (0x8006f644): its number and its
-/// volume (the effects setting, less with distance from the camera).
+/// A sound effect asked for this frame: its number, and for a sound in
+/// the world its left and right volumes (0x8006f644); None plays at the
+/// effects setting (0x8006f26c).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Effect {
     pub sound: u8,
-    pub volume: i32,
+    pub at: Option<(i32, i32)>,
 }
 
 impl Effect {
-    /// At full volume (0x8006f26c).
     pub fn new(sound: u8) -> Effect {
-        Effect { sound, volume: EFFECTS_VOLUME }
+        Effect { sound, at: None }
     }
+}
+
+/// The positional sounds' falloff (0x800b8024): full within 128, none
+/// past 16384, 127 at most; measured as dx^2 / 16384 + dy^2 / 4096 +
+/// dz^2 / 16384 (0x800c435c = 14).
+const NEAR: i64 = 128;
+const FAR: i64 = 16384;
+const LOUDEST: i64 = 127;
+
+/// A sound at a distance (0x8006fd68): the falloff, no louder than the
+/// effects setting.
+fn falloff(d: i64, setting: i32) -> i32 {
+    let v = if d < NEAR {
+        LOUDEST
+    } else if d > FAR {
+        0
+    } else {
+        LOUDEST - (d - NEAR) / ((FAR - NEAR) / LOUDEST)
+    };
+    (v as i32).min(setting).max(0)
+}
+
+/// Rounds a product's 4096ths toward zero, as `(v + 4095) >> 12` for a
+/// negative v.
+fn q12(v: i32) -> i32 {
+    if v < 0 { (v + 4095) >> 12 } else { v >> 12 }
+}
+
+/// The stereo split (0x8006fc40) of volume `v` for a sound `angle` off the
+/// camera's heading: up to 89/256 less from behind, and the far side up
+/// to 3/4 less.
+fn pan(trig: &Trig, angle: i32, v: i32) -> (i32, i32) {
+    let back = (-trig.cos(angle)).max(0);
+    let v = v - q12((v * 89 >> 8) * back);
+    let side = q12((v * 192 >> 8) * trig.sin(angle));
+    let (l, r) = if side < 0 { (v, v + side) } else { (v - side, v) };
+    (l.clamp(0, 127), r.clamp(0, 127))
 }
 
 /// A level's own play (its EpisodeStart callback and the level cases of
@@ -371,6 +407,31 @@ impl Game {
     /// Plays sound effect `sound` at full volume (0x8006f26c).
     pub fn play(&mut self, sound: u8) {
         self.effects.push(Effect::new(sound));
+    }
+
+    /// Plays sound effect `sound` at `pos` (0x8006f644): heard from the
+    /// camera, quieter with distance and, unless mono, panned by its
+    /// bearing from the camera's heading.
+    pub fn play_at(&mut self, sound: u8, pos: [i32; 3]) {
+        let (eye, rows) = self.view;
+        let d = [pos[0] - eye.x as i32, pos[1] - eye.y as i32, pos[2] - eye.z as i32];
+        if d[0].abs() > 0xfffe || d[1].abs() >= 0x7fff || d[2].abs() > 0xfffe {
+            return;
+        }
+        let sq = |v: i32| (v as i64) * (v as i64);
+        let dist = (sq(d[0]) >> 14) + (sq(d[1]) >> 12) + (sq(d[2]) >> 14);
+        let audio = Progress { block: self.state_block }.audio();
+        let v = falloff(dist, audio.effects);
+        let at = if audio.mono {
+            (v, v)
+        } else {
+            // Bearings as headings: 0 faces +z, 1024 +x (0x80021590).
+            let bearing = |x: f32, z: f32| (x.atan2(z) * 4096.0 / std::f32::consts::TAU) as i32;
+            let ahead = rows.row(2);
+            let angle = bearing(d[0] as f32, d[2] as f32) - bearing(ahead.x, ahead.z);
+            pan(&self.trig, angle.rem_euclid(4096), v)
+        };
+        self.effects.push(Effect { sound, at: Some(at) });
     }
 
     pub fn open(disc: &GameDisc, level: Level) -> Result<Game, String> {
@@ -1042,11 +1103,12 @@ impl Game {
         self.carry(pads);
         self.fly();
         self.touch();
-        let d = (self.eye - Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32))
-            .length();
-        let volume = (EFFECTS_VOLUME as f32 * (1.0 - d / 16384.0).max(0.0)) as i32;
         self.effects.extend(closed.into_iter().map(Effect::new));
-        self.effects.extend(self.player.effects.iter().map(|&sound| Effect { sound, volume }));
+        // The player's sounds are in the world (0x800562bc's 0x8006f644).
+        for sound in std::mem::take(&mut self.player.effects) {
+            let at = self.player.pos;
+            self.play_at(sound, at);
+        }
         // Using an object (the stand handler's ACTION, Triangle, on the
         // touched object): a door (use 0x8004f78c, LP +0x42) goes to its
         // level; one with only a cinematic (0x8004f83c, LP +0x44, made by
@@ -1353,5 +1415,22 @@ impl Game {
         let rows = Mat3::from_cols(x, y, f).transpose();
         self.view = (eye, rows);
         self.stage.camera = crate::stage::view(eye, rows, self.focal);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::falloff;
+
+    /// 0x8006fd68 with 0x800b8024's 128, 16384, 127: full near, a step of
+    /// 1 each 128 further, nothing past 16384, never above the setting.
+    #[test]
+    fn positional_falloff() {
+        assert_eq!(falloff(0, 127), 127);
+        assert_eq!(falloff(128, 127), 127);
+        assert_eq!(falloff(128 + 128 * 63, 127), 64);
+        assert_eq!(falloff(16384, 127), 0);
+        assert_eq!(falloff(16385, 127), 0);
+        assert_eq!(falloff(0, 100), 100);
     }
 }

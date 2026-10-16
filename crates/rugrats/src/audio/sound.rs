@@ -342,13 +342,15 @@ impl Spu {
     }
 
     /// Sound effect `n` (0x8006f26c): the table's program, tone and note.
-    pub fn effect(&mut self, table: &[[u8; 3]], n: usize, volume: i32) {
+    /// Effect `n` of the table at volumes (left, right), 0-127 (SsUtKeyOn's
+    /// voll and volr).
+    pub fn effect(&mut self, table: &[[u8; 3]], n: usize, (left, right): (i32, i32)) {
         let Some(&[prog, tone, note]) = table.get(n) else { return };
         let Some(bank) = self.effects.clone() else { return };
         let Some(t) = bank.tones(prog).get(tone as usize).cloned() else { return };
         let (pv, pp) = bank.program_volume(prog);
-        let vol =
-            volumes(&[t.volume as i32, pv as i32, volume, bank.vab.master_volume as i32], &[t.pan as i32, pp as i32]);
+        let (l, r) = volumes(&[t.volume as i32, pv as i32, bank.vab.master_volume as i32], &[t.pan as i32, pp as i32]);
+        let vol = (l * left / 127, r * right / 127);
         let k = self.next_effect;
         self.next_effect = if k + 1 >= EFFECT_VOICES.end { EFFECT_VOICES.start } else { k + 1 };
         self.voices[k] = self.voice(&bank, &t, note, 0, vol, None);

@@ -924,6 +924,20 @@ impl Game {
         }
     }
 
+    /// Changes the scenery placements with registry id `id` (a level's
+    /// own set-up: a position, a template) and rebuilds what is drawn and
+    /// collided with.
+    pub fn edit_placements(&mut self, id: u16, f: impl Fn(&mut Placement)) {
+        for p in self.set.placements.iter_mut().filter(|p| p.id == id) {
+            f(p);
+        }
+        let skip = |j: usize| {
+            self.apart[j] || self.hidden.contains(&self.set.placements[j].id) || self.hidden_places.contains(&j)
+        };
+        self.scenery = self.set.objects_except(&Frame::default(), skip);
+        self.boxes = object_boxes(&self.set, skip);
+    }
+
     /// Runs `f` on the level's script, if any.
     pub fn with_script<R: Default>(&mut self, f: impl FnOnce(&mut dyn Script, &mut Game) -> R) -> R {
         let Some(mut s) = self.script.take() else { return R::default() };

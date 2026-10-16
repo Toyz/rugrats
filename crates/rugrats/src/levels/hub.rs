@@ -93,6 +93,11 @@ impl Hub {
         for id in HIDDEN {
             g.hide(id, true);
         }
+        // Cine 7's end hook puts object 80 (the door to 6) at y 746
+        // (0x800732d4 case 7); EpisodeStart makes object 518 template
+        // 1130 (0x80078e7c).
+        g.edit_placements(80, |p| p.pos[1] = 746);
+        g.edit_placements(518, |p| p.template = 1130);
         g.no_damage = true;
         g.player.falls_hurt = false;
         if let Some(k) = find(g, SPIKE) {

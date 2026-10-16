@@ -570,6 +570,33 @@ fn level_5_the_elevator_goes_down() {
     assert!((204..=206).contains(&(lowest.1 - moving)), "in about 205 frames: {lowest:?} from {moving}");
 }
 
+/// The hub's fetch (docs/levels/level-01.md, the oracle's run): toy 679
+/// thrown from (44000, 700, 36000) facing +z; Spike gets up, runs to it,
+/// carries it in his mouth (model 1214), brings it back and puts it down
+/// (speech 190).
+#[test]
+fn hub_spike_fetches_a_toy() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 1);
+    let toy = g.things.iter().position(|t| t.template == 679).expect("toy 679");
+    put(&mut g, [44000, 700, 36000], 0);
+    g.give(toy);
+    run(&mut g, &[(&[], 90)], |_, _| {});
+    let spike = g.npcs.iter().position(|n| n.id == 14).unwrap();
+    let mouth = |g: &Game| {
+        let n = &g.npcs[spike];
+        n.hierarchy.header.get(0x24).and_then(|&p| n.hierarchy.parts.get(p as usize)).map(|p| p.model)
+    };
+    let (mut carried, mut put_down) = (false, false);
+    run(&mut g, &[(&[input::TRIANGLE], 1), (&[], 600)], |g, _| {
+        carried |= mouth(g) == Some(1214);
+        put_down |= carried && g.speech.contains(&190);
+    });
+    assert!(carried, "in his mouth");
+    assert!(put_down, "brought back");
+    assert_eq!(mouth(&g), Some(79), "his own mouth again");
+}
+
 /// Turns the player to face `to` (the stick's turn, done at once).
 fn face(g: &mut Game, to: [i32; 3]) {
     let me = g.player.pos;

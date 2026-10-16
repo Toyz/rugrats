@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-109 entries: audio 14, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 13, format 9, input 4, play 48, render 15, save 4, test 17, tooling 18, ui 9, video 10.
+110 entries: audio 14, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 13, format 9, input 4, play 49, render 15, save 4, test 17, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -121,3 +121,4 @@ The [reference](docs/README.md) says what is true now.
 | 107 | [Golf's open questions closed](worklog/0107-golf-s-open-questions-closed.md) | 2026-10-15 | play |
 | 108 | [No distance shading or lighting in play](worklog/0108-no-distance-shading-or-lighting-in-play.md) | 2026-10-15 | render |
 | 109 | [Movers and the elevator as the original thinks them](worklog/0109-movers-and-the-elevator-as-the-original-thinks-them.md) | 2026-10-15 | play |
+| 110 | [Spike: getting up, the toy in his mouth, the flinch, the can, the bump](worklog/0110-spike-getting-up-the-toy-in-his-mouth-the-flinch-the-can.md) | 2026-10-15 | play |

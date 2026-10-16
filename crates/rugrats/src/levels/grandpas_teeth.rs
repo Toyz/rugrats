@@ -195,6 +195,7 @@ impl GrandpasTeeth {
                 loops: (0, 0),
                 size: 0,
                 rooted: false,
+                bumped: false,
                 reach: 600,
                 bite_wait: 900,
                 run_speed: None,

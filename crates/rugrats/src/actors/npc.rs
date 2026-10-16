@@ -127,6 +127,9 @@ pub struct Npc {
     /// return in level 9's phase 2): following, it stays put until the
     /// target is within a bite.
     pub rooted: bool,
+    /// Its last step was taken back off a wall or an object (the bump,
+    /// state 9).
+    pub bumped: bool,
     /// How near a guard bites (+0x690; 600 by default, level 5's robots
     /// 1536).
     pub reach: i32,
@@ -210,6 +213,7 @@ impl Npc {
         self.heading = (self.heading + d.clamp(-TURN, TURN)).rem_euclid(4096);
         let speed = if wrap(want - self.heading).abs() > 1024 { speed / 4 } else { speed };
         self.speed = speed;
+        self.bumped = false;
         let start = self.pos;
         self.pos[0] += (trig.sin(self.heading) * speed * DT) >> 12;
         self.pos[2] += (trig.cos(self.heading) * speed * DT) >> 12;
@@ -218,18 +222,21 @@ impl Npc {
         if q.kind == 2 || q.tile.is_none() {
             self.pos = start;
             self.speed = 0;
+            self.bumped = true;
         } else if !matches!(self.mode, Mode::Posts { .. } | Mode::Wait { .. }) && self.walled(start, w.walls) {
             // An object in the way (a shut door, a crate): back across.
             // Route walkers keep to their posts (guess: +0x688 bit 0x800,
             // set for the toss and race runners).
             self.pos = start;
             self.speed = 0;
+            self.bumped = true;
         } else if q.floor - (self.pos[1] - self.feet()) > -1200 {
             self.pos[1] = q.floor + self.feet();
         } else {
             // A wall: back across.
             self.pos = start;
             self.speed = 0;
+            self.bumped = true;
         }
     }
 

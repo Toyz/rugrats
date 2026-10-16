@@ -26,11 +26,22 @@ const HOME: [i32; 3] = [47762, 727, 32948];
 const WAKE: i64 = 30000;
 /// Lying down (0x80083f6c: animation 26).
 const ASLEEP: i16 = 26;
+/// Getting up (0x80083f24: animation 25, mode 1 then back mode 2) and the
+/// flinch when a toy hits him (0x800511a8 for char 6: animation 8).
+const WAKE_UP: i16 = 25;
+const FLINCH: i16 = 8;
+/// The mouth (hierarchy slot 0x24) and what it shows (0x800601e4 for
+/// char 6): his own model 79, or toy 678's 1212, 679's 1214, 680's 1213.
+const MOUTH_SLOT: usize = 0x24 - 0x14;
+const MOUTH: u32 = 79;
+const MOUTH_TOYS: [(u16, u32); 3] = [(678, 1212), (679, 1214), (680, 1213)];
 const LEASH: i64 = 12000;
 const REACH: i64 = 1024;
 /// The toys he fetches (templates 678-680) and the lines: the throw
 /// (191 / 192), the pick-up (0x800601e4), the put-down (0x80062ac4).
 const TOYS: [u16; 3] = [678, 679, 680];
+/// The can, which can be thrown for him but which he leaves.
+const CAN: u16 = 716;
 const PICK_UP: [u16; 4] = [193, 159, 234, 235];
 const PUT_DOWN: u16 = 190;
 /// The barks (0x800b96ec, 11) in rooms 24 and 39-41.
@@ -121,12 +132,23 @@ impl Hub {
             return;
         }
         if self.spike == Spike::Asleep {
+            // He gets up (animation 25), then follows.
             self.spike = Spike::Following;
+            g.npcs[k].hold = Some(WAKE_UP);
+            g.npcs[k].animator.start(WAKE_UP, &g.anims);
+            g.npcs[k].mode = Mode::Idle;
+        }
+        // A one-shot animation (getting up, a flinch) plays out first.
+        if let Some(a @ (WAKE_UP | FLINCH)) = g.npcs[k].hold {
+            if g.npcs[k].animator.playing(a) {
+                g.npcs[k].mode = Mode::Idle;
+                return;
+            }
             g.npcs[k].hold = None;
         }
         // A toy thrown (0x80060b44): 191 or 192; a following Spike runs
         // after it.
-        let holding = g.carried().filter(|&t| TOYS.contains(&g.things[t].template));
+        let holding = g.carried().filter(|&t| TOYS.contains(&g.things[t].template) || g.things[t].template == CAN);
         if let (Some(t), None) = (self.held, holding)
             && matches!(g.things[t].state, ThingState::Flying(_))
         {
@@ -171,6 +193,13 @@ impl Hub {
                 if g.carried() == Some(t) || toy.hidden {
                     self.give_up(g, k);
                 } else if dist2(at, p) < REACH * REACH && toy.state == ThingState::Rest {
+                    // The can (716) is never taken (0x80084cd0).
+                    if toy.template == CAN {
+                        self.give_up(g, k);
+                        return;
+                    }
+                    let model = MOUTH_TOYS.iter().find(|m| m.0 == toy.template).map_or(MOUTH, |m| m.1);
+                    mouth(g, k, model);
                     g.things[t].hidden = true;
                     g.speech.push(PICK_UP[(g.rand.next() & 3) as usize]);
                     g.npcs[k].range = self.range;
@@ -188,8 +217,11 @@ impl Hub {
                 }
             }
         }
-        // Mode 14 (0x80084cf4): giving up in the back doorways.
-        if matches!(self.spike, Spike::Fetching(_) | Spike::Bringing(_)) && room.is_some_and(|r| DOORWAYS.contains(&r))
+        // Mode 14 (0x80084cf4): giving up in the back doorways, or on
+        // bumping into a wall (state 9 for char 6 in level 1, 0x8005b614).
+        let bumped = g.npcs[k].bumped;
+        if matches!(self.spike, Spike::Fetching(_) | Spike::Bringing(_))
+            && (room.is_some_and(|r| DOORWAYS.contains(&r)) || bumped)
         {
             if let Spike::Bringing(t) = self.spike {
                 self.put_down(g, k, t, false);
@@ -217,14 +249,33 @@ impl Hub {
         toy.pos = Vec3::new(at[0] as f32, y as f32, at[2] as f32);
         toy.hidden = false;
         toy.state = ThingState::Rest;
+        mouth(g, k, MOUTH);
         g.speech.push(PUT_DOWN);
         self.give_up(g, k);
+    }
+}
+
+/// The model Spike's mouth part shows.
+fn mouth(g: &mut Game, k: usize, model: u32) {
+    let n = &mut g.npcs[k];
+    if let Some(&part) = n.hierarchy.header.get(0x14 + MOUTH_SLOT)
+        && let Some(p) = n.hierarchy.parts.get_mut(part as usize)
+    {
+        p.model = model;
     }
 }
 
 impl Script for Hub {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         g.npc_events.clear();
+        // A toy that hits Spike (0x800511a8, char 6): a flinch, then on.
+        if let Some(k) = find(g, SPIKE)
+            && g.struck.iter().any(|s| s.npc == k)
+            && self.spike != Spike::Asleep
+        {
+            g.npcs[k].hold = Some(FLINCH);
+            g.npcs[k].animator.start(FLINCH, &g.anims);
+        }
         g.struck.clear();
         self.spike(g);
     }

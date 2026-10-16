@@ -233,6 +233,11 @@ pub struct Game {
     pub boxes: Vec<Box3>,
     /// The placed characters other than the player.
     pub npcs: Vec<Npc>,
+    /// Each character's room (+0x3b): found from its place at load
+    /// (0x8002b660 with no hint), then kept up as it moves, the last one
+    /// found kept when none is. One in no room is in no room's object
+    /// list, so it is never drawn.
+    pub npc_rooms: Vec<Option<usize>>,
     /// The posts (LP kind 2), what the NPCs asked for this frame, and the
     /// level's rand.
     pub posts: Vec<Post>,
@@ -852,6 +857,7 @@ impl Game {
             posts,
             npc_events: Vec::new(),
             rand,
+            npc_rooms: Vec::new(),
             npcs,
             room: None,
             song: None,
@@ -1184,6 +1190,7 @@ impl Game {
             let at = self.player.pos;
             self.play_at(sound, at);
         }
+        self.track_npc_rooms();
         for k in 0..self.npcs.len() {
             let n = &mut self.npcs[k];
             let (c, at) = (n.character, n.pos);
@@ -1425,8 +1432,10 @@ impl Game {
                 models::model_triangles(m, g.rot, g.pos, &mut moving);
             }
         }
-        for n in &self.npcs {
-            npc::triangles(n, &self.set.models, &self.anims, &self.trig, &mut moving);
+        for (k, n) in self.npcs.iter().enumerate() {
+            if self.npc_rooms.get(k).is_some_and(|r| r.is_some()) {
+                npc::triangles(n, &self.set.models, &self.anims, &self.trig, &mut moving);
+            }
         }
         for (shape, angles, at) in self.flights.models() {
             if let Some(m) = self.set.models.get(shape) {

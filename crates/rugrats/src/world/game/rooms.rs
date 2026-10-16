@@ -50,6 +50,17 @@ impl Game {
         self.set.neighbours[h].iter().copied().find(|&k| inside(k)).or_else(|| self.room_of(p))
     }
 
+    /// Each character's room, kept up (see `npc_rooms`).
+    pub(super) fn track_npc_rooms(&mut self) {
+        self.npc_rooms.resize(self.npcs.len(), None);
+        for k in 0..self.npcs.len() {
+            let found = self.room_from(self.npcs[k].pos, self.npc_rooms[k]);
+            if found.is_some() {
+                self.npc_rooms[k] = found;
+            }
+        }
+    }
+
     pub fn room_of(&self, p: [i32; 3]) -> Option<usize> {
         (0..self.set.room_info.len()).find(|&k| {
             let r = &self.set.room_info[k];

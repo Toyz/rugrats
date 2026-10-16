@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-125 entries: audio 17, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 14, format 9, input 4, play 52, render 23, save 4, test 17, tooling 18, ui 9, video 10.
+126 entries: audio 17, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 14, format 9, input 4, play 52, render 24, save 4, test 17, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -137,3 +137,4 @@ The [reference](docs/README.md) says what is true now.
 | 123 | [Broken objects fly apart](worklog/0123-broken-objects-fly-apart.md) | 2026-10-16 | render |
 | 124 | [More sounds where they happen](worklog/0124-more-sounds-where-they-happen.md) | 2026-10-16 | audio |
 | 125 | [Thrown things meet objects](worklog/0125-thrown-things-meet-objects.md) | 2026-10-16 | play |
+| 126 | [Characters in no room are not drawn](worklog/0126-characters-in-no-room-are-not-drawn.md) | 2026-10-16 | render |

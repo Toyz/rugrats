@@ -1142,3 +1142,20 @@ fn a_thrown_thing_lands_on_an_object() {
     assert_eq!(t.state, ThingState::Rest);
     assert!((t.pos.y + bottom - b.min_y as f32).abs() < 2.0, "rests at {} + {bottom}, the top is {}", t.pos.y, b.min_y);
 }
+
+/// Objects are drawn from their rooms' lists; a character placed in no
+/// room (the hub's Angelica, id 600; level 7's babies) is in none and is
+/// never drawn, while one in a room is.
+#[test]
+fn characters_in_no_room_are_not_drawn() {
+    let Some(disc) = disc() else { return };
+    for (level, gone) in [(1u8, &[600u16][..]), (7, &[1492, 1776, 608, 609][..])] {
+        let mut g = open(&disc, level);
+        run(&mut g, &[(&[], 2)], |_, _| {});
+        for &id in gone {
+            let k = g.npcs.iter().position(|n| n.id == id).expect("placed");
+            assert_eq!(g.npc_rooms[k], None, "level {level} id {id}");
+        }
+        assert!(level != 1 || g.npc_rooms.iter().any(|r| r.is_some()), "level {level}: no character in a room");
+    }
+}

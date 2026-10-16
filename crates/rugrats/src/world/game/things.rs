@@ -31,6 +31,10 @@ pub struct Thing {
     /// Carried but not thrown (class 13: object bit 0x1000000): ACTION
     /// is the level's (the remote's zap).
     pub keep: bool,
+    /// Its flights meet the world only (0x80061f88: levels 20 and 21's
+    /// box or bottle, flags 0x9010700); other thrown things meet objects
+    /// too (0x9070700).
+    pub world_only: bool,
     pub shape: u32,
     pub pos: Vec3,
     pub rot: Mat3,
@@ -492,6 +496,8 @@ impl Game {
             }
             let bottom =
                 self.set.models.get(t.shape).and_then(|m| m.boxes.iter().map(|b| b.1[1]).max()).unwrap_or(0) as f32;
+            let top =
+                self.set.models.get(t.shape).and_then(|m| m.boxes.iter().map(|b| b.0[1]).min()).unwrap_or(0) as f32;
             let before = t.pos;
             for k in [0, 2] {
                 t.pos[k] += ((v[k] * dt) >> 6) as f32;
@@ -534,13 +540,38 @@ impl Game {
                 t.pos.x = before.x;
                 t.pos.z = before.z;
             }
+            // An object's side (0x80086ef0's object test, by the objects'
+            // boxes here): stepped into this step at the thing's height,
+            // it bounces off that side.
+            let (at, from) = ([t.pos.x as i32, 0, t.pos.z as i32], [before.x as i32, 0, before.z as i32]);
+            let (high, low) = ((t.pos.y + top) as i32, (t.pos.y + bottom) as i32);
+            let solid: &[Box3] = if t.world_only { &[] } else { &self.solid };
+            if let Some(b) =
+                solid.iter().find(|b| b.covers(at, 0) && !b.covers(from, 0) && low > b.min_y && high < b.max_y)
+            {
+                match rebound(v, b.side_normal(from), bounce) {
+                    Some(r) => {
+                        v = r;
+                        t.bounced = true;
+                    }
+                    None => {
+                        v[0] = 0;
+                        v[2] = 0;
+                    }
+                }
+                t.pos.x = before.x;
+                t.pos.z = before.z;
+            }
             t.pos.y += ((v[1] * dt + THING_GRAVITY * dt * dt / 2) >> 6) as f32;
             v[1] += THING_GRAVITY * dt;
             let q = collide::query(&self.col, [t.pos.x as i32, (t.pos.y - 1.0) as i32, t.pos.z as i32]);
             let mut floor = if q.tile.is_some() { q.floor as f32 } else { f32::MAX };
             // Another thing's top under it, crossed this step.
             let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
-            for (_, b) in resting.iter().filter(|(j, _)| *j != k) {
+            // And an object's top (stacking, 0x8006c7a0).
+            let solid: &[Box3] = if t.world_only { &[] } else { &self.solid };
+            let tops = resting.iter().filter(|(j, _)| *j != k).map(|(_, b)| b).chain(solid);
+            for b in tops {
                 let top = b.min_y as f32;
                 if b.covers(at, 0) && top >= before.y + bottom - 1.0 && top < floor {
                     floor = top;

@@ -182,6 +182,7 @@ impl BoxToss {
         let item = self.rules.item;
         if let Some(k) = g.things.iter().position(|t| t.template == item) {
             g.things[k].keep = true;
+            g.things[k].world_only = true;
             g.give(k);
         }
         for id in BABIES {

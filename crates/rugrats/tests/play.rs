@@ -1107,3 +1107,38 @@ fn rooms_are_found_through_portals() {
     }
     assert!(seen > 0, "no overlap reached through a portal");
 }
+
+/// A thrown thing meets objects (0x80061f88's flags 0x9070700: the world,
+/// objects and their touches): dropped over one, it comes to rest on its
+/// top, not on the floor under it.
+#[test]
+fn a_thrown_thing_lands_on_an_object() {
+    use rugrats::world::game::ThingState;
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 1);
+    run(&mut g, &[(&[], 2)], |_, _| {});
+    let k = g.things.iter().position(|t| !t.hidden && !t.world_only).expect("a thing in the hub");
+    // A wide object whose top is well above the floor under it.
+    let b = g
+        .solid
+        .iter()
+        .find(|b| {
+            let c = [b.pos.x as i32, b.min_y, b.pos.z as i32];
+            let q = rugrats::world::collide::query(&g.col, [c[0], b.max_y + 100, c[2]]);
+            b.hi[0] - b.lo[0] > 600
+                && b.hi[2] - b.lo[2] > 600
+                && b.covers(c, 0)
+                && q.kind == 0
+                && q.floor - b.min_y > 300
+        })
+        .cloned()
+        .expect("an object to land on");
+    let shape = g.things[k].shape;
+    let bottom = g.set.models.get(shape).and_then(|m| m.boxes.iter().map(|x| x.1[1]).max()).unwrap_or(0) as f32;
+    g.things[k].pos = rrt::glam::Vec3::new(b.pos.x, b.min_y as f32 - 1500.0, b.pos.z);
+    g.things[k].state = ThingState::Flying([0; 3]);
+    run(&mut g, &[(&[], 60)], |_, _| {});
+    let t = &g.things[k];
+    assert_eq!(t.state, ThingState::Rest);
+    assert!((t.pos.y + bottom - b.min_y as f32).abs() < 2.0, "rests at {} + {bottom}, the top is {}", t.pos.y, b.min_y);
+}

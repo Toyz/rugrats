@@ -292,6 +292,9 @@ pub struct Game {
     /// Spike's water steps to the next splash sound in level 4
     /// (0x800c42e4).
     pub(super) water_steps: i32,
+    /// The objects' boxes this frame, without things and characters: what
+    /// a thrown thing lands on and bounces off.
+    pub solid: Vec<Box3>,
     /// The dust's coin flips standing and moving (0x800c42e0, 0x800c42ec,
     /// seeded 0xa8c0 and 0x2fdd).
     pub(super) dust_seeds: [Rand; 2],
@@ -532,6 +535,7 @@ impl Game {
                     damage: t.raw[0x32] as i32,
                     hidden: false,
                     keep: t.raw[4] == 13,
+                    world_only: false,
                     shape: t.shape as u32,
                     pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
                     rot: models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
@@ -877,6 +881,7 @@ impl Game {
             pending_throw: None,
             pending_grab: None,
             water_steps: 0,
+            solid: Vec::new(),
             dust_seeds: [Rand { state: 0xa8c0 }, Rand { state: 0x2fdd }],
             breakables,
             doors,
@@ -1121,6 +1126,7 @@ impl Game {
                 boxes.extend(world_boxes(model, rot, pos));
             }
         }
+        self.solid = boxes.clone();
         for t in self.things.iter().filter(|t| t.state == ThingState::Rest && !t.hidden) {
             if let Some(m) = self.set.models.get(t.shape) {
                 let climb = self.set.templates.get(t.template as usize).is_some_and(|tp| tp.flags & 64 != 0);

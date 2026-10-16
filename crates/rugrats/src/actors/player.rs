@@ -728,6 +728,21 @@ impl Box3 {
         t0 > 0.0
     }
 
+    /// The outward normal (4096 a unit, in the world) of the side of the
+    /// box seen from above that `p`, outside it, is beyond the most.
+    pub fn side_normal(&self, p: [i32; 3]) -> [i32; 3] {
+        let local = self.rot.transpose() * (Vec3::new(p[0] as f32, self.pos.y, p[2] as f32) - self.pos);
+        let sides = [
+            (self.lo[0] as f32 - local.x, Vec3::NEG_X),
+            (local.x - self.hi[0] as f32, Vec3::X),
+            (self.lo[2] as f32 - local.z, Vec3::NEG_Z),
+            (local.z - self.hi[2] as f32, Vec3::Z),
+        ];
+        let (_, n) = sides.into_iter().fold((f32::MIN, Vec3::X), |a, s| if s.0 > a.0 { s } else { a });
+        let n = self.rot * n;
+        [(n.x * 4096.0) as i32, 0, (n.z * 4096.0) as i32]
+    }
+
     /// How deep a circle of radius `r` at `p` is in the box seen from above:
     /// the distance to the nearest side, negative outside.
     pub fn depth(&self, p: [i32; 3], r: i32) -> f32 {

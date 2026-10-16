@@ -587,6 +587,7 @@ impl Game {
                     state: ThingState::Rest,
                     last_hit: None,
                     bounced: false,
+                    slides: false,
                 }
             })
             .collect();

@@ -43,7 +43,14 @@ pub struct Thing {
     /// `PLAYER_HIT`; and whether it has bounced off anything.
     pub last_hit: Option<usize>,
     pub bounced: bool,
+    /// Put down: on the floor it slides on, 16 less a frame (the oracle's
+    /// box goes 17, 14, 12, 10, 7, 5, 2 on).
+    pub slides: bool,
 }
+
+/// A put-down thing's slide's loss of speed a frame (17 on falling 2.5 a
+/// frame in the oracle: 16 in the flight's units, 64 to 10 a frame).
+const SLIDE_LOSS: f32 = 16.0;
 
 /// A throw asked for, waiting for its release: the carried thing, aimed
 /// at release as a plain or level 9 throw, or with a level's velocity.
@@ -174,6 +181,7 @@ impl Game {
                     // Put down (0x80060910): message 8.
                     self.training.show(8);
                 }
+                self.things[k].slides = true;
                 (k, [v.x as i32, v.y as i32, v.z as i32])
             }
             PendingThrow::Aimed(k) => {
@@ -721,9 +729,17 @@ impl Game {
                 if floor < f32::MAX {
                     t.pos.y = floor - bottom;
                 }
-                t.state = ThingState::Rest;
-                t.last_hit = None;
-                t.bounced = false;
+                let along = (v[0] as f32).hypot(v[2] as f32);
+                if t.slides && q.kind != 2 && along > SLIDE_LOSS {
+                    // Sliding on along the floor.
+                    let keep = (along - SLIDE_LOSS) / along;
+                    t.state = ThingState::Flying([(v[0] as f32 * keep) as i32, 0, (v[2] as f32 * keep) as i32]);
+                } else {
+                    t.state = ThingState::Rest;
+                    t.last_hit = None;
+                    t.bounced = false;
+                    t.slides = false;
+                }
             } else {
                 t.state = ThingState::Flying(v);
             }

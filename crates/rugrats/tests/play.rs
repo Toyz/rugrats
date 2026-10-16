@@ -3252,7 +3252,7 @@ fn level_5s_elevator_stays_down_while_ridden_as_the_original() {
 /// animation's own arms, 0x80056708): the oracle, level 6, Tommy at
 /// (42741, 12263) facing +z with box LP 197, box LP 198 linked in at z
 /// 13500 (room to put it down, 0x80063888): 197 rests at (42731, -1280,
-/// 12959), short of 198. No stacking: a box held into another is not let
+/// 12959), short of 198, having slid 67 after it came down. No stacking: a box held into another is not let
 /// go at all (`a_box_held_into_another_is_not_put_down_as_the_original`).
 #[test]
 fn a_box_put_down_comes_down_in_front_as_the_original() {
@@ -3272,9 +3272,9 @@ fn a_box_put_down_comes_down_in_front_as_the_original() {
     assert_eq!(g.carried(), None, "put down");
     let p = g.things[first].pos;
     assert_eq!(p.y as i32, -1280, "on the floor: {p:?}");
-    // (The port's comes to rest where it lands, 12912; the oracle's slides
-    // on to 12959.)
-    assert!((42681..42801).contains(&(p.x as i32)) && (12850..13000).contains(&(p.z as i32)), "in front: {p:?}");
+    // It slides on along the floor after it lands (the port's 12960; its
+    // x 42772, let go a frame before the oracle's hand reached 42731).
+    assert!((42681..42801).contains(&(p.x as i32)) && (12940..12980).contains(&(p.z as i32)), "in front: {p:?}");
 }
 
 /// GRAB takes a box in front of the player up to his cylinder and its

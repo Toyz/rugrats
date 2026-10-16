@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-162 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 74, render 27, save 4, test 23, tooling 18, ui 9, video 10.
+163 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 75, render 27, save 4, test 23, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -174,3 +174,4 @@ The [reference](docs/README.md) says what is true now.
 | 160 | [GRAB reaches as the original; a box put down does not stack](worklog/0160-grab-reaches-as-the-original-a-box-put-down-does-not-stack.md) | 2026-10-16 | play |
 | 161 | [The ground move meets objects by its probes; level 2's ride is Spike's](worklog/0161-the-ground-move-meets-objects-by-its-probes-level-2-s-ride.md) | 2026-10-16 | play |
 | 162 | [No room to put it down; the put-down's own arms](worklog/0162-no-room-to-put-it-down-the-put-down-s-own-arms.md) | 2026-10-16 | play |
+| 163 | [A put-down box slides on](worklog/0163-a-put-down-box-slides-on.md) | 2026-10-16 | play |

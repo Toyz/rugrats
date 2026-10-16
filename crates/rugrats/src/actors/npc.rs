@@ -301,7 +301,11 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     n.go(p, base, w);
                 } else {
                     n.speed = 0;
-                    if n.attacks && n.cooldown == 0 && (p[1] - n.pos[1]).abs() < 1200 {
+                    // Only with the way to the target clear (0x80084084:
+                    // the segment test 0x8002cd7c gets through).
+                    let mut seg = collide::Segment::default();
+                    let seen = collide::segment(w.col, n.pos, p, &mut seg) == 0;
+                    if seen && n.attacks && n.cooldown == 0 && (p[1] - n.pos[1]).abs() < 1200 {
                         events.push(Event::Bite { by: k, target: t, amount: n.damage });
                         n.cooldown = n.bite_wait.min(600);
                         // The bite's state ends in state 0 (mode 1's end).

@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-116 entries: audio 15, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 13, format 9, input 4, play 51, render 18, save 4, test 17, tooling 18, ui 9, video 10.
+117 entries: audio 15, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 13, format 9, input 4, play 51, render 19, save 4, test 17, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -128,3 +128,4 @@ The [reference](docs/README.md) says what is true now.
 | 114 | [Effect flights and animated sprites: flames, explosions, debris, splats](worklog/0114-effect-flights-and-animated-sprites-flames-explosions.md) | 2026-10-15 | render |
 | 115 | [Collectibles sparkle; Reptar's sounds in the world](worklog/0115-collectibles-sparkle-reptar-s-sounds-in-the-world.md) | 2026-10-15 | render |
 | 116 | [The break burst](worklog/0116-the-break-burst.md) | 2026-10-16 | render |
+| 117 | [Water splashes, water steps and Reptar's stomp](worklog/0117-water-splashes-water-steps-and-reptar-s-stomp.md) | 2026-10-16 | render |

@@ -289,6 +289,9 @@ pub struct Game {
     /// grab.
     pub pending_throw: Option<things::PendingThrow>,
     pub pending_grab: Option<usize>,
+    /// Spike's water steps to the next splash sound in level 4
+    /// (0x800c42e4).
+    pub(super) water_steps: i32,
     /// The breakables (template class 14: level 7's buildings).
     pub breakables: Vec<Breakable>,
     /// The hinged and sliding doors (classes 4 and 3).
@@ -870,6 +873,7 @@ impl Game {
             movers,
             pending_throw: None,
             pending_grab: None,
+            water_steps: 0,
             breakables,
             doors,
             spinners,
@@ -1144,6 +1148,7 @@ impl Game {
             }
             self.training.show(n as usize);
         }
+        self.walk_effects();
         self.carry(pads);
         self.fly();
         self.touch();

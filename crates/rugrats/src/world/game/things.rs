@@ -297,6 +297,55 @@ impl Game {
         self.pending_grab = Some(k);
     }
 
+    /// The walk's effects (0x8005e1f4): on a water tile (COL byte 4 bit
+    /// 0) and not on an object, a splash each frame (0x80050770). At a
+    /// step (+0xe0 bit 256): character 34 sounds 108; in water Spike sounds
+    /// 57 on every fifth step in level 4 (0x800c42e4), 176 in level 16 and
+    /// 27 elsewhere, the others 27 but in level 1. Out of water the step
+    /// asks 0x8007013c for the floor's footstep, whose table (0x800c4ec4)
+    /// is empty in play (oracle): nothing. Reptar (template 8) at a step
+    /// puffs between his feet (0x80050c48: x and z between parts 3 and 7).
+    pub(super) fn walk_effects(&mut self) {
+        let p = &self.player;
+        if !matches!(p.state, State::Walk | State::Run) {
+            return;
+        }
+        let step = p.animator.events & 256 != 0;
+        let feet = p.pos[1] - p.feet();
+        let q = collide::query(&self.col, [p.pos[0], feet - 1, p.pos[2]]);
+        let on_object = self.mover_under_player().is_some() || (q.kind == 0 && feet < q.floor - 48);
+        let water = collide::floor_flags(&self.col, &q) & 1 != 0 && !on_object;
+        let at = p.pos;
+        if water {
+            self.flights.splash(at, self.sprites.as_ref());
+        }
+        if step {
+            let sound = match (self.character, water) {
+                (34, _) => Some(108),
+                (6, true) if self.level == Level::CYNTHIA => {
+                    self.water_steps -= 1;
+                    (self.water_steps < 0).then(|| {
+                        self.water_steps = 4;
+                        57
+                    })
+                }
+                (6, true) if self.level == Level::TRAINING => Some(176),
+                (_, true) if self.character == 6 || self.level != Level::HUB => Some(27),
+                _ => None,
+            };
+            if let Some(s) = sound {
+                self.play_at(s, at);
+            }
+        }
+        if step && self.level == Level::REPTAR_2010 {
+            let parts = self.player.parts(&self.anims, &self.trig);
+            if let (Some(a), Some(b)) = (parts.get(3), parts.get(7)) {
+                let at = [((a.1.x + b.1.x) / 2.0) as i32, b.1.y as i32, ((a.1.z + b.1.z) / 2.0) as i32];
+                self.flights.stomp(at, self.sprites.as_ref());
+            }
+        }
+    }
+
     /// The grab (0x800601e4 at +0xe0 bit 2048): the object in hand, held
     /// where the hands are now.
     fn grab(&mut self, k: usize) {

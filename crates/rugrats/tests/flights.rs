@@ -356,3 +356,39 @@ fn a_collectible_sparkles() {
         assert!(fl.v.iter().all(|c| c.abs() < 100 * 65536 / 6000), "{:?}", fl.v);
     }
 }
+
+/// Walking in level 4's water (COL byte 4 bit 0) splashes each frame
+/// (0x80050770).
+#[test]
+fn walking_in_water_splashes() {
+    use rugrats::input::{self, Pads};
+    use rugrats::world::collide;
+    let Some(disc) = disc() else { return };
+    let mut g = rugrats::world::game::Game::open(&disc, rugrats::levels::Level(4)).unwrap();
+    // The water floor nearest the start with room to stand in a room.
+    let (lo, start) = (g.col.min[1], g.player.pos);
+    let mut spots: Vec<(i64, [i32; 3])> = Vec::new();
+    for x in (start[0] - 40000..start[0] + 40000).step_by(256) {
+        for z in (start[2] - 40000..start[2] + 40000).step_by(256) {
+            let q = collide::query(&g.col, [x, lo, z]);
+            let q = if q.kind == 0 { q } else { collide::query(&g.col, [x, q.floor - 1, z]) };
+            let open = q.kind == 0 && q.floor - q.ceiling > 3000;
+            if open && collide::floor_flags(&g.col, &q) & 1 != 0 && g.room_of([x, q.floor - 100, z]).is_some() {
+                let d = ((x - start[0]) as i64).pow(2) + ((z - start[2]) as i64).pow(2);
+                spots.push((d, [x, q.floor, z]));
+            }
+        }
+    }
+    let water = spots.into_iter().min_by_key(|s| s.0).map(|s| s.1);
+    let Some(at) = water else { panic!("no water in level 4") };
+    let feet = g.player.feet();
+    g.player.pos = [at[0], at[1] + feet, at[2]];
+    let mut pads = Pads::default();
+    let mut most = 0;
+    for _ in 0..20 {
+        pads.push_bits(0, 1 << input::UP);
+        g.frame(&pads);
+        most = most.max(g.flights.iter().filter(|f| f.kind() == 5).count());
+    }
+    assert!(most > 0, "no splash at {at:?}");
+}

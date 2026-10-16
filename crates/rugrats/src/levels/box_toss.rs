@@ -32,6 +32,12 @@ const LUNGE: i64 = 2000;
 const KNOCK: i64 = 1200;
 /// The counter's sprite (313) at (-160, 50).
 const COUNTER: u32 = 313;
+/// The target's arrow (0x80031a28, 0x800c4004..0x800c400c): sprite 364
+/// (TEXPOS + 0x1110), half-size 500 x 900, 400 over the target's bounds
+/// (+0x7a / +0x82: 1773 for every character here, as seen).
+const ARROW: u32 = 364;
+const ARROW_SIZE: (f32, f32) = (500.0, 900.0);
+const ARROW_RISE: i32 = 1773 + 400;
 const CINE_WON: usize = 64;
 const CINE_LOST: usize = 65;
 /// Eating: animation 42, sound 123; a cookie about every 20 frames.
@@ -93,6 +99,24 @@ fn table(disc: &GameDisc, at: u32, n: usize) -> Vec<u16> {
 
 fn find(g: &Game, id: u16) -> Option<usize> {
     g.npcs.iter().position(|n| n.id == id)
+}
+
+/// The lob at the target (0x80057bc4, kept in player +0x200..+0x20c each
+/// frame a target is held): 45 degrees up, (0, -2048, 2048) turned toward
+/// the target and made unit, at speed sqrt(s 0x180000 / (2 sin 512 cos
+/// 512 >> 12)) with s = 20 (d - 1024) >> 10 for the flat distance d, all
+/// in the original's unsigned 32 bits. The flight takes it as a throw's
+/// speed: dir * (speed * 65536 / 6000) (0x8008864c).
+fn lob(trig: &crate::gte::Trig, from: [i32; 3], to: [i32; 3]) -> [i32; 3] {
+    let (dx, dz) = ((to[0] - from[0]) as i64, (to[2] - from[2]) as i64);
+    let d = ((dx * dx + dz * dz) as f64).sqrt() as i32;
+    let s = ((d - 1024).wrapping_mul(20) as u32) >> 10;
+    let up = (trig.sin(512) * (trig.cos(512) << 1)) >> 12;
+    let speed = ((s << 12).wrapping_add(s << 13) << 7).checked_div(up as u32).map_or(0, |v| (v as f64).sqrt() as i32);
+    let flat = rrt::glam::Vec2::new(dx as f32, dz as f32).normalize_or(rrt::glam::Vec2::Y);
+    let dir = rrt::glam::Vec3::new(flat.x, -1.0, flat.y).normalize();
+    let v = dir * (speed as f32 * 65536.0 / 6000.0);
+    [v.x as i32, v.y as i32, v.z as i32]
 }
 
 impl BoxToss {
@@ -280,15 +304,7 @@ impl Script for BoxToss {
             && pads.pressed(0, input::TRIANGLE)
             && let Some(k) = self.target
         {
-            let (p, q) = (g.player.pos, g.npcs[k].pos);
-            let d = (((q[0] - p[0]) as f64).hypot((q[2] - p[2]) as f64)).max(1.0);
-            let frames = (d / 400.0).max(10.0);
-            let per = 64.0 / 10.0;
-            let v = [
-                ((q[0] - p[0]) as f64 / frames * per) as i32,
-                -(65.0 * frames) as i32,
-                ((q[2] - p[2]) as f64 / frames * per) as i32,
-            ];
+            let v = lob(&g.trig, g.player.pos, g.npcs[k].pos);
             g.player.act(THROW, &g.anims);
             // 0x8005d11c: speech 1159 or 1167.
             g.speech.push(if g.rand.next() & 1 != 0 { 1159 } else { 1167 });
@@ -373,12 +389,15 @@ impl Script for BoxToss {
             } else {
                 s.draw(COUNTER, (-160, 50), 48.0, 48.0, 1024.0, 0.0, g.focal(), overlay);
             }
-            // The arrow over the target (0x80031a28; a battery-sized
-            // marker, guess).
+            // The arrow over the target (0x80031a28): sprite 364 turned
+            // half round (2048) to point down, over the target's bounds,
+            // bright for 5 frames of every 10.
             if let Some(k) = self.target {
                 let n = &g.npcs[k];
-                let at = rrt::glam::Vec3::new(n.pos[0] as f32, (n.pos[1] - 1200) as f32, n.pos[2] as f32);
-                s.billboard(COUNTER, at, 150.0, 150.0, g.view.1.row(0), g.view.1.row(1), moving);
+                let at = rrt::glam::Vec3::new(n.pos[0] as f32, (n.pos[1] - ARROW_RISE) as f32, n.pos[2] as f32);
+                let grey = if g.frames % 10 < 5 { 208 } else { 128 };
+                let (right, down) = (-g.view.1.row(0), -g.view.1.row(1));
+                s.billboard_lit(ARROW, at, ARROW_SIZE, (right, down), grey, moving);
             }
         }
         if !self.rules.throw_costs {

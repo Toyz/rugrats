@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-88 entries: audio 13, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 10, format 9, input 4, play 36, render 12, save 4, test 17, tooling 18, ui 9, video 8.
+89 entries: audio 13, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 10, format 9, input 4, play 37, render 12, save 4, test 17, tooling 18, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -100,3 +100,4 @@ The [reference](docs/README.md) says what is true now.
 | 86 | [Climbs the original refuses](worklog/0086-climbs-the-original-refuses.md) | 2026-10-15 | play |
 | 87 | [A waiting runner goes on when the player is ahead](worklog/0087-a-waiting-runner-goes-on-when-the-player-is-ahead.md) | 2026-10-15 | play |
 | 88 | [The boot order and the opening's ending](worklog/0088-the-boot-order-and-the-opening-s-ending.md) | 2026-10-15 | engine |
+| 89 | [The box toss arrow and lob](worklog/0089-the-box-toss-arrow-and-lob.md) | 2026-10-15 | play |

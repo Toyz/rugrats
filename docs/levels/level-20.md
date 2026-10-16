@@ -180,9 +180,17 @@ Only for the non-AI player (+0x00 bit 0x4000 clear), in levels 20-21:
   levels 5, 20, 21).
 - Entering state 28 (0x8005b2d8 at 0x8005b99c) plays sound 121 at the
   character in levels 20-21 (Angelica's lunge).
-- Characters drawn (0x8003205c at 0x80032440): the one in player +0x1f4
-  gets 0x80031a28, a sprite above it: the arrow. Seen in screenshots
-  over Lil and Phil.
+- Characters drawn (0x8003205c at 0x80032440): in levels 20-21 the one
+  in 0x800e2d3c (the target) gets 0x80031a28, the arrow. Seen in
+  screenshots over Lil and Phil. It queues a camera-facing quad
+  (0x8008afc4, drawn by 0x8008a954) with face flags 0x800c4004
+  (0xd0800000: an opaque FT4 through 0x800233f4), half-size 500 x 900
+  (0x800c4008), turned 2048 so the sprite points down, and the texture
+  at TEXPOS + 0x1110, sprite 364 (the menu's 0x800b9ba4 when no level
+  table is loaded). Its centre is the target's position less
+  max(|+0x7a|, |+0x82|) + 400 (0x800c400c) in y; the bounds are 1773 for
+  every character here (seen), so 2173 above the feet. Its grey is 208
+  while the flip counter (0x800c3f24) mod 10 is under 5, else 128.
 - NPC idle reset (0x80082478) uses animations 35, 17 and 47 in levels
   20-21 (0, 17, 0 elsewhere).
 - 0x8006f2fc uses sound bank 13 in level 20 (14 elsewhere); no level 20
@@ -476,34 +484,41 @@ the 3-bar award. Level 20 needs, in order:
 2. Eating: Circle or Square, standing, holding the box: sound 123,
    animation 42 (state 19, about 40 VSyncs), cookies - 1; at 0 cine 64.
    Square must not be the walk modifier in this level.
-3. The baby target and the arrow: each frame the nearest of templates 2,
+3. The lob (0x80057bc4, each frame a target is held, into player +0x200
+   .. +0x20c): direction (0, -2048, 2048) turned toward the target and
+   made unit (45 degrees up); speed sqrt(s * 0x180000 / 4095), s = 20 (d -
+   1024) >> 10 in unsigned 32 bits, d the flat distance (0x8001f57c), 4095
+   being 2 sin 512 cos 512 >> 12. The throw (0x80060b44) hands both to the
+   flight as any throw's: velocity dir * (speed * 65536 / 6000) >> 12.
+   Ported; 2500, 5000 and 8000 away all reach a baby.
+4. The baby target and the arrow: each frame the nearest of templates 2,
    6, 7, 11 (not the player's own body) within 512 of the heading; a
    sprite above it. The port's `aim_at` takes any NPC and gives level 9's
    flat throw; level 20 needs the candidate filter and the 45-degree lob
    whose speed comes from the distance (0x80057bc4), Triangle only with a
    target, speech 1159 / 1167 from standing, the player frozen during
    the throw, the target set idle.
-4. The runtime body swap (0x80057570): when the box in flight comes
+5. The runtime body swap (0x80057570): when the box in flight comes
    within 1400 (x, z) of the target, the player takes that baby's body,
    character, id, place and home and gets the box (state 20, animation
    36); the old body becomes an idle NPC with the old id. Any pair of
    Tommy, Chuckie, Phil and Lil, any number of times. Ids must move with
    the bodies (cine 65 and the round start find the babies by id).
-5. Angelica: follow a thing (the box), not the player or an NPC (the
+6. Angelica: follow a thing (the box), not the player or an NPC (the
    port's `Target` has only Player and Npc(k)); speed row 1 (index 2 ->
    3); within 2000 with a clear line the lunge (animation 43, sound 121,
    until the animation ends); touching the holder: the box goes almost
    straight up and ForceCry follows two VSyncs later; a lunge while the
    box lies on the floor is also a loss.
-6. `Script::cry` for 20: no cry animation, health 255, back to the
+7. `Script::cry` for 20: no cry animation, health 255, back to the
    respawn while tries remain, empty hands, speech 535 / 536 / 578 / 579
    / 580, cine 65, counter freed. Cine 65's finish: with tries left card
    709 (the port shows 709 always), the round start and camera kind 3
    again; with none the hub (from cine 65's end, not from the cry), with
    the level recorded played (0x80076d6c(20, 0)) and no card.
-7. The HUD counter: model 313 and the number at (-160, 65 - (0x800c4a06
+8. The HUD counter: model 313 and the number at (-160, 65 - (0x800c4a06
    >> 4)), hidden by Angelica's knock.
-8. Small things: the ambience speech list (31 lines, every (rand & 255) x
+9. Small things: the ambience speech list (31 lines, every (rand & 255) x
    8 dt); the camera following the box (guess); the box's flight flags
    0x09010700; GRAB never puts the box down; the babies' idle animations
    35 / 17 / 47 and 53; the two bars at the group 0 and 1 spots; the
@@ -512,11 +527,11 @@ the 3-bar award. Level 20 needs, in order:
 
 ## Unknown
 
-- What 0x80031a28's sprite is exactly (the arrow; colour 208 / 128
-  pulse, guess).
 - How the kind 3 camera uses the box as its subject.
-- The exact lob speed formula's constants (0x80057bc4) and whether the
-  pitch limit of the cone matters in the flat kitchen.
+- Whether the pitch limit of the cone matters in the flat kitchen.
+- The lob's other case: with 0x800c56a8 bit 64 (set by 0x8005f3a4, which
+  also makes 0x800e5778 the target) the direction is (0, -4096, 100) at
+  speed 100.
 - What happens on a miss in practice (the floor-box loss is from the
   code), and whether Angelica can be outrun for 15 eats.
 - What state 20 is for the new player after a swap (handler 0x8005cc24 is

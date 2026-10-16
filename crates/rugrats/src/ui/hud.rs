@@ -72,6 +72,20 @@ impl Sprites {
         down: rrt::glam::Vec3,
         out: &mut Vec<Vtx>,
     ) {
+        self.billboard_lit(n, at, (w, h), (right, down), 128, out);
+    }
+
+    /// [`Sprites::billboard`] with its texels scaled by `grey` (128 as
+    /// they are).
+    pub fn billboard_lit(
+        &self,
+        n: u32,
+        at: rrt::glam::Vec3,
+        (w, h): (f32, f32),
+        (right, down): (rrt::glam::Vec3, rrt::glam::Vec3),
+        grey: u8,
+        out: &mut Vec<Vtx>,
+    ) {
         let Some(t) = self.texture(n) else { return };
         let mode = t.clut as u32 | (t.tpage as u32) << 16;
         let window = Vtx::window_of(
@@ -83,7 +97,7 @@ impl Sprites {
             let p = at + right * corners[k].0 + down * corners[k].1;
             Vtx {
                 pos: p.to_array(),
-                colour: 0x80_8080,
+                colour: u32::from_le_bytes([grey, grey, grey, 0]),
                 uv: Vtx::uv_of(t.uv[k][0] as u32, t.uv[k][1] as u32),
                 mode,
                 window,

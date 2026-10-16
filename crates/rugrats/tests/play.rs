@@ -373,6 +373,24 @@ fn levels_20_and_21_are_won() {
     }
 }
 
+/// Level 20's lob (0x80057bc4) carries the box to a baby near or far: the
+/// catch swaps the player into it.
+#[test]
+fn the_lob_reaches_the_baby() {
+    let Some(disc) = disc() else { return };
+    for d in [2500, 5000, 8000] {
+        let mut g = open(&disc, 20);
+        play(&mut g, 30, |_, _| vec![]);
+        let baby = g.npcs.iter().find(|n| n.id == 609).map(|n| n.pos).unwrap();
+        let me = g.player.pos;
+        put(&mut g, [baby[0], me[1], baby[2] + d], 0);
+        face(&mut g, baby);
+        let before = g.character;
+        play(&mut g, 200, |_, f| if f == 1 { vec![input::TRIANGLE] } else { vec![] });
+        assert_ne!(g.character, before, "{d} away: {}", g.script.as_ref().map_or(String::new(), |s| s.describe()));
+    }
+}
+
 /// Turns the player to face `to` (the stick's turn, done at once).
 fn face(g: &mut Game, to: [i32; 3]) {
     let me = g.player.pos;

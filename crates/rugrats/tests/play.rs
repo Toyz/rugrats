@@ -417,3 +417,57 @@ fn level_2_grandpas_teeth_is_won() {
     let court = g.set.room_info.get(44).map(|r| (r.min, r.max));
     assert_eq!(cine, Some(5), "goose {goose:?}, chuckie {chuckie:?}, court {court:?}, Tommy at {:?}", g.player.pos);
 }
+
+/// Puts the player 600 short of `at`, facing it, and presses Triangle;
+/// the cinematic that follows, if any.
+fn use_at(g: &mut Game, at: [i32; 3]) -> Option<usize> {
+    put(g, [at[0], at[1], at[2] - 600], 0);
+    face(g, at);
+    let mut cine = None;
+    run(g, &[(&[], 3), (&[input::TRIANGLE], 1), (&[], 5)], |g, _| cine = cine.or(g.cine.take()));
+    cine
+}
+
+/// Level 12: Triangle at the refrigerator (cine 67) puts Spike somewhere
+/// in the dark house; Triangle beside him plays cine 68: won.
+#[test]
+fn level_12_let_there_be_light_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 12);
+    let fridge = g.set.placements.iter().find(|p| p.kind == 1 && p.id == 602).expect("the refrigerator").pos;
+    assert_eq!(use_at(&mut g, fridge), Some(67));
+    g.cine_finished(67);
+    let spike = g.npcs.iter().find(|n| n.id == 14 && !n.hidden).expect("Spike out").pos;
+    assert_eq!(use_at(&mut g, spike), Some(68));
+}
+
+/// Level 3: the cart ride (room 19, cine 9) to the bakery; the pie toss,
+/// throwing at whichever of Larry and Steve is nearer, until four hits
+/// (cine 13); the aisles, then the boss's room (36, cine 86); Triangle at
+/// the switch: cine 14, won.
+#[test]
+fn level_3_aisle_seven_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 3);
+    assert_eq!(enter_room(&mut g, 19), Some(9));
+    g.cine_finished(9);
+    let cine = play(&mut g, 30 * 120, |g, f| {
+        let me = g.player.pos;
+        let near = g.npcs.iter().filter(|n| matches!(n.id, 75 | 76) && !n.hidden).min_by_key(|n| {
+            let (dx, dz) = ((n.pos[0] - me[0]) as i64, (n.pos[2] - me[2]) as i64);
+            dx * dx + dz * dz
+        });
+        if let Some(n) = near {
+            let at = n.pos;
+            face(g, at);
+        }
+        if f % 15 == 0 { vec![input::TRIANGLE] } else { vec![] }
+    });
+    assert_eq!(cine, Some(13), "the toss");
+    g.cine_finished(13);
+    assert_eq!(enter_room(&mut g, 36), Some(86));
+    g.cine_finished(86);
+    // The switch, LP 278 (+0x44 16, which 0x8004691c makes cine 14).
+    let switch = g.set.placements[278].pos;
+    assert_eq!(use_at(&mut g, switch), Some(14));
+}

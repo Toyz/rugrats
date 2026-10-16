@@ -84,9 +84,10 @@ fn put(g: &mut Game, at: [i32; 3], heading: i32) {
     if walking() {
         let feet = at[1] - g.player.feet();
         let land = floor_under(g, at[0], at[2], feet - 1, 0).unwrap_or(feet);
-        // Its cell or one by it (a place by a thing is stood beside).
+        // Its cell or one within two (a place by a thing is stood beside),
+        // as the reachability check takes it.
         let key = (cell(at[0]), cell(at[2]));
-        if walk_to(g, |s| (s.0 - key.0).abs() <= 1 && (s.1 - key.1).abs() <= 1 && (s.2 - land).abs() < 300, Some([at[0], at[2]])) {
+        if walk_to(g, |s| (s.0 - key.0).abs() <= 2 && (s.1 - key.1).abs() <= 2 && (s.2 - land).abs() < 300, Some([at[0], at[2]])) {
             // Heading 0 is "any way" to the tests; another is turned to,
             // the camera behind it (the stick's Up runs it).
             if heading != 0 {
@@ -380,7 +381,11 @@ fn box_route(g: &mut Game) {
                 stride_to(g, 2 * me[0] - b.x as i32, 2 * me[2] - b.z as i32, 100, 8);
                 run(g, &[(&[], 10)], |_, _| {});
             }
-            stride_to(g, b.x as i32, b.z as i32, 460, 30);
+            // Nearer only if out of reach (520): walking into it climbs it.
+            let me = g.player.pos;
+            if ((b.x as i64 - me[0] as i64).pow(2) + (b.z as i64 - me[2] as i64).pow(2)) > 500 * 500 {
+                stride_to(g, b.x as i32, b.z as i32, 480, 30);
+            }
             run(g, &[(&[input::CIRCLE], 1), (&[], 40)], |_, _| {});
             if g.carried() == Some(k) {
                 break;
@@ -2041,7 +2046,8 @@ struct Ground<'a> {
     /// side probes): the COL must be open that far about a place.
     side: i32,
     /// The boxes the body meets (doors left out: opened as the player
-    /// comes), by 1024 square: each in every square within 512 of its reach.
+    /// comes), by 1024 square: each in every square within 512 of its reach;
+    /// those the walk starts inside (a cart stood in) left out too.
     boxes: Vec<rugrats::actors::player::Box3>,
     grid: std::collections::HashMap<(i32, i32), Vec<usize>>,
 }
@@ -2091,6 +2097,9 @@ impl<'a> Ground<'a> {
             .filter(|b| !doors.iter().any(|d| (b.pos.x - d[0] as f32).abs() < 2.0 && (b.pos.z - d[2] as f32).abs() < 2.0))
             .cloned()
             .collect();
+        let me = g.player.pos;
+        let body = [me[0], me[1] - g.player.feet() - 300, me[2]];
+        let boxes: Vec<_> = boxes.into_iter().filter(|b| !b.covers(body, 0)).collect();
         let mut grid: std::collections::HashMap<(i32, i32), Vec<usize>> = Default::default();
         for (k, b) in boxes.iter().enumerate() {
             let r = b.lo.iter().chain(b.hi.iter()).map(|v| v.abs()).max().unwrap_or(0) + 512;

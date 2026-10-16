@@ -15,7 +15,7 @@ use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::Level;
 use crate::ui::hud;
-use crate::world::game::{Effect, Exit, Game, Script};
+use crate::world::game::{Effect, Exit, Game, Script, hit_line};
 
 /// Registry ids (LP +0x2a).
 const CHUCKIE: u16 = 1776;
@@ -368,7 +368,18 @@ impl GrandpasTeeth {
                     m => Box::new(m.clone()),
                 };
                 n.mode = Mode::Hit { left: 300, then };
-                g.effects.push(Effect::new(34));
+                // Its touch (0x800511a8): the goose (char 21) loses five
+                // feathers (0x800509d8) and honks (34); Chuckie says 185.
+                let (id, character) = (n.id, n.character);
+                if id == GOOSE {
+                    for _ in 0..5 {
+                        g.flights.feather(p.pos, g.sprites.as_ref());
+                    }
+                    g.effects.push(Effect::new(34));
+                } else {
+                    g.speech.extend(hit_line(character, g.level, 0));
+                }
+                let n = &mut g.npcs[k];
                 // 0x8007eb68: the goose at 0 wins, Chuckie at 0 is a cry.
                 if n.health == 0 {
                     if n.id == GOOSE {

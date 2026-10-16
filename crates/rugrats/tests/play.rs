@@ -8,6 +8,7 @@ use rugrats::disc::GameDisc;
 use rugrats::input::{self, Pads};
 use rugrats::levels::Level;
 use rugrats::save::progress::Progress;
+use rugrats::world::flights;
 use rugrats::world::game::Game;
 
 fn disc() -> Option<GameDisc> {
@@ -660,7 +661,8 @@ fn level_13_cookie_race_is_won() {
 
 /// Level 2: the gap in the fence (room 69, cine 3), the ride after the
 /// goose to the court (room 44, cine 4), then pucks kicked at the goose
-/// (Triangle, facing it) until it falls: cine 5.
+/// (Triangle, facing it) until it falls: cine 5. Each hit on the goose
+/// throws feathers (0x800509d8: sprite 276, kind 5).
 #[test]
 fn level_2_grandpas_teeth_is_won() {
     let Some(disc) = disc() else { return };
@@ -670,7 +672,10 @@ fn level_2_grandpas_teeth_is_won() {
     assert_eq!(enter_room(&mut g, 44), Some(4));
     g.cine_finished(4);
     // A clear shot: the goose in range, Chuckie off the line to it.
+    let feathers = std::cell::Cell::new(0);
     let cine = play(&mut g, 30 * 130, |g, f| {
+        let n = g.flights.iter().filter(|f| f.kind() == 5 && f.skin == flights::Skin::Sprite(276)).count();
+        feathers.set(feathers.get().max(n));
         let pos = |id: u16| g.npcs.iter().find(|n| n.id == id).map(|n| n.pos);
         let (Some(goose), Some(chuckie)) = (pos(11), pos(1776)) else { return vec![] };
         let me = g.player.pos;
@@ -687,6 +692,7 @@ fn level_2_grandpas_teeth_is_won() {
     let chuckie = g.npcs.iter().find(|n| n.id == 1776).map(|n| (n.pos, format!("{:?}", n.mode)));
     let court = g.set.room_info.get(44).map(|r| (r.min, r.max));
     assert_eq!(cine, Some(5), "goose {goose:?}, chuckie {chuckie:?}, court {court:?}, Tommy at {:?}", g.player.pos);
+    assert!(feathers.get() >= 5, "{} feathers", feathers.get());
 }
 
 /// Puts the player 600 short of `at`, facing it, and presses Triangle;

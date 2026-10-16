@@ -16,11 +16,30 @@ pub struct Spinner {
 }
 
 impl Spinner {
+    /// Its rotation now: the think adds the turn to the object's own
+    /// angles (+0x24..+0x28, its placement's), and the matrix is made from
+    /// their sum (0x80020ee0); not the placement turned by the spin. Level
+    /// 3's tipped toy (template 526, z angle -1024, x turning 35 a VSync,
+    /// oracle) so spins about the upright, its height fixed.
     pub(super) fn rot(&self, trig: &Trig) -> Mat3 {
-        let e = trig.euler(self.angle.map(|a| a as i16));
+        let angles = [0, 1, 2].map(|i| (placed_angles(self.placed)[i] + self.angle[i]) as i16);
+        let e = trig.euler(angles);
         let cols: Vec<f32> = e.concat().into_iter().map(|v| v as f32 / 4096.0).collect();
-        self.placed * Mat3::from_cols_slice(&cols)
+        Mat3::from_cols_slice(&cols)
     }
+}
+
+/// The angles (a, b, c), 4096 a turn, whose 0x80020ee0 matrix `placed` is
+/// (as the object transform uses it, transposed): its rows are `placed`'s
+/// columns, the third (cos b sin a, -sin b, cos b cos a) and the middle
+/// column (sin c cos b, cos c cos b).
+fn placed_angles(placed: Mat3) -> [i32; 3] {
+    let m = |r: usize, c: usize| placed.col(r)[c];
+    let turn = |v: f32| (v * 4096.0 / std::f32::consts::TAU).round() as i32;
+    let b = (-m(2, 1)).atan2(m(2, 0).hypot(m(2, 2)));
+    let a = m(2, 0).atan2(m(2, 2));
+    let c = m(0, 1).atan2(m(1, 1));
+    [turn(a), turn(b), turn(c)]
 }
 
 /// A post walker (class 15, 0x80048974, think 0x8004dba0): to its post

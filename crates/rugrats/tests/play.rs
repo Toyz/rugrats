@@ -754,7 +754,7 @@ fn enter_room(g: &mut Game, room: usize) -> Option<usize> {
 
 /// Level 5's elevator (template 855) from the upper deck: walked up to
 /// on the deck beside it, onto its middle with the stick (it starts down
-/// once she lands on it), then still until it stops at the lower deck.
+/// once she lands on it), then off at the bottom toward the lower deck.
 fn ride_elevator(g: &mut Game) {
     // Its box is in `solid` from a frame on.
     run(g, &[(&[], 1)], |_, _| {});
@@ -774,9 +774,8 @@ fn ride_elevator(g: &mut Game) {
     }
     let start = g.player.pos[1];
     stride_to(g, mid[0], mid[1], 200, 60);
-    // Down to the bottom (ridden, it turns at either end and goes back
-    // up), and off it there toward the lower deck (phase 2's respawn
-    // place, (73246, 6697, 9170)).
+    // Down to the bottom (it stays there while ridden), and off it toward
+    // the lower deck (phase 2's respawn place, (73246, 6697, 9170)).
     for _ in 0..1500 {
         run(g, &[(&[], 1)], |_, _| {});
         if g.player.pos[1] > 5600 {
@@ -3143,4 +3142,22 @@ fn a_tipped_object_blocks_only_where_it_lies() {
         assert!(b.covers(at, 0), "{} covers its own place", b.template);
         assert!(!b.covers([at[0] + 3000, 0, at[2] + 3000], 0) && !b.covers([at[0], 0, at[2] - 20000], 0), "{} only near it", b.template);
     }
+}
+
+/// Level 5's elevator, landed on, takes Angelica down and stays at the
+/// bottom while she is on it: the oracle (a jump onto it at (65540, 8708))
+/// has it from y -4578 down to 7722 by frame 4100 and there still at 5600,
+/// her at 6739 on it.
+#[test]
+fn level_5s_elevator_stays_down_while_ridden_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 5);
+    run(&mut g, &[(&[], 2)], |_, _| {});
+    g.player.pos = [65540, -6000, 8708];
+    run(&mut g, &[(&[], 500)], |_, _| {});
+    let y = |g: &Game| g.movers.iter().find(|m| m.template == 855).expect("the elevator").pos[1];
+    assert_eq!(y(&g), 7722, "down, Angelica at {:?}", g.player.pos);
+    run(&mut g, &[(&[], 600)], |_, _| {});
+    assert_eq!(y(&g), 7722, "still down, Angelica at {:?}", g.player.pos);
+    assert_eq!(g.player.pos[1], 6739);
 }

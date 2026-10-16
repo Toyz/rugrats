@@ -34,6 +34,12 @@ pub struct Mover {
     /// by landing on it (the floor query 0x800627a0), and turning at an end
     /// only while ridden or with the player over it.
     pub(super) ridden_only: bool,
+    /// Ridden last frame: landing on it is the edge (the player's +0xf8
+    /// becoming it); standing on it does not arm it again. Level 5's
+    /// elevator, ridden to the bottom, stays there (oracle: at y 7722 from
+    /// frame 4100 to 5600 with Angelica on it): its think ends there,
+    /// 0x8004ed00 answering 0 while ridden.
+    pub(super) rode: bool,
     /// +0xbe bit 256 (template 855, 0x80048804): unridden, it turns toward
     /// the end nearer the player's height (0x8004ed00); its base +0xc0.
     pub(super) calls: bool,
@@ -51,6 +57,7 @@ impl Mover {
         self.out = [false; 3];
         self.armed = false;
         self.inside = false;
+        self.rode = false;
     }
 
     /// Its step on axis `axis` (a level's own, as level 5's 60).
@@ -105,8 +112,10 @@ impl Mover {
         let near = self.radius == 0 || dx * dx + dz * dz < (self.radius as i64).pow(2);
         let entered = near && !self.inside;
         self.inside = near;
+        let landed = ridden && !self.rode;
+        self.rode = ridden;
         if !self.armed {
-            if (self.ridden_only && ridden) || (!self.ridden_only && entered) {
+            if (self.ridden_only && landed) || (!self.ridden_only && entered) {
                 self.arm();
             } else {
                 return;

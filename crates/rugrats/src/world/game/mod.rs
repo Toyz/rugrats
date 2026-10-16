@@ -683,6 +683,7 @@ impl Game {
                     armed: false,
                     inside: false,
                     ridden_only: t.flags & 0x4000_0000 != 0,
+                    rode: false,
                     calls: p.template == 855,
                 }
             })
@@ -1213,9 +1214,17 @@ impl Game {
             }
         }
         self.toy_thinks();
+        // Spinners, but those of a template flag 8, which the object
+        // collision tests skip (level 3's template 526: the oracle runs
+        // Tommy straight through where it turns).
         for s in &self.spinners {
-            if let Some(model) = self.set.models.get(s.shape) {
-                boxes.extend(world_boxes(model, s.rot(&self.trig), s.pos));
+            let template = self.set.placements[s.placement].template;
+            let skipped = self.set.templates.get(template as usize).is_some_and(|t| t.flags & 8 != 0);
+            if let (false, Some(model)) = (skipped, self.set.models.get(s.shape)) {
+                boxes.extend(world_boxes(model, s.rot(&self.trig), s.pos).into_iter().map(|mut b| {
+                    b.template = template as u16;
+                    b
+                }));
             }
         }
         for w in &self.walkers {

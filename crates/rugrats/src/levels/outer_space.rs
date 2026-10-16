@@ -157,7 +157,9 @@ impl OuterSpace {
         if d.open != open {
             d.open = open;
             g.hide_placement(d.placement, open);
-            g.play(71);
+            // At the door (0x8004d078 / 0x8004d0b0: 0x8006f644(71, it)).
+            let at = g.set.placements[d.placement].pos;
+            g.play_at(71, at);
         }
     }
 
@@ -168,7 +170,9 @@ impl OuterSpace {
             return;
         }
         self.charge = (self.charge - ZAP_COST).max(0);
-        g.play(68);
+        // At her (0x80059d3c: 0x8006f644(68, player)).
+        let me = g.player.pos;
+        g.play_at(68, me);
         let (s, c) = (g.trig.sin(g.player.heading), g.trig.cos(g.player.heading));
         let p = g.player.pos;
         let at = [p[0], p[1] - 500, p[2]];
@@ -198,19 +202,25 @@ impl OuterSpace {
                         break;
                     }
                     // The first wall reflects it about the wall's normal
-                    // (0x8007666c, sound 70). Guess: the normal is the axis
-                    // whose step is blocked; the original tests the room's
-                    // polygons (0x80090554).
+                    // (0x8007666c, sound 70), the normal from the ray
+                    // 0x80090554's world part, the segment test 0x8002cd7c.
                     b.bounced = true;
-                    let open = |p: [i32; 3]| collide::query(&g.col, p).kind == 0;
-                    let along_x = open([next[0], b.pos[1], b.pos[2]]);
-                    let along_z = open([b.pos[0], b.pos[1], next[2]]);
-                    match (along_x, along_z) {
-                        (true, false) => b.dir[1] = -b.dir[1],
-                        (false, true) => b.dir[0] = -b.dir[0],
-                        _ => b.dir = [-b.dir[0], -b.dir[1]],
+                    let mut hit = collide::Segment::default();
+                    let n = if collide::segment(&g.col, b.pos, next, &mut hit) == 1 {
+                        hit.normal
+                    } else {
+                        [-b.dir[0], 0, -b.dir[1]]
+                    };
+                    let u = collide::normalize([b.dir[0], 0, b.dir[1]]);
+                    let c = collide::fix(n[0], u[0]) + collide::fix(n[1], u[1]) + collide::fix(n[2], u[2]);
+                    if c < 0 {
+                        let r = [0, 1, 2].map(|k| u[k] - (c.wrapping_mul(n[k]) >> 11));
+                        b.dir = [r[0], r[2]];
+                    } else {
+                        b.dir = [-b.dir[0], -b.dir[1]];
                     }
-                    g.play(70);
+                    let at = b.pos;
+                    g.play_at(70, at);
                     continue;
                 }
                 b.pos = next;
@@ -221,7 +231,8 @@ impl OuterSpace {
                 // A robot (0x800511a8 case 33): stunned 20 s, sound 63.
                 if let Some(n) = g.npcs.iter_mut().find(|n| n.character == ROBOT && !n.hidden && near(n.pos)) {
                     n.mode = Mode::Hit { left: STUN, then: Box::new(Mode::Guard) };
-                    g.play(63);
+                    let at = n.pos;
+                    g.play_at(63, at);
                     b.done = true;
                     break;
                 }

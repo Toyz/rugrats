@@ -124,8 +124,13 @@ impl Mirrorland {
     /// 0x8007d0f4 and 0x8007ccb4: the colour of the player's room.
     fn open(&mut self, g: &mut Game, id: u16, room: usize) {
         let Some((group, slot)) = colour_of(room) else { return };
+        // The break's sound at the object (0x8004d434: 114).
+        let at = g.set.placements.iter().find(|p| p.id == id).map(|p| p.pos);
         g.hide(id, true);
-        g.play(114);
+        match at {
+            Some(at) => g.play_at(114, at),
+            None => g.play(114),
+        }
         if self.since.is_empty() {
             self.respawn = g.player.pose();
             g.checkpoint = Some(self.respawn);

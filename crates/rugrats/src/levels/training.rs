@@ -139,7 +139,8 @@ impl Training {
         // A hit (0x8007eafc): 50 off; at 0 her health back and won.
         for _ in hits {
             let Some(k) = find(g, ANGELICA) else { break };
-            g.play(44);
+            let at = g.npcs[k].pos;
+            g.play_at(44, at);
             let r = g.rand.next() & 1;
             g.speech.extend(game::hit_line(3, Level::TRAINING, r));
             let n = &mut g.npcs[k];
@@ -177,7 +178,8 @@ impl Script for Training {
             if g.npcs[k].id != LOBSTER {
                 continue;
             }
-            g.play(44);
+            let at = g.npcs[k].pos;
+            g.play_at(44, at);
             let n = &mut g.npcs[k];
             n.hurt(amount);
             if n.health == 0 {

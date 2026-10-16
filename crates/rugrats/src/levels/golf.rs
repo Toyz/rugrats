@@ -342,7 +342,7 @@ impl Golf {
         // the ball off its normal (0x8007666c), times 3000 / 4096.
         let mut hit = collide::Segment::default();
         if collide::segment(&g.col, start, end, &mut hit) == 1 {
-            g.play(137);
+            g.play_at(137, self.ball);
             let n = hit.normal;
             let c = collide::fix(n[0], u[0]) + collide::fix(n[1], u[1]) + collide::fix(n[2], u[2]);
             if c < 0 {
@@ -359,7 +359,7 @@ impl Golf {
         {
             // An object (0x80086340, not ported): the axis that ran into
             // its box turns back.
-            g.play(137);
+            g.play_at(137, self.ball);
             for k in [0, 2] {
                 let mut q = start;
                 q[k] = edge[k];

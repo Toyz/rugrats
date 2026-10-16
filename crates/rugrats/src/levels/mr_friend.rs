@@ -164,7 +164,9 @@ impl Script for MrFriend {
                 let a = if self.l14 || g.rand.next() & 1 == 0 { 50 } else { 37 };
                 g.player.act(a, &g.anims);
                 if !self.l14 {
-                    g.play(98);
+                    // At him (0x800833a4: 0x8006f644(98, it)).
+                    let at = g.npcs[k].pos;
+                    g.play_at(98, at);
                 }
                 self.hit(g, k, KICK);
             }

@@ -1306,7 +1306,9 @@ impl Game {
             let t = t - DT;
             if t <= 0 {
                 self.timer = None;
-                self.play(117);
+                // At the player (0x8007f5a8: 0x8006f644(117, player)).
+                let me = self.player.pos;
+                self.play_at(117, me);
                 self.with_script(|s, g| s.timer_expired(g));
             } else {
                 self.timer = Some(t);

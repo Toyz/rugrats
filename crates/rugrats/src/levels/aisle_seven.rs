@@ -282,7 +282,9 @@ impl AisleSeven {
                     }
                 }
             }
-            g.play(44);
+            // At the one hit (0x800511a8: 0x8006f644(44, it)).
+            let at = g.npcs[hit].pos;
+            g.play_at(44, at);
             if left == 0 {
                 self.end_toss(g, true);
                 return;
@@ -314,7 +316,8 @@ impl Script for AisleSeven {
         // and at 0 is gone (0x8007ebd4); the boss is stunned 600 dt.
         for Strike { npc: k, damage: amount, .. } in std::mem::take(&mut g.struck) {
             let id = g.npcs[k].id;
-            g.play(44);
+            let at = g.npcs[k].pos;
+            g.play_at(44, at);
             let n = &mut g.npcs[k];
             let back = match &n.mode {
                 Mode::Hit { then, .. } => (**then).clone(),

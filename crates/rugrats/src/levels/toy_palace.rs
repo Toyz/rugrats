@@ -178,7 +178,8 @@ impl Script for ToyPalace {
             Some(s) if !self.scared => {
                 self.scared = true;
                 g.player.hurt(s.damage);
-                g.play(72);
+                // At the toy (0x8004dba0: 0x8006f644(72, it)).
+                g.play_at(72, s.pos);
             }
             Some(_) => {}
             None => self.scared = false,
@@ -188,7 +189,7 @@ impl Script for ToyPalace {
         for &Burst { at, period, reach } in &self.bursts {
             if self.clock % period == 0 && d2(at) <= reach * reach {
                 g.player.hurt(BURST_HURT);
-                g.play(79);
+                g.play_at(79, at);
             }
         }
         // Breaking toys (0x8005ac98): standing on one breaks it.
@@ -203,7 +204,9 @@ impl Script for ToyPalace {
             if let Some(i) = under {
                 let k = self.breakables.remove(i);
                 g.hide_placement(k, true);
-                g.play(173);
+                // At the player (0x8005a068: 0x8006f644(173, player)).
+                let me = g.player.pos;
+                g.play_at(173, me);
                 let h = g.player.heading;
                 g.player.launch(h, -2000, 0, &g.trig);
                 g.player.hurt(5);

@@ -255,7 +255,9 @@ impl BoxToss {
         }
         self.ended = true;
         g.tries -= 1;
-        g.play(121);
+        // Her lunge's sound at her (state 28's entry, 0x8005b2d8).
+        let at = find(g, ANGELICA).map_or(g.player.pos, |a| g.npcs[a].pos);
+        g.play_at(121, at);
         g.drop_carried();
         // 0x80079f5c / 0x8007a388: a line, then the cine.
         if !self.lost_lines.is_empty() {
@@ -350,7 +352,8 @@ impl Script for BoxToss {
             let floor_box = !holding && self.catcher.is_none();
             if d2 < LUNGE * LUNGE && self.lunge == 0 {
                 self.lunge = 40;
-                g.play(121);
+                let at = g.npcs[a].pos;
+                g.play_at(121, at);
                 if d2 < KNOCK * KNOCK && (holding || floor_box) {
                     self.lose(g);
                 }

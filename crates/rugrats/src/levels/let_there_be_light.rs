@@ -113,7 +113,8 @@ impl LetThereBeLight {
             if along > 0.0 && along < REACH && across < WIDTH {
                 g.npcs[k].hidden = true;
                 g.npcs[k].mode = Mode::Idle;
-                g.play(110);
+                let at = g.npcs[k].pos;
+                g.play_at(110, at);
                 self.away.push((k, AWAY));
             }
         }

@@ -69,7 +69,11 @@ nearer than 4096), and 0x200 makes a face double-sided. The vertex
 colour's top byte is a brightening added to r, g and b once and cleared.
 
 The renderer projects the vertices three at a time (RTPT), depth-cues the
-colour of any vertex beyond depth 8192 with DPCS at `(z - 8192) >> 2`,
+colour of any vertex beyond depth 8192 with DPCS at `(z - 8192) >> 2`
+(toward the far colour, black: 0x8009fd38(0, 0, 0)), though in play this
+never happens: hooks on the DPCS branches (0x80011194, 0x800111ac) never
+fired in the hub, level 2 or level 12 while the room renderer (0x80010e14)
+ran thousands of times, so the port draws rooms without it,
 rejects a face whose vertices share an outcode, whose farthest depth >> 2
 is 16250 or more, or (unless 0x200) whose NCLIP is not positive, and
 subdivides faces whose vertices are all nearer than 8192 (0x80012294) or

@@ -531,7 +531,7 @@ fn plane_hit(line: [[i32; 3]; 2], p: [i32; 3], n: [i32; 3]) -> Option<([i32; 3],
 /// floor(sqrt(2^30 / i)) for i = 64..256. When the squares pass 2^31 (two
 /// components near 32768) the original's `add` (0x8009f2fc) raises an
 /// overflow exception; this answers zero there.
-fn normalize(v: [i32; 3]) -> [i32; 3] {
+pub fn normalize(v: [i32; 3]) -> [i32; 3] {
     let v = v.map(|c| c as i16 as i32);
     let Ok(sum) = i32::try_from(v.iter().map(|&c| (c * c) as i64).sum::<i64>()) else { return [0; 3] };
     if sum == 0 {
@@ -542,4 +542,48 @@ fn normalize(v: [i32; 3]) -> [i32; 3] {
     let scale = ((1u64 << 30) / i as u64).isqrt() as i32;
     let shift = (31 - lz as i32) >> 1;
     v.map(|c| (c * scale) >> shift)
+}
+
+/// 0x8007652c: [`normalize`] after shifting `v` down so its largest axis,
+/// shifted by 12, fits: by 32 less the leading zeros of max |c| >> 12.
+pub fn unit(v: [i32; 3]) -> [i32; 3] {
+    let m = v.iter().map(|c| c.unsigned_abs()).max().unwrap_or(0) >> 12;
+    let shift = 32 - m.leading_zeros();
+    normalize(v.map(|c| c >> shift))
+}
+
+/// 0x80076784: |v| by the integer square root, 0 when any axis is 65536
+/// or more.
+pub fn length(v: [i32; 3]) -> i32 {
+    if v.iter().any(|c| c.unsigned_abs() >> 16 != 0) {
+        return 0;
+    }
+    let sq = v.iter().map(|&c| c.wrapping_mul(c) as u32).fold(0u32, |a, b| a.wrapping_add(b));
+    sq.isqrt() as i16 as i32
+}
+
+/// `a * b >> 12` rounded toward zero, as the game's `(x + 4095) >> 12`
+/// for negatives.
+pub fn fix(a: i32, b: i32) -> i32 {
+    let x = a.wrapping_mul(b);
+    if x < 0 { (x + 4095) >> 12 } else { x >> 12 }
+}
+
+/// 0x800763d0's direction: `a` along the plane of normal `n`, as a unit
+/// vector (n (n . a) - a with both made unit first).
+pub fn along_plane(a: [i32; 3], n: [i32; 3]) -> [i32; 3] {
+    let (a, n) = (normalize(a), normalize(n));
+    let d = fix(n[0], a[0]) + fix(n[1], a[1]) + fix(n[2], a[2]);
+    normalize([0, 1, 2].map(|k| fix(d, n[k]) - a[k]))
+}
+
+/// The tile's floor plane normal under `pos` (COL record byte +1), or
+/// straight up (0, -4096, 0) when it names none or there is no tile.
+pub fn floor_normal(col: &Col, pos: [i32; 3]) -> [i32; 3] {
+    let q = query(col, pos);
+    q.tile
+        .and_then(|(c, k)| col.columns.get(c).and_then(|c| c.tiles.get(k)))
+        .filter(|t| t[1] != 0)
+        .and_then(|t| col.floor_normals.get(t[1] as usize))
+        .map_or([0, -4096, 0], |n| n.map(|v| v as i32))
 }

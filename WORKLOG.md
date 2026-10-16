@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-102 entries: audio 14, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 13, format 9, input 4, play 43, render 13, save 4, test 17, tooling 18, ui 9, video 10.
+103 entries: audio 14, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 13, format 9, input 4, play 44, render 13, save 4, test 17, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -114,3 +114,4 @@ The [reference](docs/README.md) says what is true now.
 | 100 | [The camera pulled in by the segment test](worklog/0100-the-camera-pulled-in-by-the-segment-test.md) | 2026-10-15 | render |
 | 101 | [The pie toss's aim marker](worklog/0101-the-pie-toss-s-aim-marker.md) | 2026-10-15 | play |
 | 102 | [NPCs bite only in sight](worklog/0102-npcs-bite-only-in-sight.md) | 2026-10-15 | play |
+| 103 | [The golf ball's collision step](worklog/0103-the-golf-ball-s-collision-step.md) | 2026-10-15 | play |

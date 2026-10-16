@@ -310,24 +310,56 @@ impl Golf {
     /// ball's think (0x800580a8). Whether it still rolls.
     fn roll(&mut self, g: &mut Game) -> bool {
         let Some(mut v) = self.roll else { return false };
+        // The move (0x8004fbb4): p' = p + (v dt) >> 6.
         let start = self.ball;
-        // The move, an axis at a time so a wall turns the ball back off
-        // it (reflected, times 3000 / 4096).
-        for k in [0, 2] {
-            let mut p = self.ball;
-            p[k] += (v[k] * DT) >> 6;
-            let q = collide::query(&g.col, [p[0], p[1], p[2]]);
-            // Objects stop it too (0x80086340): their boxes.
-            let object =
-                g.boxes.iter().any(|b| b.covers(p, RADIUS) && b.min_y < p[1] + RADIUS && b.max_y > p[1] - RADIUS);
-            let wall = object || q.kind != 0 || q.tile.is_none() || q.floor < start[1] + RADIUS - 384;
-            if wall {
-                v[k] = -((v[k] * BOUNCE) >> 12);
-                g.play(137);
+        let mut p = [0, 1, 2].map(|k| start[k] + ((v[k] * DT) >> 6));
+        // The collision step (0x80086ef0): the segment from the old
+        // position to the leading edge, bent along the floor's plane there.
+        let r = RADIUS.max(10);
+        let u = collide::unit(v);
+        let edge = [0, 1, 2].map(|k| p[k] + collide::fix(u[k], r));
+        let d = {
+            let dd = [0, 1, 2].map(|k| (edge[k] - start[k]) as i64);
+            if dd.iter().any(|c| c.abs() >= 16384) {
+                16384
             } else {
-                self.ball = p;
+                (dd.iter().map(|c| c * c).sum::<i64>() as u64).isqrt() as i32
+            }
+        };
+        let bend = collide::along_plane(v.map(|c| -c), collide::floor_normal(&g.col, start));
+        let end = [0, 1, 2].map(|k| start[k] + collide::fix(bend[k], d));
+        // The world along it (0x80086668 through 0x8002cd7c): a hit bounces
+        // the ball off its normal (0x8007666c), times 3000 / 4096.
+        let mut hit = collide::Segment::default();
+        if collide::segment(&g.col, start, end, &mut hit) == 1 {
+            g.play(137);
+            let n = hit.normal;
+            let c = collide::fix(n[0], u[0]) + collide::fix(n[1], u[1]) + collide::fix(n[2], u[2]);
+            if c < 0 {
+                let out = [0, 1, 2].map(|k| u[k] - ((c.wrapping_mul(n[k])) >> 11));
+                p = [0, 1, 2].map(|k| hit.point[k] - collide::fix(u[k], r));
+                let speed = collide::length(v);
+                v = out.map(|o| collide::fix(o, (speed * BOUNCE) >> 12));
+            }
+        } else if let Some(b) = g
+            .boxes
+            .iter()
+            .find(|b| b.covers(edge, RADIUS) && b.min_y < edge[1] + RADIUS && b.max_y > edge[1] - RADIUS)
+            .cloned()
+        {
+            // An object (0x80086340, not ported): the axis that ran into
+            // its box turns back.
+            g.play(137);
+            for k in [0, 2] {
+                let mut q = start;
+                q[k] = edge[k];
+                if b.covers(q, RADIUS) {
+                    v[k] = -((v[k] * BOUNCE) >> 12);
+                    p[k] = start[k];
+                }
             }
         }
+        self.ball = p;
         // Rolling (0x80086cd0): on the floor, friction 15 a frame, the
         // slope's push downhill.
         let q = collide::query(&g.col, [self.ball[0], self.ball[1], self.ball[2]]);

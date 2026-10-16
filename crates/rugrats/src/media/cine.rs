@@ -64,6 +64,10 @@ pub struct Set {
     faces: Faces,
     /// Each room's bounds (+0x10, +0x20), flags (+0x0c) and song (+0x64).
     pub room_info: Vec<RoomInfo>,
+    /// Each room's portals (+0x30 quads at +0x34): the room each leads to
+    /// (corner 1's flags, quad +0x0e), those with corner 0's flag 2 left
+    /// out, as the room lookup 0x8002b660 walks them.
+    pub neighbours: Vec<Vec<usize>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -109,6 +113,20 @@ impl Set {
             placements: placement::parse_lp(&disc.file(LP + db)?),
             templates: placement::parse_templates(&disc.file(TEMPLATE)?),
             faces: Faces::load(disc, Faces::mask(disc, db)?)?,
+            neighbours: {
+                let mut quads = level.quads.iter();
+                level
+                    .rooms
+                    .iter()
+                    .map(|r| {
+                        (&mut quads)
+                            .take(r.quads() as usize)
+                            .filter(|q| q.corners[0].flags & 2 == 0)
+                            .map(|q| q.corners[1].flags as usize)
+                            .collect()
+                    })
+                    .collect()
+            },
             room_info: level
                 .rooms
                 .iter()

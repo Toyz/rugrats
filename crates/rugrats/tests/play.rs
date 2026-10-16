@@ -1071,3 +1071,34 @@ fn the_lobster_bites_every_36_vsyncs() {
     let gaps: Vec<usize> = hits.windows(2).map(|w| w[1] - w[0]).collect();
     assert!(hits.len() >= 4 && gaps.iter().all(|&d| (17..=20).contains(&d)), "bites at {hits:?}");
 }
+
+/// The room lookup (0x8002b660) tries the room the player was in, then the
+/// rooms its portals lead to, and only then the first room whose bounds
+/// hold the point. Level 2's rooms overlap (19 pairs): where two overlap,
+/// seen from a neighbour of the later one, the lookup gives the later one.
+#[test]
+fn rooms_are_found_through_portals() {
+    let Some(disc) = disc() else { return };
+    let g = open(&disc, 2);
+    let rooms = &g.set.room_info;
+    let inside = |k: usize, p: [i32; 3]| (0..3).all(|i| rooms[k].min[i] <= p[i] && p[i] <= rooms[k].max[i]);
+    let mut seen = 0;
+    for a in 0..rooms.len() {
+        for b in a + 1..rooms.len() {
+            let p: [i32; 3] = std::array::from_fn(|i| {
+                (rooms[a].min[i].max(rooms[b].min[i]) + rooms[a].max[i].min(rooms[b].max[i])) / 2
+            });
+            if !inside(a, p) || !inside(b, p) {
+                continue;
+            }
+            for h in (0..rooms.len()).filter(|&h| g.set.neighbours[h].contains(&b) && !inside(h, p)) {
+                let want = g.set.neighbours[h].iter().copied().find(|&k| inside(k, p));
+                assert_eq!(g.room_from(p, Some(h)), want, "from {h} at {p:?}");
+                if want == Some(b) && g.room_of(p) == Some(a) {
+                    seen += 1;
+                }
+            }
+        }
+    }
+    assert!(seen > 0, "no overlap reached through a portal");
+}

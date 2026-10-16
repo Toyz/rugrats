@@ -38,6 +38,18 @@ impl Game {
     }
 
     /// The room holding `p` (0x8002b660, by the rooms' bounds).
+    /// The room lookup (0x8002b660): `hint` if its bounds hold `p`, else
+    /// the first of its portals' rooms that does, else the first room.
+    pub fn room_from(&self, p: [i32; 3], hint: Option<usize>) -> Option<usize> {
+        let inside =
+            |k: usize| self.set.room_info.get(k).is_some_and(|r| (0..3).all(|i| r.min[i] <= p[i] && p[i] <= r.max[i]));
+        let Some(h) = hint.filter(|&h| h < self.set.room_info.len()) else { return self.room_of(p) };
+        if inside(h) {
+            return Some(h);
+        }
+        self.set.neighbours[h].iter().copied().find(|&k| inside(k)).or_else(|| self.room_of(p))
+    }
+
     pub fn room_of(&self, p: [i32; 3]) -> Option<usize> {
         (0..self.set.room_info.len()).find(|&k| {
             let r = &self.set.room_info[k];
@@ -65,13 +77,7 @@ impl Game {
     /// The player's room (0x8002b660, here by the rooms' bounds, the one
     /// it was in first); on a change, the room's song (0x80077a54).
     pub(super) fn room_change(&mut self) {
-        let p = self.player.pos;
-        let inside =
-            |k: usize| self.set.room_info.get(k).is_some_and(|r| (0..3).all(|i| r.min[i] <= p[i] && p[i] <= r.max[i]));
-        let room = match self.room.filter(|&k| inside(k)) {
-            Some(k) => Some(k),
-            None => (0..self.set.room_info.len()).find(|&k| inside(k)),
-        };
+        let room = self.room_from(self.player.pos, self.room);
         if room == self.room {
             return;
         }

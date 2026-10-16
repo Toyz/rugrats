@@ -172,6 +172,9 @@ pub struct Player {
     /// The base track's root y so far, which animation it was of, and the
     /// frame it was at (a loop starts again under it).
     root_seen: RootSeen,
+    /// Where the body was over the floor as the base track's animation
+    /// began: its first frame blends it away.
+    root_base: i32,
 }
 
 impl Player {
@@ -239,6 +242,7 @@ impl Player {
             pending_jump: None,
             root_y: 0,
             root_seen: RootSeen::default(),
+            root_base: 0,
         };
         let q = collide::query(col, start);
         if q.tile.is_some() {
@@ -717,16 +721,28 @@ impl Player {
             }
             return;
         }
-        match self.state {
-            State::Jump | State::Fall => {}
-            State::Land => self.root_y += dy,
-            _ => {
-                self.root_y += dy;
-                if self.root_y > 0 {
-                    self.root_y = (self.root_y - FLOOR_RETURN).max(0);
-                }
-            }
+        if matches!(self.state, State::Jump | State::Fall) {
+            return;
         }
+        // On the ground the body follows the animation's root curve from
+        // the floor; a new animation (or a loop's next round) starts from
+        // where the body was, which its first frame blends away (+0xde at
+        // the frame's start, 0x80055904). The oracle after a climb: -55
+        // over the floor, then -41, -45, -40, -23, -18, -10, +1, the run's
+        // own curve from its second frame; after a landing, 89 under it
+        // and 23 less a frame through the idle's first frame.
+        if (was.state, was.first) != (state, first) || cur < was.cur {
+            // From where the last one left the body, its end had.
+            self.root_base = self.root_y + rest;
+        }
+        let (.., left) = self.animator.track();
+        let blend = if cur > first {
+            1.0
+        } else {
+            let dur = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
+            ((dur - left) as f32 / dur as f32).clamp(0.0, 1.0)
+        };
+        self.root_y = done + (self.root_base as f32 * (1.0 - blend)) as i32;
     }
 
     pub fn launch(&mut self, heading: i32, up: i32, speed: i32, trig: &Trig) {
@@ -846,10 +862,6 @@ struct RootSeen {
     done: i32,
     total: i32,
 }
-
-/// What the floor takes back a frame of a body sunk under it by its
-/// animation (the oracle after a landing: 23).
-const FLOOR_RETURN: i32 = 23;
 
 /// The highest ledge a climb takes (0x80056e44: under 1034; under 522
 /// while carrying).

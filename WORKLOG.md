@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-146 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 62, render 26, save 4, test 20, tooling 18, ui 9, video 10.
+147 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 63, render 26, save 4, test 20, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -158,3 +158,4 @@ The [reference](docs/README.md) says what is true now.
 | 144 | [Level 4's brown water checked on the oracle](worklog/0144-level-4-s-brown-water-checked-on-the-oracle.md) | 2026-10-16 | test |
 | 145 | [A climb's last step is had](worklog/0145-a-climb-s-last-step-is-had.md) | 2026-10-16 | play |
 | 146 | [The whole game, by play](worklog/0146-the-whole-game-by-play.md) | 2026-10-16 | test |
+| 147 | [The ground follows each animation's root curve](worklog/0147-the-ground-follows-each-animation-s-root-curve.md) | 2026-10-16 | play |

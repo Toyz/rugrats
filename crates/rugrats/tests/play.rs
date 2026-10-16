@@ -471,3 +471,94 @@ fn level_3_aisle_seven_is_won() {
     let switch = g.set.placements[278].pos;
     assert_eq!(use_at(&mut g, switch), Some(14));
 }
+
+/// Level 7: Reptar walks the city to City Hall (room 6): cine 85, the end
+/// of the game.
+#[test]
+fn level_7_reptar_2010_reaches_city_hall() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 7);
+    assert_eq!(enter_room(&mut g, 6), Some(85));
+    g.cine_finished(85);
+    assert!(g.ending);
+}
+
+/// Level 10: Chuckie tags each hiding baby (Triangle beside it), then waits
+/// in the playpen, which catches it as it runs home (cines 75-77); the
+/// third catch plays cine 78: won.
+#[test]
+fn level_10_chuckies_glasses_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 10);
+    for id in [608u16, 609, 1492] {
+        let baby = g.npcs.iter().find(|n| n.id == id).expect("a baby").pos;
+        put(&mut g, [baby[0], baby[1], baby[2] - 500], 0);
+        face(&mut g, baby);
+        run(&mut g, &[(&[input::TRIANGLE], 1), (&[], 2)], |_, _| {});
+        let y = g.player.pos[1];
+        put(&mut g, [5926, y, 21212], 0);
+        let mut cine = None;
+        run(&mut g, &[(&[], 30)], |g, _| cine = cine.or(g.cine.take()));
+        assert!(matches!(cine, Some(75..=77)), "baby {id}: {cine:?}");
+        g.cine_finished(cine.unwrap());
+    }
+    assert_eq!(g.cine.take(), Some(78));
+}
+
+/// Finishes cinematic `n` and any the level chains after it (an intro
+/// that follows a win), as the app plays them in turn.
+fn finish(g: &mut Game, mut n: usize) {
+    loop {
+        g.cine_finished(n);
+        match g.cine.take() {
+            Some(next) => n = next,
+            None => return,
+        }
+    }
+}
+
+/// Level 11, all three rings: Spike eats the twelve bones stand by stand
+/// (cine 54); the tricycle into the ramp with Cross pressed in the middle
+/// band of distances lands in the net (cine 57); Angelica's meter stopped
+/// in both zones launches Chuckie true (cine 39, then 62): won.
+#[test]
+fn level_11_circus_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 11);
+    // Ring 1: the bone moves to the next stand each time.
+    // Ring 1: the bone moves to the next stand each time; Spike eats it
+    // from the stand's top.
+    let mut cine = None;
+    for _ in 0..12 {
+        let b = g.goodies.iter().find(|b| b.kind == 14 && !b.taken).expect("a bone").pos;
+        put(&mut g, [b.x as i32, b.y as i32 - 50, b.z as i32 - 100], 0);
+        run(&mut g, &[(&[input::UP], 3), (&[], 3)], |g, _| cine = cine.or(g.cine.take()));
+    }
+    assert_eq!(cine, Some(54), "ring 1");
+    finish(&mut g, 54);
+    // Ring 2: along +x into the ramp's zone (x 15000..22700), Cross 6700
+    // in.
+    let y = g.player.pos[1];
+    put(&mut g, [13500, y, 34300], 1024);
+    let mut from = None;
+    let cine = play(&mut g, 30 * 20, |g, _| {
+        let x = g.player.pos[0];
+        if x >= 15000 && from.is_none() {
+            from = Some(x);
+        }
+        match from {
+            Some(f) if x - f >= 6700 => vec![input::UP, input::CROSS],
+            _ => vec![input::UP],
+        }
+    });
+    assert_eq!(cine, Some(57), "ring 2 at {:?}", g.player.pos);
+    finish(&mut g, 57);
+    // Ring 3: the meter rises 6 a frame from 6; stop it at 174 (28
+    // frames), then the second from 46 at 172 (21 frames).
+    let presses = [0usize, 28, 49];
+    let cine = play(&mut g, 120, |_, f| if presses.contains(&f) { vec![input::TRIANGLE] } else { vec![] });
+    assert_eq!(cine, Some(39), "ring 3's leap");
+    g.cine_finished(39);
+    let cine = play(&mut g, 30 * 10, |_, _| vec![]);
+    assert_eq!(cine, Some(62), "ring 3");
+}

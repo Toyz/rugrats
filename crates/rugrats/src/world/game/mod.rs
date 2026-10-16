@@ -102,11 +102,15 @@ impl Exit {
 pub struct Effect {
     pub sound: u8,
     pub at: Option<(i32, i32)>,
+    /// A program, tone and note keyed on directly (0x800a99a8), not
+    /// through the effects table: the crunch (0x8006f2fc), the piano
+    /// (0x8006f3a4).
+    pub key: Option<[u8; 3]>,
 }
 
 impl Effect {
     pub fn new(sound: u8) -> Effect {
-        Effect { sound, at: None }
+        Effect { sound, at: None, key: None }
     }
 }
 
@@ -302,6 +306,12 @@ pub struct Game {
     pub solid: Vec<Box3>,
     /// Touch 1's sound count (0x800c4ba0).
     pub(super) shelf_sound: i32,
+    /// The piano's last note (0x800c4358): the same one is not played
+    /// again.
+    pub(super) last_note: Option<u8>,
+    /// The C library's rand (0x800b1158: x * 0x41c64e6d + 0x3039 at
+    /// 0x800eaf80), which picks the foot of a flag 4 puff.
+    pub(super) crand: u32,
     /// The dust's coin flips standing and moving (0x800c42e0, 0x800c42ec,
     /// seeded 0xa8c0 and 0x2fdd).
     pub(super) dust_seeds: [Rand; 2],
@@ -439,10 +449,26 @@ impl Game {
     /// camera, quieter with distance and, unless mono, panned by its
     /// bearing from the camera's heading.
     pub fn play_at(&mut self, sound: u8, pos: [i32; 3]) {
+        if let Some(at) = self.heard_at(pos) {
+            self.effects.push(Effect { sound, at: Some(at), key: None });
+        }
+    }
+
+    /// Keys on program `prog`'s tone `tone` at `note` (0x800a99a8), at
+    /// `pos` as `play_at` hears it.
+    pub fn key_at(&mut self, key: [u8; 3], pos: [i32; 3]) {
+        if let Some(at) = self.heard_at(pos) {
+            self.effects.push(Effect { sound: 0, at: Some(at), key: Some(key) });
+        }
+    }
+
+    /// The volumes a sound at `pos` is heard at (0x8006f4c0), none when
+    /// too far off.
+    fn heard_at(&self, pos: [i32; 3]) -> Option<(i32, i32)> {
         let (eye, rows) = self.view;
         let d = [pos[0] - eye.x as i32, pos[1] - eye.y as i32, pos[2] - eye.z as i32];
         if d[0].abs() > 0xfffe || d[1].abs() >= 0x7fff || d[2].abs() > 0xfffe {
-            return;
+            return None;
         }
         let sq = |v: i32| (v as i64) * (v as i64);
         let dist = (sq(d[0]) >> 14) + (sq(d[1]) >> 12) + (sq(d[2]) >> 14);
@@ -457,7 +483,7 @@ impl Game {
             let angle = bearing(d[0] as f32, d[2] as f32) - bearing(ahead.x, ahead.z);
             pan(&self.trig, angle.rem_euclid(4096), v)
         };
-        self.effects.push(Effect { sound, at: Some(at) });
+        Some(at)
     }
 
     pub fn open(disc: &GameDisc, level: Level) -> Result<Game, String> {
@@ -891,6 +917,8 @@ impl Game {
             water_steps: 0,
             solid: Vec::new(),
             shelf_sound: 0,
+            last_note: None,
+            crand: 0,
             dust_seeds: [Rand { state: 0xa8c0 }, Rand { state: 0x2fdd }],
             breakables,
             doors,

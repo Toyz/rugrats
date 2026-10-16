@@ -288,11 +288,12 @@ impl Script for BoxToss {
             self.cookies -= 1;
             self.eat_wait = EAT_WAIT;
             g.player.act(self.rules.eat, &g.anims);
-            // A crunch at the player (0x8006f2fc: 43 + rand & 15), else
-            // 123 unplaced.
+            // A crunch at the player (0x8006f2fc: program 0, tone 14, 13
+            // in level 20, note 43 + rand & 15), else 123 unplaced.
             if self.rules.throw_costs {
-                let (sound, at) = (43 + (g.rand.next() & 15) as u8, g.player.pos);
-                g.play_at(sound, at);
+                let tone = if g.level == Level::NO_MORE_COOKIES { 13 } else { 14 };
+                let (note, at) = (43 + (g.rand.next() & 15) as u8, g.player.pos);
+                g.key_at([0, tone, note], at);
             } else {
                 g.play(123);
             }

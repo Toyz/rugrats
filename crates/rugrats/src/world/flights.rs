@@ -26,6 +26,8 @@ use crate::world::shards::{self, Shard};
 /// The flight pool (0x80085d1c: 64 records, 0x800c4d00), shared in the
 /// original with thrown objects.
 const POOL: usize = 64;
+/// Straight up, as the cones take it.
+const UP: [i32; 3] = [0, -4096, 0];
 /// The dust's model (0x80050b5c: 0x80044b74(1008)).
 pub const DUST: u32 = 1008;
 /// The camera-facing quads queued a frame (0x8008b088(64), 0x8008afc4).
@@ -287,6 +289,9 @@ pub struct Seeds {
     /// The touched objects' parts (touches 1-7): 0x800c4178 (touch 1),
     /// 0x800c417c (2-6), 0x800c4180 (touch 4's pick), 0x800c4184 (7).
     pub parts: [u32; 4],
+    /// The floor touches' (0x800c4190 touch 12, 0x800c4198 touch 13,
+    /// 0x800c41a0 the piano).
+    pub floor: [u32; 3],
 }
 
 /// 0x800c41d0, 0x800c4188 and 0x800c418c as the executable has them.
@@ -306,6 +311,7 @@ impl Default for Seeds {
             feathers: FEATHER_SEED,
             toy: TOY_SEED,
             parts: [48732; 4],
+            floor: [48732; 3],
         }
     }
 }
@@ -885,6 +891,116 @@ impl Flights {
         };
         self.launch(&l, sprites);
         false
+    }
+
+    /// A kind 5 sprite launch of the floor touches: flags, sprite, half
+    /// size and radius, speed, the cone's axis and width, lifetime,
+    /// bounce, spin, face, damage.
+    #[allow(clippy::too_many_arguments)]
+    fn sprite_at(
+        &mut self,
+        flags: u32,
+        at: [i32; 3],
+        sprite: u32,
+        size: i16,
+        speed: i32,
+        cone: ([i32; 3], i16),
+        life: i32,
+        bounce: i16,
+        spin: i16,
+        face: u32,
+        damage: i16,
+        sprites: Option<&Sprites>,
+    ) {
+        let dir = self.cone(cone.0, &IDENTITY, 0, cone.1);
+        let l = Launch {
+            flags,
+            at,
+            radius: size as i32,
+            life,
+            dir,
+            speed,
+            spin,
+            bounce,
+            sprite: Some(sprite),
+            size: [size, size],
+            face,
+            damage,
+            ..Launch::default()
+        };
+        self.launch(&l, sprites);
+    }
+
+    /// Touch 12 (0x80050d58, level 11's 505 walked on): five of one of
+    /// sprites 352-354 (rand % 3) from `at`, flags 0x1030705 (ending on
+    /// the floor), size 100, speed rand % 250 up to 100, within 2048 of
+    /// up, no lifetime, bounce 1000, spin 3000, face 0xd0800000.
+    pub fn touch_12(&mut self, at: [i32; 3], sprites: Option<&Sprites>) {
+        let sprite = 352 + (((lcg(&mut self.seeds.floor[0]) >> 16) & 0x7fff) % 3);
+        for _ in 0..5 {
+            let speed = ((((lcg(&mut self.seeds.floor[0]) >> 16) & 0x7fff) % 250) as i32).min(100);
+            self.sprite_at(0x103_0705, at, sprite, 100, speed, (UP, 2048), 0, 1000, 3000, 0xd080_0000, 0, sprites);
+        }
+    }
+
+    /// Touch 13 (0x80051db4, level 6's 926 walked on): three of one of
+    /// sprites 376-379 (rand % 4) from the object, flags 0x30705, size
+    /// 100, speed rand % 200 up to 100, within 2048 of up, 1000 ms,
+    /// bounce 2048, spin 3391, face 0xc0800000, its damage.
+    pub fn touch_13(&mut self, at: [i32; 3], damage: i16, sprites: Option<&Sprites>) {
+        let sprite = 376 + (((lcg(&mut self.seeds.floor[1]) >> 16) & 0x7fff) % 4);
+        for _ in 0..3 {
+            let speed = ((((lcg(&mut self.seeds.floor[1]) >> 16) & 0x7fff) % 200) as i32).min(100);
+            self.sprite_at(0x30705, at, sprite, 100, speed, (UP, 2048), 1000, 2048, 3391, 0xc080_0000, damage, sprites);
+        }
+    }
+
+    /// The piano's notes (0x800522ec, level 6's keys 999-1006, 1046,
+    /// 1047, walked on): flags 0x10505, 500 ms, bounce 1000, spin 3000,
+    /// face 0xd0800000, speed rand % 250 up to 100 (0x800c41a0). A key
+    /// of 1046 or 1047 drops one of sprites 417-420 (rand % 4), size 300,
+    /// straight down from `drop` (one of objects 960-966); the others put
+    /// up two of 415 or 416 (a coin each), size 100, within 2048 of up
+    /// from `at`.
+    pub fn piano(&mut self, at: [i32; 3], drop: Option<[i32; 3]>, sprites: Option<&Sprites>) {
+        let seed = |s: &mut Self| (lcg(&mut s.seeds.floor[2]) >> 16) & 0x7fff;
+        if let Some(from) = drop {
+            let sprite = 417 + seed(self) % 4;
+            let speed = ((seed(self) % 250) as i32).min(100);
+            self.sprite_at(
+                0x10505,
+                from,
+                sprite,
+                300,
+                speed,
+                ([0, 4096, 0], 1),
+                500,
+                1000,
+                3000,
+                0xd080_0000,
+                0,
+                sprites,
+            );
+            return;
+        }
+        for _ in 0..2 {
+            let sprite = 415 + (seed(self) & 1);
+            let speed = ((seed(self) % 250) as i32).min(100);
+            self.sprite_at(0x10505, at, sprite, 100, speed, (UP, 2048), 500, 1000, 3000, 0xd080_0000, 0, sprites);
+        }
+    }
+
+    /// The next draw on floor seed `k` (rand & 0x7fff).
+    pub fn floor_draw(&mut self, k: usize) -> u32 {
+        (lcg(&mut self.seeds.floor[k]) >> 16) & 0x7fff
+    }
+
+    /// A step on floor flag 4 (0x80054ee0, from the walk, 0x8005e1f4): one
+    /// sprite 266 (TEXPOS + 3192) at the foot, kind 5, flags 0x305 (no
+    /// gravity), size 50, 2000 ms, speed 50, within 1000 of up, face
+    /// 0xd2800000.
+    pub fn floor_puff(&mut self, at: [i32; 3], sprites: Option<&Sprites>) {
+        self.sprite_at(0x305, at, 266, 50, 50, (UP, 1000), 2000, 0, 0, 0xd280_0000, 0, sprites);
     }
 
     /// A broken toy's bits (0x80054ae0, level 6): five kind 5, flags

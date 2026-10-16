@@ -342,6 +342,67 @@ impl Game {
         }
     }
 
+    /// The walk's touches (0x8005e1f4, the player's own walk): the
+    /// object in focus is touched each frame (touches 12, 13 and 15 are
+    /// the floor's); on a step, a rug of 1160-1163 in focus sounds (73,
+    /// 75, 76, 74 at it); on floor flag 4, not on an object, a puff at a
+    /// foot (slot 7 or 3 by the C rand's low bit).
+    fn floor_touches(&mut self, q: &collide::Query) {
+        let p = &self.player;
+        let (at, feet) = (p.pos, p.pos[1] - p.feet());
+        let step = p.animator.events & 256 != 0;
+        if let Some(k) = boxes::focus_placement(&self.set, at, at[1], feet) {
+            let place = self.set.placements[k];
+            let template = self.set.templates.get(place.template as usize);
+            let damage = template.map_or(0, |t| t.raw[0x32] as i16);
+            match template.map_or(0, |t| t.raw[0x0a]) {
+                12 => self.flights.touch_12(at, self.sprites.as_ref()),
+                13 => self.flights.touch_13(place.pos, damage, self.sprites.as_ref()),
+                15 => self.piano(&place),
+                _ => {}
+            }
+            let rug = match place.template {
+                1160 => Some(73),
+                1161 => Some(75),
+                1162 => Some(76),
+                1163 => Some(74),
+                _ => None,
+            };
+            if let Some(s) = rug.filter(|_| step) {
+                self.play_at(s, place.pos);
+            }
+        }
+        let on_object = self.player.support.is_some() || self.mover_under_player().is_some();
+        if collide::floor_flags(&self.col, q) & 4 != 0 && !on_object {
+            self.crand = self.crand.wrapping_mul(0x41c6_4e6d).wrapping_add(0x3039);
+            let slot = if (self.crand >> 16) & 1 != 0 { 7 } else { 3 };
+            let parts = self.player.parts(&self.anims, &self.trig);
+            if let Some(&(_, foot)) = self.player.slot_part(slot).and_then(|i| parts.get(i)) {
+                let at = [foot.x as i32, foot.y as i32, foot.z as i32];
+                self.flights.floor_puff(at, self.sprites.as_ref());
+            }
+        }
+    }
+
+    /// A piano key walked on (0x800522ec): its note (0x8006f3a4: program
+    /// 4, tone 3, note key - 999 + 78, unless it was the last), then its
+    /// sprites; keys 1046 and 1047 drop one from one of objects 960-966.
+    fn piano(&mut self, key: &Placement) {
+        let n = (key.template as i32 - 999) as u8;
+        if self.last_note != Some(n) {
+            self.last_note = Some(n);
+            self.key_at([4, 3, n.wrapping_add(78)], key.pos);
+        }
+        let drop = if matches!(key.template, 1046 | 1047) {
+            let id = 960 + (self.flights.floor_draw(2) % 7) as u16;
+            self.set.placements.iter().find(|p| p.kind == 1 && p.id == id).map(|p| p.pos)
+        } else {
+            None
+        };
+        let at = self.player.pos;
+        self.flights.piano(at, drop, self.sprites.as_ref());
+    }
+
     pub(super) fn walk_effects(&mut self) {
         let p = &self.player;
         if !matches!(p.state, State::Stand | State::Walk | State::Run) {
@@ -366,6 +427,7 @@ impl Game {
         if stand {
             return;
         }
+        self.floor_touches(&q);
         let p = &self.player;
         let step = p.animator.events & 256 != 0;
         let on_object = self.mover_under_player().is_some() || (q.kind == 0 && feet < q.floor - 48);

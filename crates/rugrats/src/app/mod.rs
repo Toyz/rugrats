@@ -184,7 +184,11 @@ impl Rugrats {
         let Ok(mut spu) = self.spu.lock() else { return };
         let setting = self.progress.audio().effects;
         for e in effects {
-            spu.effect(&self.effect_table, e.sound as usize, e.at.unwrap_or((setting, setting)));
+            let at = e.at.unwrap_or((setting, setting));
+            match e.key {
+                Some(key) => spu.key(key, at),
+                None => spu.effect(&self.effect_table, e.sound as usize, at),
+            }
         }
     }
 

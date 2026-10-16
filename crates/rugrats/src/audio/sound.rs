@@ -162,6 +162,11 @@ impl Spu {
         }
     }
 
+    /// Program, tone and note keyed on directly (0x800a99a8).
+    pub fn key(&mut self, [prog, tone, note]: [u8; 3], at: (i32, i32)) {
+        self.spu.key_on(prog, tone, note, at);
+    }
+
     /// Mixes into `out` (stereo frames).
     pub fn render(&mut self, out: &mut [i16]) {
         self.spu.render(out);

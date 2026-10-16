@@ -491,3 +491,25 @@ fn a_thrown_thing_knocks_parts_off() {
     }
     assert!(parts >= 1, "no parts; the thing is at {:?}", g.things[k].pos);
 }
+
+/// Walking on level 6's piano key 999 plays its note (0x8006f3a4: program
+/// 4, tone 3, note 78) and puts up notes (sprites 415, 416).
+#[test]
+fn the_piano_plays() {
+    use rugrats::input::{self, Pads};
+    let Some(disc) = disc() else { return };
+    let mut g = rugrats::world::game::Game::open(&disc, rugrats::levels::Level(6)).unwrap();
+    let key = g.set.placements.iter().find(|p| p.kind == 1 && p.template == 999).unwrap().pos;
+    let q = rugrats::world::collide::query(&g.col, [key[0], key[1] - 2000, key[2]]);
+    g.player.pos = [key[0], q.floor + g.player.feet(), key[2]];
+    let mut pads = Pads::default();
+    let (mut keys, mut notes) = (Vec::new(), 0);
+    for _ in 0..12 {
+        pads.push_bits(0, 1 << input::LEFT);
+        g.frame(&pads);
+        keys.extend(g.effects.iter().filter_map(|e| e.key));
+        notes = notes.max(g.flights.iter().filter(|f| matches!(f.skin, Skin::Sprite(415 | 416))).count());
+    }
+    assert!(keys.contains(&[4, 3, 78]), "keys {keys:?}, Chuckie at {:?}, the key at {key:?}", g.player.pos);
+    assert!(notes > 0);
+}

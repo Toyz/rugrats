@@ -52,10 +52,32 @@ pub(super) fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<Box3>
         let climb = t.flags & 64 != 0;
         out.extend(world_boxes(m, rot, pos).into_iter().map(|mut b| {
             b.climb = climb;
+            b.template = place.template as u16;
             b
         }));
     }
     out
+}
+
+/// The object in focus (player +0x1e8, 0x8006af4c): a template flag 8
+/// object whose model the segment from `top` down to `feet` meets at
+/// (x, z). The original also asks the two cylinders to overlap
+/// (0x8006abbc) and tests the model's faces (0x8006a714); the boxes stand
+/// in for both.
+pub(super) fn focus(set: &Set, at: [i32; 3], top: i32, feet: i32) -> Option<u16> {
+    set.placements.iter().filter(|p| p.kind == 1).find_map(|place| {
+        let t = set.templates.get(place.template as usize)?;
+        if t.flags & 8 == 0 || t.hierarchy().is_some() {
+            return None;
+        }
+        let m = set.models.get(t.shape as u32)?;
+        let rot = models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
+        let pos = Vec3::new(place.pos[0] as f32, place.pos[1] as f32, place.pos[2] as f32);
+        world_boxes(m, rot, pos)
+            .iter()
+            .any(|b| b.covers(at, 0) && b.min_y <= feet && b.max_y >= top)
+            .then_some(place.template as u16)
+    })
 }
 
 /// A model's boxes at `rot`, `pos`, with the heights their corners span.
@@ -82,6 +104,7 @@ pub(super) fn world_boxes(m: &Model, rot: Mat3, pos: Vec3) -> Vec<Box3> {
             max_y: b as i32,
             climb: false,
             character: false,
+            template: 0,
         });
     }
     out

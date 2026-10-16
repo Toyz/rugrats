@@ -362,9 +362,24 @@ fn a_collectible_sparkles() {
 #[test]
 fn walking_in_water_splashes() {
     use rugrats::input::{self, Pads};
-    use rugrats::world::collide;
     let Some(disc) = disc() else { return };
     let mut g = rugrats::world::game::Game::open(&disc, rugrats::levels::Level(4)).unwrap();
+    let at = water_spot(&g);
+    let feet = g.player.feet();
+    g.player.pos = [at[0], at[1] + feet, at[2]];
+    let mut pads = Pads::default();
+    let mut most = 0;
+    for _ in 0..20 {
+        pads.push_bits(0, 1 << input::UP);
+        g.frame(&pads);
+        most = most.max(g.flights.iter().filter(|f| f.kind() == 5).count());
+    }
+    assert!(most > 0, "no splash at {at:?}");
+}
+
+/// The water floor nearest level 4's start with room to stand, in a room.
+fn water_spot(g: &rugrats::world::game::Game) -> [i32; 3] {
+    use rugrats::world::collide;
     // The water floor nearest the start with room to stand in a room.
     let (lo, start) = (g.col.min[1], g.player.pos);
     let mut spots: Vec<(i64, [i32; 3])> = Vec::new();
@@ -379,16 +394,23 @@ fn walking_in_water_splashes() {
             }
         }
     }
-    let water = spots.into_iter().min_by_key(|s| s.0).map(|s| s.1);
-    let Some(at) = water else { panic!("no water in level 4") };
+    spots.into_iter().min_by_key(|s| s.0).map(|s| s.1).expect("no water in level 4")
+}
+
+/// Landing on level 4's water plays sound 57 (0x8005b624).
+#[test]
+fn landing_in_water_splashes_aloud() {
+    use rugrats::input::Pads;
+    let Some(disc) = disc() else { return };
+    let mut g = rugrats::world::game::Game::open(&disc, rugrats::levels::Level(4)).unwrap();
+    let at = water_spot(&g);
     let feet = g.player.feet();
-    g.player.pos = [at[0], at[1] + feet, at[2]];
-    let mut pads = Pads::default();
-    let mut most = 0;
-    for _ in 0..20 {
-        pads.push_bits(0, 1 << input::UP);
+    g.player.pos = [at[0], at[1] + feet - 1500, at[2]];
+    let pads = Pads::default();
+    let mut heard = Vec::new();
+    for _ in 0..90 {
         g.frame(&pads);
-        most = most.max(g.flights.iter().filter(|f| f.kind() == 5).count());
+        heard.extend(g.effects.iter().map(|e| e.sound));
     }
-    assert!(most > 0, "no splash at {at:?}");
+    assert!(heard.contains(&57), "heard {heard:?}");
 }

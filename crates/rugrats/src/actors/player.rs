@@ -149,6 +149,11 @@ pub struct Player {
     pub slip_sound: u8,
     /// A long fall hurts (not in the hub, 0x8005b6e0).
     pub falls_hurt: bool,
+    /// The box the feet stand on this frame (player +0xf8), an index into
+    /// the boxes `frame` was given.
+    pub support: Option<usize>,
+    /// The landing began this frame (state 10's entry, 0x8005b624).
+    pub landed: bool,
 }
 
 impl Player {
@@ -210,6 +215,8 @@ impl Player {
             slipping: false,
             slip_sound: 56,
             falls_hurt: true,
+            support: None,
+            landed: false,
         };
         let q = collide::query(col, start);
         if q.tile.is_some() {
@@ -390,7 +397,8 @@ impl Player {
         // of the feet (or below them, falling) is floor.
         let start_feet = start[1] - self.feet;
         let feet_y = self.pos[1] - self.feet;
-        for b in boxes {
+        self.support = None;
+        for (k, b) in boxes.iter().enumerate() {
             if !b.covers(self.pos, RADIUS) {
                 continue;
             }
@@ -400,6 +408,7 @@ impl Player {
                 // Standing room on it: a floor if higher than the one found.
                 if top < self.floor {
                     self.floor = top;
+                    self.support = Some(k);
                 }
             } else if b.max_y > head
                 && (b.depth(self.pos, RADIUS) > b.depth(start, RADIUS) || b.crosses(start, self.pos))
@@ -441,6 +450,7 @@ impl Player {
             self.pos[1] = self.floor + self.feet;
             self.v = [0; 3];
             self.state = State::Land;
+            self.landed = true;
             // A long fall (state 10, 0x8005b2d8): Damage 5, message 31.
             if self.air >= LONG_FALL && self.falls_hurt {
                 self.hurt(FALL_DAMAGE);
@@ -676,6 +686,8 @@ pub struct Box3 {
     pub climb: bool,
     /// Another character's body (no climb test).
     pub character: bool,
+    /// The placed object's template (0 for none).
+    pub template: u16,
 }
 
 impl Box3 {

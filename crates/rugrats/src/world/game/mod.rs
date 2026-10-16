@@ -1084,12 +1084,18 @@ impl Game {
             let flag8 = self.set.templates.get(template).is_some_and(|t| t.flags & 8 != 0);
             let shape = if b.broken { b.shape + 1 } else { b.shape };
             if !flag8 && let Some(model) = self.set.models.get(shape) {
-                boxes.extend(world_boxes(model, b.rot, b.pos));
+                boxes.extend(world_boxes(model, b.rot, b.pos).into_iter().map(|mut x| {
+                    x.template = template as u16;
+                    x
+                }));
             }
         }
         for m in &self.movers {
             if let Some(model) = self.set.models.get(m.shape) {
-                boxes.extend(world_boxes(model, m.rot, m.world()));
+                boxes.extend(world_boxes(model, m.rot, m.world()).into_iter().map(|mut b| {
+                    b.template = m.template;
+                    b
+                }));
             }
         }
         self.toy_thinks();
@@ -1116,6 +1122,7 @@ impl Game {
                 let climb = self.set.templates.get(t.template as usize).is_some_and(|tp| tp.flags & 64 != 0);
                 boxes.extend(world_boxes(m, t.rot, t.pos).into_iter().map(|mut b| {
                     b.climb = climb;
+                    b.template = t.template;
                     b
                 }));
             }
@@ -1134,6 +1141,7 @@ impl Game {
                 max_y: feet as i32,
                 climb: false,
                 character: true,
+                template: 0,
             });
         }
         // Climbs refused (0x80058da4): room 4 in levels 1 and 12 (0x80058e04),
@@ -1149,6 +1157,10 @@ impl Game {
             self.training.show(n as usize);
         }
         self.walk_effects();
+        if std::mem::take(&mut self.player.landed) {
+            let on = self.player.support.and_then(|k| boxes.get(k)).map_or(0, |b| b.template);
+            self.land_sounds(on);
+        }
         self.carry(pads);
         self.fly();
         self.touch();

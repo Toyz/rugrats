@@ -305,6 +305,24 @@ impl Game {
     /// asks 0x8007013c for the floor's footstep, whose table (0x800c4ec4)
     /// is empty in play (oracle): nothing. Reptar (template 8) at a step
     /// puffs between his feet (0x80050c48: x and z between parts 3 and 7).
+    /// The landing's sounds (state 10's entry, 0x8005b624): 102 when the
+    /// object in focus is template 505 (level 11), 43 on template 494
+    /// (level 3), 57 on water in level 4.
+    pub(super) fn land_sounds(&mut self, on: u16) {
+        let p = &self.player;
+        let (at, feet) = (p.pos, p.pos[1] - p.feet());
+        if boxes::focus(&self.set, at, at[1], feet) == Some(505) {
+            self.play(102);
+        } else if on == 494 {
+            self.play_at(43, at);
+        } else if self.level == Level::CYNTHIA {
+            let q = collide::query(&self.col, [at[0], feet - 1, at[2]]);
+            if collide::floor_flags(&self.col, &q) & 1 != 0 {
+                self.play_at(57, at);
+            }
+        }
+    }
+
     pub(super) fn walk_effects(&mut self) {
         let p = &self.player;
         if !matches!(p.state, State::Walk | State::Run) {

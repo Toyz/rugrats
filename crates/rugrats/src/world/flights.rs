@@ -676,9 +676,9 @@ impl Flights {
     }
 
     /// Reptar's step (0x80050c48, the walk's step event for template 8):
-    /// a puff between his feet, kind 5, flags 0x30705, sprite 397 (TEXPOS
-    /// + 0x129c), half-size 64, speed 100, 1000 ms, bounce 1000, spin
-    /// 3000, within 2048 of up.
+    /// a puff between his feet, kind 5, flags 0x30705, sprite 397
+    /// (TEXPOS + 0x129c), half-size 64, speed 100, 1000 ms, bounce 1000,
+    /// spin 3000, within 2048 of up.
     pub fn stomp(&mut self, at: [i32; 3], sprites: Option<&Sprites>) {
         let dir = self.cone([0, -4096, 0], &IDENTITY, 0, 2048);
         let l = Launch {

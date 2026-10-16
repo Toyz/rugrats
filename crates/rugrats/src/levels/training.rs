@@ -13,7 +13,7 @@ use crate::actors::player::anim::THROW;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::Level;
-use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
+use crate::levels::pie_toss::{Pie, Splats, draw_pies, roll_pies};
 use crate::world::game::{self, Game, Script, Strike};
 
 const ANGELICA: u16 = 600;
@@ -40,6 +40,7 @@ const PIE: u16 = 564;
 
 struct Toss {
     pies: Vec<Pie>,
+    splats: Splats,
 }
 
 pub struct Training {
@@ -103,7 +104,7 @@ impl Training {
         }
         g.training.show(28);
         g.timer = Some(CLOCK);
-        self.toss = Some(Toss { pies: Vec::new() });
+        self.toss = Some(Toss { pies: Vec::new(), splats: Splats::default() });
     }
 
     /// 0x8007e904: the follow camera back, Tommy off the counter.
@@ -134,7 +135,7 @@ impl Training {
             g.player.act(THROW, &g.anims);
         }
         let targets: Vec<usize> = find(g, ANGELICA).into_iter().collect();
-        let hits = roll_pies(g, &mut toss.pies, &targets);
+        let hits = roll_pies(g, &mut toss.pies, &mut toss.splats, &targets);
         // A hit (0x8007eafc): 50 off; at 0 her health back and won.
         for _ in hits {
             let Some(k) = find(g, ANGELICA) else { break };
@@ -214,7 +215,7 @@ impl Script for Training {
 
     fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, _overlay: &mut Vec<Vtx>) {
         if let Some(toss) = &self.toss {
-            draw_pies(g, &toss.pies, g.player.action.is_none(), moving);
+            draw_pies(g, &toss.pies, &toss.splats, g.player.action.is_none(), moving);
         }
     }
 

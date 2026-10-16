@@ -15,7 +15,7 @@ use crate::actors::player::anim::THROW;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::Level;
-use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
+use crate::levels::pie_toss::{Pie, Splats, draw_pies, roll_pies};
 use crate::ui::hud;
 use crate::world::game::{self, Exit, Game, Script, Strike};
 
@@ -66,6 +66,7 @@ const STUN: i32 = 600;
 struct Toss {
     holding: bool,
     pies: Vec<Pie>,
+    splats: Splats,
 }
 
 /// The level's progress (0x800c4cd0).
@@ -143,7 +144,7 @@ impl AisleSeven {
                 n.mode = Mode::Posts { prev: 0, cur: n.first_post };
             }
         }
-        self.toss = Some(Toss { holding: true, pies: Vec::new() });
+        self.toss = Some(Toss { holding: true, pies: Vec::new(), splats: Splats::default() });
         g.song = Some(1);
     }
 
@@ -225,7 +226,7 @@ impl AisleSeven {
             }
         }
         let targets: Vec<usize> = [LARRY, STEVE].iter().filter_map(|&id| find(g, id)).collect();
-        let hits = roll_pies(g, &mut toss.pies, &targets);
+        let hits = roll_pies(g, &mut toss.pies, &mut toss.splats, &targets);
         // A hit (0x800511a8, 0x8007e308): both lose 50, the one hit
         // flinches; at 0 the toss is won.
         for hit in hits {
@@ -371,7 +372,7 @@ impl Script for AisleSeven {
 
     fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         let Some(toss) = &self.toss else { return };
-        draw_pies(g, &toss.pies, toss.holding, moving);
+        draw_pies(g, &toss.pies, &toss.splats, toss.holding, moving);
         // The gauge (0x8008c5e0 on Larry): model 280 over 282.
         if let (Some(s), Some(k)) = (&g.sprites, find(g, LARRY)) {
             hud::gauge(s, 280, (-148, 73), g.npcs[k].health, TOSS_HEALTH, g.focal(), overlay);

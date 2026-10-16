@@ -284,7 +284,17 @@ Throwing (Tommy is frozen; turning still runs, so left and right aim):
    the pie leaves its room lists (0x80049380) and the think stops.
 5. Flight end: +0x5c = 0x8005282c (template +0x0b = 1) throws five splat
    particles (0x8008864c each). In the oracle: a throw at frame 4327,
-   five splats at 4393.
+   five splats at 4393. The pie is template 564 (model 885) here and in
+   level 16; its +0x0b is 1. Each splat's descriptor:
+   - flags 0x30705: kind 5, gravity 13, world collision;
+   - start at the pie, radius 200, lifetime 2000, bounce 1000;
+   - texture TEXPOS + 0x10d4 (sprite 359), half-size 200 x 200, face
+     flags 0xd0800000;
+   - speed min(rand mod 150, 50) from the LCG 0x800c41a4;
+   - direction from 0x80088bac(pie, (4096, 0, 4096), 0, 2048): a tilt of
+     rand mod 2048 and a spin of rand mod 4096 (LCG 0x800c445c).
+   Kind 5 flights are drawn by 0x80088388 through 0x8008afc4, the
+   camera-facing quad queue the box toss's arrow uses.
 6. A pie flight that touches Larry or Steve (0x80086ef0): touch callback
    0x800511a8, then Damage(player, character, 50).
 

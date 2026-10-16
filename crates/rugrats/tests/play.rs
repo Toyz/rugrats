@@ -42,6 +42,26 @@ fn put(g: &mut Game, at: [i32; 3], heading: i32) {
     g.set_camera_yaw(heading as f32);
 }
 
+/// The stick's eight ways (0x8005be24: the direction is turned by the
+/// camera's heading).
+const STICK: [(i32, &[usize]); 8] = [
+    (0, &[input::UP]),
+    (512, &[input::UP, input::RIGHT]),
+    (1024, &[input::RIGHT]),
+    (1536, &[input::DOWN, input::RIGHT]),
+    (2048, &[input::DOWN]),
+    (2560, &[input::DOWN, input::LEFT]),
+    (3072, &[input::LEFT]),
+    (3584, &[input::UP, input::LEFT]),
+];
+
+/// The buttons that run toward `heading` with the camera where it is.
+fn toward(g: &Game, heading: i32) -> &'static [usize] {
+    let want = (heading - g.camera_heading()).rem_euclid(4096);
+    let off = |d: i32| (d - want + 2048).rem_euclid(4096) - 2048;
+    STICK.iter().min_by_key(|(d, _)| off(*d).abs()).unwrap().1
+}
+
 /// Level 13's race: Angelica walks her posts to the goal and cine 20.
 #[test]
 fn level_13_race_reaches_its_goal() {
@@ -204,8 +224,11 @@ fn collect(g: &mut Game, want: impl Fn(&rugrats::world::game::Goodie) -> bool) -
         }
         let p = g.goodies[k].pos;
         put(g, [p.x as i32, p.y as i32 - 100, p.z as i32 - 300], 0);
+        // Toward +z: where a wall stands behind him the reset puts the
+        // camera elsewhere (0x80026ddc), and the stick turns with it.
+        let stick = toward(g, 0);
         let mut cine = None;
-        run(g, &[(&[input::UP], 6), (&[], 2)], |g, _| cine = cine.or(g.cine.take()));
+        run(g, &[(stick, 6), (&[], 2)], |g, _| cine = cine.or(g.cine.take()));
         if cine.is_some() {
             return cine;
         }
@@ -336,7 +359,9 @@ fn level_6_toy_palace_is_won() {
         g.things[k].pos = rrt::glam::Vec3::new(44500.0, -2304.0 - 506.0 * i as f32, 13900.0);
     }
     put(&mut g, [44500, -2293, 12900], 0);
-    run(&mut g, &[(&[], 3), (&[input::UP], 120)], |_, _| {});
+    // The step's edge pushes him 155 aside as he lands; R1 puts the camera
+    // straight behind him again, so Up climbs the column.
+    run(&mut g, &[(&[], 3), (&[input::R1], 1), (&[input::UP], 120)], |_, _| {});
     assert!(g.player.pos[1] < -4800, "on the platform: {:?}", g.player.pos);
     let switch = g.set.placements.iter().find(|p| p.kind == 1 && p.cine == 47).expect("the switch").pos;
     let me = g.player.pos;

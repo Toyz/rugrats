@@ -138,8 +138,7 @@ impl Game {
             self.player.heading = heading;
             self.player.target = heading;
             self.player.speed = 0;
-            self.yaw = heading as f32;
-            self.eye = self.eye_goal();
+            self.set_camera_yaw(heading as f32);
         }
     }
 
@@ -147,7 +146,8 @@ impl Game {
     /// endings, and the level's own reaction.
     pub fn cine_finished(&mut self, n: usize) {
         self.room = None;
-        self.eye = self.eye_goal();
+        let heading = self.player.heading;
+        self.set_camera_yaw(heading as f32);
         rrt::tracing::info!("level {}: cine {n} finished", self.level);
         // The ending cinematics (0x8007737c): back to the hub with the
         // level recorded won or lost; Reptar Dance ends the game.

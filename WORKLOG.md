@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-142 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 60, render 26, save 4, test 18, tooling 18, ui 9, video 10.
+143 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 61, render 26, save 4, test 18, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -154,3 +154,4 @@ The [reference](docs/README.md) says what is true now.
 | 140 | [A landing's animation starts the frame after](worklog/0140-a-landing-s-animation-starts-the-frame-after.md) | 2026-10-16 | play |
 | 141 | [Chuckie's climb checked: the player is never scaled](worklog/0141-chuckie-s-climb-checked-the-player-is-never-scaled.md) | 2026-10-16 | play |
 | 142 | [Level 4 on the oracle, as Spike](worklog/0142-level-4-on-the-oracle-as-spike.md) | 2026-10-16 | test |
+| 143 | [Actions play their last frame out](worklog/0143-actions-play-their-last-frame-out.md) | 2026-10-16 | play |

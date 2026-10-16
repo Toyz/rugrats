@@ -295,24 +295,7 @@ impl Player {
                 magnitude = 0;
             } else {
                 self.action = None;
-                // The climb ends where its root motion got to (+0xd8,
-                // +0xdc moved by 0x80066e60), on the ledge it rose to.
-                if let Some(c) = self.climb.take() {
-                    let at = [c.from[0] + c.moved[0], self.pos[1], c.from[2] + c.moved[2]];
-                    let top = self.floor;
-                    let q = collide::query(col, [at[0], top - 1, at[2]]);
-                    let on_col = q.kind == 0 && (q.floor - top).abs() <= STEP_UP;
-                    let on_box = boxes.iter().any(|b| b.covers(at, 0) && (b.min_y - top).abs() <= STEP_UP);
-                    // Room for the body there: no box over the top within
-                    // its height.
-                    let room = !boxes
-                        .iter()
-                        .any(|b| b.covers(at, RADIUS) && b.min_y < top - STEP_UP && b.max_y > top - HEIGHT);
-                    if (on_col || on_box) && room {
-                        self.pos[0] = at[0];
-                        self.pos[2] = at[2];
-                    }
-                }
+                self.finish_climb(col, boxes);
                 // The slip's fall ends (state 18): Damage 5, message 30.
                 if self.slipping {
                     self.slipping = false;
@@ -476,7 +459,7 @@ impl Player {
         if let Some(top) = climb_to {
             // The rise picks the climb (+0x144, 0x80056e44).
             self.animator.climb = self.floor - top;
-            self.climb = Some(Climb { from: start, moved: [0; 3] });
+            self.climb = Some(Climb { top: top + self.feet, from: start, moved: [0; 3] });
             self.pos[1] = top + self.feet;
             self.floor = top;
             self.state = State::Stand;
@@ -571,6 +554,12 @@ impl Player {
         {
             c.moved = m;
         }
+        // Its animation over, the climb ends this frame (the next state
+        // has begun under it).
+        if self.climb.is_some() && !self.animator.playing(anim::CLIMB) {
+            self.finish_climb(col, boxes);
+            self.action = None;
+        }
     }
 
     /// Floating (state 21, 0x8005db28): the stick moves at half speed, no
@@ -649,6 +638,25 @@ impl Player {
 
     /// Thrown through the air (state 16, 0x8005ec9c): along `heading` at
     /// `speed`, up at `up`.
+    /// The climb ends where its root motion got to (+0xd8, +0xdc moved by
+    /// 0x80066e60), on the ledge it rose to, if there is room there.
+    fn finish_climb(&mut self, col: &Col, boxes: &[Box3]) {
+        let Some(c) = self.climb.take() else { return };
+        let top = c.top - self.feet;
+        self.pos[1] = c.top;
+        self.floor = top;
+        let at = [c.from[0] + c.moved[0], self.pos[1], c.from[2] + c.moved[2]];
+        let q = collide::query(col, [at[0], top - 1, at[2]]);
+        let on_col = q.kind == 0 && (q.floor - top).abs() <= STEP_UP;
+        let on_box = boxes.iter().any(|b| b.covers(at, 0) && (b.min_y - top).abs() <= STEP_UP);
+        // Room for the body there: no box over the top within its height.
+        let room = !boxes.iter().any(|b| b.covers(at, RADIUS) && b.min_y < top - STEP_UP && b.max_y > top - HEIGHT);
+        if (on_col || on_box) && room {
+            self.pos[0] = at[0];
+            self.pos[2] = at[2];
+        }
+    }
+
     /// The base track's root y this step (0x80055904 into +0xda), and the
     /// jump's take-off when its airborne state comes.
     fn root_step(&mut self, anims: &Anims) {
@@ -747,7 +755,7 @@ impl Player {
     /// climb, then settled on the top.
     fn climb_motion(&self, anims: &Anims, trig: &Trig) -> Option<(Climb, [i32; 3])> {
         let c = self.climb?;
-        (self.action == Some(anim::CLIMB)).then_some(())?;
+        (self.action == Some(anim::CLIMB) && self.animator.playing(anim::CLIMB)).then_some(())?;
         let (done, _) = self.animator.root_progress(anims)?;
         // The player's body is 0x800c5680's own character, never scaled
         // (0x80055904 scales only other bodies, by +0x4c over 0x800c41dc).
@@ -806,6 +814,8 @@ pub const HEIGHT: i32 = 600;
 /// world.
 #[derive(Clone, Copy, Debug)]
 struct Climb {
+    /// The body's height on the top (the ledge plus the feet).
+    top: i32,
     from: [i32; 3],
     moved: [i32; 3],
 }

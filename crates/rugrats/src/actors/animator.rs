@@ -232,7 +232,7 @@ impl Animator {
             return self.asked == a && t.anim == s && t.count > 0;
         }
         let t = &self.tracks[0];
-        self.asked == a && t.anim == s && t.cur + 1 < t.first + t.count && t.left != i32::MAX
+        self.asked == a && t.anim == s && (t.cur + 1 < t.first + t.count || t.left > 0) && t.left != i32::MAX
     }
 
     /// Whether table state `a` has no base column: it plays over the base.

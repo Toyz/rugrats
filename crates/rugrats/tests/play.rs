@@ -1159,3 +1159,17 @@ fn characters_in_no_room_are_not_drawn() {
         assert!(level != 1 || g.npc_rooms.iter().any(|r| r.is_some()), "level {level}: no character in a room");
     }
 }
+
+/// Hole 26's Reptar (id 9999, mode 8) makes a noise every 1000 dt
+/// (0x80085168): sound 144 or 145 at him, or line 1134.
+#[test]
+fn hole_26_reptar_roars() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 26);
+    let mut noises = 0;
+    run(&mut g, &[(&[], 250)], |g, _| {
+        noises += g.effects.iter().filter(|e| matches!(e.sound, 144 | 145)).count();
+        noises += g.speech.iter().filter(|&&n| n == 1134).count();
+    });
+    assert!(noises >= 2, "{noises} noises in 250 frames");
+}

@@ -160,7 +160,16 @@ pub struct Golf {
     /// The golf camera's delay before the cup camera (0x800c4a58: 4096
     /// from state 13, 136 a frame off it after).
     cup_delay: i32,
+    /// Level 26's Reptar (id 9999, mode 8): the countdown to his next
+    /// noise (0x800c4ce4).
+    roar: i32,
 }
+
+/// Level 26's Reptar (0x80083918 gives him mode 8) and his noises
+/// (0x80085168): every 1000 dt one of sound 144, 145 at him, or line
+/// 1134, by rand % 3.
+const REPTAR: u16 = 9999;
+const ROAR_EVERY: i32 = 1000;
 
 /// Activity play's characters, by face slot (0x800bb4ac).
 pub const FACES: [usize; 6] = [1, 2, 3, 5, 4, 37];
@@ -260,6 +269,7 @@ impl Golf {
             height: 0,
             heights: (0, 0),
             cup_delay: 0,
+            roar: 0,
         };
         golf.settle(g);
         Ok(golf)
@@ -599,6 +609,19 @@ impl Script for Golf {
 
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         self.club(g);
+        if g.level == Level(26)
+            && let Some(at) = g.npcs.iter().find(|n| n.id == REPTAR && !n.hidden).map(|n| n.pos)
+        {
+            self.roar -= DT;
+            if self.roar <= 0 {
+                match (g.rand.next() & 255) % 3 {
+                    0 => g.play_at(144, at),
+                    1 => g.play_at(145, at),
+                    _ => g.speech.push(1134),
+                }
+                self.roar = ROAR_EVERY;
+            }
+        }
         // Level 23's callback (0x80081758): a ball at rest within x +-2000,
         // z +-1000 of template 1264 goes to (x, 280, 2753).
         if g.level == Level::FIRST_HOLE

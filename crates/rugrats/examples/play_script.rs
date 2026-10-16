@@ -51,6 +51,10 @@ fn main() -> Result<(), String> {
     if let Some(n) = std::env::var("PHASE").ok().and_then(|s| s.parse().ok()) {
         game.with_script(|s, g| s.skip_to(g, n));
     }
+    // FINISHED=n: the level told cinematic n finished (its end hook).
+    if let Some(n) = std::env::var("FINISHED").ok().and_then(|s| s.parse().ok()) {
+        game.cine_finished(n);
+    }
     if let Ok(v) = std::env::var("START") {
         let p: Vec<i32> = v.split(',').filter_map(|s| s.parse().ok()).collect();
         if p.len() == 3 {

@@ -124,6 +124,30 @@ impl Sprites {
         out.extend([vtx(0), vtx(2), vtx(1), vtx(1), vtx(2), vtx(3)]);
     }
 
+    /// Sprite `n` at its own size in pixels, centred on screen point `at`
+    /// (from the top left), its texels times `rgb` / 128 (0x80031db8's
+    /// POLY_FT4: u from u0 - w / 2 to u0 + w / 2 - 1).
+    pub fn at_pixels(&self, n: u32, at: (f32, f32), rgb: [u8; 3], out: &mut Vec<Vtx>) {
+        let Some(t) = self.texture(n) else { return };
+        let (w, h) = ((t.uv[1][0] as f32 - t.uv[0][0] as f32).abs(), (t.uv[2][1] as f32 - t.uv[0][1] as f32).abs());
+        let (x0, y0) = ((at.0 - (w / 2.0).trunc()).trunc(), (at.1 - (h / 2.0).trunc()).trunc());
+        let corners = [(x0, y0), (x0 + w, y0), (x0, y0 + h), (x0 + w, y0 + h)];
+        let mode = t.clut as u32 | (t.tpage as u32) << 16;
+        let window = Vtx::window_of(
+            [t.uv[0][0], t.uv[1][0], t.uv[2][0], t.uv[3][0]],
+            [t.uv[0][1], t.uv[1][1], t.uv[2][1], t.uv[3][1]],
+        );
+        let colour = u32::from_le_bytes([rgb[0], rgb[1], rgb[2], 0]);
+        let v = |k: usize| Vtx {
+            pos: [corners[k].0, corners[k].1, 0.0],
+            colour,
+            uv: Vtx::uv_of(t.uv[k][0] as u32, t.uv[k][1] as u32),
+            mode,
+            window,
+        };
+        out.extend([v(0), v(1), v(2), v(1), v(3), v(2)]);
+    }
+
     /// Sprite `n` at screen `at` (from the centre), half-size `w` x `h` at
     /// depth `z`, seen at projection `focal`; `top` lowers its top edge by
     /// that much (a meter's fill).

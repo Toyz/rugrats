@@ -17,6 +17,7 @@ use crate::input::{self, Pads};
 use crate::levels::Level;
 use crate::levels::pie_toss::{Pie, Splats, draw_pies, roll_pies};
 use crate::ui::hud;
+use crate::world::collide;
 use crate::world::game::{self, Exit, Game, Script, Strike};
 
 /// Registry ids (LP +0x2a).
@@ -46,6 +47,12 @@ const START: [i32; 3] = [6671, 779, -14463];
 /// The pie toss (0x8007bc60): Tommy on the counter facing -z, the fixed
 /// camera's eye, Larry and Steve's shared health.
 const COUNTER: [i32; 3] = [45615, -2300, 19446];
+/// The aim marker: 24000 ahead and 1024 down (0x800c42fc, 0x800c42f8),
+/// sprite 426 (TEXPOS + 0x13f8) in red (0x800c402c..34), opaque.
+const MARKER_AHEAD: i32 = 24000;
+const MARKER_DOWN: i32 = 1024;
+const MARKER: u32 = 426;
+const MARKER_RGB: [u8; 3] = [255, 0, 0];
 const TOSS_EYE: Vec3 = Vec3::new(45493.0, -4200.0, 22720.0);
 const TOSS_HEALTH: i32 = 200;
 /// A pie hit takes 50 (0x8007e308).
@@ -116,6 +123,35 @@ impl AisleSeven {
             n.mode = Mode::Block { heading: n.heading };
         }
         Ok(AisleSeven { phase: Phase::Store, respawn: Pose::new(START, heading), toss: None })
+    }
+
+    /// The aim marker (0x8005fe44): (0, 1024, 24000) turned by Tommy's
+    /// heading from his position, pulled in to where the ray (0x80090554)
+    /// first meets the world (the segment test, 0x8002cd7c) or Larry or
+    /// Steve (templates 590 / 591; 0x8006a714 against their bounds, here
+    /// the bounds cube).
+    fn marker(&self, g: &Game) -> [i32; 3] {
+        let p = g.player.pos;
+        let (s, c) = (g.trig.sin(g.player.heading), g.trig.cos(g.player.heading));
+        let far = [p[0] + ((s * MARKER_AHEAD) >> 12), p[1] + MARKER_DOWN, p[2] + ((c * MARKER_AHEAD) >> 12)];
+        let mut hit = collide::Segment::default();
+        let mut to = if collide::segment(&g.col, p, far, &mut hit) == 1 { hit.point } else { far };
+        let len = |q: [i32; 3]| (0..3).map(|k| ((q[k] - p[k]) as f64).powi(2)).sum::<f64>().sqrt();
+        for id in [LARRY, STEVE] {
+            let Some(k) = find(g, id) else { continue };
+            let n = &g.npcs[k];
+            // The nearest point of the ray to the body, inside its bounds.
+            let d = [to[0] - p[0], to[1] - p[1], to[2] - p[2]].map(|v| v as f64);
+            let r = [n.pos[0] - p[0], n.pos[1] - p[1], n.pos[2] - p[2]].map(|v| v as f64);
+            let dd = d.iter().map(|v| v * v).sum::<f64>().max(1.0);
+            let f = (r.iter().zip(&d).map(|(a, b)| a * b).sum::<f64>() / dd).clamp(0.0, 1.0);
+            let q = [0, 1, 2].map(|k| p[k] + (d[k] * f) as i32);
+            let half = n.half_size().max(1) as i32;
+            if (0..3).all(|k| (q[k] - n.pos[k]).abs() <= half) && len(q) < len(to) {
+                to = q;
+            }
+        }
+        to
     }
 
     /// The pie toss (0x8007bc60).
@@ -373,6 +409,16 @@ impl Script for AisleSeven {
     fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         let Some(toss) = &self.toss else { return };
         draw_pies(g, &toss.pies, &toss.splats, toss.holding, moving);
+        if toss.holding
+            && let Some(s) = &g.sprites
+        {
+            let at = self.marker(g);
+            let clip = g.stage.camera * rrt::glam::Vec4::new(at[0] as f32, at[1] as f32, at[2] as f32, 1.0);
+            if clip.w > 16.0 {
+                let (x, y) = (256.0 + 256.0 * clip.x / clip.w, 120.0 - 120.0 * clip.y / clip.w);
+                s.at_pixels(MARKER, (x, y), MARKER_RGB, overlay);
+            }
+        }
         // The gauge (0x8008c5e0 on Larry): model 280 over 282.
         if let (Some(s), Some(k)) = (&g.sprites, find(g, LARRY)) {
             hud::gauge(s, 280, (-148, 73), g.npcs[k].health, TOSS_HEALTH, g.focal(), overlay);

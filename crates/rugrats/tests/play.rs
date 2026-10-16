@@ -229,7 +229,9 @@ fn collect(g: &mut Game, want: impl Fn(&rugrats::world::game::Goodie) -> bool) -
         // camera elsewhere (0x80026ddc), and the stick turns with it.
         let stick = toward(g, 0);
         let mut cine = None;
-        run(g, &[(stick, 6), (&[], 2)], |g, _| cine = cine.or(g.cine.take()));
+        // Put down 100 up, he lands first: the landing plays out
+        // (0x8005cba8 does not move him).
+        run(g, &[(stick, 14), (&[], 2)], |g, _| cine = cine.or(g.cine.take()));
         if cine.is_some() {
             return cine;
         }

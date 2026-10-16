@@ -560,7 +560,11 @@ impl Player {
             State::Land => anim::LAND,
         };
         self.animator.set(a, anims);
-        self.animator.step(anims);
+        // The animation steps before the state's handler (0x8005a068), so
+        // a landing's animation starts the frame after it lands.
+        if !self.landed {
+            self.animator.step(anims);
+        }
         self.root_step(anims);
         if let Some((_, m)) = self.climb_motion(anims, trig)
             && let Some(c) = &mut self.climb

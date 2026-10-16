@@ -194,3 +194,63 @@ fn level_18_egg_hunt_is_won() {
     let mut g = open(&disc, 18);
     assert_eq!(collect(&mut g, |e| e.template == 496), Some(24));
 }
+
+/// Level 15: Triangle beside each ? box starts its colour, and its
+/// balloons taken fill it; the sixth colour wins (cine 72).
+#[test]
+fn level_15_mirrorland_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 15);
+    let mut won = None;
+    for id in 207..=212u16 {
+        let b = g.set.placements.iter().find(|p| p.kind == 1 && p.id == id).unwrap().pos;
+        // Beside the box, in its room.
+        let room = g.room_of(b);
+        let at = [[600, 0], [-600, 0], [0, 600], [0, -600]]
+            .map(|[dx, dz]| [b[0] + dx, b[1], b[2] + dz])
+            .into_iter()
+            .find(|&p| g.room_of(p) == room)
+            .unwrap_or(b);
+        put(&mut g, at, 0);
+        run(&mut g, &[(&[], 4), (&[input::TRIANGLE], 1), (&[], 2)], |_, _| {});
+        assert!(g.is_hidden(id), "box {id} did not open");
+        won = collect(&mut g, |b| (6..=11).contains(&b.kind));
+    }
+    assert_eq!(won, Some(72));
+}
+
+/// Level 9: Mr. Friend kicked down four times; the first brings back all
+/// three (cine 18, as the app plays it), the fourth wins (cine 19).
+#[test]
+fn level_9_mr_friend_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 9);
+    let friends = [46u16, 91, 800];
+    for _ in 0..400 {
+        let Some(k) = g.npcs.iter().position(|n| friends.contains(&n.id) && !n.hidden) else { break };
+        let p = g.npcs[k].pos;
+        put(&mut g, [p[0], p[1], p[2] - 500], 0);
+        let mut cine = None;
+        run(&mut g, &[(&[input::TRIANGLE], 1), (&[], 40)], |g, _| cine = cine.or(g.cine.take()));
+        match cine {
+            Some(18) => g.cine_finished(18),
+            Some(19) => return,
+            Some(n) => panic!("cine {n}"),
+            None => {}
+        }
+    }
+    panic!("not won: {}", g.script.as_ref().map_or(String::new(), |s| s.describe()));
+}
+
+/// Level 4: coming within 2000 of Cynthia at her hiding spot wins (cine
+/// 48).
+#[test]
+fn level_4_cynthia_is_found() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 4);
+    let at = g.spots.iter().find(|s| s.group == 0 && s.used).unwrap().pos;
+    put(&mut g, [at[0], at[1], at[2] - 1000], 0);
+    let mut cine = None;
+    run(&mut g, &[(&[], 10)], |g, _| cine = cine.or(g.cine.take()));
+    assert_eq!(cine, Some(48));
+}

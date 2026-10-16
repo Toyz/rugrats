@@ -1466,7 +1466,7 @@ fn the_whole_game_by_play() {
     assert!(progress.give_piece(Level::HUB, &mut rand));
     // Doors 3, 4 and 6 open with Mirrorland won (+0x30 bit 16), which the
     // count opens after the third main level.
-    for door in [2u8, 5, 9, 10, 11, 12, 25, 3, 4, 6] {
+    for door in [2u8, 5, 9, 10, 11, 12, 25, 3, 4, 6, 13, 18] {
         let mut hub = Game::open_from(&disc, Level::HUB, None, &progress).unwrap();
         run(&mut hub, &[(&[], 3)], |_, _| {});
         assert_eq!(through_door(&mut hub, door), Some(Level(door)), "the door to {door}, after {played:?}");
@@ -1481,7 +1481,7 @@ fn the_whole_game_by_play() {
     }
     assert_eq!(progress.pieces(), 12, "after {played:?}");
     win_level(&disc, Level::REPTAR_2010, &progress);
-    for l in [2, 3, 4, 5, 6, 9, 10, 11, 12, 15, 17, 20, 21] {
+    for l in [2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 15, 17, 18, 20, 21] {
         assert!(played.contains(&l), "level {l} not played: {played:?}");
     }
 }

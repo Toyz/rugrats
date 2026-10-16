@@ -24,7 +24,7 @@ Nothing yet played the whole campaign through.
 1. **The first piece.** Reptar Puzzle gives it on the first entry to the
    hub (+0x30 bit 4, 0x80094bfc(1)), as the app does then.
 2. **Each door, in an order a player can take:** 2, 5, 9, 10, 11, 12, the
-   golf course (25), then 3, 4, 6. Doors 3, 4 and 6 open only with
+   golf course (25), then 3, 4, 6, and last the bonus doors 13 and 18. Doors 3, 4 and 6 open only with
    Mirrorland won. In the hub, opened with the progress so far,
    `through_door` finds the door's placement (LP +0x42), puts Tommy
    before it facing it, and presses Triangle. The exit must lead to that
@@ -50,5 +50,4 @@ All tests pass.
 
 - The policies still put the player at the spot each level needs. The
   getting from place to place is not played, the doors of the hub aside.
-- Levels 13 (cookie race), 16 (training) and 18 (egg hunt) are not on the
-  run. The count does not open them, and they have their own tests.
+- Level 16 (training, from the title's menu) is not on the run.

@@ -663,7 +663,10 @@ impl Player {
             true => done - was.done,
             false => rest + done,
         };
-        let air = matches!(self.state, State::Jump | State::Fall) && self.pending_jump.is_none();
+        // Root y seen in the air or in a climb does not carry on (the climb
+        // puts the body on the top itself).
+        let air =
+            (matches!(self.state, State::Jump | State::Fall) && self.pending_jump.is_none()) || self.climb.is_some();
         self.root_seen = RootSeen { air, state, first, count, cur, done, total };
         if self.climb.is_some() {
             return;
@@ -746,8 +749,9 @@ impl Player {
         let c = self.climb?;
         (self.action == Some(anim::CLIMB)).then_some(())?;
         let (done, _) = self.animator.root_progress(anims)?;
-        let scale = if self.animator.character == TOMMY { 1.0 } else { self.feet as f32 / ROOT_SCALE };
-        let m = self.rotation(trig) * Vec3::new(done[0] as f32, done[1] as f32, done[2] as f32) * scale;
+        // The player's body is 0x800c5680's own character, never scaled
+        // (0x80055904 scales only other bodies, by +0x4c over 0x800c41dc).
+        let m = self.rotation(trig) * Vec3::new(done[0] as f32, done[1] as f32, done[2] as f32);
         Some((c, [m.x as i32, m.y as i32, m.z as i32]))
     }
 
@@ -822,9 +826,6 @@ struct RootSeen {
 /// What the floor takes back a frame of a body sunk under it by its
 /// animation (the oracle after a landing: 23).
 const FLOOR_RETURN: i32 = 23;
-
-/// The root motion's reference height (0x800c41dc, as peeked).
-const ROOT_SCALE: f32 = -561.0;
 
 /// The highest ledge a climb takes (0x80056e44: under 1034; under 522
 /// while carrying).

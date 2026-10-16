@@ -1284,3 +1284,29 @@ fn a_running_jump_moves_as_the_original() {
     let landing = states.iter().position(|s| *s == State::Land).expect("a landing");
     assert!(states[landing..landing + 6].iter().all(|s| *s == State::Land), "{states:?}");
 }
+
+/// Chuckie's climb in level 10, on the same seat (template 130): the
+/// player's body is 0x800c5680's own character, so its root motion is not
+/// scaled. The oracle (level 10 booted as Chuckie, put at (8945, 670,
+/// 12500)): his height through the climb (table state 13).
+#[test]
+fn chuckies_climb_moves_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 10);
+    run(&mut g, &[(&[], 1)], |_, _| {});
+    put(&mut g, [8945, 670, 12500], 0);
+    let oracle = [
+        661, 652, 639, 622, 605, 502, 398, 282, 154, 25, 6, -14, -22, -17, -12, -23, -34, -50, -72, -95, -114, -133,
+        -152,
+    ];
+    let mut seen = Vec::new();
+    run(&mut g, &[(&[input::UP], 30)], |g, _| {
+        if g.player.action.is_some() {
+            seen.push(g.player.parts(&g.anims, &g.trig)[0].1.y as i32);
+        }
+    });
+    assert!(seen.len() >= oracle.len(), "{seen:?}");
+    for (k, (&y, &o)) in seen.iter().zip(&oracle).enumerate() {
+        assert!((y - o).abs() <= 2, "frame {k}: {y} against {o} ({seen:?})");
+    }
+}

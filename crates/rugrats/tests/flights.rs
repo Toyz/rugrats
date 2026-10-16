@@ -342,3 +342,17 @@ fn a_splat_throws_five_bits() {
         assert_eq!(fl.spin, 723);
     }
 }
+
+/// A collectible taken (0x800514b0): three bits of its sprite (a bar's
+/// 295 here), 500 ms, bounce 2048, speed under 100.
+#[test]
+fn a_collectible_sparkles() {
+    let Some(disc) = disc() else { return };
+    let (sprites, _, mut f) = level_7(&disc);
+    f.sparkle(999, [0, 0, 0], 0, Some(&sprites));
+    assert_eq!(f.len(), 3);
+    for fl in f.iter() {
+        assert_eq!((fl.kind(), fl.skin, fl.face, fl.bounce, fl.life), (5, Skin::Sprite(295), 0xd280_0000, 2048, 500));
+        assert!(fl.v.iter().all(|c| c.abs() < 100 * 65536 / 6000), "{:?}", fl.v);
+    }
+}

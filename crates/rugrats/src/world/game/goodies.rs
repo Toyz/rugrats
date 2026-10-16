@@ -95,6 +95,9 @@ impl Game {
             let d = g.pos - me;
             if Vec3::new(d.x, 0.0, d.z).length() < r && d.y.abs() < 1200.0 {
                 g.taken = true;
+                // Three sparks where it was (0x800514b0).
+                let at = [g.pos.x as i32, g.pos.y as i32, g.pos.z as i32];
+                self.flights.sparkle(g.template, at, g.value as i16, self.sprites.as_ref());
                 self.collected.push(Collected { kind: g.kind, value: g.value });
                 self.effects.push(Effect::new(goodie::sound(g.kind)));
                 // Cookies and bones heal by their +0x6d (0x800514b0).

@@ -572,6 +572,40 @@ impl Flights {
     /// sprite 359 thrown within half a turn of the surface's `normal` at
     /// speed rand mod 150 (50 at most), falling at 13, bouncing off the
     /// world by 1000 / 4096, 2000 ms each; opaque (face 0xd0800000).
+    /// A collectible's three sparks as it is taken (0x800514b0): kind 5
+    /// (flags 0x305), half-size 200, face 0xd2800000, 500 ms, bounce 2048,
+    /// speed rand mod 100 from its own seed 0xb0a5 (set afresh each time),
+    /// all round about up (0x80088bac(up, 0, 4096)). The sprite by
+    /// template: 835 TEXPOS + 3552 (296), 863 and 1017 359, 87 362, else
+    /// TEXPOS + 3540 (295). `damage` is its +0x6d.
+    pub fn sparkle(&mut self, template: u16, at: [i32; 3], damage: i16, sprites: Option<&Sprites>) {
+        let sprite = match template {
+            835 => 296,
+            863 | 1017 => 359,
+            87 => 362,
+            _ => 295,
+        };
+        let mut seed = 0xb0a5u32;
+        for _ in 0..3 {
+            let speed = (((lcg(&mut seed) >> 16) & 0x7fff) % 100) as i32;
+            let dir = self.cone([0, 4096, 0], &IDENTITY, 0, 4096);
+            let l = Launch {
+                flags: 0x305,
+                at,
+                life: 500,
+                dir,
+                speed,
+                bounce: 2048,
+                sprite: Some(sprite),
+                size: [200, 200],
+                face: 0xd280_0000,
+                damage,
+                ..Launch::default()
+            };
+            self.launch(&l, sprites);
+        }
+    }
+
     pub fn splat(&mut self, normal: [i32; 3], at: [i32; 3], sprites: Option<&Sprites>) {
         for _ in 0..5 {
             let speed = ((((lcg(&mut self.seeds.pie) >> 16) & 0x7fff) % 150) as i32).min(50);

@@ -107,8 +107,9 @@ impl Reptar2010 {
                     1135 => 90,
                     _ => 0,
                 };
+                // At the building (0x8004d7c4: 0x8006f644).
                 if sound != 0 {
-                    g.play(sound);
+                    g.play_at(sound, at);
                 }
                 if t == 931 {
                     g.speech.push(1183);
@@ -122,7 +123,7 @@ impl Reptar2010 {
                 g.flights.explosion(at, g.sprites.as_ref());
                 // 1240's sound is 91 alone.
                 let sound = if t == GONE || g.rand.next() & 1 == 0 { 91 } else { 92 };
-                g.play(sound);
+                g.play_at(sound, at);
             }
         }
     }
@@ -157,7 +158,9 @@ impl Script for Reptar2010 {
         // The landing's rumble (0x8005cba8 for char 9): sound 93.
         let air = matches!(g.player.state, State::Jump | State::Fall);
         if self.was_air && !air {
-            g.play(93);
+            // At him (0x8005cba8: 0x8006f644(93, player)).
+            let me = g.player.pos;
+            g.play_at(93, me);
         }
         self.was_air = air;
         self.break_near(g);

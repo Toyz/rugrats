@@ -264,6 +264,33 @@ neighbouring actions are 4 bytes apart, so only port 0 is consistent
 
 A button action is pressed when `*ptr & 3 == 1`, held when `*ptr & 1`.
 
+### The look buttons (0x8002729c)
+
+L1, L2 and R2 look aside; they do not turn the camera. 0x8002729c(cam,
+player, yaw, pitch) starts a look when the camera is the follow camera
+(cam +0x4a = 1), none is under way (0x800c4a3c bit 16) and the player is
+not floating (state 21). It sets bit 16, the offsets 0x800de430 (yaw) and
+0x800de434 (pitch) to 0, and the targets 0x800de438 = yaw, 0x800de43c =
+pitch: L1 (0, 341), L2 (-341, 0), R2 (341, 0).
+
+Each camera frame (0x8002953c, with bit 16) 0x800247fc steps the yaw
+offset toward its target, or the pitch offset when the yaw target is 0:
+
+- progress = offset * 2048 / target; s = rsin(progress), rounded toward
+  0 when divided by 16;
+- step = (s / 16 + 128) * 0x800c3f20 / 4096 (136: 4 to 12 a frame);
+- out (bit 32 clear): offset += step toward the target; reaching it
+  clamps and sets bit 32;
+- back (bit 32 set): offset -= step toward 0; reaching 0 clamps and
+  clears bits 16 and 32.
+
+0x8001e838(cam, 0, yaw, pitch) then turns the camera matrix about the
+eye: rotY(yaw) (0x80020c30) times the matrix, or the matrix times
+rotX(pitch) (0x80020ca0); MulMatrix0 is 0x8009f488. In the oracle, R2
+looks right, L2 left, L1 up, and a look is out and back in about 100
+game frames. R1 (0x80026ddc) zeroes the four words and keeps only bits
+0x4200 of 0x800c4a3c before setting 0x9c0, which ends a look.
+
 ### Axes (0x8001ab10, 0x8001a888)
 
 Twelve 20-byte axes at 0x800cdac0: `s32 value, s32 type, ptr a, ptr b,
@@ -687,8 +714,8 @@ A suggested order, each step checkable against the oracle:
 - COL +0x24, record bytes +4 and +7, the plane equation's exact form
   (0x80068510).
 - The follow camera's details (0x80027304 is 1885 instructions): its flag
-  bits 0x800c4a3c, easing, what R1 (0x80026ddc) and L1 / L2 / R2
-  (0x8002729c) do exactly, camera modes 2, 5 and 12.
+  bits 0x800c4a3c, easing, what R1 (0x80026ddc) does exactly, camera
+  modes 2, 5 and 12.
 - The world-update callees 0x8008851c, 0x8008a358, 0x8008c0d4, 0x8009173c
   and the draws 0x8006f88c .. 0x80034a98 (NPCs, effects, shadows: guesses).
 - The HUD elements: which pool shows what.

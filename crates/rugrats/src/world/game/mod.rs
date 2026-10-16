@@ -168,6 +168,8 @@ pub struct Game {
     /// The camera's eye and its heading (4096 a turn).
     pub eye: Vec3,
     pub yaw: f32,
+    /// The look aside (L1, L2, R2).
+    look: Look,
     /// The rooms and objects at rest, drawn under the player.
     scenery: Vec<Vtx>,
     /// Where the level ends: a level to go to (the exit code, 0x800c4918)
@@ -745,6 +747,7 @@ impl Game {
             focal,
             eye: Vec3::ZERO,
             yaw,
+            look: Look::default(),
             scenery,
             exit: None,
             cine: None,
@@ -1131,17 +1134,22 @@ impl Game {
         if pads.pressed(0, input::SELECT) && !self.activity {
             self.pages.push(Page::Restart);
         }
-        // The camera buttons turn it by an eighth (L2, R2: 341 a press).
-        if pads.pressed(0, input::L2) {
-            self.yaw -= 341.0;
+        // The look buttons (0x8002729c): L2/R2 left and right, L1 up;
+        // only with the follow camera, not while floating (state 21).
+        let following = self.fixed.is_none() && self.post_camera.is_none();
+        if following && self.player.float.is_none() {
+            for (button, yaw, pitch) in [(input::L1, 0, 341), (input::L2, -341, 0), (input::R2, 341, 0)] {
+                if pads.pressed(0, button) {
+                    self.look.start(yaw, pitch);
+                }
+            }
         }
-        if pads.pressed(0, input::R2) {
-            self.yaw += 341.0;
-        }
-        // R1: the camera back behind the player (0x80026ddc); ignored
-        // while level 5's float holds it.
+        self.look.step(&self.trig);
+        // R1: the camera back behind the player (0x80026ddc), the look
+        // dropped; ignored while level 5's float holds it.
         if pads.pressed(0, input::R1) && !self.cam_hold {
             self.yaw = self.player.heading as f32;
+            self.look.cancel();
         }
         // Follow: swing behind the player as it runs, ease 1/8 a frame.
         if self.player.speed > 0 {
@@ -1330,6 +1338,17 @@ impl Game {
         let f = (target - eye).normalize_or(Vec3::Z);
         let x = Vec3::Y.cross(f).normalize_or(Vec3::X);
         let y = f.cross(x);
+        // The look turns the view about the eye (0x8001e838): yaw toward
+        // the right, pitch up (y is down).
+        let (x, y, f) = if self.fixed.is_none() && post.is_none() {
+            let a = |v: i32| v as f32 * std::f32::consts::TAU / 4096.0;
+            let (sy, cy) = a(self.look.yaw).sin_cos();
+            let (x, f) = (x * cy - f * sy, f * cy + x * sy);
+            let (sp, cp) = a(self.look.pitch).sin_cos();
+            (x, y * cp + f * sp, f * cp - y * sp)
+        } else {
+            (x, y, f)
+        };
         // World to camera: rows x (right), y (down), z (ahead).
         let rows = Mat3::from_cols(x, y, f).transpose();
         self.view = (eye, rows);

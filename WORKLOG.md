@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-80 entries: audio 11, bug 4, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 11, save 4, test 16, tooling 18, ui 9, video 8.
+81 entries: audio 11, bug 4, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 11, save 4, test 17, tooling 18, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -92,3 +92,4 @@ The [reference](docs/README.md) says what is true now.
 | 78 | [Cookie Race and Grandpa's Teeth won by play](worklog/0078-cookie-race-and-grandpa-s-teeth-won-by-play.md) | 2026-10-15 | test |
 | 79 | [Let There Be Light and Aisle 7 won by play](worklog/0079-let-there-be-light-and-aisle-7-won-by-play.md) | 2026-10-15 | test |
 | 80 | [Reptar 2010, Chuckie's Glasses and Circus Angelicus won by play](worklog/0080-reptar-2010-chuckie-s-glasses-and-circus-angelicus-won-by.md) | 2026-10-15 | test |
+| 81 | [Mini golf played hole by hole; every level now won by play](worklog/0081-mini-golf-played-hole-by-hole-every-level-now-won-by-play.md) | 2026-10-15 | test |

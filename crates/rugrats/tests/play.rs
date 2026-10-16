@@ -562,3 +562,193 @@ fn level_11_circus_is_won() {
     let cine = play(&mut g, 30 * 10, |_, _| vec![]);
     assert_eq!(cine, Some(62), "ring 3");
 }
+
+/// The golf ball's position, from the script's describe line.
+fn ball(g: &Game) -> Option<[i32; 3]> {
+    let d = g.script.as_ref()?.describe();
+    let at = d.split("ball [").nth(1)?.split(']').next()?;
+    let v: Vec<i32> = at.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    (v.len() == 3).then(|| [v[0], v[1], v[2]])
+}
+
+fn stage(g: &Game) -> String {
+    g.script.as_ref().map_or(String::new(), |s| s.describe())
+}
+
+/// One stroke: walk up to the ball, face `aim`, start the meter, stop it
+/// at about `power` (3 a frame from 4), and wait for the ball to rest.
+/// The level's exit or cinematic if the stroke ends the hole.
+fn stroke(g: &mut Game, aim: [i32; 3], power: i32) -> Option<usize> {
+    let b = ball(g)?;
+    put(g, [b[0], b[1] - 100, b[2] - 700], 0);
+    let mut out = None;
+    run(g, &[(&[], 60)], |g, _| out = out.or(g.cine.take()));
+    face(g, aim);
+    let wait = ((power - 4).max(0) / 3) as usize;
+    run(g, &[(&[input::TRIANGLE], 1), (&[], wait), (&[input::TRIANGLE], 1)], |g, _| out = out.or(g.cine.take()));
+    for _ in 0..600 {
+        run(g, &[(&[], 1)], |g, _| out = out.or(g.cine.take()));
+        if out.is_some() || g.exit.is_some() || stage(g).contains("roll None") && stage(g).contains("Free") {
+            break;
+        }
+    }
+    out.or(g.exit.take().map(|e| e.level.0 as usize + 1000))
+}
+
+/// A stroke aimed `offset` off the cup's bearing, at `power`.
+#[derive(Clone, Copy, Debug)]
+struct Shot {
+    offset: i32,
+    power: i32,
+}
+
+/// Replays `shots` on a fresh hole: the result, if one ended it, and the
+/// game after.
+fn replay(disc: &GameDisc, level: u8, shots: &[Shot]) -> (Option<usize>, Game) {
+    let mut g = open(disc, level);
+    let cup = g.set.placements.iter().find(|p| p.kind == 1 && p.template == 789).map(|p| p.pos).unwrap();
+    for s in shots {
+        let Some(b) = ball(&g) else { break };
+        let bearing = ((cup[0] - b[0]) as f64).atan2((cup[2] - b[2]) as f64);
+        let a = bearing + s.offset as f64 * std::f64::consts::TAU / 4096.0;
+        let aim = [b[0] + (a.sin() * 4000.0) as i32, b[1], b[2] + (a.cos() * 4000.0) as i32];
+        if let Some(r) = stroke(&mut g, aim, s.power) {
+            return (Some(r), g);
+        }
+    }
+    (None, g)
+}
+
+/// The distance to the cup along the fairway: a shortest-path field over
+/// the COL grid (cells of 250, eight ways), through floor no higher than
+/// the cup's own by more than 60.
+struct Field {
+    origin: [i32; 2],
+    w: usize,
+    d: Vec<f64>,
+}
+
+const CELL: i32 = 250;
+
+impl Field {
+    fn new(g: &Game, cup: [i32; 3]) -> Field {
+        let (x0, z0) = (g.col.min[0], g.col.min[2]);
+        let (w, h) = (((g.col.max[0] - x0) / CELL + 1) as usize, ((g.col.max[2] - z0) / CELL + 1) as usize);
+        let cup_floor = rugrats::world::collide::query(&g.col, [cup[0], cup[1] - 50, cup[2]]).floor;
+        let open: Vec<bool> = (0..w * h)
+            .map(|i| {
+                let (x, z) = (x0 + (i % w) as i32 * CELL, z0 + (i / w) as i32 * CELL);
+                let q = rugrats::world::collide::query(&g.col, [x, cup[1] - 50, z]);
+                q.kind != 2 && q.tile.is_some() && q.floor >= cup_floor - 60
+            })
+            .collect();
+        let mut d = vec![f64::MAX; w * h];
+        let at = |x: i32, z: i32| ((z - z0) / CELL) as usize * w + ((x - x0) / CELL) as usize;
+        let start = at(cup[0], cup[2]);
+        d[start] = 0.0;
+        let mut heap = std::collections::BinaryHeap::new();
+        heap.push((std::cmp::Reverse(0u64), start));
+        while let Some((std::cmp::Reverse(_), i)) = heap.pop() {
+            let (cx, cz) = ((i % w) as i64, (i / w) as i64);
+            for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+                let (nx, nz) = (cx + dx, cz + dz);
+                if nx < 0 || nz < 0 || nx >= w as i64 || nz >= h as i64 {
+                    continue;
+                }
+                let j = nz as usize * w + nx as usize;
+                if !open[j] {
+                    continue;
+                }
+                let nd = d[i] + if dx != 0 && dz != 0 { 1.414 } else { 1.0 } * CELL as f64;
+                if nd < d[j] {
+                    d[j] = nd;
+                    heap.push((std::cmp::Reverse(nd as u64), j));
+                }
+            }
+        }
+        Field { origin: [x0, z0], w, d }
+    }
+
+    /// The distance to go from `p` (huge off the fairway).
+    fn at(&self, p: [i32; 3]) -> f64 {
+        let (x, z) = ((p[0] - self.origin[0]) / CELL, (p[2] - self.origin[1]) / CELL);
+        if x < 0 || z < 0 || x as usize >= self.w {
+            return f64::MAX;
+        }
+        self.d.get(z as usize * self.w + x as usize).copied().unwrap_or(f64::MAX)
+    }
+}
+
+/// Plays a hole by search: each stroke the one of a fan of aims and
+/// powers that holes out, else ends nearest the cup along the fairway.
+fn solve_hole(disc: &GameDisc, level: u8, par: usize, fan: i32) -> Option<(usize, Vec<Shot>)> {
+    let mut shots: Vec<Shot> = Vec::new();
+    let field = {
+        let g = open(disc, level);
+        let cup = g.set.placements.iter().find(|p| p.kind == 1 && p.template == 789).map(|p| p.pos).unwrap();
+        Field::new(&g, cup)
+    };
+    while shots.len() < par {
+        let mut best: Option<(i64, Shot, Option<usize>)> = None;
+        for offset in (-fan..=fan).step_by(128) {
+            for power in (30..=218).step_by(17) {
+                let s = Shot { offset, power };
+                let mut tried = shots.clone();
+                tried.push(s);
+                let (r, g) = replay(disc, level, &tried);
+                if r.is_some_and(|r| r != 0) && !stage(&g).contains("Over") {
+                    return Some((r.unwrap(), tried));
+                }
+                let Some(b) = ball(&g) else { continue };
+                let d = field.at(b).min(1e12) as i64;
+                if best.is_none_or(|(bd, ..)| d < bd) {
+                    best = Some((d, s, r));
+                }
+            }
+        }
+        shots.push(best?.1);
+    }
+    None
+}
+
+/// Finds each hole's shots by search (slow: run with --ignored); what it
+/// printed is golf_course_is_played's list.
+#[test]
+#[ignore]
+fn golf_course_search() {
+    let Some(disc) = disc() else { return };
+    let pars = [4usize, 5, 4, 5, 5, 5, 4, 5, 3];
+    for (k, level) in [25u8, 28, 24, 29, 23, 30, 26, 31, 27].into_iter().enumerate() {
+        let r = solve_hole(&disc, level, pars[k], 2048);
+        eprintln!(
+            "SEARCH {level}: {:?}",
+            r.map(|(r, s)| (r, s.iter().map(|s| (s.offset, s.power)).collect::<Vec<_>>()))
+        );
+    }
+}
+
+/// Mini golf, the nine holes in course order, each played stroke by stroke
+/// (walk up to the ball, aim, the power meter stopped, the roll) at or
+/// under par; each holes out to the next hole, the ninth to cine 35.
+/// The shots are golf_course_search's.
+#[test]
+fn golf_course_is_played() {
+    let Some(disc) = disc() else { return };
+    let course: [(u8, usize, &[(i32, i32)], usize); 9] = [
+        (25, 4, &[(384, 217)], 1028),
+        (28, 5, &[(0, 217), (0, 64)], 1024),
+        (24, 4, &[(-256, 217), (0, 81), (-1920, 115)], 1029),
+        (29, 5, &[(256, 217), (0, 115)], 1023),
+        (23, 5, &[(256, 166), (128, 217), (-640, 217)], 1030),
+        (30, 5, &[(-384, 217), (0, 98)], 1026),
+        (26, 4, &[(384, 217), (768, 217), (-1280, 200)], 1031),
+        (31, 5, &[(-384, 217), (-768, 217), (-1280, 217), (-1664, 217)], 1027),
+        (27, 3, &[(-512, 217)], 35),
+    ];
+    for (level, par, shots, next) in course {
+        let shots: Vec<Shot> = shots.iter().map(|&(offset, power)| Shot { offset, power }).collect();
+        assert!(shots.len() <= par);
+        let (r, g) = replay(&disc, level, &shots);
+        assert_eq!(r, Some(next), "hole {level}: {}", stage(&g));
+    }
+}

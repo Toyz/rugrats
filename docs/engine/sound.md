@@ -101,6 +101,12 @@ See `rrt::kit::libsnd::sep`:
 - No tone in the game's 1779 has vibrato or portamento, and one has the
   reverb bit, so libsnd's unmodelled vibrato, portamento and reverb do
   not change what Rugrats plays.
+- Reverb is silent: the SPU init (0x800add98, from the sound init) clears
+  SPUCNT and the reverb volumes. The only paths to SpuSetReverb
+  (0x800af2f8) and the reverb depth and type (0x800af4d8) are libsnd's
+  SEQ handlers that SsSepOpen (0x800a5ec8) installs: CC 91, the NRPN
+  data entries. The game's 33 SEPs send no CC 91; besides the loop marks
+  (NRPN 20, 30) their only NRPN is 40, always with data 0.
 - Pans add up around 64.
 - `Mix` puts the SPU's voices over the XA soundtrack for the audio device.
 - `song_wav` renders a song offline. Song 0 at 90: peak 21990, RMS 2859.

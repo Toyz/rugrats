@@ -53,6 +53,9 @@ pub struct Rugrats {
     rand: Rand,
     /// Activity mini-golf's round (0x80096a30).
     golf_round: Option<GolfRound>,
+    /// The faces the last cinematic left in VRAM, and a count of them
+    /// (see `FaceBlocks`).
+    faces: (u64, crate::media::face::FaceBlocks),
     /// What draws a 3D screen, made for its stage's generation, the 4:3
     /// picture it draws into, and the VRAM revision it holds.
     world: Option<(Renderer, Target, u64, u64)>,
@@ -87,6 +90,7 @@ impl Rugrats {
             world: None,
             rand: Default::default(),
             golf_round: None,
+            faces: (0, Default::default()),
         })
     }
 

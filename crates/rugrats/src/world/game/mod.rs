@@ -307,6 +307,8 @@ pub struct Game {
     /// The objects' boxes this frame, without things and characters: what
     /// a thrown thing lands on and bounces off.
     pub solid: Vec<Box3>,
+    /// Which carried-over faces its VRAM has (the app's count).
+    pub face_serial: u64,
     /// Touch 1's sound count (0x800c4ba0).
     pub(super) shelf_sound: i32,
     /// The piano's last note (0x800c4358): the same one is not played
@@ -919,6 +921,7 @@ impl Game {
             pending_grab: None,
             water_steps: 0,
             solid: Vec::new(),
+            face_serial: 0,
             shelf_sound: 0,
             last_note: None,
             crand: 0,

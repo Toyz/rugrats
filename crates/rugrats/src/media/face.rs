@@ -65,6 +65,43 @@ const EYES: [Block; 11] = [
     block(&[112], 15, (256, 256, 32, 96), 255),
 ];
 
+/// The faces as VRAM holds them: every block's words. The PlayStation has
+/// one VRAM, so what the last cinematic put there (its last frame's
+/// mouths and eyes) is what the characters wear in play; the port keeps
+/// each screen's VRAM apart and carries these blocks over.
+#[derive(Clone, Debug, Default)]
+pub struct FaceBlocks(Vec<((u16, u16, u16, u16), Vec<u16>)>);
+
+impl FaceBlocks {
+    /// The blocks as `vram` has them.
+    pub fn capture(vram: &Vram) -> FaceBlocks {
+        let mut rects: Vec<(u16, u16, u16, u16)> = MOUTHS.iter().chain(EYES.iter()).map(|b| b.rect).collect();
+        rects.sort();
+        rects.dedup();
+        FaceBlocks(
+            rects
+                .into_iter()
+                .map(|(x, y, w, h)| {
+                    let words = (y..y + h)
+                        .flat_map(|row| {
+                            let at = row as usize * 1024 + x as usize;
+                            vram.words[at..at + w as usize].iter().copied()
+                        })
+                        .collect();
+                    ((x, y, w, h), words)
+                })
+                .collect(),
+        )
+    }
+
+    /// Puts the blocks into `vram`.
+    pub fn apply(&self, vram: &mut Vram) {
+        for &((x, y, w, h), ref words) in &self.0 {
+            vram.load(x, y, w, h, words);
+        }
+    }
+}
+
 /// A database's face banks.
 pub struct Faces {
     banks: Vec<Option<Vec<u16>>>,

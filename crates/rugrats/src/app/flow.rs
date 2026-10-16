@@ -134,16 +134,29 @@ impl Rugrats {
                     if self.pads.pressed(0, TRIANGLE) || cine.over() {
                         self.silence();
                         self.world = None;
+                        self.keep_faces(&cine.stage.vram);
                         return self.title(now);
                     }
                 }
                 Boot::Opening { cine }
             }
             Boot::Title { title } => self.title_tick(title, t, now),
-            Boot::Game { game } => self.play(game, t, now),
+            Boot::Game { mut game } => {
+                if game.face_serial != self.faces.0 {
+                    self.faces.1.apply(&mut game.stage.vram);
+                    game.stage.vram_rev += 1;
+                    game.face_serial = self.faces.0;
+                }
+                self.play(game, t, now)
+            }
             Boot::Fade { game, n, left, level, overlay } => self.fade(game, n, (left, level, overlay), now),
             boot => boot,
         }
+    }
+
+    /// The faces a cinematic leaves in VRAM, carried into play.
+    fn keep_faces(&mut self, vram: &rugrats_render::Vram) {
+        self.faces = (self.faces.0 + 1, crate::media::face::FaceBlocks::capture(vram));
     }
 
     fn logo(&mut self, n: usize, now: u64) -> Boot {
@@ -336,8 +349,12 @@ impl Rugrats {
     pub(super) fn scene(&mut self, n: usize, level: Level, then: Then, now: u64) -> Boot {
         self.cine_song_start(n);
         match Cine::open(&self.disc, n, level.index(), now, &self.soundtrack) {
-            Ok(cine) => {
+            Ok(mut cine) => {
                 self.world = None;
+                // The characters' texture is loaded once, at boot: the
+                // faces left by the last cinematic are there to start.
+                self.faces.1.apply(&mut cine.stage.vram);
+                cine.stage.vram_rev += 1;
                 Boot::Scene { cine: Box::new(cine), n, then }
             }
             Err(e) => {
@@ -357,6 +374,7 @@ impl Rugrats {
         }
         self.silence();
         self.cine_song_end(n);
+        self.keep_faces(&cine.stage.vram);
         // CineFinish (0x800783d8) shows the cinematic's card. No hint
         // cards in activity play.
         let card = front::card_after(n).filter(|_| !self.progress.activity());

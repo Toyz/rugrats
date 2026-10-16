@@ -36,7 +36,33 @@ fn open(disc: &GameDisc, level: u8) -> Game {
     Game::open_from(disc, Level(level), None, &Progress::default()).unwrap()
 }
 
+thread_local! {
+    /// While set, every place a test puts the player is first walked to
+    /// from where the player is (`on_foot`), and the misses kept here.
+    static ON_FOOT: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Notes `what` as not reached on foot, when checking.
+fn not_on_foot(g: &Game, what: String) {
+    let from = g.player.pos;
+    ON_FOOT.with(|c| c.borrow_mut().as_mut().map(|v| v.push(format!("level {}: {what} from {from:?}", g.level.0))));
+}
+
+fn checking() -> bool {
+    ON_FOOT.with(|c| c.borrow().is_some())
+}
+
 fn put(g: &mut Game, at: [i32; 3], heading: i32) {
+    if checking() {
+        // Some floor at its x, z, under it or within a jump over it (the
+        // tests put the player at things in the air too).
+        let reach = on_foot(g, g.player.pos);
+        let feet = at[1] - g.player.feet();
+        let key = (at[0].div_euclid(256), at[2].div_euclid(256));
+        if !reach.get(&key).is_some_and(|fs| fs.iter().any(|&f| f >= feet - 1100)) {
+            not_on_foot(g, format!("{at:?}"));
+        }
+    }
     g.player.pos = at;
     g.player.heading = heading;
     g.player.target = heading;
@@ -354,9 +380,24 @@ fn win_4(g: &mut Game) {
 /// Walks into room `room` (put at its middle, a step), and the cinematic
 /// it plays, if any.
 fn enter_room(g: &mut Game, room: usize) -> Option<usize> {
-    let r = &g.set.room_info[room];
+    let r = g.set.room_info[room];
     let mid = [0, 1, 2].map(|i| (r.min[i] + r.max[i]) / 2);
+    if checking() {
+        // Some floor of it reached, or floating, some of it.
+        let within = |x: i32, y: i32, z: i32| (0..3).all(|i| [x, y, z][i] >= r.min[i] && [x, y, z][i] <= r.max[i]);
+        let inside = if g.player.float.is_some() {
+            afloat(g, g.player.pos).iter().any(|&(x, y, z)| within(x, y, z))
+        } else {
+            on_foot(g, g.player.pos).iter().any(|(&(cx, cz), fs)| fs.iter().any(|&f| within(cx * 256 + 128, f, cz * 256 + 128)))
+        };
+        if !inside {
+            not_on_foot(g, format!("room {room}"));
+        }
+    }
+    // The room is checked, not its middle.
+    let check = ON_FOOT.with(|c| c.borrow_mut().take());
     put(g, mid, g.player.heading);
+    ON_FOOT.with(|c| *c.borrow_mut() = check);
     let mut cine = None;
     run(g, &[(&[input::UP], 2), (&[], 10)], |g, _| cine = cine.or(g.cine.take()));
     cine
@@ -784,7 +825,12 @@ fn win_2(g: &mut Game) {
 /// Puts the player 600 short of `at`, facing it, and presses Triangle;
 /// the cinematic that follows, if any.
 fn use_at(g: &mut Game, at: [i32; 3]) -> Option<usize> {
-    put(g, [at[0], at[1], at[2] - 600], 0);
+    use_from(g, at, [0, -600])
+}
+
+/// Triangle at `at` from the side `(dx, dz)` off it.
+fn use_from(g: &mut Game, at: [i32; 3], side: [i32; 2]) -> Option<usize> {
+    put(g, [at[0] + side[0], at[1], at[2] + side[1]], 0);
     face(g, at);
     let mut cine = None;
     run(g, &[(&[], 3), (&[input::TRIANGLE], 1), (&[], 5)], |g, _| cine = cine.or(g.cine.take()));
@@ -803,13 +849,14 @@ fn level_12_let_there_be_light_is_won() {
 /// Level 12 won by play (the test above).
 fn win_12(g: &mut Game) {
     let fridge = g.set.placements.iter().find(|p| p.kind == 1 && p.id == 602).expect("the refrigerator").pos;
-    assert_eq!(use_at(g, fridge), Some(67));
+    // Its door faces -x.
+    assert_eq!(use_from(g, fridge, [-600, 0]), Some(67));
     g.cine_finished(67);
     let spike = g.npcs.iter().find(|n| n.id == 14 && !n.hidden).expect("Spike out").pos;
     assert_eq!(use_at(g, spike), Some(68));
 }
 
-/// Level 3: the cart ride (room 19, cine 9) to the bakery; the pie toss,
+/// Level 3: the balloon (cine 8) to the bakery; the pie toss,
 /// throwing at whichever of Larry and Steve is nearer, until four hits
 /// (cine 13); the aisles, then the boss's room (36, cine 86); Triangle at
 /// the switch: cine 14, won.
@@ -822,8 +869,11 @@ fn level_3_aisle_seven_is_won() {
 
 /// Level 3 won by play (the test above).
 fn win_3(g: &mut Game) {
-    assert_eq!(enter_room(g, 19), Some(9));
-    g.cine_finished(9);
+    // Room 19 (the cart, cine 9) is behind a ledge too high to climb, in
+    // the original too: the balloon.
+    let balloon = g.set.placements.iter().find(|p| p.id == 81).expect("the balloon").pos;
+    assert_eq!(use_at(g, balloon), Some(8));
+    g.cine_finished(8);
     let cine = play(g, 30 * 120, |g, f| {
         let me = g.player.pos;
         let near = g.npcs.iter().filter(|n| matches!(n.id, 75 | 76) && !n.hidden).min_by_key(|n| {
@@ -873,13 +923,14 @@ fn level_10_chuckies_glasses_is_won() {
 
 /// Level 10 won by play (the test above).
 fn win_10(g: &mut Game) {
+    // Chuckie starts in the playpen.
+    let pen = g.player.pos;
     for id in [608u16, 609, 1492] {
         let baby = g.npcs.iter().find(|n| n.id == id).expect("a baby").pos;
         put(g, [baby[0], baby[1], baby[2] - 500], 0);
         face(g, baby);
         run(g, &[(&[input::TRIANGLE], 1), (&[], 2)], |_, _| {});
-        let y = g.player.pos[1];
-        put(g, [5926, y, 21212], 0);
+        put(g, pen, 0);
         let mut cine = None;
         run(g, &[(&[], 30)], |g, _| cine = cine.or(g.cine.take()));
         assert!(matches!(cine, Some(75..=77)), "baby {id}: {cine:?}");
@@ -1488,4 +1539,109 @@ fn the_whole_game_by_play() {
     for l in [2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 15, 16, 17, 18, 20, 21] {
         assert!(played.contains(&l), "level {l} not played: {played:?}");
     }
+}
+
+/// The feet's heights a walk from `from` reaches, cell by cell (256), by
+/// the player's rules: a step up to 384, a climb up to 1033 where the COL
+/// or a climbable object stands in the way, a jump up to 561 (the
+/// standing jump's rise) onto any top, any drop. Object tops are floors;
+/// objects in the way are walls. Doors and movers are as the level
+/// starts.
+fn on_foot(g: &Game, from: [i32; 3]) -> std::collections::HashMap<(i32, i32), Vec<i32>> {
+    use rugrats::world::collide;
+    const CELL: i32 = 256;
+    let cell = |x: i32| x.div_euclid(CELL);
+    // The floor under (x, z) from height `y` down: the COL's or an object's
+    // top, the higher; None in a wall.
+    let floor_at = |x: i32, z: i32, y: i32| -> Option<i32> {
+        let q = collide::query(&g.col, [x, y, z]);
+        if q.kind != 0 || q.tile.is_none() {
+            return None;
+        }
+        let top = g.solid.iter().filter(|b| b.covers([x, y, z], 0) && b.min_y >= y && b.min_y < q.floor).map(|b| b.min_y).min();
+        Some(top.unwrap_or(q.floor))
+    };
+    // Doors open as the player comes (their own test, hub_doors_...).
+    let doors: Vec<u16> = g.doors.iter().map(|d| d.template).collect();
+    let blocked = |x: i32, z: i32, floor: i32| {
+        g.solid
+            .iter()
+            .filter(|b| !doors.contains(&b.template))
+            .any(|b| b.covers([x, floor, z], 120) && b.min_y < floor - 384 && b.max_y > floor - 600)
+    };
+    // The body's moving jump's rise: 561 at -1000, as the square.
+    let up = (g.player.moving_jump.0 as i64).abs();
+    let jump = (561 * up * up / 1_000_000) as i32;
+    let feet0 = from[1] - g.player.feet();
+    let mut seen: std::collections::HashMap<(i32, i32), Vec<i32>> = Default::default();
+    let first = floor_at(from[0], from[2], feet0 - 1).unwrap_or(feet0);
+    let mut todo = vec![(cell(from[0]), cell(from[2]), first)];
+    while let Some((cx, cz, floor)) = todo.pop() {
+        let here = seen.entry((cx, cz)).or_default();
+        if here.iter().any(|&f| (f - floor).abs() < 64) || here.len() > 8 {
+            continue;
+        }
+        here.push(floor);
+        for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let (x, z) = ((cx + dx) * CELL + CELL / 2, (cz + dz) * CELL + CELL / 2);
+            let mut next = Vec::new();
+            match floor_at(x, z, floor - 384) {
+                Some(f) if !blocked(x, z, f.min(floor)) => next.push(f),
+                _ => {
+                    // Over it: a climb (1033) or a jump (561).
+                    for reach in [jump, 1033] {
+                        if let Some(f) = floor_at(x, z, floor - reach - 1).filter(|&f| f >= floor - reach) {
+                            next.push(f);
+                        }
+                    }
+                }
+            }
+            for f in next {
+                todo.push((cx + dx, cz + dz, f));
+            }
+        }
+    }
+    seen
+}
+
+/// Where the player can float from `from` (state 21: no gravity, Cross
+/// and Circle rise and sink, walls stop the body), by 256 cubes, their
+/// middles.
+fn afloat(g: &Game, from: [i32; 3]) -> std::collections::HashSet<(i32, i32, i32)> {
+    use rugrats::world::collide;
+    const CELL: i32 = 256;
+    let feet = g.player.feet();
+    let cell = |v: i32| v.div_euclid(CELL);
+    let open = |c: (i32, i32, i32)| {
+        let at = [c.0 * CELL + CELL / 2, c.1 * CELL + CELL / 2, c.2 * CELL + CELL / 2];
+        let q = collide::query(&g.col, [at[0], at[1] - feet, at[2]]);
+        q.kind == 0 && q.tile.is_some()
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut todo = vec![(cell(from[0]), cell(from[1]), cell(from[2]))];
+    while let Some(c) = todo.pop() {
+        if !seen.insert(c) {
+            continue;
+        }
+        for d in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
+            let n = (c.0 + d.0, c.1 + d.1, c.2 + d.2);
+            if !seen.contains(&n) && open(n) {
+                todo.push(n);
+            }
+        }
+    }
+    seen.into_iter().map(|c| (c.0 * CELL + CELL / 2, c.1 * CELL + CELL / 2, c.2 * CELL + CELL / 2)).collect()
+}
+
+/// Every place the level tests put the player can be walked to from
+/// where the player is (COL and the objects' boxes; climbs and jumps).
+#[test]
+fn the_tests_places_are_reachable_on_foot() {
+    let Some(disc) = disc() else { return };
+    ON_FOOT.with(|c| c.replace(Some(Vec::new())));
+    for level in [2u8, 3, 4, 5, 6, 9, 10, 11, 12, 13, 15, 16, 17, 18, 20, 21] {
+        win_level(&disc, Level(level), &Progress::default());
+    }
+    let missed = ON_FOOT.with(|c| c.replace(None)).unwrap();
+    assert!(missed.is_empty(), "not reached on foot ({}):\n{}", missed.len(), missed.join("\n"));
 }

@@ -205,6 +205,7 @@ impl GrandpasTeeth {
                 run_speed: None,
                 post_reach: REACH,
                 hold: None,
+                root: Default::default(),
             };
             rider.animator.set(IDLE, &g.anims);
             g.npcs.push(rider);

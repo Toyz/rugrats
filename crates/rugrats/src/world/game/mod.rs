@@ -851,6 +851,7 @@ impl Game {
                 run_speed: None,
                 post_reach: REACH,
                 hold: None,
+                root: Default::default(),
             };
             // On the floor under it (0x80081bac asks 0x8002b240), the root
             // the hierarchy's offset above the feet.

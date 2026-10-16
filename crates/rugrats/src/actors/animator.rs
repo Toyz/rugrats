@@ -495,3 +495,43 @@ impl Animator {
         out
     }
 }
+
+/// The height over the floor an animation puts a body at on the ground
+/// (0x80055904 into +0xda / +0xde): the base track's root curve so far,
+/// plus where the body was as the animation began, blended away over its
+/// first frame (worklog 147).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RootCurve {
+    state: i16,
+    first: usize,
+    count: usize,
+    cur: usize,
+    done: i32,
+    total: i32,
+    base: i32,
+    /// The height: drawn under the body's position.
+    pub y: i32,
+}
+
+impl RootCurve {
+    /// One step, after the animator's: `scale` turns the keys into this
+    /// body's size (a body other than the player's moves by its root
+    /// offset, hierarchy +0x4c, over 0x800c41dc's -561).
+    pub fn step(&mut self, a: &Animator, anims: &Anims, scale: f32) {
+        let (state, first, count, cur, left) = a.track();
+        let (done, total) = a.root_progress(anims).map_or((0, 0), |r| (r.0[1], r.1[1]));
+        if (self.state, self.first) != (state, first) || cur < self.cur {
+            // From where the last one left the body, its end had.
+            let rest = if self.cur + 1 == self.first + self.count { self.total - self.done } else { 0 };
+            self.base = self.y + (rest as f32 * scale) as i32;
+        }
+        let blend = if cur > first {
+            1.0
+        } else {
+            let dur = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
+            ((dur - left) as f32 / dur as f32).clamp(0.0, 1.0)
+        };
+        self.y = (done as f32 * scale) as i32 + (self.base as f32 * (1.0 - blend)) as i32;
+        (self.state, self.first, self.count, self.cur, self.done, self.total) = (state, first, count, cur, done, total);
+    }
+}

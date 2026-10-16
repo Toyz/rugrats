@@ -15,7 +15,7 @@ use rugrats_data::model::Models;
 use rugrats_data::placement::Placement;
 use rugrats_render::{Vtx, models};
 
-use crate::actors::animator::Animator;
+use crate::actors::animator::{Animator, RootCurve};
 use crate::actors::player::anim::{IDLE, RUN};
 use crate::actors::player::{Box3, DT, Pose};
 use crate::gte::Trig;
@@ -144,6 +144,8 @@ pub struct Npc {
     pub post_reach: i32,
     /// An animation a level holds it in (Spike asleep).
     pub hold: Option<i16>,
+    /// Its height by its animations on the ground.
+    pub root: RootCurve,
 }
 
 /// What a step of the NPCs asks of the level.
@@ -450,6 +452,8 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         let a = n.hold.unwrap_or(if n.speed > 0 { RUN } else { IDLE });
         n.animator.set(a, w.anims);
         n.animator.step(w.anims);
+        let scale = n.feet() as f32 / ROOT_SCALE;
+        n.root.step(&n.animator, w.anims, scale);
     }
     events
 }
@@ -492,10 +496,14 @@ fn next_post(p: &Post, prev: u8, rand: &mut Rand) -> u8 {
 }
 
 /// The NPC's triangles.
+/// The root motion's reference height (0x800c41dc, peeked in levels 1, 4
+/// and 6): a body other than the player's moves by its root offset over it.
+const ROOT_SCALE: f32 = -561.0;
+
 pub fn triangles(n: &Npc, models: &Models, anims: &Anims, trig: &Trig, out: &mut Vec<Vtx>) {
     if n.hidden {
         return;
     }
-    let pos = Vec3::new(n.pos[0] as f32, n.pos[1] as f32, n.pos[2] as f32);
+    let pos = Vec3::new(n.pos[0] as f32, (n.pos[1] + n.root.y) as f32, n.pos[2] as f32);
     models::posed_triangles(&n.hierarchy, models, &n.animator.locals(&n.hierarchy, anims), n.rotation(trig), pos, out);
 }

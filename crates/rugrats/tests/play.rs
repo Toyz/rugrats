@@ -36,8 +36,9 @@ fn open(disc: &GameDisc, level: u8) -> Game {
     Game::open_from(disc, Level(level), None, &Progress::default()).unwrap()
 }
 
-/// A cinematic finished, as the app tells the level once it has played
-/// (CineFinish, 0x800783d8); kept for `the_whole_game_by_play` to play.
+/// A cinematic finished, as the app tells the level once it has played:
+/// its last frame leaves the level's objects (`Game::cine_left`), then
+/// CineFinish (0x800783d8); kept for `the_whole_game_by_play` to play.
 trait Played {
     fn played(&mut self, n: usize);
 }
@@ -45,6 +46,12 @@ trait Played {
 impl Played for Game {
     fn played(&mut self, n: usize) {
         CINES.with(|c| c.borrow_mut().push((self.level, n)));
+        if let Some(disc) = disc()
+            && let Ok(s) = rugrats::media::cine::Stream::read(&disc, n)
+            && let Some((_, last)) = s.frames.last()
+        {
+            self.cine_left(last);
+        }
         self.cine_finished(n);
     }
 }
@@ -2823,4 +2830,18 @@ fn the_start_cinematics_leave_the_player_as_the_original() {
         assert_eq!(g.player.pos, at, "level {level}");
         assert!(off.abs() <= 16, "level {level} heading {} not {heading}", g.player.heading);
     }
+}
+
+/// So does one in play: level 2's gap (cine 3) leaves Tommy on Spike where
+/// its last frame poses him, as the oracle shows after it (player object
+/// at (45196, -688, -19249), heading 1331).
+#[test]
+fn a_cinematic_in_play_leaves_the_player_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 2);
+    assert_eq!(enter_room(&mut g, 69), Some(3));
+    g.played(3);
+    let off = (g.player.heading - 1331 + 2048).rem_euclid(4096) - 2048;
+    assert_eq!(g.player.pos, [45196, -688, -19249]);
+    assert!(off.abs() <= 16, "heading {}", g.player.heading);
 }

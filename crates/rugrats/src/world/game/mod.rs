@@ -310,6 +310,9 @@ pub struct Game {
     /// Every box the player met this frame: `solid`, the things at rest
     /// and the characters' bodies (for tools and tests).
     pub bodies: Vec<Box3>,
+    /// The player's object's id in the level's placements (the record the
+    /// loader moved it onto), as a cinematic's poses name it.
+    pub player_id: Option<i16>,
     /// Which carried-over faces its VRAM has (the app's count).
     pub face_serial: u64,
     /// Touch 1's sound count (0x800c4ba0).
@@ -927,6 +930,7 @@ impl Game {
             water_steps: 0,
             solid: Vec::new(),
             bodies: Vec::new(),
+            player_id: None,
             face_serial: 0,
             shelf_sound: 0,
             last_note: None,
@@ -978,33 +982,13 @@ impl Game {
             (0..g.apart.len()).map(|k| g.apart[k] && !g.spinners.iter().any(|s| s.placement == k)).collect();
         g.hazards = hazards(&g.set, &hazard_skip);
         // The start cinematic (0x80074958) moves the level's own objects
-        // (its actors, 0x80073c34) and leaves them where its last frame put
-        // them: the player and the characters by id, before EpisodeStart.
+        // and leaves them where it ends, before EpisodeStart.
+        g.player_id = player_id;
         if let Some(n) = intro(level, progress)
             && let Ok(stream) = crate::media::cine::Stream::read(disc, n)
             && let Some((_, last)) = stream.frames.last()
         {
-            for pose in &last.poses {
-                if Some(pose.id) == player_id {
-                    let feet = g.player.feet();
-                    let q = crate::world::collide::query(&g.col, [pose.pos[0], pose.pos[1] - feet - 400, pose.pos[2]]);
-                    let y = if q.kind == 0 && q.tile.is_some() { q.floor + feet } else { pose.pos[1] };
-                    g.player.pos = [pose.pos[0], y, pose.pos[2]];
-                    if let Some(&(_, q)) = pose.keys.iter().find(|k| k.0 == 0) {
-                        let [_, y, _, w] = q.map(|v| v as f64);
-                        let yaw = ((-2.0 * y.atan2(w) / std::f64::consts::TAU * 4096.0).round() as i32).rem_euclid(4096);
-                        g.player.heading = yaw;
-                        g.player.target = yaw;
-                    }
-                } else if let Some(k) = g.npcs.iter().position(|n| n.id as i16 == pose.id) {
-                    // A character the loader put in no room (level 7's
-                    // babies) stays out of play, wherever the cine left it.
-                    if g.room_of(g.npcs[k].pos).is_some() {
-                        let col = &g.col;
-                        g.npcs[k].place(pose.pos, col);
-                    }
-                }
-            }
+            g.cine_left(last);
         }
         g.script = crate::levels::script(level, &mut g, disc)?;
         // The camera reset behind the player (0x800290a4).
@@ -1045,6 +1029,34 @@ impl Game {
         let r = f(s.as_mut(), self);
         self.script = Some(s);
         r
+    }
+
+    /// Where a cinematic's last frame leaves the level's own objects (its
+    /// actors move them, 0x80073c34): the pose with the player's id moves
+    /// the player (onto the floor; heading -2 atan2(y, w) of its root key),
+    /// the poses of characters the loader put in a room move them (one in
+    /// none, level 7's babies, stays out of play). Before CineFinish, which
+    /// may place them again.
+    pub fn cine_left(&mut self, last: &Frame) {
+        for pose in &last.poses {
+            if Some(pose.id) == self.player_id {
+                let feet = self.player.feet();
+                let q = crate::world::collide::query(&self.col, [pose.pos[0], pose.pos[1] - feet - 400, pose.pos[2]]);
+                let y = if q.kind == 0 && q.tile.is_some() { q.floor + feet } else { pose.pos[1] };
+                self.player.pos = [pose.pos[0], y, pose.pos[2]];
+                if let Some(&(_, q)) = pose.keys.iter().find(|k| k.0 == 0) {
+                    let [_, y, _, w] = q.map(|v| v as f64);
+                    let yaw = ((-2.0 * y.atan2(w) / std::f64::consts::TAU * 4096.0).round() as i32).rem_euclid(4096);
+                    self.player.heading = yaw;
+                    self.player.target = yaw;
+                }
+            } else if let Some(k) = self.npcs.iter().position(|n| n.id as i16 == pose.id) {
+                if self.room_of(self.npcs[k].pos).is_some() {
+                    let col = &self.col;
+                    self.npcs[k].place(pose.pos, col);
+                }
+            }
+        }
     }
 
     /// Hides or shows the objects with registry id `id` (0x80078bc4):

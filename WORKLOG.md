@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-155 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 68, render 27, save 4, test 22, tooling 18, ui 9, video 10.
+156 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 69, render 27, save 4, test 22, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -167,3 +167,4 @@ The [reference](docs/README.md) says what is true now.
 | 153 | [Every level won walking](worklog/0153-every-level-won-walking.md) | 2026-10-16 | test |
 | 154 | [Level 2 starts out of the playpen, and its fence gap is open](worklog/0154-level-2-starts-out-of-the-playpen-and-its-fence-gap-is-open.md) | 2026-10-16 | play |
 | 155 | [A level starts where its start cinematic leaves the player](worklog/0155-a-level-starts-where-its-start-cinematic-leaves-the-player.md) | 2026-10-16 | play |
+| 156 | [A cinematic in play leaves the player where it ends](worklog/0156-a-cinematic-in-play-leaves-the-player-where-it-ends.md) | 2026-10-16 | play |

@@ -419,6 +419,11 @@ impl Cine {
         })
     }
 
+    /// The stream's last frame: where it leaves the level's objects.
+    pub fn last(&self) -> Option<&Frame> {
+        self.stream.frames.last().map(|(_, f)| f)
+    }
+
     /// The stream frame shown, from 1.
     pub fn frame(&self) -> Option<u16> {
         self.shown.map(|k| self.stream.frames[k].1.number)

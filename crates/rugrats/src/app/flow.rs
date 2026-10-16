@@ -364,7 +364,7 @@ impl Rugrats {
         }
     }
 
-    fn scene_tick(&mut self, mut cine: Box<Cine>, n: usize, then: Then, t: &Tick, now: u64) -> Boot {
+    fn scene_tick(&mut self, mut cine: Box<Cine>, n: usize, mut then: Then, t: &Tick, now: u64) -> Boot {
         if !cine.tick(now) {
             return Boot::Scene { cine, n, then };
         }
@@ -375,6 +375,11 @@ impl Rugrats {
         self.silence();
         self.cine_song_end(n);
         self.keep_faces(&cine.stage.vram);
+        // The level's objects stay where its last frame left them, skipped
+        // or not (a level's start: `Game::open_from`).
+        if let (Then::Resume(game), Some(last)) = (&mut then, cine.last()) {
+            game.cine_left(last);
+        }
         // CineFinish (0x800783d8) shows the cinematic's card. No hint
         // cards in activity play.
         let card = front::card_after(n).filter(|_| !self.progress.activity());

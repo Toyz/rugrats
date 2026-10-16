@@ -5,7 +5,7 @@ use rugrats_data::placement::Placement;
 use rugrats_render::models;
 
 use super::*;
-use crate::actors::player::Box3;
+use crate::actors::player::{Box3, Outline};
 
 /// The world boxes of the placed models (the player's placement left out):
 /// each model box with the placement's rotation and position, and the
@@ -97,9 +97,10 @@ pub(super) fn world_boxes(m: &Model, rot: Mat3, pos: Vec3) -> Vec<Box3> {
             a = a.min(y);
             b = b.max(y);
         }
+        let (lo, hi) = (lo.map(|v| v as i32), hi.map(|v| v as i32));
         out.push(Box3 {
-            lo: lo.map(|v| v as i32),
-            hi: hi.map(|v| v as i32),
+            lo,
+            hi,
             rot,
             pos,
             min_y: a as i32,
@@ -107,6 +108,7 @@ pub(super) fn world_boxes(m: &Model, rot: Mat3, pos: Vec3) -> Vec<Box3> {
             climb: false,
             character: false,
             template: 0,
+            outline: Outline::of(lo, hi, rot, pos),
         });
     }
     out

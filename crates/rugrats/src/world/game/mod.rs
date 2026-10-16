@@ -1257,6 +1257,7 @@ impl Game {
                 climb: false,
                 character: true,
                 template: 0,
+                outline: Default::default(),
             });
         }
         // Climbs refused (0x80058da4): room 4 in levels 1 and 12 (0x80058e04),

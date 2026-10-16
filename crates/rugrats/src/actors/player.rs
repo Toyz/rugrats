@@ -973,6 +973,67 @@ pub struct Box3 {
     pub character: bool,
     /// The placed object's template (0 for none).
     pub template: u16,
+    /// Seen from above, when it is turned other than about y.
+    pub outline: Outline,
+}
+
+/// A box's outline seen from above when it is turned other than about y
+/// (a thing tipped on its side, level 3's templates 526 and 650): its
+/// corners' convex hull, counter-clockwise in (x, z); two points for one
+/// edge on (level 6's wheels, flat in their own plane). Empty (`n` 0) for
+/// one turned only about y, its own x and z rectangle.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Outline {
+    pts: [[f32; 2]; 8],
+    n: u8,
+}
+
+impl Outline {
+    /// The outline of the box `lo`..`hi` turned by `rot` at `pos`.
+    pub fn of(lo: [i32; 3], hi: [i32; 3], rot: Mat3, pos: Vec3) -> Outline {
+        if (rot.y_axis.y - 1.0).abs() < 1e-3 {
+            return Outline::default();
+        }
+        let mut pts = [[0.0f32; 2]; 8];
+        for (k, p) in pts.iter_mut().enumerate() {
+            let c = Vec3::new(
+                if k & 1 == 0 { lo[0] } else { hi[0] } as f32,
+                if k & 2 == 0 { lo[1] } else { hi[1] } as f32,
+                if k & 4 == 0 { lo[2] } else { hi[2] } as f32,
+            );
+            let w = pos + rot * c;
+            *p = [w.x, w.z];
+        }
+        // The convex hull (monotone chain).
+        pts.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
+        let cross = |o: [f32; 2], a: [f32; 2], b: [f32; 2]| (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+        let mut hull = [[0.0f32; 2]; 16];
+        let mut n = 0;
+        for pass in 0..2 {
+            let start = n;
+            for k in 0..8 {
+                let p = pts[if pass == 0 { k } else { 7 - k }];
+                while n >= start + 2 && cross(hull[n - 2], hull[n - 1], p) <= 0.0 {
+                    n -= 1;
+                }
+                hull[n] = p;
+                n += 1;
+            }
+            n -= 1;
+        }
+        let mut out = Outline { pts: [[0.0; 2]; 8], n: n.min(8) as u8 };
+        out.pts[..out.n as usize].copy_from_slice(&hull[..out.n as usize]);
+        out
+    }
+
+    /// Its edges: each start and outward normal (x, z).
+    fn edges(&self) -> impl Iterator<Item = ([f32; 2], [f32; 2])> + '_ {
+        let n = self.n as usize;
+        (0..n).map(move |k| {
+            let (e0, e1) = (self.pts[k], self.pts[(k + 1) % n]);
+            (e0, [e1[1] - e0[1], e0[0] - e1[0]])
+        })
+    }
 }
 
 impl Box3 {
@@ -986,26 +1047,48 @@ impl Box3 {
     /// own rectangle seen from above (0x80069c40 tests the movement
     /// segment): a thin wall cannot be stepped across.
     pub fn crosses(&self, a: [i32; 3], b: [i32; 3]) -> bool {
-        let local = |p: [i32; 3]| self.rot.transpose() * (Vec3::new(p[0] as f32, self.pos.y, p[2] as f32) - self.pos);
-        let (p, q) = (local(a), local(b));
         let (mut t0, mut t1) = (0.0f32, 1.0f32);
-        for (o, d, lo, hi) in [
-            (p.x, q.x - p.x, self.lo[0] as f32, self.hi[0] as f32),
-            (p.z, q.z - p.z, self.lo[2] as f32, self.hi[2] as f32),
-        ] {
+        let mut clip = |o: f32, d: f32, lo: f32, hi: f32| {
             if d.abs() < 1e-6 {
-                if o < lo || o > hi {
-                    return false;
+                return lo <= o && o <= hi;
+            }
+            let (mut u, mut v) = ((lo - o) / d, (hi - o) / d);
+            if u > v {
+                std::mem::swap(&mut u, &mut v);
+            }
+            t0 = t0.max(u);
+            t1 = t1.min(v);
+            t0 <= t1
+        };
+        match self.outline.n {
+            0 => {
+                let local = |p: [i32; 3]| self.rot.transpose() * (Vec3::new(p[0] as f32, self.pos.y, p[2] as f32) - self.pos);
+                let (p, q) = (local(a), local(b));
+                for i in [0, 2] {
+                    if !clip(p[i], q[i] - p[i], self.lo[i] as f32, self.hi[i] as f32) {
+                        return false;
+                    }
                 }
-            } else {
-                let (mut u, mut v) = ((lo - o) / d, (hi - o) / d);
-                if u > v {
-                    std::mem::swap(&mut u, &mut v);
-                }
-                t0 = t0.max(u);
-                t1 = t1.min(v);
-                if t0 > t1 {
-                    return false;
+            }
+            // Edge on: the step crosses its segment.
+            1 | 2 => {
+                let (e0, e1) = (self.outline.pts[0], self.outline.pts[(self.outline.n - 1) as usize]);
+                let (pa, pb) = ([a[0] as f32, a[2] as f32], [b[0] as f32, b[2] as f32]);
+                let cross = |o: [f32; 2], p: [f32; 2], q: [f32; 2]| (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
+                let (d1, d2) = (cross(e0, e1, pa), cross(e0, e1, pb));
+                let (d3, d4) = (cross(pa, pb, e0), cross(pa, pb, e1));
+                // Not when the step starts on it.
+                return d1 != 0.0 && d1.signum() != d2.signum() && d3.signum() != d4.signum();
+            }
+            _ => {
+                // Each edge's outward normal: the segment's part inside it.
+                let (pa, pb) = ([a[0] as f32, a[2] as f32], [b[0] as f32, b[2] as f32]);
+                for (e0, n) in self.outline.edges() {
+                    let o = n[0] * (pa[0] - e0[0]) + n[1] * (pa[1] - e0[1]);
+                    let d = n[0] * (pb[0] - pa[0]) + n[1] * (pb[1] - pa[1]);
+                    if !clip(o, d, f32::NEG_INFINITY, 0.0) {
+                        return false;
+                    }
                 }
             }
         }
@@ -1075,12 +1158,34 @@ impl Box3 {
     /// How deep a circle of radius `r` at `p` is in the box seen from above:
     /// the distance to the nearest side, negative outside.
     pub fn depth(&self, p: [i32; 3], r: i32) -> f32 {
-        let local = self.rot.transpose() * (Vec3::new(p[0] as f32, self.pos.y, p[2] as f32) - self.pos);
         let r = r as f32;
-        let x = (local.x - (self.lo[0] as f32 - r)).min(self.hi[0] as f32 + r - local.x);
-        let z = (local.z - (self.lo[2] as f32 - r)).min(self.hi[2] as f32 + r - local.z);
-        x.min(z)
+        match self.outline.n {
+            0 => {
+                let local = self.rot.transpose() * (Vec3::new(p[0] as f32, self.pos.y, p[2] as f32) - self.pos);
+                let x = (local.x - (self.lo[0] as f32 - r)).min(self.hi[0] as f32 + r - local.x);
+                let z = (local.z - (self.lo[2] as f32 - r)).min(self.hi[2] as f32 + r - local.z);
+                x.min(z)
+            }
+            // How far inside each edge (its outward normal a unit).
+            // Edge on (a wheel standing in its own plane): a segment.
+            1 | 2 => {
+                let (a, b) = (self.outline.pts[0], self.outline.pts[(self.outline.n - 1) as usize]);
+                let (dx, dz) = (b[0] - a[0], b[1] - a[1]);
+                let (px, pz) = (p[0] as f32 - a[0], p[2] as f32 - a[1]);
+                let t = ((px * dx + pz * dz) / (dx * dx + dz * dz).max(1e-6)).clamp(0.0, 1.0);
+                r - (px - t * dx).hypot(pz - t * dz)
+            }
+            _ => self
+                .outline
+                .edges()
+                .map(|(e0, n)| {
+                    let len = n[0].hypot(n[1]).max(1e-6);
+                    r - (n[0] * (p[0] as f32 - e0[0]) + n[1] * (p[2] as f32 - e0[1])) / len
+                })
+                .fold(f32::INFINITY, f32::min),
+        }
     }
+
 }
 
 /// An angle difference in -2048..2048.

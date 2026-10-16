@@ -414,3 +414,26 @@ fn landing_in_water_splashes_aloud() {
     }
     assert!(heard.contains(&57), "heard {heard:?}");
 }
+
+/// Walking on the hub's yard (floor flag 16) throws up grass, model 1008
+/// as a kind 2 flight (0x80050b5c, from 0x8005e1f4), as the original does
+/// there about every other frame.
+#[test]
+fn the_yard_throws_up_grass() {
+    use rugrats::input::{self, Pads};
+    let Some(disc) = disc() else { return };
+    let mut g = rugrats::world::game::Game::open(&disc, rugrats::levels::Level(1)).unwrap();
+    assert!(g.set.models.get(flights::DUST).is_some());
+    // Where the original was put for the check: (-1536, 708, 30000).
+    g.player.pos = [-1536, 708, 30000];
+    let mut pads = Pads::default();
+    let mut most = 0;
+    for _ in 0..40 {
+        pads.push_bits(0, 1 << input::UP);
+        g.frame(&pads);
+        let n = g.flights.iter().filter(|f| f.kind() == 2 && f.skin == Skin::Model(flights::DUST)).count();
+        most = most.max(n);
+    }
+    assert!(most >= 5, "{most} tufts");
+    assert!(g.flights.models().all(|(m, ..)| m == flights::DUST));
+}

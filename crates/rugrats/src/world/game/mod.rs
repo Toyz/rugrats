@@ -292,6 +292,9 @@ pub struct Game {
     /// Spike's water steps to the next splash sound in level 4
     /// (0x800c42e4).
     pub(super) water_steps: i32,
+    /// The dust's coin flips standing and moving (0x800c42e0, 0x800c42ec,
+    /// seeded 0xa8c0 and 0x2fdd).
+    pub(super) dust_seeds: [Rand; 2],
     /// The breakables (template class 14: level 7's buildings).
     pub breakables: Vec<Breakable>,
     /// The hinged and sliding doors (classes 4 and 3).
@@ -874,6 +877,7 @@ impl Game {
             pending_throw: None,
             pending_grab: None,
             water_steps: 0,
+            dust_seeds: [Rand { state: 0xa8c0 }, Rand { state: 0x2fdd }],
             breakables,
             doors,
             spinners,
@@ -1417,6 +1421,15 @@ impl Game {
         }
         for n in &self.npcs {
             npc::triangles(n, &self.set.models, &self.anims, &self.trig, &mut moving);
+        }
+        for (shape, angles, at) in self.flights.models() {
+            if let Some(m) = self.set.models.get(shape) {
+                let e = self.trig.euler(angles);
+                let e = e.as_flattened();
+                let rot = Mat3::from_cols_array(&std::array::from_fn(|k| e[k] as f32 / 4096.0));
+                let at = Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32);
+                models::model_triangles(m, rot, at, &mut moving);
+            }
         }
         self.flights.draw(self.view, self.sprites.as_ref(), &mut moving);
         let mut overlay = Vec::new();

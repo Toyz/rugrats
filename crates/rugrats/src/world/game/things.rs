@@ -95,6 +95,8 @@ pub enum ThingState {
 pub(super) const HAND: usize = 15;
 
 pub(super) const OTHER_HAND: usize = 12;
+/// Where floor dust rises from (0x80044fc8(player, 16)).
+const DUST_PART: usize = 16;
 
 /// How near an object must be to be touched (the player's radius and some).
 pub(super) const REACH: f32 = 520.0;
@@ -325,12 +327,30 @@ impl Game {
 
     pub(super) fn walk_effects(&mut self) {
         let p = &self.player;
-        if !matches!(p.state, State::Walk | State::Run) {
+        if !matches!(p.state, State::Stand | State::Walk | State::Run) {
             return;
         }
-        let step = p.animator.events & 256 != 0;
         let feet = p.pos[1] - p.feet();
         let q = collide::query(&self.col, [p.pos[0], feet - 1, p.pos[2]]);
+        // Dust (0x80050b5c): standing (0x8005d11c) or moving (0x8005e1f4)
+        // on a floor of flag 16, half the frames by each state's own draw,
+        // from slot 16's part 512 up; never in level 4.
+        let stand = p.state == State::Stand;
+        let seed = if stand { &mut self.dust_seeds[0] } else { &mut self.dust_seeds[1] };
+        let roll = seed.next() & 1 != 0;
+        if roll && collide::floor_flags(&self.col, &q) & 16 != 0 && self.level != Level::CYNTHIA {
+            let parts = self.player.parts(&self.anims, &self.trig);
+            if let Some(&(_, at)) = self.player.slot_part(DUST_PART).and_then(|i| parts.get(i)) {
+                let radius = self.set.models.get(crate::world::flights::DUST).map_or(0, |m| m.radius as i32);
+                let at = [at.x as i32, at.y as i32 - 512, at.z as i32];
+                self.flights.dust(at, radius, self.sprites.as_ref());
+            }
+        }
+        if stand {
+            return;
+        }
+        let p = &self.player;
+        let step = p.animator.events & 256 != 0;
         let on_object = self.mover_under_player().is_some() || (q.kind == 0 && feet < q.floor - 48);
         let water = collide::floor_flags(&self.col, &q) & 1 != 0 && !on_object;
         let at = p.pos;

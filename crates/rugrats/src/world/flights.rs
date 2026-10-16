@@ -7,8 +7,9 @@
 //! and 8) show an animated sprite (hud::Sequences).
 //!
 //! Thrown objects are flights in the original too; the port keeps those
-//! apart (world::game::things). Kinds 1, 2 and 4 (a model part,
-//! 0x8006d948, 0x80087afc) are not drawn here.
+//! apart (world::game::things). Kind 2 is a model (0x80087afc), handed to
+//! the game to draw ([`Flights::models`]); kinds 1 and 4 (0x8006d948, and
+//! 0x80087afc's stretched model) are not drawn yet.
 
 use rrt::glam::{Mat3, Vec3};
 use rugrats_data::col::Col;
@@ -22,6 +23,8 @@ use crate::world::collide::{self, Segment};
 /// The flight pool (0x80085d1c: 64 records, 0x800c4d00), shared in the
 /// original with thrown objects.
 const POOL: usize = 64;
+/// The dust's model (0x80050b5c: 0x80044b74(1008)).
+pub const DUST: u32 = 1008;
 /// The camera-facing quads queued a frame (0x8008b088(64), 0x8008afc4).
 const QUADS: usize = 64;
 /// ms a frame by dt (0x800b44d4).
@@ -102,6 +105,8 @@ pub struct Launch {
     pub face: u32,
     /// +0x6a: damage to what it hits.
     pub damage: i16,
+    /// +0x50: the model of kinds 2 and 4 (0x80044b74's shape number).
+    pub model: Option<u32>,
 }
 
 /// What a record's quad shows (record +0x74).
@@ -112,6 +117,8 @@ pub enum Skin {
     Sprite(u32),
     /// A running sequence's entry.
     Sequence(usize),
+    /// A model (kind 2): its shape number.
+    Model(u32),
 }
 
 /// A flight record (0x8008864c).
@@ -120,10 +127,13 @@ pub struct Flight {
     /// +0x08 flags, +0x0c lifetime left (ms).
     pub flags: u32,
     pub life: i32,
-    /// +0x10 position, +0x1c radius, +0x24 the quad's roll.
+    /// +0x10 position, +0x1c radius, +0x24 the quad's roll; +0x20 and
+    /// +0x22 the model's other two angles (0x80020ee0 takes +0x20, +0x22,
+    /// +0x24).
     pub pos: [i32; 3],
     pub radius: i32,
     pub roll: i32,
+    pub turn: [i32; 2],
     /// +0x28 bounce.
     pub bounce: i32,
     /// +0x3c velocity.
@@ -315,6 +325,7 @@ pub const FLAME: Launch = Launch {
     size: [0; 2],
     face: 0,
     damage: 1000,
+    model: None,
 };
 
 impl Flights {
@@ -342,6 +353,15 @@ impl Flights {
     }
 
     /// How many are flying or waiting.
+    /// The models in flight (kind 2, 0x80087afc): shape, the angles
+    /// 0x80020ee0 turns it by, and where.
+    pub fn models(&self) -> impl Iterator<Item = (u32, [i16; 3], [i32; 3])> + '_ {
+        self.iter().filter_map(|f| match f.skin {
+            Skin::Model(m) => Some((m, [f.turn[0] as i16, f.turn[1] as i16, f.roll as i16], f.pos)),
+            _ => None,
+        })
+    }
+
     pub fn len(&self) -> usize {
         self.flying.len() + self.waiting.len()
     }
@@ -398,6 +418,7 @@ impl Flights {
             pos: l.at,
             radius: l.radius.max(0),
             roll: l.roll as i32,
+            turn: [0; 2],
             bounce: l.bounce as i32,
             v,
             spin_axis,
@@ -432,6 +453,7 @@ impl Flights {
         };
         match kind {
             1 => f.colour = l.colour,
+            2 | 4 if let Some(m) = l.model => f.skin = Skin::Model(m),
             6 => {
                 f.face = 0xc080_0000;
                 f.size = [225, 225];
@@ -514,7 +536,7 @@ impl Flights {
             let texture = match f.skin {
                 Skin::Sprite(n) => sprites.and_then(|s| s.entry(n)),
                 Skin::Sequence(slot) => self.sequences.texture(slot),
-                Skin::None => None,
+                Skin::None | Skin::Model(_) => None,
             };
             let Some(t) = texture else { continue };
             let (s, c) = (self.trig.sin(f.roll) as f32 / 4096.0, self.trig.cos(f.roll) as f32 / 4096.0);
@@ -675,6 +697,26 @@ impl Flights {
         self.launch(&l, sprites);
     }
 
+    /// Dust from the floor (0x80050b5c, floor flag 16): model 1008, kind
+    /// 2, flags 0x10502, its radius the model's, speed 100, within 2048 of
+    /// up, 2000 ms, bounce 1000, spin 3000.
+    pub fn dust(&mut self, at: [i32; 3], radius: i32, sprites: Option<&Sprites>) {
+        let dir = self.cone([0, -4096, 0], &IDENTITY, 0, 2048);
+        let l = Launch {
+            flags: 0x10502,
+            at,
+            radius,
+            life: 2000,
+            dir,
+            speed: 100,
+            spin: 3000,
+            bounce: 1000,
+            model: Some(DUST),
+            ..Launch::default()
+        };
+        self.launch(&l, sprites);
+    }
+
     /// Reptar's step (0x80050c48, the walk's step event for template 8):
     /// a puff between his feet, kind 5, flags 0x30705, sprite 397
     /// (TEXPOS + 0x129c), half-size 64, speed 100, 1000 ms, bounce 1000,
@@ -766,6 +808,8 @@ fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32) -> boo
     let s = (f.spin * dt) >> 6;
     if s != 0 {
         f.roll = (f.roll + ((s * f.spin_axis[0] as i32) >> 12)) & 4095;
+        f.turn[0] = (f.turn[0] + ((s * f.spin_axis[1] as i32) >> 12)) & 4095;
+        f.turn[1] = (f.turn[1] + ((s * f.spin_axis[2] as i32) >> 12)) & 4095;
     }
     if f.flags & flag::COLLIDE != 0 && f.flags & flag::OBJECTS == 0 {
         let hit = collide_world(f, col, angles, before);

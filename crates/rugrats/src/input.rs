@@ -59,9 +59,8 @@ impl Pads {
             for (b, h) in pad.history.iter_mut().enumerate() {
                 *h = *h << 1 | (bits >> b) as u32 & 1;
             }
-            // The stick's bytes, 0x80 at rest, 0 left and up.
-            let axis = |b: u8| (b as i32 - 128) * 32;
-            pad.stick = if host.analog { [axis(host.left.x), -axis(host.left.y)] } else { [0; 2] };
+            // (The stick's bytes are 0 left and up.)
+            pad.stick = if host.analog { [stick_axis(host.left.x), -stick_axis(host.left.y)] } else { [0; 2] };
         }
     }
 
@@ -111,6 +110,22 @@ impl Pads {
     }
 }
 
+/// An analog stick's byte as an axis, 4096 full (0x8001a888's type 2: 127
+/// the middle, 24 either side of it dead, the rest scaled back to the
+/// whole 127, then to 4096).
+fn stick_axis(b: u8) -> i32 {
+    let a = b as i32 - 127;
+    let a = if a < -24 {
+        a + 24
+    } else if a > 24 {
+        a - 24
+    } else {
+        0
+    };
+    let a = ((a * 127) as i64 * 0x13e2_2cbd / (1i64 << 35)) as i32;
+    (a * 4096 / 127).clamp(-4096, 4096)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,5 +144,15 @@ mod tests {
         assert_eq!(pads.find(Query::Held), Some(15));
         pads.update([Some(&HostPad::default()), None]);
         assert_eq!(pads.find(Query::Released), Some(15));
+    }
+
+    #[test]
+    fn the_stick_has_the_originals_dead_zone_and_reach() {
+        assert_eq!(stick_axis(127), 0);
+        assert_eq!(stick_axis(127 + 24), 0);
+        assert_eq!(stick_axis(127 - 24), 0);
+        assert_eq!(stick_axis(255), 4096);
+        assert_eq!(stick_axis(0), -4096);
+        assert!(stick_axis(127 + 25) > 0 && stick_axis(127 + 25) < 64);
     }
 }

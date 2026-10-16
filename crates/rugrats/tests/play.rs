@@ -32,6 +32,26 @@ fn run(g: &mut Game, steps: &[(&[usize], usize)], mut each: impl FnMut(&mut Game
     }
 }
 
+/// Frames with the analog stick at `stick` (x right, y up, 4096 full) and
+/// `buttons` down.
+fn run_stick(g: &mut Game, stick: [i32; 2], buttons: &[usize], n: usize) {
+    let mut pads = Pads::default();
+    let bits = buttons.iter().fold(0u16, |a, &b| a | 1 << b);
+    for _ in 0..n {
+        pads.push_bits(0, bits);
+        pads.push_stick(0, stick);
+        g.frame(&pads);
+    }
+}
+
+/// The analog stick that runs toward world heading `h` with the camera
+/// where it is.
+fn stick_toward(g: &Game, h: i32) -> [i32; 2] {
+    let a = (h - g.camera_heading()) as f32 * std::f32::consts::TAU / 4096.0;
+    // (A hair over full: the axes are cut to 4096, the length to 4096.)
+    [(a.sin() * 4100.0) as i32, (a.cos() * 4100.0) as i32]
+}
+
 fn open(disc: &GameDisc, level: u8) -> Game {
     Game::open_from(disc, Level(level), None, &Progress::default()).unwrap()
 }
@@ -119,7 +139,7 @@ fn put(g: &mut Game, at: [i32; 3], heading: i32) {
         let near = (-2..=2).flat_map(|dx| (-2..=2).map(move |dz| (kx + dx, kz + dz)));
         if !near.into_iter().any(|key| reach.get(&key).is_some_and(|fs| fs.iter().any(|&f| (f - land).abs() < 300))) {
             let around: Vec<_> = (-2..=2).flat_map(|dx| (-2..=2).map(move |dz| (kx + dx, kz + dz))).filter_map(|k| reach.get(&k).map(|f| (k, f.clone()))).collect();
-            not_on_foot(g, format!("{at:?} (floor {land}; reached about it {around:?})"));
+            not_on_foot(g, format!("{at:?} (floor {land}; reached about it {around:?}, {} places in all, from {:?} {:?})", reach.len(), Ground::new(g).spot(g.player.pos), g.player.state));
         }
     }
     g.player.pos = at;
@@ -169,31 +189,10 @@ fn turn_near(g: &mut Game, h: i32, near: i32) -> i32 {
     if off(h - g.player.heading).abs() <= near {
         return off(h - g.player.heading);
     }
-    // A fixed camera (no swing): the nearest way at once. Else a tap of the
-    // diagonal on `h`'s side: the body snaps 512 round (and takes a step),
-    // and the camera swinging after it passes every heading mod 512.
-    let fixed = g.fixed.is_some();
-    if !fixed {
-        // Walking (Square): the step is half a run's.
-        let side: &[usize] =
-            if off(h - g.player.heading) >= 0 { &[input::UP, input::RIGHT, input::SQUARE] } else { &[input::UP, input::LEFT, input::SQUARE] };
-        run(g, &[(side, 1)], |_, _| {});
-    }
-    let mut still = 0;
-    let mut last = g.camera_heading();
-    for f in 0..80 {
-        let c = g.camera_heading();
-        still = if c == last { still + 1 } else { 0 };
-        last = c;
-        let (k, err) = (0..8).map(|k| (k, off(h - c - STICK[k].0))).min_by_key(|e| e.1.abs()).unwrap();
-        if err.abs() <= 8 || fixed || still >= 4 || f == 79 {
-            let mut keys = STICK[k].1.to_vec();
-            keys.push(input::SQUARE);
-            run(g, &[(&keys, 1)], |_, _| {});
-            break;
-        }
-        run(g, &[(&[], 1)], |_, _| {});
-    }
+    // The analog stick pushed a little at `h` for a frame: the aim set,
+    // no step (under 241 the speed, 17 x 241 / 4096, is none).
+    let [x, z] = stick_toward(g, h);
+    run_stick(g, [x * 200 / 4100, z * 200 / 4100], &[], 1);
     // The turn in place runs on to the way's heading (Spike's at 46 a
     // frame takes 45 for half a turn).
     for _ in 0..100 {
@@ -377,7 +376,11 @@ fn box_route(g: &mut Game) {
         let room = |x: i32, z: i32| {
             [(0, 0), (300, 0), (-300, 0), (0, 300), (0, -300)]
                 .iter()
-                .all(|&(dx, dz)| floor_under(g, x + dx, z + dz, floor - 384, 0) == Some(floor) && !Ground::new(g).blocked(x + dx, z + dz, floor))
+                .all(|&(dx, dz)| {
+                    // (A box may rest a little over the floor, 42 for one;
+                    // a shelf's top is a little uneven, 90.)
+                    floor_under(g, x + dx, z + dz, floor - 384, 0).is_some_and(|f| (f - floor).abs() < 128) && !Ground::new(g).blocked(x + dx, z + dz, floor)
+                })
         };
         let side = [900.0f32, 700.0, 450.0]
             .iter()
@@ -400,7 +403,23 @@ fn box_route(g: &mut Game) {
                 if me[1] - g.player.feet() > floor - 300 {
                     break;
                 }
-                stride_to(g, 2 * me[0] - b.x as i32, 2 * me[2] - b.z as i32, 100, 8);
+                let (dx, dz) = (me[0] as f32 - b.x, me[2] as f32 - b.z);
+                let len = dx.hypot(dz).max(1.0);
+                stride_to(g, me[0] + (dx * 1200.0 / len) as i32, me[2] + (dz * 1200.0 / len) as i32, 600, 20);
+                if std::env::var_os("WALKLOG").is_some() {
+                    eprintln!("  OFF box {k} from {me:?} to {:?} {:?} {:?} h{} t{} sp{}", g.player.pos, g.player.state, g.player.action, g.player.heading, g.player.target, g.player.speed);
+                    let a = g.player.heading as f32 * std::f32::consts::TAU / 4096.0;
+                    let feet = g.player.pos[1] - g.player.feet();
+                    for w in [0.0f32, 250.0, -250.0] {
+                        let x = me[0] + (a.sin() * 420.0 + a.cos() * w) as i32;
+                        let z = me[2] + (a.cos() * 420.0 - a.sin() * w) as i32;
+                        let q = rugrats::world::collide::query(&g.col, [x, feet - 64, z]);
+                        eprintln!("    probe {w}: ({x},{z}) kind {} floor {} feet {feet}", q.kind, q.floor);
+                    }
+                    for bx in bodies(g).iter().filter(|bx| bx.covers(me, 700)) {
+                        eprintln!("    body t{} {:?} {:?} {:?} y {}..{} char {}", bx.template, bx.pos, bx.lo, bx.hi, bx.min_y, bx.max_y, bx.character);
+                    }
+                }
                 run(g, &[(&[], 10)], |_, _| {});
             }
             // Nearer only if out of reach (1327 in front for Tommy and a
@@ -415,6 +434,9 @@ fn box_route(g: &mut Game) {
             let h = ((b.x - me[0] as f32).atan2(b.z - me[2] as f32) * 4096.0 / std::f32::consts::TAU) as i32;
             turn_near(g, h.rem_euclid(4096), 256);
             run(g, &[(&[input::CIRCLE], 1), (&[], 40)], |_, _| {});
+            if std::env::var_os("WALKLOG").is_some() {
+                eprintln!("BOX {k} try from {side:?}: Tommy {:?} heading {} {:?}, carried {:?}", g.player.pos, g.player.heading, g.player.state, g.carried());
+            }
             if g.carried() == Some(k) {
                 break;
             }
@@ -539,23 +561,46 @@ fn collect(g: &mut Game, want: impl Fn(&rugrats::world::game::Goodie) -> bool) -
         let Some(k) = (0..g.goodies.len()).filter(|&k| !g.goodies[k].taken && want(&g.goodies[k])).min_by_key(|&k| d(g.goodies[k].pos)) else { break };
         let p = g.goodies[k].pos;
         let (t0, from) = (g.frames, g.player.pos);
-        put(g, [p.x as i32, p.y as i32 - 100, p.z as i32], 0);
-        // At it with the stick until taken. (Put down 100 up, he lands
-        // first: the landing plays out, 0x8005cba8 does not move him.)
+        let at = [p.x as i32, p.y as i32 - 100, p.z as i32];
+        // Run through it, as a player does: straight at it where the line
+        // is clear, else by the way to its place first.
+        let feet = at[1] - g.player.feet();
+        let land = floor_under(g, at[0], at[2], feet - 1, 0).unwrap_or(feet);
+        let key = (cell(at[0]), cell(at[2]));
+        let straight = walking() && line_clear(g, at, land);
         let mut cine = None;
-        for _ in 0..40 {
+        // Straight first where clear; held up on the way (a corner met by
+        // the body's side), by the planned way after.
+        let tries: &[bool] = if straight { &[false, true] } else { &[true] };
+        for &planned in tries {
             if g.goodies[k].taken || cine.is_some() {
                 break;
             }
-            // Over his head: a jump for it (Cross held) once under it.
-            let me = g.player.pos;
-            let close = ((p.x as i64 - me[0] as i64).pow(2) + (p.z as i64 - me[2] as i64).pow(2)) < 250 * 250;
-            if (p.y as i32) < me[1] - 300 && close && matches!(g.player.state, State::Stand | State::Walk | State::Run) {
-                run(g, &[(&[input::CROSS], 20)], |g, _| cine = cine.or(g.cine.take()));
-                continue;
+            if planned
+                && !(walking() && walk_to(g, |s| (s.0 - key.0).abs() <= 1 && (s.1 - key.1).abs() <= 1 && (s.2 - land).abs() < 300, None))
+            {
+                put(g, at, 0);
             }
-            stride(g, p.x as i32, p.z as i32, false);
-            cine = cine.or(g.cine.take());
+            // At it with the stick until taken. (Put down 100 up, he lands
+            // first: the landing plays out, 0x8005cba8 does not move him.)
+            let far = ((p.x - g.player.pos[0] as f32).hypot(p.z - g.player.pos[2] as f32) / 100.0) as usize;
+            let mut held = 0;
+            for _ in 0..40 + far {
+                if g.goodies[k].taken || cine.is_some() || held > 12 {
+                    break;
+                }
+                // Over his head: a jump for it (Cross held) once under it.
+                let me = g.player.pos;
+                let close = ((p.x as i64 - me[0] as i64).pow(2) + (p.z as i64 - me[2] as i64).pow(2)) < 250 * 250;
+                if (p.y as i32) < me[1] - 300 && close && matches!(g.player.state, State::Stand | State::Walk | State::Run) {
+                    run(g, &[(&[input::CROSS], 20)], |g, _| cine = cine.or(g.cine.take()));
+                    continue;
+                }
+                stride(g, p.x as i32, p.z as i32, false);
+                cine = cine.or(g.cine.take());
+                let moved = (g.player.pos[0] - me[0]).abs() + (g.player.pos[2] - me[2]).abs();
+                held = if moved < 8 && !planned { held + 1 } else { 0 };
+            }
         }
         run(g, &[(&[], 2)], |g, _| cine = cine.or(g.cine.take()));
         if std::env::var_os("WALKLOG").is_some() {
@@ -623,15 +668,28 @@ fn win_15(g: &mut Game) {
         let b = g.set.placements.iter().find(|p| p.kind == 1 && p.id == id).unwrap().pos;
         // Beside the box, in its room.
         let room = g.room_of(b);
-        let at = [[600, 0], [-600, 0], [0, 600], [0, -600]]
+        // (900 off: a walk's last stride at one nearer climbs it.)
+        let at = [[900, 0], [-900, 0], [0, 900], [0, -900]]
             .map(|[dx, dz]| [b[0] + dx, b[1], b[2] + dz])
             .into_iter()
             .find(|&p| g.room_of(p) == room)
             .unwrap_or(b);
         put(g, at, 0);
+        // Down first (the way may end off a ledge), then nearer if the
+        // walk stopped short (its place is had within two cells).
+        for _ in 0..90 {
+            if !matches!(g.player.state, State::Jump | State::Fall) {
+                break;
+            }
+            run(g, &[(&[], 1)], |_, _| {});
+        }
+        let me = g.player.pos;
+        if ((b[0] - me[0]) as i64).pow(2) + ((b[2] - me[2]) as i64).pow(2) > 1000 * 1000 {
+            stride_to(g, b[0], b[2], 950, 40);
+        }
         let mut pieces = 0;
         run(g, &[(&[], 4), (&[input::TRIANGLE], 1), (&[], 2)], |g, _| pieces = pieces.max(g.flights.shards().count()));
-        assert!(g.is_hidden(id), "box {id} did not open");
+        assert!(g.is_hidden(id), "box {id} did not open: Tommy at {:?}, the box at {b:?}, put at {at:?}", g.player.pos);
         assert!((1..=10).contains(&pieces), "box {id} broke into {pieces}");
         // Walking for one box can take the last pickups on the way.
         let t0 = g.frames;
@@ -1430,7 +1488,18 @@ fn win_11(g: &mut Game) {
                 let [x, z] = at(t);
                 floor_under(g, x, z, ground_y - feet - 384, 0) == Some(ground_y - feet) && !Ground::new(g).blocked(x, z, ground_y - feet)
             });
-            clear.then_some((at(1250.0), h))
+            // Nothing to hold the run up before it (the step's probes from
+            // the takeoff, Spike's 1000 deep).
+            let [tx, tz] = at(1250.0);
+            let from = [tx, ground_y, tz];
+            let probes = g.player.probes([a.sin(), a.cos()], 200.0);
+            // (The bone's own stand aside: jumped at.)
+            let stand = |b: &&rugrats::actors::player::Box3| b.covers([bone[0], 0, bone[1]], 400);
+            let free = !g.bodies.iter().filter(|b| !b.character && b.min_y < ground_y - feet - 384 && !stand(b)).any(|b| {
+                let hy = g.player.probe_height(b, from);
+                probes.iter().any(|&(px, pz)| b.segment_hit([tx, hy, tz], [tx + px, hy, tz + pz]).is_some())
+            });
+            (clear && free).then_some((at(1250.0), h))
         });
         let Some(([x, z], h)) = takeoff else {
             for d in 0..16 {
@@ -1444,10 +1513,18 @@ fn win_11(g: &mut Game) {
         let a = h as f32 * std::f32::consts::TAU / 4096.0;
         // Up to 700 behind the run-up, then along the line to it: there
         // facing the bone, with no turn to make.
-        near(g, [x - (a.sin() * 1212.0) as i32, ground_y, z - (a.cos() * 1212.0) as i32]);
+        let t0 = g.frames;
+        near(g, [x - (a.sin() * 1212.0) as i32, ground_y, z - (a.cos() * 1212.0) as i32], h);
+        if std::env::var_os("WALKLOG").is_some() {
+            eprintln!("  near took {}", g.frames - t0);
+        }
+        let t1 = g.frames;
         // Within 64 (the turn's 41 off took a jump 380 wide of the bone,
         // its box 375 each way).
         leap_within(g, x, z, h, 64);
+        if std::env::var_os("WALKLOG").is_some() {
+            eprintln!("  leap took {}", g.frames - t1);
+        }
 
         run(g, &[(&[], 4)], |g, _| cine = cine.or(g.cine.take()));
         cine = cine.or(g.cine.take());
@@ -2063,15 +2140,17 @@ fn jump_shape(g: &Game) -> Vec<(i32, i32)> {
     let (up, factor) = g.player.moving_jump;
     let (mut along, mut y) = (run * DT, 0);
     let mut out = vec![(along, y)];
-    let (mut vh, mut vy) = (factor * run, up);
+    let (mut vh, mut vy) = ((factor * run) as f32, up);
     let mut first = true;
+    // The stick held on the way: its push against the drag
+    // (`Player::air_across`).
+    let push = rugrats::actors::player::AIR_PUSH;
     while y < 1500 {
         let a = if !first && vy < 0 { 9 } else { 14 };
-        if !first {
-            vh -= vh * 32 / 4096;
-        }
         first = false;
-        along += (vh * DT) >> 6;
+        let acc = push - vh * 32.0 / 4096.0;
+        along += ((vh * DT as f32 + acc * (DT * DT) as f32 / 2.0) / 64.0) as i32;
+        vh += acc * DT as f32;
         y += (vy * DT + a * DT * DT / 2) >> 6;
         vy = (vy + a * DT).min(4096);
         out.push((along, y));
@@ -2116,17 +2195,36 @@ fn up_to(g: &mut Game, id: u16, reach: i64) -> bool {
 }
 
 /// To about `at` (the leap that follows backs up to its own run-up): put
-/// there, or walked to within two cells of it on its floor.
-fn near(g: &mut Game, at: [i32; 3]) {
+/// there facing `heading`, or walked to within two cells of it on its
+/// floor.
+fn near(g: &mut Game, at: [i32; 3], heading: i32) {
     if walking() {
         let feet = at[1] - g.player.feet();
         let land = floor_under(g, at[0], at[2], feet - 1, 0).unwrap_or(feet);
+        // Straight there where the line is clear (the ring's floor).
+        if line_clear(g, at, land) && stride_to(g, at[0], at[2], 600, 200) {
+            return;
+        }
         let key = (cell(at[0]), cell(at[2]));
         if walk_to(g, |s| (s.0 - key.0).abs() <= 2 && (s.1 - key.1).abs() <= 2 && (s.2 - land).abs() < 300, None) {
             return;
         }
     }
-    put(g, at, 0);
+    put(g, at, heading);
+}
+
+/// Whether the straight line from the player to `at` keeps to his floor
+/// `land` with nothing on it.
+fn line_clear(g: &Game, at: [i32; 3], land: i32) -> bool {
+    let me = g.player.pos;
+    let here = me[1] - g.player.feet();
+    let ground = Ground::new(g);
+    let n = (((at[0] - me[0]) as f32).hypot((at[2] - me[2]) as f32) / 128.0) as i32 + 1;
+    (here - land).abs() < 64
+        && (0..=n).all(|k| {
+            let (x, z) = (me[0] + (at[0] - me[0]) * k / n, me[2] + (at[2] - me[2]) * k / n);
+            ground.floor(x, z, land - 384).is_some_and(|f| (f - land).abs() < 64) && !ground.blocked(x, z, land)
+        })
 }
 
 /// The place `r` short of `at` on the player's side, on the floor there
@@ -2197,6 +2295,9 @@ struct Ground<'a> {
     /// Characters stand in the way (a walk planned now); without, the
     /// level as it lies.
     characters: bool,
+    /// A step's way checked by its middle probe alone (a way the side
+    /// probes catch on is slid along in play, slower).
+    narrow: bool,
     shape: Vec<(i32, i32)>,
     jump: i32,
     most: i32,
@@ -2275,7 +2376,7 @@ impl<'a> Ground<'a> {
         let h = &g.player.hierarchy.header;
         let half = |at: usize| h.get(at..at + 2).map_or(0, |b| i16::from_le_bytes([b[0], b[1]]) as i32).abs();
         let side = half(0x04).max(half(0x0c));
-        Ground { g, ban: Default::default(), characters: true, shape, jump, most, side, boxes, grid }
+        Ground { g, ban: Default::default(), characters: true, narrow: false, shape, jump, most, side, boxes, grid }
     }
 
     /// The floor under (x, z) from `y` down. Objects within half a cell
@@ -2309,9 +2410,9 @@ impl<'a> Ground<'a> {
         let p = &self.g.player;
         let (x, z) = (centre(cx), centre(cz));
         let at = [x, floor + p.feet(), z];
-        // (The middle probe only: the plan's steps go along the axes, the
-        // body's way past a thing may be aslant.)
-        p.probes(dir, step).iter().take(1).all(|&(px, pz)| {
+        // (All three, as the ground move's: a way the side ones meet a
+        // thing on holds the body there; narrow, the middle one.)
+        p.probes(dir, step).iter().take(if self.narrow { 1 } else { 3 }).all(|&(px, pz)| {
             self.near(x, z).chain(self.near(x + px, z + pz)).filter(|b| !b.character && b.min_y < floor - 384).all(|b| {
                 let h = p.probe_height(b, at);
                 b.segment_hit([x, h, z], [x + px, h, z + pz]).is_none()
@@ -2496,11 +2597,22 @@ struct Places {
 fn stride(g: &mut Game, x: i32, z: i32, slow: bool) {
     let me = g.player.pos;
     let h = (((x - me[0]) as f32).atan2((z - me[2]) as f32) * 4096.0 / std::f32::consts::TAU) as i32;
-    let mut keys = toward(g, h.rem_euclid(4096)).to_vec();
-    if slow {
-        keys.push(input::SQUARE);
+    // The analog stick straight at it (a DualShock's, as the original
+    // reads it), Square to walk.
+    let stick = stick_toward(g, h);
+    let keys: &[usize] = if slow { &[input::SQUARE] } else { &[] };
+    run_stick(g, stick, keys, 1);
+    // Well off it: let go while the heading turns to the way's (at its
+    // rate; held on, the body runs a wide circle), then on.
+    let off = |a: i32| (a + 2048).rem_euclid(4096) - 2048;
+    if off(h - g.player.heading).abs() > 600 && !g.player.frozen {
+        for _ in 0..40 {
+            if g.player.heading == g.player.target {
+                break;
+            }
+            run(g, &[(&[], 1)], |_, _| {});
+        }
     }
-    run(g, &[(&keys, 1)], |_, _| {});
 }
 
 /// One frame of the stick along the line from `from` to `to`: at the place
@@ -2527,6 +2639,7 @@ fn stride_to(g: &mut Game, x: i32, z: i32, near: i32, frames: usize) -> bool {
         if d2 <= (near as i64).pow(2) {
             return true;
         }
+
         stride(g, x, z, d2 < 400 * 400);
     }
     false
@@ -2571,14 +2684,13 @@ fn leap_within(g: &mut Game, tx: i32, tz: i32, h: i32, near: i32) -> bool {
         if std::env::var_os("LEAPLOG").is_some() {
             eprintln!("    leap {:?} {:?} past {past:.0} v {:?} floor {}", p.pos, p.state, p.v, p.floor);
         }
-        let mut keys = toward(g, ahead).to_vec();
+        let stick = stick_toward(g, ahead);
         // (Within half a run's step of it: a takeoff at a shelf's edge is
         // otherwise run off.)
         if jumped || past >= -85.0 || held {
             jumped = true;
-            keys.push(input::CROSS);
         }
-        run(g, &[(&keys, 1)], |_, _| {});
+        run_stick(g, stick, if jumped { &[input::CROSS] } else { &[] }, 1);
     }
     false
 }
@@ -2593,6 +2705,7 @@ fn walk_to(g: &mut Game, goal: impl Fn(Spot) -> bool + Copy, end: Option<[i32; 2
     let mut used: Vec<[i32; 3]> = Vec::new();
     let mut hopped = 0;
     let mut unbanned = false;
+    let mut downs: Vec<(i32, i32)> = Vec::new();
     // (Level 4's way to Cynthia's farthest spot is some 800 places and a
     // dozen jumps, each landing a little off it to be planned on from.)
     for _ in 0..80 {
@@ -2601,6 +2714,11 @@ fn walk_to(g: &mut Game, goal: impl Fn(Spot) -> bool + Copy, end: Option<[i32; 2
         ground.ban = ban.clone();
         let start = ground.spot(g.player.pos);
         let (mut places, mut found) = ground.ways(g.player.pos, goal);
+        // No way the body passes cleanly: one it slides through.
+        if found.is_none() {
+            ground.narrow = true;
+            (places, found) = ground.ways(g.player.pos, goal);
+        }
         // Characters across every way (level 2's geese in the maze): past
         // them, as a player goes.
         if found.is_none() {
@@ -2669,8 +2787,19 @@ fn walk_to(g: &mut Game, goal: impl Fn(Spot) -> bool + Copy, end: Option<[i32; 2
             let cells: Vec<_> = path.iter().step_by(25).map(|p| (centre(p.0.0), centre(p.0.1), p.0.2)).collect();
             eprintln!("  path {cells:?}");
         }
-        if let Some(failed) = follow(g, start, &path, &mut used) {
-            ban.insert(failed);
+        match follow(g, start, &path, &mut used) {
+            Some(failed) => {
+                ban.insert(failed);
+            }
+            // Down off the way again where it was last time: its first
+            // move is no way from here.
+            None => {
+                let here = (cell(g.player.pos[0]), cell(g.player.pos[2]));
+                if downs.contains(&here) {
+                    ban.insert([start.0, start.1, path[0].0.0, path[0].0.1]);
+                }
+                downs.push(here);
+            }
         }
     }
     false
@@ -2691,6 +2820,7 @@ fn follow(g: &mut Game, start: Spot, path: &[(Spot, Way)], used: &mut Vec<[i32; 
     let mut line: Option<(Spot, [i32; 2])> = None;
     // Frames on the ground since a place on the way was passed.
     let mut stalled = 0;
+    let mut last_frame = g.frames;
     // A budget: 40 frames a place on the way and 300 more.
     let mut budget = 40 * path.len() + 300;
     while i < path.len() {
@@ -2808,13 +2938,16 @@ fn follow(g: &mut Game, start: Spot, path: &[(Spot, Way)], used: &mut Vec<[i32; 
             stuck = 0;
         }
         stuck += 1;
-        // Back and forth by a wall (each way more than the 96 above).
+        // Back and forth by a wall (each way more than the 96 above), in
+        // frames (a step may take several, the turn waited out).
+        let spent = g.frames - last_frame;
+        last_frame = g.frames;
         if busy {
             stalled = 0;
         } else {
-            stalled += 1;
+            stalled += spent;
         }
-        if stalled > 120 {
+        if stalled > 300 {
             stuck = 46;
         }
         // A shut door on the way just ahead (or one that holds the body
@@ -2918,8 +3051,22 @@ fn follow(g: &mut Game, start: Spot, path: &[(Spot, Way)], used: &mut Vec<[i32; 
                 line = Some((goal, [g.player.pos[0], g.player.pos[2]]));
             }
         }
+        // A run into a thing bumps (state 9, some 14 frames held): by
+        // things, within a run's probe of one, walked (Square).
+        let me = g.player.pos;
+        let (dx, dz) = ((centre(goal.0) - me[0]) as f32, (centre(goal.1) - me[2]) as f32);
+        let len = dx.hypot(dz).max(1.0);
+        // Along the aim and the heading (it turns to the aim at its rate).
+        let a = g.player.heading as f32 * std::f32::consts::TAU / 4096.0;
+        let mut probes = g.player.probes([dx / len, dz / len], 340.0);
+        probes.extend(g.player.probes([a.sin(), a.cos()], 340.0));
+        let feet = me[1] - g.player.feet();
+        let by_thing = g.bodies.iter().filter(|b| !b.character && b.min_y < feet - 384 && b.covers(me, 1600)).any(|b| {
+            let h = g.player.probe_height(b, me);
+            probes.iter().any(|&(px, pz)| b.segment_hit([me[0], h, me[2]], [me[0] + px, h, me[2] + pz]).is_some())
+        });
         if close > 0 || stuck > 3 || !slope {
-            stride(g, centre(goal.0), centre(goal.1), false);
+            stride(g, centre(goal.0), centre(goal.1), by_thing);
         } else {
             stride_along(g, from, [centre(goal.0), centre(goal.1)]);
         }
@@ -2936,7 +3083,14 @@ fn follow(g: &mut Game, start: Spot, path: &[(Spot, Way)], used: &mut Vec<[i32; 
 fn on_foot(g: &Game, from: [i32; 3]) -> std::collections::HashMap<(i32, i32), Vec<i32>> {
     let mut ground = Ground::new(g);
     ground.characters = false;
-    ground.ways(from, |_| false).0.floors
+    ground.narrow = true;
+    // (A place put at may be too tight for the plan's body: from the
+    // nearest about it that is not.)
+    [(0, 0), (256, 0), (-256, 0), (0, 256), (0, -256), (256, 256), (-256, 256), (256, -256), (-256, -256)]
+        .iter()
+        .map(|&(dx, dz)| ground.ways([from[0] + dx, from[1], from[2] + dz], |_| false).0.floors)
+        .find(|f| f.len() > 1)
+        .unwrap_or_default()
 }
 
 /// Floats into room `room` (state 21): the way through the open cubes
@@ -3142,6 +3296,8 @@ fn running_into_a_wall_slides_as_the_original() {
     // again. (The run's own heading there comes from the camera behind him
     // by the wall, a few degrees apart in the port: the steps across are
     // compared, not the places.)
+    // (Head-on into it, the run bumps, 0x8005e1f4: played out first.)
+    run(&mut g, &[(&[], 20)], |_, _| {});
     g.player.pos = [11800, 779, 19403];
     g.player.heading = 1536;
     g.player.target = 1536;
@@ -3345,4 +3501,66 @@ fn a_box_held_into_another_is_not_put_down_as_the_original() {
         run(&mut g, &[(&[input::CIRCLE], 1), (&[], 60)], |_, _| {});
         assert_eq!(g.carried().is_some(), refused, "198 at {z}");
     }
+}
+
+/// A run at level 18's wall at a slant goes on along it, and into the
+/// corner past it, at another wall and another; head-on into the last it
+/// bumps once (state 9, 13 frames), then stands with Up still held, as the
+/// oracle shows (from (28664, 12748) facing 1433, R1, Up held: along x
+/// 30866 from z 11166, x 31335 from z 6039, the bump at (31335, 5529),
+/// then state 0).
+#[test]
+fn a_run_slides_along_walls_and_bumps_once_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 18);
+    g.player.pos = [28664, 779, 12748];
+    g.player.heading = 1433;
+    g.player.target = 1433;
+    run(&mut g, &[(&[], 3), (&[input::R1], 1), (&[], 2)], |_, _| {});
+    let (mut path, mut bumps, mut was) = (Vec::new(), 0, None);
+    run(&mut g, &[(&[input::UP], 120)], |g, _| {
+        path.push(g.player.pos);
+        if g.player.action == Some(rugrats::actors::player::anim::BUMP) && was != Some(rugrats::actors::player::anim::BUMP) {
+            bumps += 1;
+        }
+        was = g.player.action;
+    });
+    let near = |p: [i32; 3], x: i32, z: i32| (p[0] - x).abs() <= 16 && (p[2] - z).abs() <= 16;
+    assert!(path.iter().any(|&p| p[0] - 30866 <= 16 && (30866 - p[0]) <= 16 && p[2] < 10000), "along the first wall: {path:?}");
+    assert!(path.iter().any(|&p| (p[0] - 31335).abs() <= 16 && p[2] < 5900), "along the second: {path:?}");
+    let end = g.player.pos;
+    assert!(near(end, 31335, 5529), "held at {end:?}");
+    assert_eq!(bumps, 1, "one bump");
+    assert_eq!(g.player.state, State::Stand);
+}
+
+/// The stick held on in the air pushes the flight along (0x80061330):
+/// level 6's shelf (Tommy put at (40334, -4341, -34944) facing 1024, R1,
+/// Up held, Cross): the oracle's steps across, a frame apart, 111, 122,
+/// 132, 142, 152, 160, 168, then 186, 190, 195, 200, 204, 207, 210. And
+/// Cross at the shelf's edge still jumps from it (the oracle: up from the
+/// shelf's height, not down to the floor 3072 under it).
+#[test]
+fn the_stick_pushes_a_jump_on_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let start = |g: &mut Game, pre: usize| {
+        g.player.pos = [40334, -4341, -34944];
+        g.player.heading = 1024;
+        g.player.target = 1024;
+        run(g, &[(&[], 3), (&[input::R1], 1), (&[], 2), (&[input::UP], pre)], |_, _| {});
+    };
+    let mut g = open(&disc, 6);
+    start(&mut g, 1);
+    let mut xs = Vec::new();
+    run(&mut g, &[(&[input::UP, input::CROSS], 15), (&[input::UP], 3)], |g, _| xs.push(g.player.pos[0]));
+    let steps: Vec<i32> = xs.windows(2).map(|w| w[1] - w[0]).collect();
+    let oracle = [111, 122, 132, 142, 152, 160, 168, 0, 0, 186, 190, 195, 200, 204, 207, 210];
+    for (k, (&s, &o)) in steps.iter().zip(&oracle).enumerate() {
+        assert!(o == 0 || (s - o).abs() <= 4, "step {k}: {s} against {o} ({steps:?})");
+    }
+    let mut g = open(&disc, 6);
+    start(&mut g, 3);
+    let mut ys = Vec::new();
+    run(&mut g, &[(&[input::UP, input::CROSS], 12)], |g, _| ys.push(g.player.pos[1]));
+    assert!(ys.iter().all(|&y| y < -4000) && ys.iter().any(|&y| y < -5000), "{ys:?}");
 }

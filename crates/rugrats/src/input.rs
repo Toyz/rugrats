@@ -27,6 +27,10 @@ pub struct Pad {
     pub connected: bool,
     /// Button `b`'s last 32 frames, newest in bit 0.
     pub history: [u32; BUTTONS],
+    /// The left stick this frame, x right and y up, 4096 full (a
+    /// DualShock's in analog mode; 0x8005be24 takes each axis over the
+    /// D-pad's where larger). Zero without one.
+    pub stick: [i32; 2],
 }
 
 /// What [`Pads::find`] looks for (the query modes of 0x8001baf8).
@@ -55,7 +59,16 @@ impl Pads {
             for (b, h) in pad.history.iter_mut().enumerate() {
                 *h = *h << 1 | (bits >> b) as u32 & 1;
             }
+            // The stick's bytes, 0x80 at rest, 0 left and up.
+            let axis = |b: u8| (b as i32 - 128) * 32;
+            pad.stick = if host.analog { [axis(host.left.x), -axis(host.left.y)] } else { [0; 2] };
         }
+    }
+
+    /// The left stick of `port` this frame (x right, y up, 4096 full): for
+    /// scripted input, after `push_bits`.
+    pub fn push_stick(&mut self, port: usize, stick: [i32; 2]) {
+        self.port[port].stick = stick.map(|v| v.clamp(-4096, 4096));
     }
 
     /// One frame's sample of `port` from button bits (bit `b` button

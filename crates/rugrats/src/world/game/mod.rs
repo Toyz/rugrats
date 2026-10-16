@@ -1275,7 +1275,19 @@ impl Game {
         self.player.climb_off = matches!(self.level, Level::HUB | Level::LET_THERE_BE_LIGHT) && self.room == Some(4);
         self.player.climb_max = if self.level == Level::CHUCKIES_GLASSES { 905 } else { crate::actors::player::CLIMB };
         let start = self.player.pos;
+        // Reptar (level 7) stands and level 11's Spike runs on where a run
+        // into a thing bumps (0x8005e1f4).
+        self.player.bumps =
+            self.level != Level::REPTAR_2010 && !(self.level == Level::CIRCUS && self.character == 6);
+        self.player.head_on = if self.character == 6 { 220 } else { 384 };
         self.player.frame(pads, self.camera_heading(), &self.col, &boxes, &self.anims, &self.trig);
+        // A thing run into with a +0x6d hurts by it (Damage, 0x800780ac).
+        if let Some(t) = self.player.bumped.take() {
+            let damage = self.set.templates.get(t as usize).map_or(0, |tp| tp.raw[0x32] as i32);
+            if damage > 0 && !self.no_damage {
+                self.player.hurt(damage);
+            }
+        }
         self.bodies = boxes.clone();
         // Moved across (+0x188 bit 32, from the displacement +0xd8).
         let moved = self.player.pos[0] != start[0] || self.player.pos[2] != start[2];

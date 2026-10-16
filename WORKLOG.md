@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-144 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 61, render 26, save 4, test 19, tooling 18, ui 9, video 10.
+145 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 62, render 26, save 4, test 19, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -156,3 +156,4 @@ The [reference](docs/README.md) says what is true now.
 | 142 | [Level 4 on the oracle, as Spike](worklog/0142-level-4-on-the-oracle-as-spike.md) | 2026-10-16 | test |
 | 143 | [Actions play their last frame out](worklog/0143-actions-play-their-last-frame-out.md) | 2026-10-16 | play |
 | 144 | [Level 4's brown water checked on the oracle](worklog/0144-level-4-s-brown-water-checked-on-the-oracle.md) | 2026-10-16 | test |
+| 145 | [A climb's last step is had](worklog/0145-a-climb-s-last-step-is-had.md) | 2026-10-16 | play |

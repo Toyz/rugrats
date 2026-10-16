@@ -295,7 +295,7 @@ impl Player {
                 magnitude = 0;
             } else {
                 self.action = None;
-                self.finish_climb(col, boxes);
+                self.finish_climb(col, boxes, false);
                 // The slip's fall ends (state 18): Damage 5, message 30.
                 if self.slipping {
                     self.slipping = false;
@@ -459,11 +459,16 @@ impl Player {
         if let Some(top) = climb_to {
             // The rise picks the climb (+0x144, 0x80056e44).
             self.animator.climb = self.floor - top;
-            self.climb = Some(Climb { top: top + self.feet, from: start, moved: [0; 3] });
+            self.climb = Some(Climb { top: top + self.feet, whole: [0; 3], from: start, moved: [0; 3] });
             self.pos[1] = top + self.feet;
             self.floor = top;
             self.state = State::Stand;
             self.act(anim::CLIMB, anims);
+            let rot = self.rotation(trig);
+            if let (Some((_, total)), Some(c)) = (self.animator.root_progress(anims), &mut self.climb) {
+                let w = rot * Vec3::new(total[0] as f32, total[1] as f32, total[2] as f32);
+                c.whole = [w.x as i32, w.y as i32, w.z as i32];
+            }
             self.hints.push(1);
         }
         let feet_y = self.pos[1] - self.feet;
@@ -557,7 +562,7 @@ impl Player {
         // Its animation over, the climb ends this frame (the next state
         // has begun under it).
         if self.climb.is_some() && !self.animator.playing(anim::CLIMB) {
-            self.finish_climb(col, boxes);
+            self.finish_climb(col, boxes, true);
             self.action = None;
         }
     }
@@ -640,8 +645,15 @@ impl Player {
     /// `speed`, up at `up`.
     /// The climb ends where its root motion got to (+0xd8, +0xdc moved by
     /// 0x80066e60), on the ledge it rose to, if there is room there.
-    fn finish_climb(&mut self, col: &Col, boxes: &[Box3]) {
-        let Some(c) = self.climb.take() else { return };
+    fn finish_climb(&mut self, col: &Col, boxes: &[Box3], whole: bool) {
+        let Some(mut c) = self.climb.take() else { return };
+        // Run to its end, the last step's motion is had too; the height it
+        // ends at against the top is the floor's to take back (the oracle:
+        // Chuckie at -193 over a top of -179, then -192).
+        if whole {
+            c.moved = c.whole;
+            self.root_y = c.from[1] + c.whole[1] - c.top;
+        }
         let top = c.top - self.feet;
         self.pos[1] = c.top;
         self.floor = top;
@@ -816,6 +828,8 @@ pub const HEIGHT: i32 = 600;
 struct Climb {
     /// The body's height on the top (the ledge plus the feet).
     top: i32,
+    /// The climb animation's whole root motion, in the world.
+    whole: [i32; 3],
     from: [i32; 3],
     moved: [i32; 3],
 }

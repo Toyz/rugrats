@@ -137,15 +137,20 @@ fn level_16_toss_is_won() {
         steps.push((&[input::UP, input::TRIANGLE], 1));
         steps.push((&[input::UP], 14));
     }
-    // Won before the clock (30 s of unfrozen time) could run out: the
-    // timer goes off with Angelica's health back to full.
+    // Won, not timed out: the clock goes off with Angelica stopped
+    // (mode 0) and her health back to full.
     let mut ended = None;
     run(&mut g, &steps, |g, f| {
         if ended.is_none() && f > 20 && g.timer.is_none() {
-            ended = Some(f);
+            let a = g
+                .npcs
+                .iter()
+                .find(|n| n.id == 600)
+                .map(|n| (matches!(n.mode, rugrats::actors::npc::Mode::Idle), n.health == n.max_health));
+            ended = Some((f, a));
         }
     });
-    assert!(ended.is_some_and(|f| f < 1000), "won at {ended:?}");
+    assert!(matches!(ended, Some((_, Some((true, true))))), "toss ended {ended:?}");
 }
 
 /// Every reachable level opens and plays a few seconds of running about.

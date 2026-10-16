@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-86 entries: audio 13, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 35, render 12, save 4, test 17, tooling 18, ui 9, video 8.
+87 entries: audio 13, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 36, render 12, save 4, test 17, tooling 18, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -98,3 +98,4 @@ The [reference](docs/README.md) says what is true now.
 | 84 | [Faces lost their eyes: model faces drawn in AddPrim's order](worklog/0084-faces-lost-their-eyes-model-faces-drawn-in-addprim-s-order.md) | 2026-10-15 | bug, render |
 | 85 | [The cry's voice, the lobster's bite rate; walls do not slide](worklog/0085-the-cry-s-voice-the-lobster-s-bite-rate-walls-do-not-slide.md) | 2026-10-15 | play |
 | 86 | [Climbs the original refuses](worklog/0086-climbs-the-original-refuses.md) | 2026-10-15 | play |
+| 87 | [A waiting runner goes on when the player is ahead](worklog/0087-a-waiting-runner-goes-on-when-the-player-is-ahead.md) | 2026-10-15 | play |

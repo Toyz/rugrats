@@ -325,12 +325,22 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 }
             }
             Mode::Wait { prev, cur, left } => {
-                // Resume when the time is up or the player comes near
-                // (0x80083efc).
+                // Resume (0x80083efc) when (0x800843f0) the time is up, the
+                // player comes near, or he lies within 768 of the way to
+                // the next post: ahead of her (0x800760f4), the one that
+                // says a line.
                 n.speed = 0;
                 let near = n.dist(w.player) < n.range;
-                if left <= 0 || near {
-                    if near {
+                let bearing = |to: [i32; 3]| {
+                    let (dx, dz) = ((to[0] - n.pos[0]) as f64, (to[2] - n.pos[2]) as f64);
+                    ((dx.atan2(dz) / std::f64::consts::TAU) * 4096.0).round() as i32
+                };
+                let ahead = w
+                    .posts
+                    .get((cur as usize).wrapping_sub(1))
+                    .is_some_and(|post| wrap(bearing(w.player) - bearing(post.pos)).abs() < 768);
+                if left <= 0 || near || ahead {
+                    if ahead {
                         events.push(Event::Resumes(k));
                     }
                     n.mode = Mode::Posts { prev, cur };

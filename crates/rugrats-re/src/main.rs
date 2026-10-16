@@ -348,8 +348,30 @@ fn tim_cmd(args: &mut Args, cue: &Option<String>) -> Result<()> {
     Ok(())
 }
 
+/// A mono 16-bit WAV file.
+fn wav(samples: &[i16], rate: u32) -> Vec<u8> {
+    let len = samples.len() as u32 * 2;
+    let mut w = Vec::with_capacity(44 + len as usize);
+    w.extend(b"RIFF");
+    w.extend((36 + len).to_le_bytes());
+    w.extend(b"WAVEfmt ");
+    w.extend(16u32.to_le_bytes());
+    w.extend(1u16.to_le_bytes());
+    w.extend(1u16.to_le_bytes());
+    w.extend(rate.to_le_bytes());
+    w.extend((rate * 2).to_le_bytes());
+    w.extend(2u16.to_le_bytes());
+    w.extend(16u16.to_le_bytes());
+    w.extend(b"data");
+    w.extend(len.to_le_bytes());
+    for s in samples {
+        w.extend(s.to_le_bytes());
+    }
+    w
+}
+
 fn vab_cmd(args: &mut Args) -> Result<()> {
-    use rugrats_data::vab;
+    use rrt::kit::libsnd::vab;
     let input = PathBuf::from(args.items.first().ok_or("vab DIR|VH [OUT]")?);
     let body = |vh: &Path| {
         let name = vh.file_name().unwrap().to_string_lossy();
@@ -404,9 +426,9 @@ fn vab_cmd(args: &mut Args) -> Result<()> {
         }
         let stem = input.file_name().unwrap().to_string_lossy().to_string();
         for n in 1..v.vag_sizes.len() {
-            let pcm = vab::decode_adpcm(v.vag(&vb, n).ok_or("sample past the VB")?);
+            let pcm = rrt::kit::adpcm::spu::decode(v.vag(&vb, n).ok_or("sample past the VB")?);
             // A VAB does not store the recording rate; 22050 Hz is assumed.
-            std::fs::write(out.join(format!("{stem}_{n:02}.wav")), vab::wav(&pcm, 22050)).map_err(|e| e.to_string())?;
+            std::fs::write(out.join(format!("{stem}_{n:02}.wav")), wav(&pcm, 22050)).map_err(|e| e.to_string())?;
         }
         println!("-> {}", out.display());
     }

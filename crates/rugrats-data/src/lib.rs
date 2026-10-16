@@ -13,8 +13,6 @@ pub mod mdec;
 pub mod model;
 pub mod movie;
 pub mod placement;
-pub mod sep;
 pub mod tim;
-pub mod vab;
 
 pub use tim::Tim;

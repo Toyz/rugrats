@@ -70,7 +70,7 @@ voice is taken in turn from 17 to 23 (0x800c434c).
 
 ## SEP
 
-See `rugrats_data::sep`:
+See `rrt::kit::libsnd::sep`:
 
 - "pQES", then u16 version.
 - Then the songs back to back, each with: u16 id, u16 resolution,
@@ -81,16 +81,19 @@ See `rugrats_data::sep`:
 
 ## Port
 
-- `rugrats::sound::Spu` is a software SPU: 24 voices, the SPU's ADSR,
-  Gaussian interpolation (rrt-kit), and libsnd's sequencer reading the SEP
-  events.
+- The banks, songs, voices, envelopes, sequencer, slot volumes and fades
+  are retro_rt's `rrt::kit::libsnd` (rrt-kit.md, moved there from this
+  port): 24 voices, the SPU's ADSR, Gaussian interpolation, and libsnd's
+  sequencer reading the SEP events.
+- `rugrats::audio::sound` keeps the game's side: the song sets and their
+  files, the effect table, effects on voices 17-23, and the room switch
+  (0x8006efcc) over two of libsnd's song slots with the songs' ids.
 - Voice volumes multiply velocity, tone, program, channel (CC 7),
-  expression (CC 11) and bank master volumes, each out of 127; the song's
+  expression (CC 11) and bank master volumes, each out of 127; a slot's
   volume is applied as the voices mix, so SsSeqSetVol and the fades
   change notes already sounding.
-- Two song slots: the song playing and one fading out (`switch_song`).
-  libsnd's ticks are taken as 60 a second (guess), so 30 is half a
-  second.
+- libsnd's ticks are taken as 60 a second (guess), so the switch's 30 is
+  half a second.
 - Pans add up around 64.
 - `Mix` puts the SPU's voices over the XA soundtrack for the audio device.
 - `song_wav` renders a song offline. Song 0 at 90: peak 21990, RMS 2859.

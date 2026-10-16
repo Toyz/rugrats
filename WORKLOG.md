@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-74 entries: audio 10, bug 3, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 11, save 4, test 11, tooling 17, ui 9, video 8.
+75 entries: audio 11, bug 3, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 11, save 4, test 11, tooling 18, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -86,3 +86,4 @@ The [reference](docs/README.md) says what is true now.
 | 72 | [Nine song banks crashed their levels; the whole game as a test](worklog/0072-nine-song-banks-crashed-their-levels-the-whole-game-as-a.md) | 2026-10-15 | bug |
 | 73 | [retro_rt 5d20233: the program driven tick by tick in tests](worklog/0073-retro-rt-5d20233-the-program-driven-tick-by-tick-in-tests.md) | 2026-10-15 | tooling, test |
 | 74 | [Gold Rush and Egg Hunt won by walking onto the pickups](worklog/0074-gold-rush-and-egg-hunt-won-by-walking-onto-the-pickups.md) | 2026-10-15 | test |
+| 75 | [The sound engine moves to retro_rt's libsnd](worklog/0075-the-sound-engine-moves-to-retro-rt-s-libsnd.md) | 2026-10-15 | audio, tooling |

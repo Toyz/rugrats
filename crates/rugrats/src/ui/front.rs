@@ -316,6 +316,14 @@ impl Button {
     }
 }
 
+/// The card page's cubes, new: CANCEL's at (-600, -400, 1298) turning to
+/// a half turn, ACCEPT's at (600, -400, 1298) and PRESS X's at (-60, 414,
+/// 1298) to a quarter, 128 a frame (0x80035550, 0x80035674, 0x80035798).
+fn card_cubes() -> [Button; 3] {
+    let cube = |pos: [i32; 3], target: i16| Button { pos, angles: [0; 3], targets: [target, 0, 0], speed: 128 };
+    [cube([-600, -400, 1298], 2048), cube([600, -400, 1298], 1024), cube([-60, 414, 1298], 1024)]
+}
+
 /// Database 0's hierarchies (file 370 + 0): the babies are 1-5.
 const DB00_HIE: usize = 370;
 
@@ -614,8 +622,11 @@ pub struct Title {
     audio: Option<AudioMenu>,
     pub song_volume: Option<i32>,
     audio_strings: [String; 5],
-    /// The card pages (Load Game), their strings, PRESS X's text.
+    /// The card pages (Load Game), their strings, PRESS X's text, and the
+    /// page's own cubes: CANCEL's, ACCEPT's and PRESS X's (0x800398bc
+    /// makes them anew, 0x800c4b14, 0x800c4b18, 0x800c4b40).
     card: Option<CardMenu>,
+    card_cubes: [Button; 3],
     card_strings: Strings,
     press: String,
     /// Mini-golf's setup, the count kept between visits (0x800c46cc),
@@ -833,6 +844,7 @@ impl Title {
             song_volume: None,
             audio_strings: AudioMenu::strings(disc),
             card: None,
+            card_cubes: card_cubes(),
             card_strings: Strings::load(disc),
             press: string(disc, PRESS),
             golf: None,
@@ -883,6 +895,7 @@ impl Title {
             if action == Action::LoadGame {
                 self.menu = Menu::Load;
                 self.card = Some(CardMenu::open(false, true, self.card_art.clone(), [0; STATE_SIZE], [0; 3]));
+                self.card_cubes = card_cubes();
                 self.chosen = 0;
                 self.items.clear();
                 self.draw_load();
@@ -1108,6 +1121,13 @@ impl Title {
             }
             None => {}
         }
+        // The cubes shown turn (0x8003f934 steps them as it draws them).
+        let footer = card.footer();
+        for (k, c) in self.card_cubes.iter_mut().enumerate() {
+            if (k == 2) == footer {
+                c.step();
+            }
+        }
         self.frames += 1;
         if self.frames.is_multiple_of(30) {
             self.backdrop.fading = true;
@@ -1127,6 +1147,12 @@ impl Title {
         if let Some(card) = &self.card {
             let labels = [self.labels[0].string.clone(), self.labels[1].string.clone()];
             card.triangles(&self.card_strings, &self.fonts, &self.press, &labels, &mut self.stage.overlay);
+            let footer = card.footer();
+            let shown: Vec<Button> =
+                self.card_cubes.iter().enumerate().filter(|(k, _)| (*k == 2) == footer).map(|(_, c)| c.clone()).collect();
+            for c in &shown {
+                self.draw_cube(c);
+            }
         }
     }
 
@@ -1354,20 +1380,24 @@ impl Title {
             shadow.triangles(&self.fonts, &mut self.stage.overlay);
             t.triangles(&self.fonts, &mut self.stage.overlay);
         }
-        // The cubes are seen by their own camera, which differs from the
-        // main one only in where it stands: moved by the difference, they
-        // land where the main camera shows them the same.
-        let shift = rrt::glam::Vec3::from(CAMERA) - rrt::glam::Vec3::from(BUTTON_CAMERA);
-        for b in &self.buttons {
-            let m = self.trig.euler(b.angles);
-            let rows = rrt::glam::Mat3::from_cols_array(
-                &m.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap(),
-            )
-            .transpose();
-            let mut tris = Vec::new();
-            let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
-            models::model_triangles(&self.button_model, rows.transpose(), pos, &mut tris);
-            self.stage.moving.extend(tris);
+        for b in self.buttons.clone() {
+            self.draw_cube(&b);
         }
+    }
+
+    /// A button cube (0x8003f934): seen by its own camera, which differs
+    /// from the main one only in where it stands; moved by the
+    /// difference, it lands where the main camera shows it the same.
+    fn draw_cube(&mut self, b: &Button) {
+        let shift = rrt::glam::Vec3::from(CAMERA) - rrt::glam::Vec3::from(BUTTON_CAMERA);
+        let m = self.trig.euler(b.angles);
+        let rows = rrt::glam::Mat3::from_cols_array(
+            &m.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap(),
+        )
+        .transpose();
+        let mut tris = Vec::new();
+        let pos = rrt::glam::Vec3::new(b.pos[0] as f32, b.pos[1] as f32, b.pos[2] as f32) + shift;
+        models::model_triangles(&self.button_model, rows.transpose(), pos, &mut tris);
+        self.stage.moving.extend(tris);
     }
 }

@@ -200,6 +200,12 @@ impl CardMenu {
     }
 
     /// One frame; Some once it ends.
+    /// PRESS X TO CONTINUE is shown (0x80035798) rather than CANCEL and
+    /// ACCEPT (0x80035550, 0x80035674).
+    pub fn footer(&self) -> bool {
+        self.footer
+    }
+
     pub fn frame(&mut self, pads: &Pads) -> Option<Outcome> {
         self.sounds.clear();
         self.frames += 1;

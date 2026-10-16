@@ -83,6 +83,101 @@ const STICK: [(i32, &[usize]); 8] = [
     (3584, &[input::UP, input::LEFT]),
 ];
 
+/// Turns the player to `h` with the stick, as near as it goes: a stick
+/// way's heading is the camera's turned by a multiple of 512, so a turn
+/// round in place (Down, more than SNAP_TURN) sets the follow camera
+/// swinging after the body, and the way whose heading is then within a few
+/// of `h` is pressed for a frame: a turn under SNAP_TURN snaps to it (and
+/// takes a step), a bigger one turns in place to it. Where the camera does
+/// not swing, the nearest way. The error left.
+fn turn_to(g: &mut Game, h: i32) -> i32 {
+    let off = |a: i32| (a + 2048).rem_euclid(4096) - 2048;
+    if g.player.frozen {
+        for _ in 0..30 {
+            let keys = steer(g, h);
+            if keys.is_empty() {
+                break;
+            }
+            run(g, &[(keys, 1)], |_, _| {});
+        }
+        run(g, &[(&[], 1)], |_, _| {});
+        return off(h - g.player.heading);
+    }
+    if off(h - g.player.heading).abs() <= 16 {
+        return off(h - g.player.heading);
+    }
+    // A fixed camera (no swing): the nearest way at once.
+    let fixed = g.fixed.is_some();
+    if !fixed {
+        run(g, &[(&[input::DOWN], 1)], |_, _| {});
+    }
+    let mut still = 0;
+    let mut last = g.camera_heading();
+    for f in 0..80 {
+        let c = g.camera_heading();
+        still = if c == last { still + 1 } else { 0 };
+        last = c;
+        let (k, err) = (0..8).map(|k| (k, off(h - c - STICK[k].0))).min_by_key(|e| e.1.abs()).unwrap();
+        if err.abs() <= 8 || fixed || still >= 4 || f == 79 {
+            run(g, &[(STICK[k].1, 1)], |_, _| {});
+            break;
+        }
+        run(g, &[(&[], 1)], |_, _| {});
+    }
+    // The turn in place runs on to the way's heading.
+    for _ in 0..20 {
+        if g.player.heading == g.player.target {
+            break;
+        }
+        run(g, &[(&[], 1)], |_, _| {});
+    }
+    off(h - g.player.heading)
+}
+
+/// The stick this frame to aim a held player (frozen: the stick only
+/// turns it, 160 a frame, and letting go stops the turn) at `h`: the way
+/// on past `h` on its side while more than 80 off, else none.
+fn steer(g: &Game, h: i32) -> &'static [usize] {
+    let off = |a: i32| (a + 2048).rem_euclid(4096) - 2048;
+    let (c, me) = (g.camera_heading(), g.player.heading);
+    let d = off(h - me);
+    if d.abs() <= 80 {
+        return &[];
+    }
+    STICK
+        .iter()
+        .map(|(w, keys)| (off(c + w - me), *keys))
+        .filter(|(t, _)| t.signum() == d.signum() && t.abs() >= d.abs())
+        .min_by_key(|(t, _)| t.abs())
+        .map_or(&[], |(_, keys)| keys)
+}
+
+/// Golf's aim (0x8005be24 in state 14): Left and Right turn 25 a frame, 8
+/// with Square; as 25 and 8 have no common factor, presses of both reach
+/// `to`'s heading exactly.
+fn golf_aim(g: &mut Game, to: [i32; 3]) {
+    let me = g.player.pos;
+    let h = (((to[0] - me[0]) as f32).atan2((to[2] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU) as i32;
+    let d = (h - g.player.heading + 2048).rem_euclid(4096) - 2048;
+    // The fewest presses: a of 25 and b of 8 with 25a + 8b = d.
+    let (a, b) = (-200..=200)
+        .filter_map(|a: i32| {
+            let rest = d - 25 * a;
+            (rest % 8 == 0).then_some((a, rest / 8))
+        })
+        .min_by_key(|(a, b)| a.abs() + b.abs())
+        .unwrap();
+    let way = |n: i32| if n > 0 { input::RIGHT } else { input::LEFT };
+    run(g, &[(&[way(a)], a.unsigned_abs() as usize), (&[way(b), input::SQUARE], b.unsigned_abs() as usize)], |_, _| {});
+}
+
+/// `steer` toward a place.
+fn steer_at(g: &Game, to: [i32; 3]) -> &'static [usize] {
+    let me = g.player.pos;
+    let h = ((to[0] - me[0]) as f32).atan2((to[2] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU;
+    steer(g, (h as i32).rem_euclid(4096))
+}
+
 /// The buttons that run toward `heading` with the camera where it is.
 fn toward(g: &Game, heading: i32) -> &'static [usize] {
     let want = (heading - g.camera_heading()).rem_euclid(4096);
@@ -703,7 +798,7 @@ fn golf_watches_the_ball_near_the_cup() {
     let aim = [b[0] + (a.sin() * 4000.0) as i32, b[1], b[2] + (a.cos() * 4000.0) as i32];
     put(&mut g, [b[0], b[1] - 100, b[2] - 700], 0);
     run(&mut g, &[(&[], 60)], |_, _| {});
-    face(&mut g, aim);
+    golf_aim(&mut g, aim);
     let posts: Vec<[i32; 3]> = g.posts.iter().map(|p| p.pos).collect();
     let mut watched = false;
     run(&mut g, &[(&[input::TRIANGLE], 1), (&[], 70), (&[input::TRIANGLE], 1), (&[], 300)], |g, _| {
@@ -791,13 +886,11 @@ fn a_throw_runs_at_its_speed() {
     assert_eq!(frames, 19);
 }
 
-/// Turns the player to face `to` (the stick's turn, done at once).
+/// Turns the player to face `to` with the stick (`turn_to`).
 fn face(g: &mut Game, to: [i32; 3]) {
     let me = g.player.pos;
     let h = ((to[0] - me[0]) as f32).atan2((to[2] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU;
-    let h = (h as i32).rem_euclid(4096);
-    g.player.heading = h;
-    g.player.target = h;
+    turn_to(g, (h as i32).rem_euclid(4096));
 }
 
 /// Level 13: Tommy into the kitchen (room 20) before Angelica reaches her
@@ -846,8 +939,11 @@ fn win_2(g: &mut Game) {
         let along = (cx * gx + cz * gz) / len;
         let off = (cx * gz - cz * gx).abs() / len;
         let clear = off > 900.0 || along < 0.0 || along > len + 600.0;
-        face(g, goose);
-        if f % 4 == 0 && len < 14000.0 && clear { vec![input::TRIANGLE] } else { vec![] }
+        let mut keys = steer_at(g, goose).to_vec();
+        if f % 4 == 0 && len < 14000.0 && clear {
+            keys.push(input::TRIANGLE);
+        }
+        keys
     });
     let goose = g.npcs.iter().find(|n| n.id == 11).map(|n| (n.pos, n.health, n.hidden, format!("{:?}", n.mode)));
     let chuckie = g.npcs.iter().find(|n| n.id == 1776).map(|n| (n.pos, format!("{:?}", n.mode)));
@@ -914,11 +1010,11 @@ fn win_3(g: &mut Game) {
             let (dx, dz) = ((n.pos[0] - me[0]) as i64, (n.pos[2] - me[2]) as i64);
             dx * dx + dz * dz
         });
-        if let Some(n) = near {
-            let at = n.pos;
-            face(g, at);
+        let mut keys = near.map_or(vec![], |n| steer_at(g, n.pos).to_vec());
+        if f % 15 == 0 {
+            keys.push(input::TRIANGLE);
         }
-        if f % 15 == 0 { vec![input::TRIANGLE] } else { vec![] }
+        keys
     });
     assert_eq!(cine, Some(13), "the toss");
     g.cine_finished(13);
@@ -1056,7 +1152,7 @@ fn stroke(g: &mut Game, aim: [i32; 3], power: i32) -> Option<usize> {
     put(g, [b[0], b[1] - 100, b[2] - 700], 0);
     let mut out = None;
     run(g, &[(&[], 60)], |g, _| out = out.or(g.cine.take()));
-    face(g, aim);
+    golf_aim(g, aim);
     let wait = ((power - 4).max(0) / 3) as usize;
     run(g, &[(&[input::TRIANGLE], 1), (&[], wait), (&[input::TRIANGLE], 1)], |g, _| out = out.or(g.cine.take()));
     for _ in 0..600 {
@@ -1781,5 +1877,7 @@ fn go(g: &mut Game, points: &[[i32; 2]]) {
     }
     run(g, &[(&[], 10)], |_, _| {});
 }
+
+
 
 

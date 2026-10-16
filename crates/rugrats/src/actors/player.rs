@@ -107,6 +107,9 @@ pub struct Player {
     pub health: i32,
     /// Frozen (+0x188 bit 1): turning, no moving.
     pub frozen: bool,
+    /// Golf's aim (state 14): 0x8005be24's own case steps the heading, so
+    /// the stick turns the body no other way.
+    pub script_aims: bool,
     /// The turn rate (0x800c41fc; 298 for chars 6 and 34).
     pub turn_rate: i32,
     pub animator: Animator,
@@ -220,6 +223,7 @@ impl Player {
             hierarchy,
             health: 255,
             frozen: false,
+            script_aims: false,
             turn_rate: TURN,
             animator,
             effects: Vec::new(),
@@ -321,7 +325,9 @@ impl Player {
             if self.frozen {
                 // Held in place (+0x188 bit 1): only the turn runs, so the
                 // stick aims.
-                self.target = want;
+                if !self.script_aims {
+                    self.target = want;
+                }
                 self.speed = 0;
             } else if turn.abs() <= SNAP_TURN || self.speed >= MOVING || !on_ground {
                 self.heading = want;

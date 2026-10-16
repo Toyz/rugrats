@@ -609,6 +609,7 @@ impl Script for Golf {
 
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         self.club(g);
+        g.player.script_aims = matches!(self.stage, Stage::WalkIn(_) | Stage::Aim { .. });
         if g.level == Level(26)
             && let Some(at) = g.npcs.iter().find(|n| n.id == REPTAR && !n.hidden).map(|n| n.pos)
         {

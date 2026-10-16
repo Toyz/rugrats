@@ -371,6 +371,15 @@ fn box_route(g: &mut Game) {
         // beside it and again.
         for _ in 0..5 {
             put(g, [side[0], b.y as i32 + 11, side[1]], 0);
+            // Up on it (walking into a box climbs it): off it, away.
+            for _ in 0..3 {
+                let me = g.player.pos;
+                if me[1] - g.player.feet() > floor - 300 {
+                    break;
+                }
+                stride_to(g, 2 * me[0] - b.x as i32, 2 * me[2] - b.z as i32, 100, 8);
+                run(g, &[(&[], 10)], |_, _| {});
+            }
             stride_to(g, b.x as i32, b.z as i32, 460, 30);
             run(g, &[(&[input::CIRCLE], 1), (&[], 40)], |_, _| {});
             if g.carried() == Some(k) {
@@ -486,8 +495,9 @@ fn every_body_has_its_moves() {
     }
 }
 
-/// Walks onto each pickup `want` names (Tommy put beside it, a step
-/// forward), as a player would, until the level plays a cinematic.
+/// Walks onto each pickup `want` names, the nearest left first, as a
+/// player would (a jump for one overhead), until the level plays a
+/// cinematic.
 fn collect(g: &mut Game, want: impl Fn(&rugrats::world::game::Goodie) -> bool) -> Option<usize> {
     // The nearest left each time.
     loop {
@@ -495,14 +505,30 @@ fn collect(g: &mut Game, want: impl Fn(&rugrats::world::game::Goodie) -> bool) -
         let d = |p: rrt::glam::Vec3| (p.x as i64 - me[0] as i64).pow(2) + (p.z as i64 - me[2] as i64).pow(2) + (p.y as i64 - me[1] as i64).pow(2);
         let Some(k) = (0..g.goodies.len()).filter(|&k| !g.goodies[k].taken && want(&g.goodies[k])).min_by_key(|&k| d(g.goodies[k].pos)) else { break };
         let p = g.goodies[k].pos;
-        put(g, [p.x as i32, p.y as i32 - 100, p.z as i32 - 300], 0);
-        // Toward +z: where a wall stands behind him the reset puts the
-        // camera elsewhere (0x80026ddc), and the stick turns with it.
-        let stick = toward(g, 0);
+        let (t0, from) = (g.frames, g.player.pos);
+        put(g, [p.x as i32, p.y as i32 - 100, p.z as i32], 0);
+        // At it with the stick until taken. (Put down 100 up, he lands
+        // first: the landing plays out, 0x8005cba8 does not move him.)
         let mut cine = None;
-        // Put down 100 up, he lands first: the landing plays out
-        // (0x8005cba8 does not move him).
-        run(g, &[(stick, 14), (&[], 2)], |g, _| cine = cine.or(g.cine.take()));
+        for _ in 0..40 {
+            if g.goodies[k].taken || cine.is_some() {
+                break;
+            }
+            // Over his head: a jump for it (Cross held) once under it.
+            let me = g.player.pos;
+            let close = ((p.x as i64 - me[0] as i64).pow(2) + (p.z as i64 - me[2] as i64).pow(2)) < 250 * 250;
+            if (p.y as i32) < me[1] - 300 && close && matches!(g.player.state, State::Stand | State::Walk | State::Run) {
+                run(g, &[(&[input::CROSS], 20)], |g, _| cine = cine.or(g.cine.take()));
+                continue;
+            }
+            stride(g, p.x as i32, p.z as i32, false);
+            cine = cine.or(g.cine.take());
+        }
+        run(g, &[(&[], 2)], |g, _| cine = cine.or(g.cine.take()));
+        if std::env::var_os("WALKLOG").is_some() {
+            let d = ((p.x - from[0] as f32).hypot(p.z - from[2] as f32)) as i32;
+            eprintln!("PICKUP {k}: {} frames for {d} straight ({} a frame)", g.frames - t0, d / (g.frames - t0).max(1) as i32);
+        }
         if cine.is_some() {
             return cine;
         }
@@ -541,7 +567,10 @@ fn level_18_egg_hunt_is_won() {
 
 /// Level 18 won by play (the test above).
 fn win_18(g: &mut Game) {
-    assert_eq!(collect(g, |e| e.template == 496), Some(24));
+    let t0 = g.frames;
+    let cine = collect(g, |e| e.template == 496);
+    let left = g.goodies.iter().filter(|e| e.template == 496 && !e.taken).count();
+    assert_eq!(cine, Some(24), "{left} eggs left after {} frames", g.frames - t0);
 }
 
 /// Level 15: Triangle beside each ? box starts its colour, and its
@@ -2048,7 +2077,15 @@ impl<'a> Ground<'a> {
         // Level 10 refuses type 14 (906 up and more, 0x80056e44).
         let most = if carrying { 521.min(g.player.climb_max) } else if g.level == Level::CHUCKIES_GLASSES { 905 } else { g.player.climb_max };
         // The doors' places (their boxes carry no template).
-        let doors: Vec<[i32; 3]> = g.doors.iter().map(|d| g.set.placements[d.placement].pos).filter(|p| !shut.contains(p)).collect();
+        // Only a shut door at rest is passed (opened on the way); an open
+        // or swinging one stands where it is.
+        let doors: Vec<[i32; 3]> = g
+            .doors
+            .iter()
+            .filter(|d| !d.open && !d.moving)
+            .map(|d| g.set.placements[d.placement].pos)
+            .filter(|p| !shut.contains(p))
+            .collect();
         let boxes: Vec<_> = bodies(g)
             .iter()
             .filter(|b| !doors.iter().any(|d| (b.pos.x - d[0] as f32).abs() < 2.0 && (b.pos.z - d[2] as f32).abs() < 2.0))
@@ -2478,7 +2515,8 @@ fn follow(g: &mut Game, start: Spot, path: &[(Spot, Way)], used: &mut Vec<[i32; 
                 let on_way = body.is_some_and(|b| {
                     soon.iter().any(|&c| b.covers([c[0], b.max_y - 10, c[1]], 400)) && b.covers([me[0], b.max_y - 10, me[2]], 900)
                 });
-                on_way || (stuck == 12 && near(p, [me[0], me[2]], 1500))
+                let _ = on_way;
+                stuck == 12 && near(p, [me[0], me[2]], 1500)
             });
             if let Some(p) = shut {
                 // Up to it (a use needs it touched, +0xf4), its middle

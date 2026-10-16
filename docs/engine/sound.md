@@ -117,3 +117,29 @@ See `rrt::kit::libsnd::sep`:
   taken as 1/128 semitone).
 - Reverb (the SPU's reverb is not modelled).
 - Vibrato and portamento from the tone attributes.
+
+## Around cinematics
+
+A cinematic's table byte +7 (0x800b8bd0 + 16 n, read by 0x80074b80)
+decides the song:
+
+- PostCine in a level (0x80018ad0): with 32, the song fades down over 60
+  ticks (0x8006ef0c, SsSeqSetDecrescendo). The screen fades over 127 dt
+  unless 16 is set.
+- At the start (0x8007424c), the case depends on the byte:
+  - with neither 8 nor 32, the song stops (0x8006ee14: SsSeqStop on both
+    slots, the effect voices keyed off);
+  - with 32, it pauses (0x8006ec40);
+  - with 8 alone, it plays on.
+- At the end, with 32: SsSeqReplay (0x8006ed30), then SsSeqSetVol 0 and
+  SsSeqSetCrescendo to the music setting over 60 ticks (0x8006ef64).
+
+A stopped song stays stopped. The song saved at +9 has no reader. The
+next room with a song (flag 128) starts one again.
+
+| byte | cinematics |
+|---|---|
+| 0 (stop) | most |
+| 1, 2, 0x10, 0x11 (stop) | 0, 3; 5, 10, 11, 15, 16, 19, 22, 36, 69-71, 78, 80, 86, 91; 52, 55, 58, 68; 39 |
+| 0x20, 0x30, 0x31 (pause) | 13, 18, 38, 41-43, 75-77, 87-90; 34; 4 |
+| 0x58 (play on) | 29-33, 81-84 (the golf cameras) |

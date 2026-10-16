@@ -344,6 +344,13 @@ impl Stream {
     }
 }
 
+/// Cinematic `n`'s music byte (table 0x800b8bd0 + 16 n, +7; 0x80074b80):
+/// 32 pauses the song and fades it back in after, 8 lets it play on,
+/// neither stops it (0x8007424c); 16 skips the screen's fade (0x80018ad0).
+pub fn music_flags(disc: &GameDisc, n: usize) -> u8 {
+    disc.exe_bytes(0x800b_8bd7 + 16 * n as u32, 1).ok().and_then(|b| b.first().copied()).unwrap_or(0)
+}
+
 /// A cinematic playing.
 pub struct Cine {
     pub set: Set,

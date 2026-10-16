@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-94 entries: audio 13, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 12, format 9, input 4, play 40, render 12, save 4, test 17, tooling 18, ui 9, video 8.
+95 entries: audio 14, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 12, format 9, input 4, play 40, render 12, save 4, test 17, tooling 18, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -106,3 +106,4 @@ The [reference](docs/README.md) says what is true now.
 | 92 | [Jumps land; the states' entry sounds](worklog/0092-jumps-land-the-states-entry-sounds.md) | 2026-10-15 | play |
 | 93 | [Idle fidgets](worklog/0093-idle-fidgets.md) | 2026-10-15 | engine |
 | 94 | [Pie splats](worklog/0094-pie-splats.md) | 2026-10-15 | play |
+| 95 | [The song around cinematics; retro_rt's libsnd pause](worklog/0095-the-song-around-cinematics-retro-rt-s-libsnd-pause.md) | 2026-10-15 | audio |

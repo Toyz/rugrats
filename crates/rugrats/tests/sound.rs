@@ -19,3 +19,19 @@ fn every_bank_parses() {
     }
     assert!(n > 10, "only {n} banks");
 }
+
+fn disc() -> Option<rugrats::disc::GameDisc> {
+    let cue = rrt::disc::Image::find(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/disc")).ok()?;
+    rugrats::disc::GameDisc::open(&cue).ok()
+}
+
+/// The cinematics' music bytes (0x800b8bd7 + 16 n): the golf cameras play
+/// on (8), Golf Intro pauses and fades back (32), No More Cookies' stop.
+#[test]
+fn cinematics_keep_pause_or_stop_the_song() {
+    let Some(disc) = disc() else { return };
+    use rugrats::media::cine::music_flags;
+    assert_eq!(music_flags(&disc, 29) & 40, 8);
+    assert_eq!(music_flags(&disc, 34) & 40, 32);
+    assert_eq!(music_flags(&disc, 64) & 40, 0);
+}

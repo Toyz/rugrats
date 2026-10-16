@@ -126,6 +126,23 @@ impl Spu {
         self.spu.set_volume(self.current, volume);
     }
 
+    /// Pauses the song playing (0x8006ec40: SsSeqPause).
+    pub fn pause_song(&mut self) {
+        self.spu.pause(self.current);
+    }
+
+    /// Goes on with a paused song from silence up to `volume` over `ticks`
+    /// (0x8006ed30's SsSeqReplay, then 0x8006ef64: SsSeqSetVol 0 and
+    /// SsSeqSetCrescendo).
+    pub fn resume_song(&mut self, volume: i32, ticks: u32) {
+        if !self.spu.paused(self.current) {
+            return;
+        }
+        self.spu.set_volume(self.current, 0);
+        self.spu.replay(self.current);
+        self.spu.fade(self.current, volume, ticks * RATE / 60, false);
+    }
+
     pub fn stop_song(&mut self) {
         self.spu.stop_all();
         self.ids = [None; 2];

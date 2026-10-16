@@ -329,7 +329,7 @@ impl Rugrats {
 
     /// Cinematic `n` in `level`'s database, then `then`.
     pub(super) fn scene(&mut self, n: usize, level: Level, then: Then, now: u64) -> Boot {
-        self.stop_song();
+        self.cine_song_start(n);
         match Cine::open(&self.disc, n, level.index(), now, &self.soundtrack) {
             Ok(cine) => {
                 self.world = None;
@@ -351,6 +351,7 @@ impl Rugrats {
             return Boot::Scene { cine, n, then };
         }
         self.silence();
+        self.cine_song_end(n);
         // CineFinish (0x800783d8) shows the cinematic's card. No hint
         // cards in activity play.
         let card = front::card_after(n).filter(|_| !self.progress.activity());

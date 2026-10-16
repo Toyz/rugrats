@@ -16,6 +16,7 @@ use crate::audio::sound::{self, Spu};
 use crate::audio::speech::Speech;
 use crate::disc::GameDisc;
 use crate::levels::Level;
+use crate::media::cine;
 use crate::media::movie::{Movie, Soundtrack};
 use crate::media::still;
 use crate::rand::Rand;
@@ -144,6 +145,30 @@ impl Rugrats {
         let Some(song) = self.songs.as_ref().and_then(|l| l.songs.get(n)) else { return };
         if let Ok(mut spu) = self.spu.lock() {
             spu.switch_song(song, n, self.progress.audio().music, 30);
+        }
+    }
+
+    /// The song as cinematic `n` begins (0x8007424c, its table byte +7):
+    /// with neither 8 nor 32 it stops (0x8006ee14), with 32 it pauses
+    /// (0x8006ec40), with 8 alone it plays on (the golf cameras).
+    fn cine_song_start(&mut self, n: usize) {
+        let flags = cine::music_flags(&self.disc, n);
+        if flags & 40 == 0 {
+            self.stop_song();
+        } else if flags & 32 != 0
+            && let Ok(mut spu) = self.spu.lock()
+        {
+            spu.pause_song();
+        }
+    }
+
+    /// The song as cinematic `n` ends: a paused one goes on, fading in
+    /// from silence over 60 ticks (0x8006ed30, 0x8006ef64).
+    fn cine_song_end(&mut self, n: usize) {
+        if cine::music_flags(&self.disc, n) & 32 != 0
+            && let Ok(mut spu) = self.spu.lock()
+        {
+            spu.resume_song(self.progress.audio().music, 60);
         }
     }
 

@@ -116,6 +116,11 @@ pub fn entry_sound(state: i16, character: usize, level: u8) -> Option<u8> {
     }
 }
 
+/// The idle's fidgets, in turn, and how long standing still (state 0)
+/// comes before one (0x800563bc: 1200 dt, set again in any other state).
+const FIDGETS: (i16, i16) = (23, 24);
+const FIDGET_AFTER: i32 = 1200;
+
 /// One track playing: state, its animation's frames, the frame before,
 /// the frame showing, and time left in it.
 #[derive(Clone, Copy, Debug, Default)]
@@ -141,6 +146,9 @@ pub struct Animator {
     pub climb: i32,
     /// The table states entered since last taken (for their sounds).
     entered: Vec<i16>,
+    /// The idle's fidget to come and the time standing still before it
+    /// (+0xf0, +0xf2).
+    fidget: (i16, i32),
 }
 
 impl Animator {
@@ -160,7 +168,15 @@ impl Animator {
         let count = remap.iter().copied().filter(|&e| (0..256).contains(&e)).max().unwrap_or(0) as usize + 1;
         let entries =
             s16s(entries_at, 4 * count)?.as_chunks::<4>().0.iter().map(|e| [e[0], e[1], e[2], e[3]]).collect();
-        Ok(Animator { tracks: [Track::default(); 4], remap, entries, asked: 0, climb: 0, entered: Vec::new() })
+        Ok(Animator {
+            tracks: [Track::default(); 4],
+            remap,
+            entries,
+            asked: 0,
+            climb: 0,
+            entered: Vec::new(),
+            fidget: (FIDGETS.0, FIDGET_AFTER),
+        })
     }
 
     /// State `a` plays `ids` on its four tracks (0x8008a668).
@@ -252,8 +268,25 @@ impl Animator {
     }
 
     /// One frame (dt) of every track. The base track ends as its state
-    /// says (0x8005562c); the others loop.
+    /// says (0x8005562c); the others loop. Standing still long enough
+    /// fidgets (0x800563bc).
     pub fn step(&mut self, anims: &Anims) {
+        if self.tracks[0].anim == 0 && self.tracks[0].count > 0 {
+            self.fidget.1 -= DT;
+            if self.fidget.1 <= 0 {
+                self.fidget.1 = 0;
+                let s = self.fidget.0;
+                self.fidget.0 = if s == FIDGETS.0 { FIDGETS.1 } else { FIDGETS.0 };
+                // A body without the fidget keeps standing (the port's
+                // guard: the original would play nothing).
+                if self.anm_on(s, 0).is_some_and(|id| anims.index.get(id).copied().flatten().is_some()) {
+                    self.tracks[0].count = 0;
+                    self.play(s, anims);
+                }
+            }
+        } else {
+            self.fidget.1 = FIDGET_AFTER;
+        }
         let mut done = None;
         for (k, t) in self.tracks.iter_mut().enumerate() {
             if t.count == 0 {

@@ -434,6 +434,9 @@ fn the_animations_follow_the_original_states() {
     seen(&mut g, &[(&[], 30)]);
     let jump = seen(&mut g, &[(&[input::CROSS], 4), (&[], 40)]);
     assert!(jump.windows(2).any(|w| w == [5, 6]), "{jump:?}");
+    // Standing still: 1200 dt, a fidget (23), standing, the other (24).
+    let idle = seen(&mut g, &[(&[], 400)]);
+    assert!(idle.windows(3).any(|w| w == [23, 0, 24] || w == [24, 0, 23]), "{idle:?}");
 }
 
 /// A standing jump sounds 6 when its rise gives way to its fall (state 6)

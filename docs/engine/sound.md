@@ -125,7 +125,10 @@ decides the song:
 
 - PostCine in a level (0x80018ad0): with 32, the song fades down over 60
   ticks (0x8006ef0c, SsSeqSetDecrescendo). The screen fades over 127 dt
-  unless 16 is set.
+  unless 16 is set. The level is drawn as it stopped (0x8001886c, no
+  update) under a full-screen POLY_F4 with draw mode 0x640 (subtract)
+  whose grey 0x800c3f2c steps by 256 / (127 / dt) to 255 (0x8001cf2c,
+  from the flip 0x8001d00c).
 - At the start (0x8007424c), the case depends on the byte:
   - with neither 8 nor 32, the song stops (0x8006ee14: SsSeqStop on both
     slots, the effect voices keyed off);

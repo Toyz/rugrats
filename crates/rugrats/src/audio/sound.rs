@@ -126,6 +126,12 @@ impl Spu {
         self.spu.set_volume(self.current, volume);
     }
 
+    /// Fades the song playing to `volume` over `ticks` (SsSeqSetCrescendo
+    /// / SsSeqSetDecrescendo), playing on.
+    pub fn fade_song(&mut self, volume: i32, ticks: u32) {
+        self.spu.fade(self.current, volume, ticks * RATE / 60, false);
+    }
+
     /// Pauses the song playing (0x8006ec40: SsSeqPause).
     pub fn pause_song(&mut self) {
         self.spu.pause(self.current);

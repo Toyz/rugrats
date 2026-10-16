@@ -4,15 +4,62 @@
 
 use rrt::prelude::Tick;
 
+use rugrats_render::Vtx;
+
 use super::Rugrats;
 use super::flow::{Boot, Then, piece_pages};
+use crate::actors::player::DT;
 use crate::levels::Level;
 use crate::levels::golf::LEVELS;
+use crate::media::cine;
 use crate::ui::front::Card;
 use crate::ui::screens::{Page, message};
 use crate::world::game::{Exit, Game};
 
+/// The screen's fade before a cinematic in a level (0x80018ad0): 127 dt,
+/// a step of 256 / (127 / dt) a frame (21 at dt 10), 255 at most.
+const FADE_TIME: i32 = 127;
+
 impl Rugrats {
+    /// One frame of the fade before cinematic `n`: the level as it
+    /// stopped under a full-screen subtracted grey (0x8001cf2c: POLY_F4,
+    /// draw mode 0x640, so B - F), then the cinematic.
+    pub(super) fn fade(
+        &mut self,
+        mut game: Box<Game>,
+        n: usize,
+        (left, level, overlay): (i32, i32, usize),
+        now: u64,
+    ) -> Boot {
+        if !now.is_multiple_of(2) {
+            return Boot::Fade { game, n, left, level, overlay };
+        }
+        if left <= 0 {
+            game.stage.overlay.truncate(overlay);
+            let here = game.level;
+            return self.scene(n, here, Then::Resume(game), now);
+        }
+        let level = level + 256 / (FADE_TIME / DT);
+        game.stage.overlay.truncate(overlay);
+        let grey = level.min(255) as u32;
+        let v = |x: f32, y: f32| Vtx {
+            pos: [x, y, 0.0],
+            colour: grey | grey << 8 | grey << 16,
+            uv: 0,
+            mode: Vtx::FLAT | Vtx::SEMI | 2 << 21,
+            window: 0,
+        };
+        game.stage.overlay.extend([
+            v(0.0, 0.0),
+            v(512.0, 0.0),
+            v(0.0, 240.0),
+            v(512.0, 0.0),
+            v(512.0, 240.0),
+            v(0.0, 240.0),
+        ]);
+        Boot::Fade { game, n, left: left - DT, level, overlay }
+    }
+
     /// One frame of the level (every other tick), and the state that
     /// follows.
     pub(super) fn play(&mut self, mut game: Box<Game>, t: &Tick, now: u64) -> Boot {
@@ -96,7 +143,19 @@ impl Rugrats {
             return self.screen(pages, here, Then::Back(game), vram, now);
         } else if let Some(n) = game.cine.take() {
             // A cinematic inside the level (PostCine, 0x80018ad0): the
-            // level waits for it.
+            // level waits for it. With the music byte's 32 the song fades
+            // down over 60 ticks (0x8006ef0c); without its 16 the screen
+            // fades first.
+            let flags = cine::music_flags(&self.disc, n);
+            if flags & 32 != 0
+                && let Ok(mut spu) = self.spu.lock()
+            {
+                spu.fade_song(0, 60);
+            }
+            if flags & 16 == 0 {
+                let overlay = game.stage.overlay.len();
+                return Boot::Fade { game, n, left: FADE_TIME, level: 0, overlay };
+            }
             let here = game.level;
             return self.scene(n, here, Then::Resume(game), now);
         }

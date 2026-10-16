@@ -68,6 +68,10 @@ pub(super) enum Boot {
     Card { card: Box<Card>, n: usize, then: Then },
     /// A level in play.
     Game { game: Box<Game> },
+    /// A cinematic posted in a level (0x80018ad0): the level drawn as it
+    /// stopped while the screen fades out over 127 dt, then cinematic
+    /// `n`. `overlay` is how much of the stage's overlay was the level's.
+    Fade { game: Box<Game>, n: usize, left: i32, level: i32, overlay: usize },
     /// The credits after Reptar Dance (movie 6, CREDITS.STR, any button
     /// skips), then the hub.
     Credits { movie: Box<Movie> },
@@ -137,6 +141,7 @@ impl Rugrats {
             }
             Boot::Title { title } => self.title_tick(title, t, now),
             Boot::Game { game } => self.play(game, t, now),
+            Boot::Fade { game, n, left, level, overlay } => self.fade(game, n, (left, level, overlay), now),
             boot => boot,
         }
     }

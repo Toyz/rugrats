@@ -100,7 +100,7 @@ impl Rugrats {
             Boot::Opening { .. } => "opening",
             Boot::Scene { .. } => "scene",
             Boot::Card { .. } => "card",
-            Boot::Game { .. } => "game",
+            Boot::Game { .. } | Boot::Fade { .. } => "game",
             Boot::Credits { .. } => "credits",
             Boot::Screen { .. } => "screen",
             Boot::FrontEnd => "front end",
@@ -249,7 +249,7 @@ impl rrt::prelude::Game for Rugrats {
             Boot::Card { card, .. } => &card.stage,
             Boot::Screen { screen, .. } => &screen.stage,
             Boot::Title { title } => &title.stage,
-            Boot::Game { game } => &game.stage,
+            Boot::Game { game } | Boot::Fade { game, .. } => &game.stage,
             _ => {
                 d.present_picture(&self.picture, None);
                 return;

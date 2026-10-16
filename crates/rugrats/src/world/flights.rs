@@ -284,6 +284,9 @@ pub struct Seeds {
     pub splash: u32,
     pub feathers: u32,
     pub toy: u32,
+    /// The touched objects' parts (touches 1-7): 0x800c4178 (touch 1),
+    /// 0x800c417c (2-6), 0x800c4180 (touch 4's pick), 0x800c4184 (7).
+    pub parts: [u32; 4],
 }
 
 /// 0x800c41d0, 0x800c4188 and 0x800c418c as the executable has them.
@@ -302,6 +305,7 @@ impl Default for Seeds {
             splash: SPLASH_SEED,
             feathers: FEATHER_SEED,
             toy: TOY_SEED,
+            parts: [48732; 4],
         }
     }
 }
@@ -811,6 +815,76 @@ impl Flights {
             };
             self.launch(&l, sprites);
         }
+    }
+
+    /// What a thrown thing knocks off an object it meets, by the object's
+    /// touch (template +0x0a, table 0x800b7e50), as model flights; true
+    /// for touch 1, whose sound 50 the caller plays (0x80050140 throttles
+    /// it). `at` is the object, `hit` where it was met.
+    ///
+    /// - 1 (0x80050140): model 637 from the object, flags 0x30702, speed
+    ///   rand % 150 up to 50, within 2048 of the hit point taken as a
+    ///   direction (as the code has it), after rand % 500 ms, 2000 ms,
+    ///   bounce 1000, spin 3391.
+    /// - 2-6 (0x80050348 with 906, 907, 919 or 920 by a coin, 960, 908)
+    ///   and 7 (0x800505b0: 970 or 637 by a coin): from the hit point,
+    ///   flags 0x1030702 (ends on the floor), speed rand % 250 up to 100,
+    ///   within 2048 of up, no lifetime, bounce 1000, spin 3000.
+    pub fn touch_parts(
+        &mut self,
+        touch: u8,
+        at: [i32; 3],
+        hit: [i32; 3],
+        radius_of: impl Fn(u32) -> i32,
+        sprites: Option<&Sprites>,
+    ) -> bool {
+        let draw = |seed: &mut u32, m: u32| (((lcg(seed) >> 16) & 0x7fff) % m) as i32;
+        if touch == 1 {
+            let speed = draw(&mut self.seeds.parts[0], 150).min(50);
+            let len = hit.iter().map(|&v| (v as f32).powi(2)).sum::<f32>().sqrt().max(1.0);
+            let axis = hit.map(|v| (v as f32 / len * 4096.0) as i32);
+            let dir = self.cone(axis, &IDENTITY, 0, 2048);
+            let delay = draw(&mut self.seeds.parts[0], 500);
+            let l = Launch {
+                flags: 0x30702,
+                at,
+                radius: radius_of(637),
+                life: 2000,
+                dir,
+                speed,
+                spin: 3391,
+                bounce: 1000,
+                delay,
+                model: Some(637),
+                ..Launch::default()
+            };
+            self.launch(&l, sprites);
+            return true;
+        }
+        let (model, seed) = match touch {
+            2 => (906, 1),
+            3 => (907, 1),
+            4 => (if (lcg(&mut self.seeds.parts[2]) >> 16) & 1 == 0 { 919 } else { 920 }, 1),
+            5 => (960, 1),
+            6 => (908, 1),
+            7 => (if (lcg(&mut self.seeds.parts[3]) >> 16) & 1 == 0 { 970 } else { 637 }, 3),
+            _ => return false,
+        };
+        let speed = draw(&mut self.seeds.parts[seed], 250).min(100);
+        let dir = self.cone([0, -4096, 0], &IDENTITY, 0, 2048);
+        let l = Launch {
+            flags: 0x103_0702,
+            at: hit,
+            radius: radius_of(model),
+            dir,
+            speed,
+            spin: 3000,
+            bounce: 1000,
+            model: Some(model),
+            ..Launch::default()
+        };
+        self.launch(&l, sprites);
+        false
     }
 
     /// A broken toy's bits (0x80054ae0, level 6): five kind 5, flags

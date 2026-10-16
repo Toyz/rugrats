@@ -460,3 +460,34 @@ fn a_door_sign_sparkles() {
     }
     assert!(most >= 3, "{most} sparks; Tommy {:?} room {:?}", g.player.pos, g.current_room());
 }
+
+/// A thrown thing that meets an object with touch 1 (level 3's template
+/// 197) knocks model 637 off it (0x80050140, kind 2) and bounces off.
+#[test]
+fn a_thrown_thing_knocks_parts_off() {
+    use rugrats::input::Pads;
+    use rugrats::world::game::ThingState;
+    let Some(disc) = disc() else { return };
+    let mut g = rugrats::world::game::Game::open(&disc, rugrats::levels::Level(3)).unwrap();
+    let pads = Pads::default();
+    g.frame(&pads);
+    let b = g.solid.iter().find(|b| b.template == 197).cloned().expect("template 197's box");
+    let k = g.things.iter().position(|t| !t.hidden).expect("a thing");
+    // From the box's middle out along -x until clear of it, at its height.
+    let y = (b.min_y + b.max_y) / 2;
+    let mut x = b.pos.x as i32;
+    while b.covers([x, y, b.pos.z as i32], 0) {
+        x -= 50;
+    }
+    // Its bottom at the box's middle height.
+    let shape = g.things[k].shape;
+    let bottom = g.set.models.get(shape).and_then(|m| m.boxes.iter().map(|x| x.1[1]).max()).unwrap_or(0);
+    g.things[k].pos = rrt::glam::Vec3::new((x - 200) as f32, (y - bottom as i32) as f32, b.pos.z);
+    g.things[k].state = ThingState::Flying([600, 0, 0]);
+    let mut parts = 0;
+    for _ in 0..20 {
+        g.frame(&pads);
+        parts = parts.max(g.flights.iter().filter(|f| f.kind() == 2 && f.skin == Skin::Model(637)).count());
+    }
+    assert!(parts >= 1, "no parts; the thing is at {:?}", g.things[k].pos);
+}

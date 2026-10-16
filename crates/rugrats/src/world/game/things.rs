@@ -440,6 +440,7 @@ impl Game {
             .filter_map(|(k, t)| self.set.models.get(t.shape).map(|m| (k, m, t)))
             .flat_map(|(k, m, t)| world_boxes(m, t.rot, t.pos).into_iter().map(move |b| (k, b)))
             .collect();
+        let mut touched = Vec::new();
         for (k, t) in self.things.iter_mut().enumerate() {
             let ThingState::Flying(mut v) = t.state else { continue };
             // A flight that reaches a character (0x80086ef0, 0x80087594):
@@ -502,6 +503,39 @@ impl Game {
             for k in [0, 2] {
                 t.pos[k] += ((v[k] * dt) >> 6) as f32;
             }
+            // An object's side (0x80086ef0's object test, by the objects'
+            // boxes here): stepped into this step at the thing's height,
+            // it bounces off that side.
+            let (at, from) = ([t.pos.x as i32, 0, t.pos.z as i32], [before.x as i32, 0, before.z as i32]);
+            let (high, low) = ((t.pos.y + top) as i32, (t.pos.y + bottom) as i32);
+            let solid: &[Box3] = if t.world_only { &[] } else { &self.solid };
+            if let Some(b) =
+                solid.iter().find(|b| b.covers(at, 0) && !b.covers(from, 0) && low > b.min_y && high < b.max_y)
+            {
+                // Its touch (0x80086ef0 with 0x40000): what it knocks off.
+                let touch = self.set.templates.get(b.template as usize).map_or(0, |tp| tp.raw[0x0a]);
+                if (1..=7).contains(&touch) {
+                    let obj = [b.pos.x as i32, b.pos.y as i32, b.pos.z as i32];
+                    let hit = [before.x as i32, t.pos.y as i32, before.z as i32];
+                    let models = &self.set.models;
+                    let radius_of = |m: u32| models.get(m).map_or(0, |m| m.radius as i32);
+                    if self.flights.touch_parts(touch, obj, hit, radius_of, self.sprites.as_ref()) {
+                        touched.push(obj);
+                    }
+                }
+                match rebound(v, b.side_normal(from), bounce) {
+                    Some(r) => {
+                        v = r;
+                        t.bounced = true;
+                    }
+                    None => {
+                        v[0] = 0;
+                        v[2] = 0;
+                    }
+                }
+                t.pos.x = before.x;
+                t.pos.z = before.z;
+            }
             // The wall test (0x80060810): a step into a wall or a higher
             // column is taken back, and the thing drops where it was. A
             // step onto level ground is not one, even with the thing's
@@ -540,28 +574,6 @@ impl Game {
                 t.pos.x = before.x;
                 t.pos.z = before.z;
             }
-            // An object's side (0x80086ef0's object test, by the objects'
-            // boxes here): stepped into this step at the thing's height,
-            // it bounces off that side.
-            let (at, from) = ([t.pos.x as i32, 0, t.pos.z as i32], [before.x as i32, 0, before.z as i32]);
-            let (high, low) = ((t.pos.y + top) as i32, (t.pos.y + bottom) as i32);
-            let solid: &[Box3] = if t.world_only { &[] } else { &self.solid };
-            if let Some(b) =
-                solid.iter().find(|b| b.covers(at, 0) && !b.covers(from, 0) && low > b.min_y && high < b.max_y)
-            {
-                match rebound(v, b.side_normal(from), bounce) {
-                    Some(r) => {
-                        v = r;
-                        t.bounced = true;
-                    }
-                    None => {
-                        v[0] = 0;
-                        v[2] = 0;
-                    }
-                }
-                t.pos.x = before.x;
-                t.pos.z = before.z;
-            }
             t.pos.y += ((v[1] * dt + THING_GRAVITY * dt * dt / 2) >> 6) as f32;
             v[1] += THING_GRAVITY * dt;
             let q = collide::query(&self.col, [t.pos.x as i32, (t.pos.y - 1.0) as i32, t.pos.z as i32]);
@@ -586,6 +598,15 @@ impl Game {
                 t.bounced = false;
             } else {
                 t.state = ThingState::Flying(v);
+            }
+        }
+        // Touch 1's sound at the object, once its count runs out
+        // (0x80050140: 0x800c4ba0 less dt a touch; at 0, 50 and 100 again).
+        for at in touched {
+            self.shelf_sound -= DT;
+            if self.shelf_sound <= 0 {
+                self.play_at(50, at);
+                self.shelf_sound = 100;
             }
         }
     }

@@ -300,6 +300,8 @@ pub struct Game {
     /// The objects' boxes this frame, without things and characters: what
     /// a thrown thing lands on and bounces off.
     pub solid: Vec<Box3>,
+    /// Touch 1's sound count (0x800c4ba0).
+    pub(super) shelf_sound: i32,
     /// The dust's coin flips standing and moving (0x800c42e0, 0x800c42ec,
     /// seeded 0xa8c0 and 0x2fdd).
     pub(super) dust_seeds: [Rand; 2],
@@ -888,6 +890,7 @@ impl Game {
             pending_grab: None,
             water_steps: 0,
             solid: Vec::new(),
+            shelf_sound: 0,
             dust_seeds: [Rand { state: 0xa8c0 }, Rand { state: 0x2fdd }],
             breakables,
             doors,

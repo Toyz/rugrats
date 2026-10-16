@@ -137,6 +137,9 @@ pub struct Player {
     pub float: Option<(i32, i32)>,
     /// Carrying: the idle is 20 (0x80057244 at the grab).
     pub carrying: bool,
+    /// What is carried holds the climbs under 522 (0x80058da4: an object
+    /// without bit 0x1000000, class 13's).
+    pub carry_climbs: bool,
     /// The jump lock after a throw (0x800c4290: 300, less dt a frame).
     pub jump_lock: i32,
     /// Training messages asked for this frame (0x80097788's n).
@@ -230,6 +233,7 @@ impl Player {
             gait: (RUN, WALK),
             float: None,
             carrying: false,
+            carry_climbs: false,
             jump_lock: 0,
             hints: Vec::new(),
             air: 0,
@@ -385,7 +389,7 @@ impl Player {
         // climbable object up to 1033 above the feet (521 carrying,
         // 0x80056e44, 0x80058da4) brings the player onto it.
         let walking = matches!(self.state, State::Walk | State::Run) && self.speed > 0 && !acting && !self.climb_off;
-        let reach = if self.carrying { CLIMB_CARRYING.min(self.climb_max) } else { self.climb_max };
+        let reach = if self.carrying && self.carry_climbs { CLIMB_CARRYING.min(self.climb_max) } else { self.climb_max };
         let mut climb_to: Option<i32> = None;
         // Falling through the floor this step (0x8005f1b4 lands when y +
         // vy reaches it): onto the floor under where the step began.

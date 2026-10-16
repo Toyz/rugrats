@@ -196,6 +196,7 @@ impl Game {
         self.things[k].state = ThingState::Carried;
         self.carried = Some(k);
         self.player.carrying = true;
+        self.player.carry_climbs = !self.things[k].keep;
     }
 
     /// Puts the carried thing down where the player stands (a cine's
@@ -483,6 +484,7 @@ impl Game {
         self.things[k].state = ThingState::Carried;
         self.carried = Some(k);
         self.player.carrying = true;
+        self.player.carry_climbs = !self.things[k].keep;
         // The grab (0x800601e4): message 5.
         self.training.show(5);
     }

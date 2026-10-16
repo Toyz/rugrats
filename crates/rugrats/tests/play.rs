@@ -54,12 +54,13 @@ fn checking() -> bool {
 
 fn put(g: &mut Game, at: [i32; 3], heading: i32) {
     if checking() {
-        // Some floor at its x, z, under it or within a jump over it (the
-        // tests put the player at things in the air too).
+        // The floor the body comes down on there reached (the tests put
+        // the player at things in the air too).
         let reach = on_foot(g, g.player.pos);
         let feet = at[1] - g.player.feet();
+        let land = floor_under(g, at[0], at[2], feet - 1, 0).unwrap_or(feet);
         let key = (at[0].div_euclid(256), at[2].div_euclid(256));
-        if !reach.get(&key).is_some_and(|fs| fs.iter().any(|&f| f >= feet - 1100)) {
+        if !reach.get(&key).is_some_and(|fs| fs.iter().any(|&f| (f - land).abs() < 300)) {
             not_on_foot(g, format!("{at:?}"));
         }
     }
@@ -159,21 +160,60 @@ fn golf_hazards_do_not_hurt() {
     assert_eq!(g.player.health, 255);
 }
 
-/// Level 6: four boxes stacked on the -2048 step reach the switch
-/// platform (-4736).
+/// Level 6: five Reptar boxes carried, each put at the foot of a step
+/// too high to climb carrying one (a box is 506, the carry's climb at
+/// most 521), take Tommy up the Reptar room's steps to the -4608 ledge;
+/// the last, against the -6144 block, lets him onto it and down to the
+/// switch platform (-4736).
 #[test]
-fn level_6_box_stack_reaches_the_platform() {
+fn level_6_boxes_on_the_steps_reach_the_platform() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 6);
-    let boxes: Vec<usize> = (0..g.things.len()).filter(|&k| g.things[k].template == 1016).take(4).collect();
-    for (i, &k) in boxes.iter().enumerate() {
-        g.things[k].pos = rrt::glam::Vec3::new(44500.0, -2304.0 - 506.0 * i as f32, 13900.0);
-    }
-    put(&mut g, [44500, -2293, 12900], 0);
-    // Each climb plays its height's animation (0x80056e44), about a
-    // second for two boxes.
-    run(&mut g, &[(&[], 3), (&[input::UP], 120)], |_, _| {});
+    assert_eq!(enter_room(&mut g, 11), Some(46));
+    g.cine_finished(46);
+    box_route(&mut g);
     assert!(g.player.pos[2] > 14336 && g.player.pos[1] < -4800, "on the platform: {:?}", g.player.pos);
+}
+
+/// The boxes' route (the test above): each box fetched (put beside it,
+/// Circle), carried up the steps laid so far with the stick, and put down
+/// (Circle) a step's depth short of the next face.
+fn box_route(g: &mut Game) {
+    let boxes: Vec<usize> = (0..g.things.len()).filter(|&k| g.things[k].template == 1016).collect();
+    let up = [
+        [44500, 11700],
+        [44500, 12900],
+        [45500, 12900],
+        [46600, 12900],
+        [50600, 12900],
+        [52000, 12900],
+        [52000, 13750],
+        [52000, 15000],
+        [48700, 15000],
+    ];
+    // The box, how far up the route it is put down, facing which way:
+    // the -2048 step (z 12288), the -3072 block (x 46080), the -3584 block
+    // (x 51200), the -4608 ledge (z 14336), the -6144 block (x 48128).
+    // The five on the floor or reached by a climb or a running jump (the
+    // other three sit on shelves 1536 up: a box under them is the way).
+    let laid = [(boxes[6], 1, 0), (boxes[7], 3, 1024), (boxes[3], 5, 1024), (boxes[0], 7, 0), (boxes[4], 9, 3072)];
+    for (k, n, h) in laid {
+        let b = g.things[k].pos;
+        put(g, [b.x as i32, b.y as i32 + 11, b.z as i32 - 450], 0);
+        run(g, &[(&[], 20)], |_, _| {});
+        face(g, [b.x as i32, 0, b.z as i32]);
+        run(g, &[(&[input::CIRCLE], 1), (&[], 40)], |_, _| {});
+        assert_eq!(g.carried(), Some(k), "box {k} picked up");
+        put(g, [44500, -1269, 10500], 0);
+        run(g, &[(&[], 5)], |_, _| {});
+        go(g, &up[..n]);
+        g.player.heading = h;
+        g.player.target = h;
+        run(g, &[(&[input::CIRCLE], 1), (&[], 60)], |_, _| {});
+        assert_eq!(g.carried(), None, "box {k} put down");
+    }
+    // Onto the last box, the -6144 block, and down to the platform.
+    go(g, &[[47000, 15000], [45000, 15500]]);
 }
 
 /// Level 16's pie toss: five hits on Angelica win it. The oracle's run:
@@ -371,7 +411,9 @@ fn level_4_cynthia_is_found() {
 /// Level 4 won by play (the test above).
 fn win_4(g: &mut Game) {
     let at = g.spots.iter().find(|s| s.group == 0 && s.used).unwrap().pos;
-    put(g, [at[0], at[1], at[2] - 1000], 0);
+    // On the floor there (Spike's body stands above its feet).
+    let floor = floor_under(g, at[0], at[2] - 1000, at[1] - 1500, 0).expect("a floor by Cynthia");
+    put(g, [at[0], floor + g.player.feet(), at[2] - 1000], 0);
     let mut cine = None;
     run(g, &[(&[], 10)], |g, _| cine = cine.or(g.cine.take()));
     assert_eq!(cine, Some(48));
@@ -436,15 +478,7 @@ fn level_6_toy_palace_is_won() {
 fn win_6(g: &mut Game) {
     assert_eq!(enter_room(g, 11), Some(46));
     g.cine_finished(46);
-    let boxes: Vec<usize> = (0..g.things.len()).filter(|&k| g.things[k].template == 1016).take(4).collect();
-    for (i, &k) in boxes.iter().enumerate() {
-        g.things[k].pos = rrt::glam::Vec3::new(44500.0, -2304.0 - 506.0 * i as f32, 13900.0);
-    }
-    put(g, [44500, -2293, 12900], 0);
-    // The step's edge pushes him 155 aside as he lands; R1 puts the camera
-    // straight behind him again, so Up climbs the column.
-    run(g, &[(&[], 3), (&[input::R1], 1), (&[input::UP], 120)], |_, _| {});
-    assert!(g.player.pos[1] < -4800, "on the platform: {:?}", g.player.pos);
+    box_route(g);
     let switch = g.set.placements.iter().find(|p| p.kind == 1 && p.cine == 47).expect("the switch").pos;
     let me = g.player.pos;
     let heading = ((switch[0] - me[0]) as f32).atan2((switch[2] - me[2]) as f32) * 4096.0 / std::f32::consts::TAU;
@@ -1547,20 +1581,52 @@ fn the_whole_game_by_play() {
 /// standing jump's rise) onto any top, any drop. Object tops are floors;
 /// objects in the way are walls. Doors and movers are as the level
 /// starts.
+
+/// The running jump with Cross held, frame by frame from the press: how
+/// far along and how high (y down) the body is, by the port's air
+/// (`Player`'s: the crouch frame's run, then `moving_jump`'s launch, gravity
+/// 14 less 5 while rising with Cross held, the drag of 32/4096), to 1500
+/// under the takeoff. Tommy's matches the port's to the crouch's root keys
+/// (54 higher at the first frame).
+fn jump_shape(g: &Game) -> Vec<(i32, i32)> {
+    const DT: i32 = 10;
+    const RUN: i32 = 17;
+    let (up, factor) = g.player.moving_jump;
+    let (mut along, mut y) = (RUN * DT, 0);
+    let mut out = vec![(along, y)];
+    let (mut vh, mut vy) = (factor * RUN, up);
+    let mut first = true;
+    while y < 1500 {
+        let a = if !first && vy < 0 { 9 } else { 14 };
+        if !first {
+            vh -= vh * 32 / 4096;
+        }
+        first = false;
+        along += (vh * DT) >> 6;
+        y += (vy * DT + a * DT * DT / 2) >> 6;
+        vy = (vy + a * DT).min(4096);
+        out.push((along, y));
+    }
+    out
+}
+
+/// The floor under (x, z) from height `y` down: the COL's or the top of an
+/// object within `near` of it, the higher; None in a wall.
+fn floor_under(g: &Game, x: i32, z: i32, y: i32, near: i32) -> Option<i32> {
+    let q = rugrats::world::collide::query(&g.col, [x, y, z]);
+    if q.kind != 0 || q.tile.is_none() {
+        return None;
+    }
+    let top = g.solid.iter().filter(|b| b.covers([x, y, z], near) && b.min_y >= y && b.min_y < q.floor).map(|b| b.min_y).min();
+    Some(top.unwrap_or(q.floor))
+}
+
 fn on_foot(g: &Game, from: [i32; 3]) -> std::collections::HashMap<(i32, i32), Vec<i32>> {
-    use rugrats::world::collide;
     const CELL: i32 = 256;
     let cell = |x: i32| x.div_euclid(CELL);
-    // The floor under (x, z) from height `y` down: the COL's or an object's
-    // top, the higher; None in a wall.
-    let floor_at = |x: i32, z: i32, y: i32| -> Option<i32> {
-        let q = collide::query(&g.col, [x, y, z]);
-        if q.kind != 0 || q.tile.is_none() {
-            return None;
-        }
-        let top = g.solid.iter().filter(|b| b.covers([x, y, z], 0) && b.min_y >= y && b.min_y < q.floor).map(|b| b.min_y).min();
-        Some(top.unwrap_or(q.floor))
-    };
+    // Objects within half a cell count: a narrow one (level 11's stands)
+    // between the cells' middles is stood on too.
+    let floor_at = |x: i32, z: i32, y: i32| floor_under(g, x, z, y, CELL / 2);
     // Doors open as the player comes (their own test, hub_doors_...).
     let doors: Vec<u16> = g.doors.iter().map(|d| d.template).collect();
     let blocked = |x: i32, z: i32, floor: i32| {
@@ -1569,9 +1635,12 @@ fn on_foot(g: &Game, from: [i32; 3]) -> std::collections::HashMap<(i32, i32), Ve
             .filter(|b| !doors.contains(&b.template))
             .any(|b| b.covers([x, floor, z], 120) && b.min_y < floor - 384 && b.max_y > floor - 600)
     };
-    // The body's moving jump's rise: 561 at -1000, as the square.
-    let up = (g.player.moving_jump.0 as i64).abs();
-    let jump = (561 * up * up / 1_000_000) as i32;
+    // The moving jump's rise, Cross held. Carrying, no jump and climbs
+    // under 522 (0x80058da4).
+    let shape = jump_shape(g);
+    let carrying = g.player.carrying && g.player.carry_climbs;
+    let jump = if carrying { 0 } else { -shape.iter().map(|s| s.1).min().unwrap_or(0) };
+    let most = if carrying { 521.min(g.player.climb_max) } else { g.player.climb_max };
     let feet0 = from[1] - g.player.feet();
     let mut seen: std::collections::HashMap<(i32, i32), Vec<i32>> = Default::default();
     let first = floor_at(from[0], from[2], feet0 - 1).unwrap_or(feet0);
@@ -1582,14 +1651,20 @@ fn on_foot(g: &Game, from: [i32; 3]) -> std::collections::HashMap<(i32, i32), Ve
             continue;
         }
         here.push(floor);
+        // Some way on is not a plain step: an edge, worth a jump.
+        let mut edge = false;
         for (dx, dz) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
             let (x, z) = ((cx + dx) * CELL + CELL / 2, (cz + dz) * CELL + CELL / 2);
             let mut next = Vec::new();
             match floor_at(x, z, floor - 384) {
-                Some(f) if !blocked(x, z, f.min(floor)) => next.push(f),
+                Some(f) if !blocked(x, z, f.min(floor)) => {
+                    edge |= f > floor + 384;
+                    next.push(f)
+                }
                 _ => {
+                    edge = true;
                     // Over it: a climb (1033) or a jump (561).
-                    for reach in [jump, 1033] {
+                    for reach in [jump, most] {
                         if let Some(f) = floor_at(x, z, floor - reach - 1).filter(|&f| f >= floor - reach) {
                             next.push(f);
                         }
@@ -1598,6 +1673,46 @@ fn on_foot(g: &Game, from: [i32; 3]) -> std::collections::HashMap<(i32, i32), Ve
             }
             for f in next {
                 todo.push((cx + dx, cz + dz, f));
+            }
+        }
+        // A running jump (state 41) from here, Cross held: its path as the
+        // port runs it (`jump_shape`), from a run-up of two cells; walls and
+        // objects in the way stop it.
+        if jump == 0 || !edge {
+            continue;
+        }
+        for d in 0..8 {
+            let a = d as f32 * std::f32::consts::TAU / 8.0;
+            let (sx, sz) = (a.sin(), a.cos());
+            let (x0, z0) = ((cx * CELL + CELL / 2) as f32, (cz * CELL + CELL / 2) as f32);
+            let back = |n: f32| ((x0 - sx * n) as i32, (z0 - sz * n) as i32);
+            let run_up = [256.0, 512.0].iter().all(|&n| {
+                let (x, z) = back(n);
+                floor_at(x, z, floor - 384).is_some_and(|f| (f - floor).abs() < 64) && !blocked(x, z, floor)
+            });
+            if !run_up {
+                continue;
+            }
+            for (i, &(along, dy)) in shape.iter().enumerate() {
+                let (x, z) = ((x0 + sx * along as f32) as i32, (z0 + sz * along as f32) as i32);
+                let y = floor + dy;
+                // The body's top (500 up) in the open, nothing in the way.
+                let open = |h: i32| floor_at(x, z, h).is_some_and(|f| f >= h);
+                if !open(y - 500) || blocked(x, z, y + 384) {
+                    break;
+                }
+                // The feet over a floor (in a wall the port puts the body
+                // back over the floor it came from, 0x8005f1b4); coming
+                // down, it lands when the next frame would reach it.
+                let Some(f) = floor_at(x, z, y - 1) else { break };
+                let next = shape.get(i + 1).map_or(i32::MAX, |n| n.1 - dy);
+                let falling = shape.get(i + 1).is_some_and(|n| n.1 > dy);
+                if falling && f - y <= next {
+                    if (cell(x), cell(z)) != (cx, cz) {
+                        todo.push((cell(x), cell(z), f));
+                    }
+                    break;
+                }
             }
         }
     }
@@ -1645,3 +1760,26 @@ fn the_tests_places_are_reachable_on_foot() {
     let missed = ON_FOOT.with(|c| c.replace(None)).unwrap();
     assert!(missed.is_empty(), "not reached on foot ({}):\n{}", missed.len(), missed.join("\n"));
 }
+
+/// Runs with the stick through `points` (x, z) in turn, each reached
+/// within 100 in `frames` at most.
+fn go(g: &mut Game, points: &[[i32; 2]]) {
+    for &[x, z] in points {
+        let mut left = 600;
+        loop {
+            let me = g.player.pos;
+            let (dx, dz) = (x - me[0], z - me[2]);
+            if dx * dx + dz * dz < 100 * 100 {
+                break;
+            }
+            assert!(left > 0, "to ({x}, {z}): at {me:?}");
+            left -= 1;
+            let h = ((dx as f32).atan2(dz as f32) * 4096.0 / std::f32::consts::TAU) as i32;
+            let keys = toward(g, h.rem_euclid(4096));
+            run(g, &[(keys, 1)], |_, _| {});
+        }
+    }
+    run(g, &[(&[], 10)], |_, _| {});
+}
+
+

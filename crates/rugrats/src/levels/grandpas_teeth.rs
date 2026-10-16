@@ -346,7 +346,9 @@ impl GrandpasTeeth {
                 g.player.pos[2] + ((c * 512) >> 12),
             ];
             self.puck = Some(Puck { pos: start, v: [(s * PUCK_SPEED) >> 12, (c * PUCK_SPEED) >> 12], travelled: 0 });
-            g.play(36);
+            // At the puck (0x8004d1a8: 0x8006f644(36, puck) for template
+            // 438).
+            g.play_at(36, start);
             g.player.act(7, &g.anims);
         }
         if let Some(p) = &mut self.puck {

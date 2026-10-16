@@ -287,8 +287,14 @@ impl Script for BoxToss {
             self.cookies -= 1;
             self.eat_wait = EAT_WAIT;
             g.player.act(self.rules.eat, &g.anims);
-            let sound = if self.rules.throw_costs { 43 + (g.rand.next() & 15) as u8 } else { 123 };
-            g.play(sound);
+            // A crunch at the player (0x8006f2fc: 43 + rand & 15), else
+            // 123 unplaced.
+            if self.rules.throw_costs {
+                let (sound, at) = (43 + (g.rand.next() & 15) as u8, g.player.pos);
+                g.play_at(sound, at);
+            } else {
+                g.play(123);
+            }
             if self.cookies <= 0 {
                 self.ended = true;
                 // 0x8007a504 (level 21): a line, then cine 50.

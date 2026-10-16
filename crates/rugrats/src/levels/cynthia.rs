@@ -123,11 +123,13 @@ impl Cynthia {
 impl Script for Cynthia {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
-            if let Event::Bite { target: Target::Player, amount, .. } = e
+            if let Event::Bite { by, target: Target::Player, amount } = e
                 && amount > 0
             {
                 g.player.hurt(amount);
-                g.play(BITE_SOUND);
+                // At the biter (0x80084760: 0x8006f644(168, it)).
+                let at = g.npcs[by].pos;
+                g.play_at(BITE_SOUND, at);
             }
         }
         // The brown water (0x8005d8e0, 0x8005eab0): from phase 2, on a

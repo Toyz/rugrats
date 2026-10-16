@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-123 entries: audio 16, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 14, format 9, input 4, play 51, render 23, save 4, test 17, tooling 18, ui 9, video 10.
+124 entries: audio 17, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 14, format 9, input 4, play 51, render 23, save 4, test 17, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -135,3 +135,4 @@ The [reference](docs/README.md) says what is true now.
 | 121 | [Signs sparkle; a lobster's end](worklog/0121-signs-sparkle-a-lobster-s-end.md) | 2026-10-16 | render |
 | 122 | [The room lookup walks portals](worklog/0122-the-room-lookup-walks-portals.md) | 2026-10-16 | engine |
 | 123 | [Broken objects fly apart](worklog/0123-broken-objects-fly-apart.md) | 2026-10-16 | render |
+| 124 | [More sounds where they happen](worklog/0124-more-sounds-where-they-happen.md) | 2026-10-16 | audio |

@@ -180,7 +180,8 @@ impl Script for Reptar2010 {
                 if q.template == EXPLODES {
                     g.flights.explosion(q.pos, g.sprites.as_ref());
                 }
-                g.play(sound);
+                // At the thing (0x8005ac4c: 0x8006f644(sound, it)).
+                g.play_at(sound, q.pos);
             }
         }
     }

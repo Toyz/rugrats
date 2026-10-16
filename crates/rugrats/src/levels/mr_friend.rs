@@ -115,14 +115,15 @@ impl MrFriend {
 
     /// Mode 10, 0x80083be0: sound 100, gone, the count down.
     fn die(&mut self, g: &mut Game, k: usize) {
-        let id = g.npcs[k].id;
+        let (id, at) = (g.npcs[k].id, g.npcs[k].pos);
         g.npcs[k].mode = Mode::Idle;
         g.hide(id, true);
         self.counter = (self.counter - 1).max(0);
         if self.l14 {
             return;
         }
-        g.play(100);
+        // At him (0x80084084: 0x8006f644(100, it) in level 9).
+        g.play_at(100, at);
         match self.counter {
             3 => g.cine = Some(CINE_MORE),
             1 => {

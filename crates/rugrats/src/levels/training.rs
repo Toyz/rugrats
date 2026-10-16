@@ -186,7 +186,9 @@ impl Script for Training {
                 && amount > 0
             {
                 g.player.hurt(amount);
-                g.play(52);
+                // At the biter (0x80084084: 0x8006f644(52, it)).
+                let at = g.npcs[by].pos;
+                g.play_at(52, at);
                 if g.npcs[by].id == LOBSTER {
                     g.training.show(13);
                 }

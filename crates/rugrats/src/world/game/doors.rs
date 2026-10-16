@@ -190,10 +190,13 @@ impl Game {
                 }
             }
             if stop {
-                // A hinged close ends with sound 54 (not 1216, 672).
+                // A hinged close ends with sound 54 (not 1216, 672), at
+                // the door (0x8004f868: 0x8006f644(54, door)).
                 if d.hinged && d.open && !matches!(d.template, 1216 | 672) {
-                    self.effects.push(Effect::new(54));
+                    let at = self.set.placements[d.placement].pos;
+                    self.play_at(54, at);
                 }
+                let d = &mut self.doors[k];
                 d.open = !d.open;
                 if let Some(s) = &mut d.swing {
                     // Back the other way; wait at an end its flags name

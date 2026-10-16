@@ -296,17 +296,21 @@ impl Script for AisleSeven {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             match e {
-                Event::Bite { target: Target::Player, amount, .. } if amount > 0 => {
+                Event::Bite { by, target: Target::Player, amount } if amount > 0 => {
                     g.player.hurt(amount);
-                    g.play(52);
+                    // At the biter (0x80084084: 0x8006f644(52, it)).
+                    let at = g.npcs[by].pos;
+                    g.play_at(52, at);
                 }
                 // GoalPost (0x80077ff0): one of them reached post 39.
                 Event::Goal(k) if self.toss.is_some() && [LARRY, STEVE].contains(&g.npcs[k].id) => {
                     self.end_toss(g, false);
                 }
-                Event::Swat { heading, .. } => {
+                Event::Swat { by, heading } => {
                     g.player.launch(heading, SWAT_UP, SWAT_SPEED, &g.trig);
-                    g.play(148);
+                    // At the swatter (0x800857fc: 0x8006f644(148, it)).
+                    let at = g.npcs[by].pos;
+                    g.play_at(148, at);
                 }
                 _ => {}
             }

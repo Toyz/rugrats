@@ -160,7 +160,7 @@ fn search(cells: &[[u8; 2]], z: i32) -> Option<[u8; 2]> {
 /// What the segment test (0x8002cd7c) writes through its four output
 /// pointers. A field it does not write keeps what the caller put there, as
 /// in the original: a walk that gets through (0) writes only `tile`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Segment {
     /// Its third argument: how far the start is below its floor (start y -
     /// floor) when the start is not in the open, 0 when a wall stops the

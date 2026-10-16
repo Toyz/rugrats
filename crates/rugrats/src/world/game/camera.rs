@@ -92,20 +92,14 @@ impl Game {
         self.draw();
     }
 
-    /// The eye pulled in front of walls: walked from the aim point toward
-    /// `goal` and stopped short of the first point not in the open (as
-    /// 0x8002cd7c's "vectorwalk" keeps the camera inside).
+    /// The eye pulled in front of walls (0x80027304): the segment from the
+    /// aim point to `goal` (0x8002cd7c), the eye where it stops.
     pub(super) fn clear_eye(&self, goal: Vec3) -> Vec3 {
         let from = self.target();
-        let steps = 32;
-        let mut last = from;
-        for k in 1..=steps {
-            let p = from + (goal - from) * (k as f32 / steps as f32);
-            let q = collide::query(&self.col, [p.x as i32, p.y as i32, p.z as i32]);
-            if q.kind != 0 {
-                return from + (last - from) * 0.9;
-            }
-            last = p;
+        let mut hit = collide::Segment::default();
+        let ends = [from, goal].map(|p| [p.x as i32, p.y as i32, p.z as i32]);
+        if collide::segment(&self.col, ends[0], ends[1], &mut hit) == 1 {
+            return Vec3::new(hit.point[0] as f32, hit.point[1] as f32, hit.point[2] as f32);
         }
         goal
     }

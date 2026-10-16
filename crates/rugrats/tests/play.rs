@@ -157,3 +157,40 @@ fn every_level_runs() {
         run(&mut g, &[(&[], 5), (&[input::UP], 60), (&[input::CROSS], 1), (&[input::LEFT], 40), (&[], 100)], |_, _| {});
     }
 }
+
+/// Walks onto each pickup `want` names (Tommy put beside it, a step
+/// forward), as a player would, until the level plays a cinematic.
+fn collect(g: &mut Game, want: impl Fn(&rugrats::world::game::Goodie) -> bool) -> Option<usize> {
+    for k in 0..g.goodies.len() {
+        if g.goodies[k].taken || !want(&g.goodies[k]) {
+            continue;
+        }
+        let p = g.goodies[k].pos;
+        put(g, [p.x as i32, p.y as i32 - 100, p.z as i32 - 300], 0);
+        let mut cine = None;
+        run(g, &[(&[input::UP], 6), (&[], 2)], |g, _| cine = cine.or(g.cine.take()));
+        if cine.is_some() {
+            return cine;
+        }
+        assert!(g.goodies[k].taken, "pickup {k} at {p:?} not taken");
+    }
+    let mut cine = None;
+    run(g, &[(&[], 30)], |g, _| cine = cine.or(g.cine.take()));
+    cine
+}
+
+/// Level 17: all 62 nickels end the clock and win (cine 26).
+#[test]
+fn level_17_gold_rush_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 17);
+    assert_eq!(collect(&mut g, |n| n.template == 446), Some(26));
+}
+
+/// Level 18: the 35th egg ends the clock and wins (cine 24).
+#[test]
+fn level_18_egg_hunt_is_won() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 18);
+    assert_eq!(collect(&mut g, |e| e.template == 496), Some(24));
+}

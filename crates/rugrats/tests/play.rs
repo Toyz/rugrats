@@ -297,8 +297,13 @@ fn hub_back_door_opens_to_the_yard() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 1);
     put(&mut g, [7155, 779, 22000], 0);
+    run(&mut g, &[(&[], 2), (&[input::UP, input::SQUARE], 120)], |_, _| {});
+    assert_eq!(g.player.pos[2], 23120, "walking, the shut door stops him");
+    put(&mut g, [7155, 779, 22000], 0);
     run(&mut g, &[(&[], 2), (&[input::UP], 40)], |_, _| {});
-    assert!(g.player.pos[2] < 23500, "the shut door stops him");
+    // The oracle: run from z 22000, he stops at 23020 (his probe, 250 +
+    // the step 170, reaches the panel); walking (Square), at 23120.
+    assert_eq!(g.player.pos[2], 23020, "the shut door stops him");
     run(&mut g, &[(&[input::TRIANGLE], 1), (&[], 40), (&[input::UP], 60)], |_, _| {});
     assert!(g.player.pos[2] > 26000, "through the open door: {:?}", g.player.pos);
 }
@@ -1340,7 +1345,8 @@ fn win_10(g: &mut Game) {
         // of them.
         let d = |p: [i32; 3]| ((p[1] - pen[1]).abs() > 1000, ((p[0] - pen[0]) as i64).pow(2) + ((p[2] - pen[2]) as i64).pow(2));
         let id = *left.iter().min_by_key(|&&id| g.npcs.iter().find(|n| n.id == id).map_or((true, i64::MAX), |n| d(n.pos))).unwrap();
-        up_to(g, id, 700);
+        // Tagged within 900 (0x800831a4).
+        up_to(g, id, 850);
         let baby = g.npcs.iter().find(|n| n.id == id).expect("a baby").pos;
         // Roughly toward her is enough for the tag; the race starts at it.
         let me = g.player.pos;
@@ -1438,9 +1444,10 @@ fn win_11(g: &mut Game) {
         let a = h as f32 * std::f32::consts::TAU / 4096.0;
         // Up to 700 behind the run-up, then along the line to it: there
         // facing the bone, with no turn to make.
-        put(g, [x - (a.sin() * 1212.0) as i32, ground_y, z - (a.cos() * 1212.0) as i32], 0);
-        // Within 128 (240 at the bone, its box 375 each way) will do.
-        leap_within(g, x, z, h, 128);
+        near(g, [x - (a.sin() * 1212.0) as i32, ground_y, z - (a.cos() * 1212.0) as i32]);
+        // Within 64 (the turn's 41 off took a jump 380 wide of the bone,
+        // its box 375 each way).
+        leap_within(g, x, z, h, 64);
 
         run(g, &[(&[], 4)], |g, _| cine = cine.or(g.cine.take()));
         cine = cine.or(g.cine.take());
@@ -2108,6 +2115,20 @@ fn up_to(g: &mut Game, id: u16, reach: i64) -> bool {
     false
 }
 
+/// To about `at` (the leap that follows backs up to its own run-up): put
+/// there, or walked to within two cells of it on its floor.
+fn near(g: &mut Game, at: [i32; 3]) {
+    if walking() {
+        let feet = at[1] - g.player.feet();
+        let land = floor_under(g, at[0], at[2], feet - 1, 0).unwrap_or(feet);
+        let key = (cell(at[0]), cell(at[2]));
+        if walk_to(g, |s| (s.0 - key.0).abs() <= 2 && (s.1 - key.1).abs() <= 2 && (s.2 - land).abs() < 300, None) {
+            return;
+        }
+    }
+    put(g, at, 0);
+}
+
 /// The place `r` short of `at` on the player's side, on the floor there
 /// (a character is gone up to from where the player is, not round him).
 fn beside(g: &Game, at: [i32; 3], r: f64) -> [i32; 3] {
@@ -2275,6 +2296,29 @@ impl<'a> Ground<'a> {
             .any(|b| b.covers([x, floor - 300, z], rugrats::actors::player::RADIUS + 32) && b.min_y < floor - 384 && b.max_y > floor - 600)
     }
 
+    /// Whether a step from cell (cx, cz) on `floor` along (dx, dz) has its
+    /// probes clear of things (`Player::probes`: the body's depth and the
+    /// step ahead, and at its half-width each side, at each thing's own
+    /// middle height, 0x80063d3c); things low enough to step onto aside.
+    fn probes_clear(&self, (cx, cz): (i32, i32), floor: i32, dir: [f32; 2]) -> bool {
+        self.probes_clear_by((cx, cz), floor, dir, FOOT as f32)
+    }
+
+    /// `probes_clear` for a step of `step` on.
+    fn probes_clear_by(&self, (cx, cz): (i32, i32), floor: i32, dir: [f32; 2], step: f32) -> bool {
+        let p = &self.g.player;
+        let (x, z) = (centre(cx), centre(cz));
+        let at = [x, floor + p.feet(), z];
+        // (The middle probe only: the plan's steps go along the axes, the
+        // body's way past a thing may be aslant.)
+        p.probes(dir, step).iter().take(1).all(|&(px, pz)| {
+            self.near(x, z).chain(self.near(x + px, z + pz)).filter(|b| !b.character && b.min_y < floor - 384).all(|b| {
+                let h = p.probe_height(b, at);
+                b.segment_hit([x, h, z], [x + px, h, z + pz]).is_none()
+            })
+        })
+    }
+
     /// The places one step on and how (a step or a hop), and whether some
     /// way on is not a plain step (an edge, where a jump is worth trying).
     fn steps(&self, (cx, cz, floor): Spot) -> (Vec<(Spot, Way)>, bool) {
@@ -2308,7 +2352,7 @@ impl<'a> Ground<'a> {
                 })
             };
             match self.floor(x, z, floor - 384) {
-                Some(f) if !self.blocked(x, z, f.min(floor)) && room(f.min(floor)) && !across(f) => {
+                Some(f) if !self.blocked(x, z, f.min(floor)) && room(f.min(floor)) && !across(f) && self.probes_clear((cx, cz), floor, [dx as f32, dz as f32]) => {
                     edge |= f > floor + 384;
                     out.push(((cx + dx, cz + dz, f), Way::Step));
                 }
@@ -2411,7 +2455,7 @@ impl<'a> Ground<'a> {
                 let ahead = [256.0, 512.0, 768.0, 1024.0].iter().any(|&t| {
                     let (x, z) = (centre(cx) + (a.sin() * t) as i32, centre(cz) + (a.cos() * t) as i32);
                     !self.floor(x, z, floor - 384).is_some_and(|f| (f - floor).abs() < 64) || self.blocked(x, z, floor)
-                });
+                }) || !self.probes_clear_by((cx, cz), floor, [a.sin(), a.cos()], 1024.0);
                 if !ahead {
                     continue;
                 }
@@ -2508,15 +2552,29 @@ fn leap_within(g: &mut Game, tx: i32, tz: i32, h: i32, near: i32) -> bool {
     let ahead = g.player.heading;
     let b = ahead as f32 * std::f32::consts::TAU / 4096.0;
     let mut jumped = false;
+    let mut last = g.player.pos;
     for _ in 0..80 {
         let p = &g.player;
-        if jumped && matches!(p.state, State::Stand | State::Walk | State::Run) {
+        // Down (Cross let go as it lands: held on, it jumps again).
+        if jumped && p.state != State::Jump && matches!(p.state, State::Stand | State::Walk | State::Run | State::Land) && p.v[1] == 0 {
             run(g, &[(&[], 6)], |_, _| {});
             return true;
         }
         let past = (p.pos[0] - tx) as f32 * b.sin() + (p.pos[2] - tz) as f32 * b.cos();
+        // Held up short of the takeoff (a thing the step's probes meet,
+        // up to the body's depth and a step ahead): over it from there.
+        let held = p.state == State::Run && (p.pos[0] - last[0]).abs() + (p.pos[2] - last[2]).abs() < 8 && past > -600.0;
+        if held && !jumped && std::env::var_os("WALKLOG").is_some() {
+            eprintln!("  held at {:?}, {past:.0} short of the takeoff ({tx}, {tz})", p.pos);
+        }
+        last = p.pos;
+        if std::env::var_os("LEAPLOG").is_some() {
+            eprintln!("    leap {:?} {:?} past {past:.0} v {:?} floor {}", p.pos, p.state, p.v, p.floor);
+        }
         let mut keys = toward(g, ahead).to_vec();
-        if jumped || past >= 0.0 {
+        // (Within half a run's step of it: a takeoff at a shelf's edge is
+        // otherwise run off.)
+        if jumped || past >= -85.0 || held {
             jumped = true;
             keys.push(input::CROSS);
         }
@@ -2534,7 +2592,10 @@ fn walk_to(g: &mut Game, goal: impl Fn(Spot) -> bool + Copy, end: Option<[i32; 2
     // Doors used once on the way; those that stayed shut are walls.
     let mut used: Vec<[i32; 3]> = Vec::new();
     let mut hopped = 0;
-    for _ in 0..40 {
+    let mut unbanned = false;
+    // (Level 4's way to Cynthia's farthest spot is some 800 places and a
+    // dozen jumps, each landing a little off it to be planned on from.)
+    for _ in 0..80 {
         let shut: Vec<[i32; 3]> = used.iter().copied().filter(|p| g.doors.iter().any(|d| g.set.placements[d.placement].pos == *p && !d.open && !d.moving)).collect();
         let mut ground = Ground::with_shut(g, &shut);
         ground.ban = ban.clone();
@@ -2549,6 +2610,13 @@ fn walk_to(g: &mut Game, goal: impl Fn(Spot) -> bool + Copy, end: Option<[i32; 2
         let Some(to) = found else {
             if log {
                 eprintln!("no way from {:?} (spot {start:?}, steps {:?}, ban {ban:?})", g.player.pos, ground.steps(start));
+            }
+            // Every way banned by failures: things move (level 11's carts),
+            // so once, all of them tried again.
+            if !ban.is_empty() && !unbanned {
+                unbanned = true;
+                ban.clear();
+                continue;
             }
             // Up on something the plan has no way off (a rail come down on
             // after a jump), or in a corner it allows the body no room in
@@ -2571,7 +2639,9 @@ fn walk_to(g: &mut Game, goal: impl Fn(Spot) -> bool + Copy, end: Option<[i32; 2
                 let me = g.player.pos;
                 let key = (cell(x), cell(z));
                 if ((x - me[0]) as i64).pow(2) + ((z - me[2]) as i64).pow(2) > 256 * 256 {
-                    let (places, found) = ground.ways(me, |s| (s.0, s.1) == key && (s.2 - to.2).abs() < 300);
+                    let mut again = Ground::with_shut(g, &shut);
+                    again.ban = ban.clone();
+                    let (places, found) = again.ways(me, |s| (s.0, s.1) == key && (s.2 - to.2).abs() < 300);
                     if let Some(t) = found {
                         let path = Ground::path(&places, t);
                         if !path.is_empty() {
@@ -2581,10 +2651,11 @@ fn walk_to(g: &mut Game, goal: impl Fn(Spot) -> bool + Copy, end: Option<[i32; 2
                 }
             }
             let from = g.player.pos;
-            // (A thing there may hold the body up to its reach and more off.)
+            // (A thing there holds the body its probes' reach off: its depth
+            // and a step, 0x80063d3c.)
             let there = end.is_none_or(|[x, z]| stride_to(g, x, z, 64, 90) || {
                 let me = g.player.pos;
-                ((x - me[0]) as i64).pow(2) + ((z - me[2]) as i64).pow(2) < 384 * 384
+                ((x - me[0]) as i64).pow(2) + ((z - me[2]) as i64).pow(2) < 512 * 512
             });
             if log && !there {
                 eprintln!("short of {end:?}: from {from:?} to {:?} ({:?})", g.player.pos, g.player.state);
@@ -3037,7 +3108,6 @@ fn levels_walked() {
     eprintln!("not walked ({}):\n{}", missed.len(), missed.join("\n"));
 }
 
-
 /// Running at 45 degrees into a wall (the hub, x about 12300): the body
 /// stops short of it, its side's reach at the wall, and slides along it at
 /// full speed. The oracle (hub, Tommy put at (11800, 779, 19403) heading
@@ -3083,7 +3153,6 @@ fn running_into_a_wall_slides_as_the_original() {
     assert!(seen[..6].windows(2).all(|w| w[1][1] - w[0][1] == -170), "{seen:?}");
     assert!(seen[6..].windows(2).all(|w| w[1][0] > w[0][0]), "{seen:?}");
 }
-
 
 /// Spike (level 11, his x half width 315) running at the wall past the
 /// first hurdle: the oracle (put at (25252, 720, 4500) heading 0, R1, Up):
@@ -3224,5 +3293,29 @@ fn grab_reaches_as_the_original() {
         g.player.target = heading;
         run(&mut g, &[(&[], 2), (&[input::CIRCLE], 1), (&[], 50)], |_, _| {});
         assert_eq!(g.carried() == Some(k), taken, "{short} short, heading {heading}");
+    }
+}
+
+/// The step's probes meet an object at its own middle height (0x80063d3c):
+/// level 3's tipped toy (template 526) at (70451, 701, 4290), its box's
+/// middle y 504 above Tommy's head band's reach of it, is run past. The
+/// oracle: run east along z 4290 from x 68500 at four phases of its turn,
+/// x 170 a frame on through 73600, his y bobbing about 779 (never on it).
+#[test]
+fn tommy_runs_past_level_3s_tipped_toy_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 3);
+    run(&mut g, &[(&[], 5)], |_, _| {});
+    for k in 0..4 {
+        run(&mut g, &[(&[], 37 * k)], |_, _| {});
+        g.player.pos = [68500, 779, 4290];
+        g.player.heading = 1024;
+        g.player.target = 1024;
+        run(&mut g, &[(&[], 5), (&[input::R1], 1), (&[], 4)], |_, _| {});
+        let mut seen = Vec::new();
+        run(&mut g, &[(&[input::UP], 30)], |g, _| seen.push(g.player.pos));
+        let xs: Vec<i32> = seen.iter().map(|p| p[0]).collect();
+        assert!(xs.windows(2).all(|w| w[1] - w[0] == 170), "phase {k}: {xs:?}");
+        assert!(seen.iter().all(|p| p[1] > 700), "phase {k}: not up on it: {seen:?}");
     }
 }

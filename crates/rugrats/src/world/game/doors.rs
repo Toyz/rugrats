@@ -228,9 +228,16 @@ impl Game {
                 && !self.unusable.contains(&d.placement)
                 && self.set.models.get(d.shape).is_some_and(|m| {
                     let (rot, pos) = d.pose(d.offset, &self.trig);
-                    world_boxes(m, rot, pos)
-                        .iter()
-                        .any(|b| b.covers(p, RADIUS + 150) && b.min_y <= feet && b.max_y >= feet - HEIGHT)
+                    // Touched: the last move's probes met it (+0xf4,
+                    // 0x80063d3c), as a run's reach along the heading does
+                    // from where it stopped; or the body is at it.
+                    let a = self.player.heading as f32 * std::f32::consts::TAU / 4096.0;
+                    let probes = self.player.probes([a.sin(), a.cos()], 170.0);
+                    world_boxes(m, rot, pos).iter().any(|b| {
+                        let h = self.player.probe_height(b, p);
+                        (b.covers(p, RADIUS + 150) && b.min_y <= feet && b.max_y >= feet - HEIGHT)
+                            || probes.iter().any(|&(dx, dz)| b.segment_hit([p[0], h, p[2]], [p[0] + dx, h, p[2] + dz]).is_some())
+                    })
                 })
         });
         let Some(k) = touched else { return false };

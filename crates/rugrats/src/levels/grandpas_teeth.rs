@@ -170,6 +170,13 @@ impl GrandpasTeeth {
         g.player.frozen = false;
         let (h, a) = (self.spike.0.clone(), self.spike.1.clone());
         g.player.set_body(h, a, SLOW_TURN, &g.anims);
+        // The player is Spike now (0x800c5680 = 6, oracle): his gait, and
+        // his running jump, 1400 up and 50 a unit of speed along
+        // (0x80060f1c; the oracle's clears the yard's hurdles, feet 2020
+        // up).
+        g.character = SPIKE_CHAR as usize;
+        g.player.gait = (20, 10);
+        g.player.moving_jump = (-1400, 50);
         // Spike as an NPC stands down; Tommy rides the player (y - 250).
         if let Some(k) = find(g, SPIKE) {
             g.npcs[k].hidden = true;
@@ -237,6 +244,9 @@ impl GrandpasTeeth {
     fn court(&mut self, g: &mut Game) {
         let (h, a) = (self.tommy.0.clone(), self.tommy.1.clone());
         g.player.set_body(h, a, TURN, &g.anims);
+        g.character = TOMMY;
+        g.player.gait = (17, 8);
+        g.player.moving_jump = (-1000, 40);
         if let Some(k) = find(g, 0xffff) {
             g.npcs.remove(k);
         }

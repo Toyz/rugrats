@@ -443,27 +443,46 @@ impl Player {
         } else {
             self.floor = q.floor;
         }
-        // Objects' boxes (0x80065210 against 0x8006a714): one the body
-        // runs into sends it back across; one whose top is within a step
-        // of the feet (or below them, falling) is floor.
+        // Objects' boxes: one whose top is within a step of the feet and
+        // not above the body's origin (or below them, falling) is floor
+        // (the floor test runs down from the origin, 0x80065578); one the
+        // step's probes meet (0x80063d3c: from the body's middle, ahead
+        // and to each side, at the box's own middle height kept within
+        // the body's, 0x8006a714) sends it back across. A character's body
+        // is met where it stands.
         let start_feet = start[1] - self.feet;
         let feet_y = self.pos[1] - self.feet;
+        let (dx, dz) = ((self.pos[0] - start[0]) as f32, (self.pos[2] - start[2]) as f32);
+        let len = dx.hypot(dz);
+        // The probes are the ground move's (0x80064a34); in the air the body
+        // is met where it is.
+        let ground = on_ground && matches!(self.state, State::Stand | State::Walk | State::Run);
+        let probes = if len < 1.0 || !ground { Vec::new() } else { self.probes([dx / len, dz / len], len) };
+        let mut blocked = false;
         self.support = None;
         for (k, b) in boxes.iter().enumerate() {
-            if !b.covers(self.pos, RADIUS) {
+            let near = b.covers(self.pos, RADIUS);
+            if !near && probes.is_empty() {
                 continue;
             }
             let top = b.min_y;
             let head = feet_y - HEIGHT;
-            if top >= start_feet.min(feet_y) - STEP_UP {
+            let floor_like = top >= start_feet.min(feet_y) - STEP_UP && (b.character || !ground || top >= start[1].min(self.pos[1]));
+            let met = !floor_like
+                && b.max_y > head
+                && if b.character || !ground {
+                    near && (b.depth(self.pos, RADIUS) > b.depth(start, RADIUS) || b.crosses(start, self.pos))
+                } else {
+                    let h = self.probe_height(b, start);
+                    probes.iter().any(|&(dx, dz)| b.segment_hit([start[0], h, start[2]], [start[0] + dx, h, start[2] + dz]).is_some())
+                };
+            if near && floor_like {
                 // Standing room on it: a floor if higher than the one found.
                 if top < self.floor {
                     self.floor = top;
                     self.support = Some(k);
                 }
-            } else if b.max_y > head
-                && (b.depth(self.pos, RADIUS) > b.depth(start, RADIUS) || b.crosses(start, self.pos))
-            {
+            } else if met {
                 if b.climb && walking && top >= start_feet - reach {
                     climb_to = Some(climb_to.map_or(top, |c: i32| c.min(top)));
                 } else {
@@ -475,10 +494,13 @@ impl Player {
                             self.hints.push(16);
                         }
                     }
-                    self.pos[0] = start[0];
-                    self.pos[2] = start[2];
+                    blocked = true;
                 }
             }
+        }
+        if blocked {
+            self.pos[0] = start[0];
+            self.pos[2] = start[2];
         }
         if let Some(top) = climb_to {
             // The rise picks the climb (+0x144, 0x80056e44).
@@ -655,6 +677,28 @@ impl Player {
     /// 0x80067ba4), both ways. Seen in the oracle: Tommy (250) stops 268
     /// short of a wall at 170 a frame; Spike (x 315, z -220..1000) 479
     /// short at 200, so his reach is not the box's 1000 along z.
+    /// The step's probes against objects (0x80064a34 -> 0x80063d3c), as
+    /// (x, z) from where it began: its body box's depth plus the step
+    /// (speed +0x184 x D_800c3f1c, 10) straight on along `dir`, and the same
+    /// at its half-width to either side (the oracle: running at the shut
+    /// back door Tommy stops at 23020, walking at 23120, both on their
+    /// step's grid, the probe's reach short of the panel).
+    pub fn probes(&self, dir: [f32; 2], step: f32) -> Vec<(i32, i32)> {
+        let (lo, hi) = self.body_box();
+        let side = lo[0].abs().max(hi[0].abs()) as f32;
+        let ahead = lo[2].abs().max(hi[2].abs()) as f32 + step;
+        let [ux, uz] = dir;
+        [0.0, -side, side].iter().map(|&w| ((ux * ahead + uz * w) as i32, (uz * ahead - ux * w) as i32)).collect()
+    }
+
+    /// The height the probes meet box `b` at: its own middle (unturned,
+    /// 0x80063d3c) kept within the body's from `at`.
+    pub fn probe_height(&self, b: &Box3, at: [i32; 3]) -> i32 {
+        let (lo, hi) = self.body_box();
+        let mid = ((b.lo[1] + b.hi[1]) as f32 / 2.0 + b.pos.y) as i32;
+        mid.clamp(at[1] + lo[1], at[1] + hi[1])
+    }
+
     /// The body's box (hierarchy header +4..+0x10: lo x, y, z, hi x, y,
     /// z; 0x80067ba4 without a carried thing).
     pub fn body_box(&self) -> ([i32; 3], [i32; 3]) {

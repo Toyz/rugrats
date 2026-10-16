@@ -239,6 +239,8 @@ pub struct Game {
     /// The room the player is in, and a song the room asked for
     /// (RoomChange, 0x80077a54: room flag 128, song at +0x64 less one).
     room: Option<usize>,
+    pub room_song: Option<usize>,
+    /// A song a level starts at once (MidiPlaySong).
     pub song: Option<usize>,
     /// Sound effects asked for this frame, with their volume (0x8006f644:
     /// the effects setting, less with distance from the camera).
@@ -827,6 +829,7 @@ impl Game {
             npcs,
             room: None,
             song: None,
+            room_song: None,
             effects: Vec::new(),
             paused: false,
             pause: Pause::load(disc, level)?,

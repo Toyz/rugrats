@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-70 entries: audio 9, bug 2, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 11, save 4, test 9, tooling 16, ui 9, video 8.
+71 entries: audio 10, bug 2, build 3, content 1, decomp 13, design 2, disc 1, engine 9, format 9, input 4, play 33, render 11, save 4, test 9, tooling 16, ui 9, video 8.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -82,3 +82,4 @@ The [reference](docs/README.md) says what is true now.
 | 68 | [Level 11: a standing jump never eats a bone](worklog/0068-level-11-a-standing-jump-never-eats-a-bone.md) | 2026-10-15 | play |
 | 69 | [Positional sound: the falloff, the pan and Mono](worklog/0069-positional-sound-the-falloff-the-pan-and-mono.md) | 2026-10-15 | audio |
 | 70 | [Triage: open questions answered by later work](worklog/0070-triage-open-questions-answered-by-later-work.md) | 2026-10-15 | tooling |
+| 71 | [Room songs crossfade](worklog/0071-room-songs-crossfade.md) | 2026-10-15 | audio |

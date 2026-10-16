@@ -47,6 +47,9 @@ impl Rugrats {
         if let Some(n) = game.song.take() {
             self.play_song(n);
         }
+        if let Some(n) = game.room_song.take() {
+            self.switch_song(n);
+        }
         if game.ending {
             // The end (0x8007737c case 84, the teardown): the progress
             // cleared, the credits, then the hub at level 7's spot.

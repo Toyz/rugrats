@@ -42,6 +42,25 @@ is forever).
   30, mode 5 song 2 by 20, mode 18 by 10. It is clamped to 127.
 - The title's loop (0x8003d884) plays song 0.
 
+## A room's song (0x8006efcc)
+
+RoomChange (0x80077a54) calls 0x8006efcc(_, song, 30) for room flag 128
+with +0x64 of 1-4. The set's record keeps the song playing (+0xa) and
+one fading out (+0xb), with a fade timer +0x10:
+
+- The song is +0xa or +0xb: nothing.
+- No song playing (+0xa -1, or it has ended, 0x800a5e88): MidiPlaySong
+  at once.
+- A fade under way (+0x10 not 0): the fading song stops (0x800a8d00),
+  +0xb = +0xa, +0xa = the song, played and set to volume 0 (0x800a91a0),
+  then SsSeqSetCrescendo (0x800a59f4) to the music volume over 30.
+- Else: +0xb = +0xa, +0x10 = 30 * 50, SsSeqSetDecrescendo (0x800a5bbc)
+  on +0xb from its volume over 30, and the new song at 0 with the
+  crescendo as above. So the two overlap: a crossfade.
+
+0x8006ef0c (from the level loop 0x80018ad0) and 0x8006ef64 (0x8007424c)
+fade the playing song out and back in over 60.
+
 ## Effects (0x8006f26c)
 
 Effect n (under 180) reads 3 bytes at 0x800b84fc + 3n: program, tone,
@@ -66,7 +85,12 @@ See `rugrats_data::sep`:
   Gaussian interpolation (rrt-kit), and libsnd's sequencer reading the SEP
   events.
 - Voice volumes multiply velocity, tone, program, channel (CC 7),
-  expression (CC 11), song and bank master volumes, each out of 127.
+  expression (CC 11) and bank master volumes, each out of 127; the song's
+  volume is applied as the voices mix, so SsSeqSetVol and the fades
+  change notes already sounding.
+- Two song slots: the song playing and one fading out (`switch_song`).
+  libsnd's ticks are taken as 60 a second (guess), so 30 is half a
+  second.
 - Pans add up around 64.
 - `Mix` puts the SPU's voices over the XA soundtrack for the audio device.
 - `song_wav` renders a song offline. Song 0 at 90: peak 21990, RMS 2859.

@@ -172,8 +172,9 @@ struct Voice {
     pitch: u32,
     env: Envelope,
     vol: (i32, i32),
-    /// The channel and note playing, for note-offs; None for an effect.
-    key: Option<(u8, u8)>,
+    /// The song slot, channel and note playing, for note-offs and the
+    /// song's volume; None for an effect.
+    key: Option<(usize, u8, u8)>,
     started: u64,
 }
 
@@ -240,9 +241,36 @@ struct Player {
     loop_count: Option<u8>,
     loops: u32,
     done: bool,
+    /// The song's number in its set, for the room switch's tests.
+    id: usize,
+    /// Its volume (0-127, SsSeqSetVol) and a fade under way: the volume
+    /// it goes to and the change a frame (SsSeqSetCrescendo /
+    /// SsSeqSetDecrescendo, 0x800a59f4 / 0x800a5bbc).
+    volume: f32,
+    fade: Option<(f32, f32)>,
 }
 
 impl Player {
+    fn new(song: &Song, loops: u8, id: usize, volume: f32) -> Player {
+        let mut p = Player {
+            song: song.clone(),
+            pos: 0,
+            status: 0,
+            channels: [Channel::default(); 16],
+            wait: 0.0,
+            tempo: song.tempo.max(1),
+            loop_at: None,
+            loop_count: (loops > 0).then_some(loops),
+            loops: 0,
+            done: false,
+            id,
+            volume,
+            fade: None,
+        };
+        p.wait = p.delta() as f64;
+        p
+    }
+
     fn delta(&mut self) -> u32 {
         let mut v = 0u32;
         while let Some(&b) = self.song.events.get(self.pos) {
@@ -261,11 +289,11 @@ pub struct Spu {
     voices: Vec<Option<Voice>>,
     music: Option<Arc<Bank>>,
     effects: Option<Arc<Bank>>,
-    player: Option<Player>,
+    /// The song playing, and one fading out under it after a room's
+    /// switch (0x8006efcc keeps both: +0xa and +0xb).
+    players: [Option<Player>; 2],
     next_effect: usize,
     clock: u64,
-    /// The song volume (0-127), as `SsSeqSetVol`/`SsSepSetVol` set it.
-    pub song_volume: i32,
 }
 
 impl Default for Spu {
@@ -274,10 +302,9 @@ impl Default for Spu {
             voices: vec![None; VOICES],
             music: None,
             effects: None,
-            player: None,
+            players: [None, None],
             next_effect: EFFECT_VOICES.start,
             clock: 0,
-            song_volume: 127,
         }
     }
 }
@@ -309,41 +336,66 @@ impl Spu {
         self.effects = Some(effects);
     }
 
-    /// Plays `song` (MidiPlaySong) at `volume` (0-127, 0x8006e74c): `loops`
-    /// 0 forever.
-    pub fn play(&mut self, song: &Song, loops: u8, volume: i32) {
+    /// Plays `song`, number `id` of its set (MidiPlaySong), at `volume`
+    /// (0-127, 0x8006e74c): `loops` 0 forever. Whatever played stops.
+    pub fn play(&mut self, song: &Song, id: usize, loops: u8, volume: i32) {
         self.stop_song();
-        self.song_volume = volume;
-        let tempo = song.tempo.max(1);
-        self.player = Some(Player {
-            song: song.clone(),
-            pos: 0,
-            status: 0,
-            channels: [Channel::default(); 16],
-            wait: 0.0,
-            tempo,
-            loop_at: None,
-            loop_count: (loops > 0).then_some(loops),
-            loops: 0,
-            done: false,
-        });
-        if let Some(p) = &mut self.player {
-            p.wait = p.delta() as f64;
+        self.players[0] = Some(Player::new(song, loops, id, volume as f32));
+    }
+
+    /// A room's song (0x8006efcc with time 30): the song playing fades
+    /// out while `song` fades in, both over `ticks` libsnd ticks (60 a
+    /// second, guess). Nothing when `id` is the song playing or the one
+    /// fading out; a fade under way drops its old song.
+    pub fn switch_song(&mut self, song: &Song, id: usize, volume: i32, ticks: u32) {
+        if self.players.iter().flatten().any(|p| p.id == id && !p.done) {
+            return;
+        }
+        let Some(mut old) = self.players[0].take().filter(|p| !p.done) else {
+            self.play(song, id, 0, volume);
+            return;
+        };
+        self.stop_slot(1);
+        let frames = (ticks as f32 * RATE as f32 / 60.0).max(1.0);
+        old.fade = Some((0.0, -old.volume / frames));
+        self.players[1] = Some(old);
+        for v in self.voices.iter_mut().flatten() {
+            if let Some((slot, ..)) = &mut v.key
+                && *slot == 0
+            {
+                *slot = 1;
+            }
+        }
+        let volume = volume as f32;
+        let mut new = Player::new(song, 0, id, 0.0);
+        new.fade = Some((volume, volume / frames));
+        self.players[0] = Some(new);
+    }
+
+    /// The playing song's volume now (SsSeqSetVol, the Audio menu).
+    pub fn set_song_volume(&mut self, volume: i32) {
+        if let Some(p) = &mut self.players[0] {
+            p.volume = volume as f32;
+            p.fade = None;
         }
     }
 
     pub fn stop_song(&mut self) {
-        self.player = None;
+        self.stop_slot(0);
+        self.stop_slot(1);
+    }
+
+    fn stop_slot(&mut self, slot: usize) {
+        self.players[slot] = None;
         for v in self.voices.iter_mut() {
-            if v.as_ref().is_some_and(|v| v.key.is_some()) {
+            if v.as_ref().is_some_and(|v| v.key.is_some_and(|k| k.0 == slot)) {
                 *v = None;
             }
         }
     }
 
-    /// Sound effect `n` (0x8006f26c): the table's program, tone and note.
-    /// Effect `n` of the table at volumes (left, right), 0-127 (SsUtKeyOn's
-    /// voll and volr).
+    /// Sound effect `n` (0x8006f26c): the table's program, tone and note,
+    /// at volumes (left, right), 0-127 (SsUtKeyOn's voll and volr).
     pub fn effect(&mut self, table: &[[u8; 3]], n: usize, (left, right): (i32, i32)) {
         let Some(&[prog, tone, note]) = table.get(n) else { return };
         let Some(bank) = self.effects.clone() else { return };
@@ -363,7 +415,7 @@ impl Spu {
         note: u8,
         bend: i32,
         vol: (i32, i32),
-        key: Option<(u8, u8)>,
+        key: Option<(usize, u8, u8)>,
     ) -> Option<Voice> {
         let sample = bank.samples.get(t.vag as usize)?.clone();
         Some(Voice {
@@ -377,7 +429,7 @@ impl Spu {
         })
     }
 
-    fn note_on(&mut self, c: Channel, ch: u8, note: u8, vel: u8) {
+    fn note_on(&mut self, slot: usize, c: Channel, ch: u8, note: u8, vel: u8) {
         let Some(bank) = self.music.clone() else { return };
         let (pv, pp) = bank.program_volume(c.program);
         let tones: Vec<Tone> =
@@ -390,12 +442,11 @@ impl Spu {
                     pv as i32,
                     c.volume as i32,
                     c.expression as i32,
-                    self.song_volume,
                     bank.vab.master_volume as i32,
                 ],
                 &[t.pan as i32, pp as i32, c.pan as i32],
             );
-            let v = self.voice(&bank, &t, note, c.bend, vol, Some((ch, note)));
+            let v = self.voice(&bank, &t, note, c.bend, vol, Some((slot, ch, note)));
             // A free voice below the effects', else the oldest.
             let k = (0..EFFECT_VOICES.start)
                 .find(|&k| self.voices[k].as_ref().is_none_or(|v| v.env.phase == Phase::Off))
@@ -408,19 +459,19 @@ impl Spu {
         }
     }
 
-    fn note_off(&mut self, ch: u8, note: u8) {
+    fn note_off(&mut self, slot: usize, ch: u8, note: u8) {
         for v in self.voices.iter_mut().flatten() {
-            if v.key == Some((ch, note)) && v.env.phase != Phase::Off {
+            if v.key == Some((slot, ch, note)) && v.env.phase != Phase::Off {
                 v.env.phase = Phase::Release;
                 v.env.wait = 0;
-                v.key = Some((ch, 255));
+                v.key = Some((slot, ch, 255));
             }
         }
     }
 
     /// Runs the song's events due now.
-    fn sequence(&mut self) {
-        let Some(mut p) = self.player.take() else { return };
+    fn sequence(&mut self, slot: usize) {
+        let Some(mut p) = self.players[slot].take() else { return };
         // Ticks a frame: resolution per quarter, tempo microseconds a quarter.
         p.wait -= p.song.resolution as f64 * 1e6 / p.tempo as f64 / RATE as f64;
         while p.wait <= 0.0 && !p.done {
@@ -447,15 +498,15 @@ impl Spu {
                 0x90 => {
                     let (n, v) = (arg(&mut p), arg(&mut p));
                     if v == 0 {
-                        self.note_off(ch, n);
+                        self.note_off(slot, ch, n);
                     } else {
-                        self.note_on(p.channels[ch as usize], ch, n, v);
+                        self.note_on(slot, p.channels[ch as usize], ch, n, v);
                     }
                 }
                 0x80 => {
                     let n = arg(&mut p);
                     arg(&mut p);
-                    self.note_off(ch, n);
+                    self.note_off(slot, ch, n);
                 }
                 0xb0 => {
                     let (c, v) = (arg(&mut p), arg(&mut p));
@@ -523,17 +574,41 @@ impl Spu {
                 p.wait += p.delta() as f64;
             }
         }
-        self.player = Some(p);
+        self.players[slot] = Some(p);
+    }
+
+    /// One frame of the fades; a song faded out to 0 stops.
+    fn fade(&mut self) {
+        for slot in 0..2 {
+            let Some(p) = &mut self.players[slot] else { continue };
+            let Some((to, step)) = p.fade else { continue };
+            p.volume += step;
+            if (step >= 0.0 && p.volume >= to) || (step < 0.0 && p.volume <= to) {
+                p.volume = to;
+                p.fade = None;
+                if to <= 0.0 && slot == 1 {
+                    self.stop_slot(1);
+                }
+            }
+        }
     }
 
     /// Fills `out` with stereo frames.
     pub fn render(&mut self, out: &mut [i16]) {
         for frame in out.as_chunks_mut::<2>().0 {
-            self.sequence();
+            for slot in 0..2 {
+                self.sequence(slot);
+            }
+            self.fade();
+            let volume = self.players.each_ref().map(|p| p.as_ref().map_or(0, |p| p.volume as i32));
             let (mut l, mut r) = (frame[0] as i32, frame[1] as i32);
             for v in self.voices.iter_mut() {
                 let Some(voice) = v else { continue };
-                let (a, b) = voice.render();
+                let (mut a, mut b) = voice.render();
+                // A song's notes at its volume now (SsSeqSetVol).
+                if let Some((slot, ..)) = voice.key {
+                    (a, b) = (a * volume[slot] / 127, b * volume[slot] / 127);
+                }
                 l += a;
                 r += b;
                 if voice.env.phase == Phase::Off {
@@ -578,5 +653,41 @@ impl rrt::audio::Source for Mix {
         if let Ok(mut s) = self.spu.lock() {
             s.render(out);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    /// A room's switch (0x8006efcc): the old song fades out under the new
+    /// one fading in, and stops at 0; asking again for either does nothing.
+    #[test]
+    fn a_room_switch_crossfades() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/disc");
+        let Some(disc) = rrt::disc::Image::find(&dir).ok().and_then(|c| GameDisc::open(&c).ok()) else { return };
+        let set = Loaded::load(&disc, MENU_SET).unwrap();
+        assert!(set.songs.len() >= 2);
+        let mut spu = Spu::default();
+        spu.set_banks(set.music.clone(), set.effects.clone());
+        spu.play(&set.songs[0], 0, 0, 90);
+        let mut out = vec![0i16; 2 * RATE as usize / 10];
+        spu.render(&mut out);
+        spu.switch_song(&set.songs[1], 1, 90, 30);
+        let ids = |s: &Spu| s.players.each_ref().map(|p| p.as_ref().map(|p| p.id));
+        assert_eq!(ids(&spu), [Some(1), Some(0)]);
+        // Halfway (15 of 30 ticks): both near 45.
+        let mut half = vec![0i16; 2 * RATE as usize / 4];
+        spu.render(&mut half);
+        let vols = spu.players.each_ref().map(|p| p.as_ref().map_or(-1.0, |p| p.volume));
+        assert!((vols[0] - 45.0).abs() < 2.0 && (vols[1] - 45.0).abs() < 2.0, "{vols:?}");
+        // Asking for the fading song keeps things as they are.
+        spu.switch_song(&set.songs[0], 0, 90, 30);
+        assert_eq!(ids(&spu), [Some(1), Some(0)]);
+        spu.render(&mut half);
+        assert_eq!(ids(&spu), [Some(1), None]);
+        assert_eq!(spu.players[0].as_ref().map(|p| p.volume), Some(90.0));
     }
 }

@@ -218,7 +218,7 @@ impl Rugrats {
         audio.music = audio.music.clamp(0, 100);
         self.progress.set_audio(audio);
         if let (Some(v), Ok(mut spu)) = (title.song_volume, self.spu.lock()) {
-            spu.song_volume = v;
+            spu.set_song_volume(v);
         }
         self.play_effects(title.sounds.iter().map(|&s| Effect::new(s)));
         match outcome {

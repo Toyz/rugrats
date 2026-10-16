@@ -21,7 +21,7 @@ fn main() -> Result<(), String> {
     );
     let mut spu = Spu::default();
     spu.set_banks(set.music.clone(), set.effects.clone());
-    spu.play(set.songs.get(song).ok_or("no such song")?, 0, rugrats::audio::sound::MUSIC_VOLUME);
+    spu.play(set.songs.get(song).ok_or("no such song")?, song, 0, rugrats::audio::sound::MUSIC_VOLUME);
     let mut buf = vec![0i16; 2 * RATE as usize * secs];
     spu.render(&mut buf);
     let peak = buf.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);

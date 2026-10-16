@@ -109,7 +109,16 @@ impl Rugrats {
     fn play_song(&mut self, n: usize) {
         let Some(song) = self.songs.as_ref().and_then(|l| l.songs.get(n)) else { return };
         if let Ok(mut spu) = self.spu.lock() {
-            spu.play(song, 0, self.progress.audio().music);
+            spu.play(song, n, 0, self.progress.audio().music);
+        }
+    }
+
+    /// A room's song (0x8006efcc): crossfaded from the one playing over
+    /// 30 ticks.
+    fn switch_song(&mut self, n: usize) {
+        let Some(song) = self.songs.as_ref().and_then(|l| l.songs.get(n)) else { return };
+        if let Ok(mut spu) = self.spu.lock() {
+            spu.switch_song(song, n, self.progress.audio().music, 30);
         }
     }
 

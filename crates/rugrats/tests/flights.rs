@@ -437,3 +437,26 @@ fn the_yard_throws_up_grass() {
     assert!(most >= 5, "{most} tufts");
     assert!(g.flights.models().all(|(m, ..)| m == flights::DUST));
 }
+
+/// Beside a door sign in the hub, the sign sparkles every frame
+/// (0x80049eec's 0x80050fd0): three kind 5 sprite 296 a frame, 500 ms.
+#[test]
+fn a_door_sign_sparkles() {
+    use rugrats::input::Pads;
+    use rugrats::world::collide;
+    let Some(disc) = disc() else { return };
+    let mut g = rugrats::world::game::Game::open(&disc, rugrats::levels::Level(1)).unwrap();
+    // Level 10's sign (template 498) in room 23, near the start.
+    let sign = g.set.placements.iter().find(|p| p.kind == 1 && p.template == 498).expect("the sign").pos;
+    let (x, z) = (sign[0], sign[2] - 1200);
+    let q = collide::query(&g.col, [x, sign[1] - 1500, z]);
+    assert_eq!(q.kind, 0);
+    g.player.pos = [x, q.floor + g.player.feet(), z];
+    let pads = Pads::default();
+    let mut most = 0;
+    for _ in 0..10 {
+        g.frame(&pads);
+        most = most.max(g.flights.iter().filter(|f| f.kind() == 5 && f.skin == Skin::Sprite(296)).count());
+    }
+    assert!(most >= 3, "{most} sparks; Tommy {:?} room {:?}", g.player.pos, g.current_room());
+}

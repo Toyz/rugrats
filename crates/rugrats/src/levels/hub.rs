@@ -270,6 +270,38 @@ fn mouth(g: &mut Game, k: usize, model: u32) {
     }
 }
 
+/// The signs showing (0x80049eec): placement, its level, where it is.
+/// Within 2500 (2D) in the player's room; the mirror only with +0x30 bit
+/// 16.
+fn signs(g: &Game) -> Vec<(usize, Level, [i32; 3])> {
+    let me = g.player.pos;
+    let room = g.current_room();
+    let flag16 = g.flags & 16 != 0;
+    let mut out = Vec::new();
+    for (k, d) in g.set.placements.iter().enumerate() {
+        let mirror = MIRRORS.contains(&d.template);
+        if d.kind != 1 || (!mirror && d.level <= 0) || (mirror && !flag16) || g.is_hidden(d.id) {
+            continue;
+        }
+        let level = if mirror { Level::MIRRORLAND } else { Level(d.level as u8) };
+        let pos = g
+            .things
+            .iter()
+            .find(|t| t.placement == k)
+            .map_or(d.pos, |t| [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32]);
+        if dist2(pos, me) < SIGN_REACH * SIGN_REACH && room.is_some() && g.room_of(pos) == room {
+            out.push((k, level, pos));
+        }
+    }
+    out
+}
+
+/// An object's +0x6d (template +0x32).
+fn sign_damage(g: &Game, k: usize) -> i16 {
+    let t = g.set.placements[k].template as usize;
+    g.set.templates.get(t).map_or(0, |t| t.raw[0x32] as i16)
+}
+
 impl Script for Hub {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         g.npc_events.clear();
@@ -283,32 +315,21 @@ impl Script for Hub {
         }
         g.struck.clear();
         self.spike(g);
+        // Each sign that shows sparkles (0x80049eec's 0x80050fd0, its
+        // sound off).
+        for (k, _, at) in signs(g) {
+            let damage = sign_damage(g, k);
+            g.flights.sign_sparks(at, damage, g.sprites.as_ref());
+        }
     }
 
     /// The door signs (0x80049eec): Easy / Medium / Hard at y 62 and the
     /// level's name at y 80, font 0 centred across; the name cyan once
     /// the level is won.
     fn draw(&self, g: &Game, _moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
-        let me = g.player.pos;
-        let room = g.current_room();
-        let flag16 = g.flags & 16 != 0;
         let mut drawn = Vec::new();
-        for (k, d) in g.set.placements.iter().enumerate() {
-            let mirror = MIRRORS.contains(&d.template);
-            if d.kind != 1 || (!mirror && d.level <= 0) || (mirror && !flag16) || g.is_hidden(d.id) {
-                continue;
-            }
-            let level = if mirror { Level::MIRRORLAND } else { Level(d.level as u8) };
-            let pos = g
-                .things
-                .iter()
-                .find(|t| t.placement == k)
-                .map_or(d.pos, |t| [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32]);
-            if dist2(pos, me) >= SIGN_REACH * SIGN_REACH
-                || room.is_none()
-                || g.room_of(pos) != room
-                || drawn.contains(&level)
-            {
+        for (_, level, _) in signs(g) {
+            if drawn.contains(&level) {
                 continue;
             }
             drawn.push(level);

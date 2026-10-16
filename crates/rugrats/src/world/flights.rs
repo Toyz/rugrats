@@ -707,6 +707,34 @@ impl Flights {
         self.launch(&l, sprites);
     }
 
+    /// A sign's sparks (0x80050fd0: the hub's door signs and level 16's
+    /// templates 111 and 441, each frame they show; the lobster's end in
+    /// level 3): three kind 5, flags 0x30305, sprite 296 (TEXPOS + 3552),
+    /// half-size 200, face 0xd2800000, 500 ms, bounce 2048, the object's
+    /// damage, anywhere in the sphere. Each call starts its own LCG at
+    /// 0xbe5c, so the three speeds (rand % 100) are the same every time.
+    pub fn sign_sparks(&mut self, at: [i32; 3], damage: i16, sprites: Option<&Sprites>) {
+        let mut seed = 0xbe5c;
+        for _ in 0..3 {
+            let speed = (((lcg(&mut seed) >> 16) & 0x7fff) % 100) as i32;
+            let dir = self.cone([0, 4096, 0], &IDENTITY, 0, 4096);
+            let l = Launch {
+                flags: 0x30305,
+                at,
+                life: 500,
+                dir,
+                speed,
+                bounce: 2048,
+                sprite: Some(296),
+                size: [200, 200],
+                face: 0xd280_0000,
+                damage,
+                ..Launch::default()
+            };
+            self.launch(&l, sprites);
+        }
+    }
+
     /// A feather off the goose (0x800509d8, five a hit): kind 5, flags
     /// 0x1030505 (ends on the floor), sprite 276 (TEXPOS + 3312), half-size
     /// 50 x 200, radius 50, speed rand % 250 up to 100, within 2048 of up,

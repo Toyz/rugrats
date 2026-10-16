@@ -327,7 +327,11 @@ impl Script for AisleSeven {
             } else if LOBSTERS.contains(&id) {
                 n.hurt(amount);
                 if n.health == 0 {
+                    // 0x8007ebd4: sparks with the lobster's +0x6d and
+                    // sound 48 (0x80050fd0), then gone.
                     n.mode = Mode::Idle;
+                    g.flights.sign_sparks(at, BITE as i16, g.sprites.as_ref());
+                    g.play(48);
                     g.hide(id, true);
                 } else {
                     n.mode = Mode::Hit { left: 600, then: Box::new(back) };

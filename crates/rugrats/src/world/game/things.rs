@@ -307,6 +307,19 @@ impl Game {
     /// asks 0x8007013c for the floor's footstep, whose table (0x800c4ec4)
     /// is empty in play (oracle): nothing. Reptar (template 8) at a step
     /// puffs between his feet (0x80050c48: x and z between parts 3 and 7).
+    /// Placement `k`'s object breaks into its pieces (0x8004cdfc), flying
+    /// from its own place at `speed`.
+    pub fn shatter(&mut self, k: usize, speed: i32) {
+        let q = self.set.placements[k];
+        let Some(m) = self.set.templates.get(q.template as usize).and_then(|t| self.set.models.get(t.shape as u32))
+        else {
+            return;
+        };
+        let rot = models::quat_matrix(q.rotation.map(|v| v as i16)).transpose();
+        let pos = Vec3::new(q.pos[0] as f32, q.pos[1] as f32, q.pos[2] as f32);
+        self.flights.shatter(m, rot, pos, q.pos, speed, &mut self.rand, self.sprites.as_ref());
+    }
+
     /// The landing's sounds (state 10's entry, 0x8005b624): 102 when the
     /// object in focus is template 505 (level 11), 43 on template 494
     /// (level 3), 57 on water in level 4.

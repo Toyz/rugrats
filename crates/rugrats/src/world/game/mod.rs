@@ -1431,6 +1431,15 @@ impl Game {
                 models::model_triangles(m, rot, at, &mut moving);
             }
         }
+        // A broken object's pieces: the object's turn, then each piece's
+        // own since it broke.
+        for (shard, angles, at) in self.flights.shards() {
+            let e = self.trig.euler(angles);
+            let e = e.as_flattened();
+            let spin = Mat3::from_cols_array(&std::array::from_fn(|k| e[k] as f32 / 4096.0));
+            let at = Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32);
+            models::model_triangles(&shard.model, shard.base * spin, at, &mut moving);
+        }
         self.flights.draw(self.view, self.sprites.as_ref(), &mut moving);
         let mut overlay = Vec::new();
         if let Some(s) = &self.script {

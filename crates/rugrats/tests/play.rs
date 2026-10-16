@@ -233,7 +233,8 @@ fn level_18_egg_hunt_is_won() {
 }
 
 /// Level 15: Triangle beside each ? box starts its colour, and its
-/// balloons taken fill it; the sixth colour wins (cine 72).
+/// balloons taken fill it; the sixth colour wins (cine 72). Each box
+/// breaks into pieces (0x8004cdfc: ten slots at most).
 #[test]
 fn level_15_mirrorland_is_won() {
     let Some(disc) = disc() else { return };
@@ -249,8 +250,12 @@ fn level_15_mirrorland_is_won() {
             .find(|&p| g.room_of(p) == room)
             .unwrap_or(b);
         put(&mut g, at, 0);
-        run(&mut g, &[(&[], 4), (&[input::TRIANGLE], 1), (&[], 2)], |_, _| {});
+        let mut pieces = 0;
+        run(&mut g, &[(&[], 4), (&[input::TRIANGLE], 1), (&[], 2)], |g, _| {
+            pieces = pieces.max(g.flights.shards().count())
+        });
         assert!(g.is_hidden(id), "box {id} did not open");
+        assert!((1..=10).contains(&pieces), "box {id} broke into {pieces}");
         won = collect(&mut g, |b| (6..=11).contains(&b.kind));
     }
     assert_eq!(won, Some(72));

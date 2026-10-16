@@ -204,9 +204,13 @@ impl Script for ToyPalace {
             if let Some(i) = under {
                 let k = self.breakables.remove(i);
                 g.hide_placement(k, true);
-                // At the player (0x8005a068: 0x8006f644(173, player)).
-                let me = g.player.pos;
-                g.play_at(173, me);
+                // 0x8005ac98: sound 173 at the toy, its pieces (100 from
+                // its own place, 0x8004cdfc), its bits (0x80054ae0).
+                let q = g.set.placements[k];
+                g.play_at(173, q.pos);
+                let damage = g.set.templates.get(q.template as usize).map_or(0, |t| t.raw[0x32] as i16);
+                g.shatter(k, 100);
+                g.flights.toy_bits(q.pos, damage, g.sprites.as_ref());
                 let h = g.player.heading;
                 g.player.launch(h, -2000, 0, &g.trig);
                 g.player.hurt(5);

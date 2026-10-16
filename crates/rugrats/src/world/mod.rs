@@ -5,3 +5,4 @@ pub mod collide;
 pub mod flights;
 pub mod fx;
 pub mod game;
+pub mod shards;

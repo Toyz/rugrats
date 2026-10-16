@@ -13,12 +13,15 @@
 
 use rrt::glam::{Mat3, Vec3};
 use rugrats_data::col::Col;
+use rugrats_data::model::Model;
 use rugrats_render::Vtx;
 
 use crate::disc::GameDisc;
 use crate::gte::Trig;
+use crate::rand::Rand;
 use crate::ui::hud::{self, Sequences, Sprites};
 use crate::world::collide::{self, Segment};
+use crate::world::shards::{self, Shard};
 
 /// The flight pool (0x80085d1c: 64 records, 0x800c4d00), shared in the
 /// original with thrown objects.
@@ -119,6 +122,8 @@ pub enum Skin {
     Sequence(usize),
     /// A model (kind 2): its shape number.
     Model(u32),
+    /// A broken object's piece (kind 0, 0x8004cdfc): its slot.
+    Shard(usize),
 }
 
 /// A flight record (0x8008864c).
@@ -273,17 +278,19 @@ pub struct Seeds {
     pub direction: u32,
     pub debris: u32,
     pub pie: u32,
-    /// The break burst's speeds (0x800c41d0), the splash's (0x800c4188)
-    /// and the feathers' (0x800c418c).
+    /// The break burst's speeds (0x800c41d0), the splash's (0x800c4188),
+    /// the feathers' (0x800c418c) and the toy bits' (0x800c41d4).
     pub burst: u32,
     pub splash: u32,
     pub feathers: u32,
+    pub toy: u32,
 }
 
 /// 0x800c41d0, 0x800c4188 and 0x800c418c as the executable has them.
 const BURST_SEED: u32 = 48732;
 const SPLASH_SEED: u32 = 48732;
 const FEATHER_SEED: u32 = 48732;
+const TOY_SEED: u32 = 48732;
 
 impl Default for Seeds {
     fn default() -> Seeds {
@@ -294,6 +301,7 @@ impl Default for Seeds {
             burst: BURST_SEED,
             splash: SPLASH_SEED,
             feathers: FEATHER_SEED,
+            toy: TOY_SEED,
         }
     }
 }
@@ -306,6 +314,8 @@ pub struct Flights {
     flying: Vec<Flight>,
     waiting: Vec<Flight>,
     pub sequences: Sequences,
+    /// The broken pieces' slots (0x800e2788).
+    shards: Vec<Option<Shard>>,
     pub seeds: Seeds,
     pub angles: Angles,
     trig: Trig,
@@ -344,6 +354,7 @@ impl Flights {
         Ok(Flights {
             flying: Vec::new(),
             waiting: Vec::new(),
+            shards: vec![None; shards::SLOTS],
             sequences: Sequences::load(disc)?,
             seeds: Seeds::default(),
             angles: Angles::load(disc)?,
@@ -370,6 +381,70 @@ impl Flights {
             Skin::Model(m) => Some((m, [f.turn[0] as i16, f.turn[1] as i16, f.roll as i16], f.pos)),
             _ => None,
         })
+    }
+
+    /// The broken pieces in flight: the piece, the object's turn, the
+    /// piece's own angles since, and where.
+    pub fn shards(&self) -> impl Iterator<Item = (&Shard, [i16; 3], [i32; 3])> + '_ {
+        self.iter().filter_map(|f| match f.skin {
+            Skin::Shard(slot) => {
+                self.shards[slot].as_ref().map(|s| (s, [f.turn[0] as i16, f.turn[1] as i16, f.roll as i16], f.pos))
+            }
+            _ => None,
+        })
+    }
+
+    /// `model` at `pos`, turned by `rot`, breaks (0x8004cdfc): its pieces
+    /// fly from `struck` at `speed` (flags 0xc010700: gravity 0x700, the
+    /// world, a random spin axis; 1000 ms; bounce 768 + rand & 255; spin
+    /// 3072 + rand & 255). Each piece draws on the game's rand five times
+    /// and once more before it is launched (0x8004b580).
+    #[allow(clippy::too_many_arguments)]
+    pub fn shatter(
+        &mut self,
+        model: &Model,
+        rot: Mat3,
+        pos: Vec3,
+        struck: [i32; 3],
+        speed: i32,
+        rand: &mut Rand,
+        sprites: Option<&Sprites>,
+    ) {
+        let free: Vec<usize> = (0..shards::SLOTS).filter(|&k| self.shards[k].is_none()).collect();
+        let pieces = shards::pieces(model, model.radius as f32, free.len());
+        for ((centre, piece), slot) in pieces.into_iter().zip(free) {
+            let at = rot * centre + pos;
+            let at = [at.x as i32, at.y as i32, at.z as i32];
+            let away = [0, 1, 2].map(|i| (at[i] - struck[i]) as f32);
+            let len = away.iter().map(|v| v * v).sum::<f32>().sqrt();
+            let dir = if len > 0.0 { away.map(|v| (v / len * 4096.0) as i32) } else { [0, -4096, 0] };
+            let bounce = 768 + (rand.next() & 255) as i16;
+            let axis = [0; 3].map(|_| (rand.next() & 255) as f32);
+            let n = axis.iter().map(|v| v * v).sum::<f32>().sqrt().max(1.0);
+            let spin_axis = axis.map(|v| (v / n * 4096.0) as i16);
+            let spin = 3072 + (rand.next() & 255) as i16;
+            rand.next();
+            let l = Launch {
+                flags: 0xc01_0700,
+                at,
+                radius: piece.radius as i32,
+                life: 1000,
+                dir,
+                speed,
+                spin_axis,
+                spin,
+                bounce,
+                ..Launch::default()
+            };
+            self.shards[slot] = Some(Shard { model: piece, base: rot });
+            if self.launch(&l, sprites) {
+                if let Some(f) = self.flying.last_mut() {
+                    f.skin = Skin::Shard(slot);
+                }
+            } else {
+                self.shards[slot] = None;
+            }
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -520,6 +595,9 @@ impl Flights {
             if let Some(slot) = f.sequence {
                 self.sequences.release(slot);
             }
+            if let Skin::Shard(slot) = f.skin {
+                self.shards[slot] = None;
+            }
         }
         self.sequences.step(ms, sprites);
     }
@@ -546,7 +624,7 @@ impl Flights {
             let texture = match f.skin {
                 Skin::Sprite(n) => sprites.and_then(|s| s.entry(n)),
                 Skin::Sequence(slot) => self.sequences.texture(slot),
-                Skin::None | Skin::Model(_) => None,
+                Skin::None | Skin::Model(_) | Skin::Shard(_) => None,
             };
             let Some(t) = texture else { continue };
             let (s, c) = (self.trig.sin(f.roll) as f32 / 4096.0, self.trig.cos(f.roll) as f32 / 4096.0);
@@ -728,6 +806,34 @@ impl Flights {
                 sprite: Some(296),
                 size: [200, 200],
                 face: 0xd280_0000,
+                damage,
+                ..Launch::default()
+            };
+            self.launch(&l, sprites);
+        }
+    }
+
+    /// A broken toy's bits (0x80054ae0, level 6): five kind 5, flags
+    /// 0x10505, sprites 421-425 by rand % 5, half-size and radius 600,
+    /// speed rand % 400 (both from 0x800c41d4), within 1024 of up, 1000
+    /// ms, bounce 2048, spin 3391, face 0xc0800000, the toy's damage.
+    pub fn toy_bits(&mut self, at: [i32; 3], damage: i16, sprites: Option<&Sprites>) {
+        for _ in 0..5 {
+            let sprite = 421 + (((lcg(&mut self.seeds.toy) >> 16) & 0x7fff) % 5);
+            let speed = (((lcg(&mut self.seeds.toy) >> 16) & 0x7fff) % 400) as i32;
+            let dir = self.cone([0, -4096, 0], &IDENTITY, 0, 1024);
+            let l = Launch {
+                flags: 0x10505,
+                at,
+                radius: 600,
+                life: 1000,
+                dir,
+                speed,
+                spin: 3391,
+                bounce: 2048,
+                sprite: Some(sprite),
+                size: [600, 600],
+                face: 0xc080_0000,
                 damage,
                 ..Launch::default()
             };

@@ -125,10 +125,15 @@ impl Mirrorland {
     fn open(&mut self, g: &mut Game, id: u16, room: usize) {
         let Some((group, slot)) = colour_of(room) else { return };
         // The break's sound at the object (0x8004d434: 114).
-        let at = g.set.placements.iter().find(|p| p.id == id).map(|p| p.pos);
+        let place = g.set.placements.iter().position(|p| p.id == id);
+        let at = place.map(|k| g.set.placements[k].pos);
         g.hide(id, true);
         match at {
             Some(at) => {
+                // Its pieces from its own place (0x8004cdfc, 100).
+                if let Some(k) = place {
+                    g.shatter(k, 100);
+                }
                 g.play_at(114, at);
                 // Its burst of five (0x80054894), the sprite by its room.
                 let room = g.room_of(at).unwrap_or(room);

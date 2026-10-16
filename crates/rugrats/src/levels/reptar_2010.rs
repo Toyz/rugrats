@@ -175,6 +175,8 @@ impl Script for Reptar2010 {
             if dx * dx + dz * dz < TAKE_REACH * TAKE_REACH {
                 self.taken.push(k);
                 g.hide_placement(k, true);
+                // Its pieces, 200 from its own place (0x8005ac54).
+                g.shatter(k, 200);
                 if q.template == EXPLODES {
                     g.flights.explosion(q.pos, g.sprites.as_ref());
                 }

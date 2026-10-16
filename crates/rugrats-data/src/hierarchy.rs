@@ -33,7 +33,9 @@ pub struct Hierarchy {
 }
 
 fn u32_at(b: &[u8], at: usize) -> Result<u32, Error> {
-    b.get(at..at + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap())).ok_or_else(|| Error(format!("HIE: short at {at:#x}")))
+    b.get(at..at + 4)
+        .map(|s| u32::from_le_bytes(s.try_into().unwrap()))
+        .ok_or_else(|| Error(format!("HIE: short at {at:#x}")))
 }
 
 impl Hierarchy {

@@ -206,8 +206,17 @@ fn ac(bits: &mut Bits) -> Result<Option<(u16, i32)>, BsError> {
 }
 
 /// MPEG-1's DC size codes (tables B.12 luma, B.13 chroma): (code, length).
-const DC_LUMA: [(u16, u8); 9] =
-    [(0b100, 3), (0b00, 2), (0b01, 2), (0b101, 3), (0b110, 3), (0b1110, 4), (0b11110, 5), (0b111110, 6), (0b1111110, 7)];
+const DC_LUMA: [(u16, u8); 9] = [
+    (0b100, 3),
+    (0b00, 2),
+    (0b01, 2),
+    (0b101, 3),
+    (0b110, 3),
+    (0b1110, 4),
+    (0b11110, 5),
+    (0b111110, 6),
+    (0b1111110, 7),
+];
 const DC_CHROMA: [(u16, u8); 9] = [
     (0b00, 2),
     (0b01, 2),
@@ -352,4 +361,3 @@ mod tests {
         assert_eq!(first, None, "first difference at halfword {first:?}");
     }
 }
-

@@ -225,4 +225,93 @@ mod tests {
             _ => panic!("hole two did not start with its cine and the banner"),
         }
     }
+
+    /// Screens, cinematics and cards run through as a player would: the
+    /// board's pieces placed (all twelve: Reptar 2010, 0x80092c68), every
+    /// card and page passed; stops at a level in play or anything else.
+    fn settle(app: &mut Rugrats, mut boot: Boot) -> Boot {
+        for _ in 0..50 {
+            boot = match boot {
+                Boot::Screen { then, .. } => {
+                    let (earned, _) = app.progress.piece_bits();
+                    app.progress.set_placed_bits(earned);
+                    let all = earned.count_ones() == 12 && app.progress.flags() & 512 == 0;
+                    app.after(if all { Then::Enter(Level::REPTAR_2010) } else { then }, 0, 0)
+                }
+                Boot::Scene { n, then, .. } | Boot::Card { n, then, .. } => app.after(then, n, 0),
+                b => return b,
+            };
+        }
+        panic!("the screens did not end")
+    }
+
+    /// The ending cinematic each level's win plays (0x8001532c).
+    fn ending(level: Level) -> usize {
+        match level.0 {
+            2 => 5,
+            3 => 14,
+            4 => 48,
+            5 => 40,
+            6 => 47,
+            9 => 19,
+            10 => 78,
+            11 => 62,
+            12 => 68,
+            13 => 21,
+            15 => 72,
+            17 => 26,
+            18 => 24,
+            20 => 64,
+            21 => 50,
+            l if Level(l) == LEVELS[8] => 35,
+            l => panic!("no ending for level {l}"),
+        }
+    }
+
+    /// The whole game from a new one: Reptar Puzzle's first piece, every
+    /// main level won through its door and its ending cinematic (golf
+    /// hole by hole), the bonus levels as the count opens them, the board
+    /// filled, Reptar 2010, and Reptar Dance's ending into the credits.
+    #[test]
+    fn the_whole_game_from_new_to_the_credits() {
+        let Some(mut app) = app() else { return };
+        let mut doors = vec![2, 3, 4, 5, 6, 25, 9, 10, 11, 12].into_iter().map(Level);
+        let mut seen = Vec::new();
+        let first = app.enter(Level::HUB, 0);
+        let mut boot = settle(&mut app, first);
+        for _ in 0..80 {
+            let Boot::Game { mut game } = boot else { panic!("not in a level") };
+            let level = game.level;
+            seen.push(level.0);
+            let exit = if level == Level::HUB {
+                // Through the next door (0x8004f78c).
+                let Some(next) = doors.next() else { panic!("doors ran out before Reptar 2010: {seen:?}") };
+                Exit::to(next)
+            } else if level == Level::REPTAR_2010 {
+                // Reptar Dance (cine 85) ends the game.
+                game.cine_finished(85);
+                assert!(game.ending);
+                assert_eq!(app.progress.pieces(), 12);
+                assert!(matches!(app.credits(0), Boot::Credits { .. }));
+                assert!([2, 3, 4, 5, 6, 9, 10, 11, 12, 15, 17, 20, 21].iter().all(|l| seen.contains(l)), "{seen:?}");
+                return;
+            } else if level.is_hole() && level != LEVELS[8] {
+                // At par: the next hole (golf.rs).
+                let k = LEVELS.iter().position(|&l| l == level).unwrap();
+                Exit::to(LEVELS[k + 1])
+            } else {
+                // The ninth hole records the course (golf.rs).
+                if level.is_hole() {
+                    game.record = Level::GOLF;
+                }
+                game.cine_finished(ending(level));
+                assert_eq!(game.won, Some(true), "level {level}");
+                game.exit.unwrap()
+            };
+            game.exit = Some(exit);
+            let next = app.exit(game, exit, 0);
+            boot = settle(&mut app, next);
+        }
+        panic!("no end after 80 levels: {seen:?}");
+    }
 }

@@ -101,6 +101,11 @@ impl Vab {
                 Program { tones: r[0], volume: r[1], priority: r[2], mode: r[3], pan: r[4], attr: u16_at(r, 6) },
             ));
         }
+        // Only the first `programs_used` have tone blocks: some banks
+        // (CIRCUS, LIGHT, RACE, MIRRLAND, GLDRUSH, EASTER, TCHDOWN,
+        // COOKIES, ACTEGG) list programs up to 14 with one tone each past
+        // the count, and nothing behind them.
+        programs.truncate(programs_used);
         let mut tones = Vec::new();
         for (slot, (_, prog)) in programs.iter().enumerate() {
             for t in 0..prog.tones as usize {
@@ -221,5 +226,21 @@ mod tests {
         assert_eq!(&s[..2], &[1, 7]);
         block[0] = 0;
         assert_eq!(decode_adpcm(&block)[0], 4096);
+    }
+
+    /// Every bank on the disc parses, with as many tones as its header
+    /// says (skipped without work/fs).
+    #[test]
+    fn every_bank_parses() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/fs/DATA/SOUND/VAB");
+        let Ok(entries) = std::fs::read_dir(&dir) else { return };
+        let mut n = 0;
+        for e in entries.flatten().filter(|e| e.path().extension().is_some_and(|x| x == "VH")) {
+            let vh = std::fs::read(e.path()).unwrap();
+            let v = Vab::parse(&vh).unwrap_or_else(|err| panic!("{:?}: {err}", e.path()));
+            assert_eq!(v.tones.len(), u16_at(&vh, 20) as usize, "{:?}", e.path());
+            n += 1;
+        }
+        assert!(n > 10, "only {n} banks");
     }
 }

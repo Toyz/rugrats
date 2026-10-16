@@ -115,6 +115,10 @@ impl Template {
 
 pub fn parse_templates(b: &[u8]) -> Vec<Template> {
     b.chunks_exact(56)
-        .map(|e| Template { flags: u32::from_le_bytes(e[..4].try_into().unwrap()), shape: u16::from_le_bytes([e[0x10], e[0x11]]), raw: e.try_into().unwrap() })
+        .map(|e| Template {
+            flags: u32::from_le_bytes(e[..4].try_into().unwrap()),
+            shape: u16::from_le_bytes([e[0x10], e[0x11]]),
+            raw: e.try_into().unwrap(),
+        })
         .collect()
 }

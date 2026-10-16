@@ -64,7 +64,9 @@ fn u16_at(b: &[u8], at: usize) -> Result<u16, Error> {
 }
 
 fn u32_at(b: &[u8], at: usize) -> Result<u32, Error> {
-    b.get(at..at + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap())).ok_or_else(|| Error(format!("model: short at {at:#x}")))
+    b.get(at..at + 4)
+        .map(|s| u32::from_le_bytes(s.try_into().unwrap()))
+        .ok_or_else(|| Error(format!("model: short at {at:#x}")))
 }
 
 impl Model {
@@ -76,7 +78,12 @@ impl Model {
         let vertices = (0..nv)
             .map(|k| {
                 let at = va + 8 * k;
-                Ok([u16_at(b, at)? as i16, u16_at(b, at + 2)? as i16, u16_at(b, at + 4)? as i16, u16_at(b, at + 6)? as i16])
+                Ok([
+                    u16_at(b, at)? as i16,
+                    u16_at(b, at + 2)? as i16,
+                    u16_at(b, at + 4)? as i16,
+                    u16_at(b, at + 6)? as i16,
+                ])
             })
             .collect::<Result<Vec<_>, Error>>()?;
         let palette = (0..nc)
@@ -112,7 +119,9 @@ impl Model {
                 let colour = |i: u8| palette.get(i as usize).copied().unwrap_or([128, 128, 128]);
                 let rgb = match shading {
                     Shading::Flat => [[r[8], r[9], r[10]]; 4],
-                    Shading::Gouraud => [colour(r[8]), colour(r[9]), colour(r[10]), colour(if quad { r[11] } else { r[10] })],
+                    Shading::Gouraud => {
+                        [colour(r[8]), colour(r[9]), colour(r[10]), colour(if quad { r[11] } else { r[10] })]
+                    }
                 };
                 let texture = textured.then(|| {
                     (
@@ -121,7 +130,14 @@ impl Model {
                         u16::from_le_bytes([r[18], r[19]]),
                     )
                 });
-                faces.push(Face { v, quad, shading, rgb, texture, flags: u32::from_le_bytes(r[..4].try_into().unwrap()) });
+                faces.push(Face {
+                    v,
+                    quad,
+                    shading,
+                    rgb,
+                    texture,
+                    flags: u32::from_le_bytes(r[..4].try_into().unwrap()),
+                });
                 p += size;
             }
         }
@@ -159,7 +175,8 @@ impl Models {
         let mut by_offset = std::collections::BTreeMap::new();
         for &at in table.iter().take(n).filter(|&&at| at != u32::MAX) {
             let off = at & 0x1f_ffff;
-            let body = b.get(base + off as usize..).ok_or_else(|| Error(format!("MOD: model {} past the end", at >> 21)))?;
+            let body =
+                b.get(base + off as usize..).ok_or_else(|| Error(format!("MOD: model {} past the end", at >> 21)))?;
             let m = Model::parse(body).map_err(|e| Error(format!("MOD model {}: {}", at >> 21, e.0)))?;
             by_offset.insert(off, m);
         }

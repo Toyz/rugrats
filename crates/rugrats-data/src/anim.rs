@@ -67,7 +67,12 @@ impl Anims {
             .collect::<Vec<_>>();
         let keys = rot.chunks_exact(8).map(|k| Key::parse(w(k, 0), w(k, 4))).collect::<Vec<_>>();
         if let Some(f) = frames.iter().find(|f| f.first_key as usize + f.keys as usize > keys.len()) {
-            return Err(Error(format!("FRM: a frame's keys {}..+{} run past ROT's {}", f.first_key, f.keys, keys.len())));
+            return Err(Error(format!(
+                "FRM: a frame's keys {}..+{} run past ROT's {}",
+                f.first_key,
+                f.keys,
+                keys.len()
+            )));
         }
         Ok(Anims { index, frames, keys })
     }

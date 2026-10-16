@@ -73,7 +73,10 @@ impl Room {
 
     /// The room's bounds in the world (+0x10, +0x20).
     pub fn bounds(&self) -> ([i32; 3], [i32; 3]) {
-        ([self.i32_at(0x10), self.i32_at(0x14), self.i32_at(0x18)], [self.i32_at(0x20), self.i32_at(0x24), self.i32_at(0x28)])
+        (
+            [self.i32_at(0x10), self.i32_at(0x14), self.i32_at(0x18)],
+            [self.i32_at(0x20), self.i32_at(0x24), self.i32_at(0x28)],
+        )
     }
 
     /// How many of the file's quads are this room's (+0x30).
@@ -105,7 +108,10 @@ struct Cursor<'a> {
 
 impl<'a> Cursor<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], LevelError> {
-        let s = self.b.get(self.at..self.at + n).ok_or_else(|| LevelError(format!("ends at {:#x} wanting {n}", self.at)))?;
+        let s = self
+            .b
+            .get(self.at..self.at + n)
+            .ok_or_else(|| LevelError(format!("ends at {:#x} wanting {n}", self.at)))?;
         self.at += n;
         Ok(s)
     }
@@ -131,7 +137,12 @@ pub fn parse(bytes: &[u8]) -> Result<Level, LevelError> {
         .into_iter()
         .map(|r| {
             let h = |k: usize| u16::from_le_bytes([r[2 * k], r[2 * k + 1]]);
-            let corner = |i: usize| Corner { x: h(4 * i) as i16, y: h(4 * i + 1) as i16, z: h(4 * i + 2) as i16, flags: h(4 * i + 3) };
+            let corner = |i: usize| Corner {
+                x: h(4 * i) as i16,
+                y: h(4 * i + 1) as i16,
+                z: h(4 * i + 2) as i16,
+                flags: h(4 * i + 3),
+            };
             Quad { corners: [corner(0), corner(1), corner(2), corner(3)], tail: r[32..48].try_into().unwrap() }
         })
         .collect();
@@ -228,7 +239,9 @@ impl Mesh {
     pub fn parse(b: &[u8]) -> Result<Mesh, LevelError> {
         let err = |what: &str| LevelError(format!("blob: {what}"));
         let h = |at: usize| b.get(at..at + 2).map(|s| i16::from_le_bytes([s[0], s[1]])).ok_or_else(|| err("short"));
-        let w = |at: usize| b.get(at..at + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap())).ok_or_else(|| err("short"));
+        let w = |at: usize| {
+            b.get(at..at + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap())).ok_or_else(|| err("short"))
+        };
         let min = [h(4)?, h(6)?, h(8)?];
         let max = [h(0xc)?, h(0xe)?, h(0x10)?];
         let count = w(0x14)? as usize;

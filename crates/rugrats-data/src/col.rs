@@ -46,14 +46,19 @@ const DATA: usize = 0x102c;
 impl Col {
     pub fn parse(b: &[u8]) -> Result<Col, String> {
         let w = |at: usize| -> Result<u32, String> {
-            b.get(at..at + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap())).ok_or_else(|| format!("COL: short at {at:#x}"))
+            b.get(at..at + 4)
+                .map(|s| u32::from_le_bytes(s.try_into().unwrap()))
+                .ok_or_else(|| format!("COL: short at {at:#x}"))
         };
-        let h = |at: usize| -> Result<i16, String> { b.get(at..at + 2).map(|s| i16::from_le_bytes([s[0], s[1]])).ok_or_else(|| format!("COL: short at {at:#x}")) };
+        let h = |at: usize| -> Result<i16, String> {
+            b.get(at..at + 2).map(|s| i16::from_le_bytes([s[0], s[1]])).ok_or_else(|| format!("COL: short at {at:#x}"))
+        };
         let min = [w(0)? as i32, w(4)? as i32, w(8)? as i32];
         let max = [w(0x10)? as i32, w(0x14)? as i32, w(0x18)? as i32];
         let normals = w(0x20)? as usize;
         let at = w(0x28)? as usize;
-        let normal = |k: usize| -> Result<[i16; 3], String> { Ok([h(at + 6 * k)?, h(at + 6 * k + 2)?, h(at + 6 * k + 4)?]) };
+        let normal =
+            |k: usize| -> Result<[i16; 3], String> { Ok([h(at + 6 * k)?, h(at + 6 * k + 2)?, h(at + 6 * k + 4)?]) };
         let floor_normals = (0..normals).map(normal).collect::<Result<Vec<_>, _>>()?;
         // The second array runs to the end of what the tiles can name.
         let ceilings_at = at + 6 * normals;
@@ -70,7 +75,12 @@ impl Col {
             p += 2 * cells + 8 * tiles;
         }
         let ceilings = columns.iter().flat_map(|c| &c.tiles).map(|t| t[3] as usize + 1).max().unwrap_or(0);
-        let ceiling_normals = (0..ceilings).map(|k| -> Result<[i16; 3], String> { Ok([h(ceilings_at + 6 * k)?, h(ceilings_at + 6 * k + 2)?, h(ceilings_at + 6 * k + 4)?]) }).collect::<Result<Vec<_>, _>>().unwrap_or_default();
+        let ceiling_normals = (0..ceilings)
+            .map(|k| -> Result<[i16; 3], String> {
+                Ok([h(ceilings_at + 6 * k)?, h(ceilings_at + 6 * k + 2)?, h(ceilings_at + 6 * k + 4)?])
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap_or_default();
         Ok(Col { min, max, floor_normals, ceiling_normals, columns })
     }
 }

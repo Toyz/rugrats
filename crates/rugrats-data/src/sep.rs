@@ -36,7 +36,8 @@ pub fn parse(b: &[u8]) -> Result<Vec<Song>, String> {
     let mut p = 6;
     while p + 13 <= b.len() {
         let len = be(p + 9, 4)? as usize;
-        let events = b.get(p + 13..p + 13 + len).ok_or_else(|| format!("SEP: song at {p:#x} runs past the file"))?.to_vec();
+        let events =
+            b.get(p + 13..p + 13 + len).ok_or_else(|| format!("SEP: song at {p:#x} runs past the file"))?.to_vec();
         songs.push(Song { id: be(p, 2)? as u16, resolution: be(p + 2, 2)? as u16, tempo: be(p + 4, 3)?, events });
         p += 13 + len;
     }

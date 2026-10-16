@@ -523,6 +523,28 @@ fn the_camera_after_a_cry() {
     assert_eq!(other, Some(false), "elsewhere the follow camera");
 }
 
+/// Golf: a ball rolling near the cup is watched from its room's fixed
+/// camera once the golf camera's delay is out (0x8002953c, 0x800259a0).
+#[test]
+fn golf_watches_the_ball_near_the_cup() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 27);
+    let cup = g.set.placements.iter().find(|p| p.kind == 1 && p.template == 789).map(|p| p.pos).unwrap();
+    let b = ball(&g).unwrap();
+    let a = ((cup[0] - b[0]) as f64).atan2((cup[2] - b[2]) as f64) - 256.0 * std::f64::consts::TAU / 4096.0;
+    let aim = [b[0] + (a.sin() * 4000.0) as i32, b[1], b[2] + (a.cos() * 4000.0) as i32];
+    put(&mut g, [b[0], b[1] - 100, b[2] - 700], 0);
+    run(&mut g, &[(&[], 60)], |_, _| {});
+    face(&mut g, aim);
+    let posts: Vec<[i32; 3]> = g.posts.iter().map(|p| p.pos).collect();
+    let mut watched = false;
+    run(&mut g, &[(&[input::TRIANGLE], 1), (&[], 70), (&[input::TRIANGLE], 1), (&[], 300)], |g, _| {
+        let e = g.view.0;
+        watched |= posts.iter().any(|p| (p[0] as f32 - e.x).abs() < 1.0 && (p[2] as f32 - e.z).abs() < 1.0);
+    });
+    assert!(watched, "no post camera on the way to the cup");
+}
+
 /// Turns the player to face `to` (the stick's turn, done at once).
 fn face(g: &mut Game, to: [i32; 3]) {
     let me = g.player.pos;

@@ -59,6 +59,12 @@ const CLUBS: [(usize, u32, u32); 6] =
 /// Circle's camera heights (0x800c4730), counted 1-3; the fourth press
 /// returns to the base.
 const HEIGHTS: [i32; 4] = [0, -2200, -6000, 1400];
+/// The cup camera: the delay (0x800c4a58 = 4096, less 0x800c3f20 = 136 a
+/// frame) and the squared reach (0x800b6df0[level - 22], 131072000 for
+/// every hole).
+const CUP_DELAY: i32 = 4096;
+const CUP_DELAY_STEP: i32 = 136;
+const CUP_CAMERA2: i64 = 131_072_000;
 /// The hand's slot (hierarchy +0x23).
 const HAND_SLOT: usize = 0x23 - 0x14;
 /// The meter: 1 idle, 4..220, 3 a frame.
@@ -151,6 +157,9 @@ pub struct Golf {
     /// (0x800c46d0 +0x862, +0x864).
     height: i32,
     heights: (u16, i32),
+    /// The golf camera's delay before the cup camera (0x800c4a58: 4096
+    /// from state 13, 136 a frame off it after).
+    cup_delay: i32,
 }
 
 /// Activity play's characters, by face slot (0x800bb4ac).
@@ -250,6 +259,7 @@ impl Golf {
             turn: None,
             height: 0,
             heights: (0, 0),
+            cup_delay: 0,
         };
         golf.settle(g);
         Ok(golf)
@@ -608,9 +618,26 @@ impl Script for Golf {
                     if !self.roll(g) && self.stage == Stage::Free {
                         g.player.frozen = false;
                         g.fixed = None;
-                    } else if let Some((eye, _)) = g.fixed {
+                    } else {
+                        // The cup camera (0x8002953c, mode 12): once the
+                        // delay is out, a rolling ball within 11448 of the
+                        // cup (2D; 0x800b6df0) is watched from its room's
+                        // fixed camera (0x800259a0). Else the golf eye
+                        // follows it.
+                        self.cup_delay -= CUP_DELAY_STEP;
                         let b = Vec3::new(self.ball[0] as f32, self.ball[1] as f32, self.ball[2] as f32);
-                        g.fixed = Some((eye, b));
+                        let (dx, dz) = ((self.cup[0] - self.ball[0]) as i64, (self.cup[2] - self.ball[2]) as i64);
+                        let post = g
+                            .room_of(self.ball)
+                            .map(|k| g.set.room_info[k].camera_post as usize)
+                            .filter(|&p| p != 0)
+                            .and_then(|p| g.posts.get(p - 1))
+                            .map(|p| Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32));
+                        if let Some(eye) = post.filter(|_| self.cup_delay <= 0 && dx * dx + dz * dz < CUP_CAMERA2) {
+                            g.fixed = Some((eye, b));
+                        } else if let Some((eye, _)) = g.fixed {
+                            g.fixed = Some((eye, b));
+                        }
                     }
                 } else {
                     self.walk_up(g);
@@ -618,6 +645,7 @@ impl Script for Golf {
             }
             Stage::WalkIn(n) => {
                 self.camera(g);
+                self.cup_delay = CUP_DELAY;
                 if n + 1 >= WALK_IN_TIME {
                     self.stage = Stage::Aim { power: 1, down: false };
                     g.player.hold = Some(STANCE);

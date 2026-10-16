@@ -357,8 +357,9 @@ impl Player {
         self.heading = (self.heading + d.clamp(-step, step)).rem_euclid(4096);
         let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
         if on_ground {
-            // The ground move along the facing (0x8005caac).
-            if !self.frozen {
+            // The ground move along the facing (0x8005caac); none while
+            // landing.
+            if !self.frozen && self.state != State::Land {
                 self.pos[0] += (s * self.speed * DT) >> 12;
                 self.pos[2] += (c * self.speed * DT) >> 12;
             }
@@ -524,8 +525,10 @@ impl Player {
         }
         if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
             self.state = match self.speed {
-                // The landing (state 10, animation 4) plays out first.
-                0 if self.state == State::Land
+                // The landing (state 10, animation 4) plays out first, the
+                // stick or not: its handler (0x8005cba8) does not move the
+                // body (the oracle: x and z held through state 8).
+                _ if self.state == State::Land
                     && (self.animator.asked() != anim::LAND || self.animator.playing(anim::LAND)) =>
                 {
                     State::Land
@@ -649,23 +652,30 @@ impl Player {
         let (done, total) = self.animator.root_progress(anims).map_or((0, 0), |r| (r.0[1], r.1[1]));
         let was = self.root_seen;
         // An animation that ran to its last frame gives the rest of it.
-        let rest = if was.cur + 1 == was.first + was.count { was.total - was.done } else { 0 };
+        let rest = if was.cur + 1 == was.first + was.count && !was.air { was.total - was.done } else { 0 };
         let dy = match (was.state, was.first) == (state, first) {
             // Round again: the rest of the loop, then this pass's part.
             true if cur < was.cur => rest + done,
             true => done - was.done,
             false => rest + done,
         };
-        self.root_seen = RootSeen { state, first, count, cur, done, total };
+        let air = matches!(self.state, State::Jump | State::Fall) && self.pending_jump.is_none();
+        self.root_seen = RootSeen { air, state, first, count, cur, done, total };
         if self.climb.is_some() {
             return;
         }
         if let Some(v) = self.pending_jump {
-            // The crouch's last part is not had: the body is off as state 6
-            // comes (the oracle: 868, 868, then 814).
-            self.root_y += if state == was.state { dy } else { done };
-            // The crouch is table state 5; any other state is off.
-            if state != 5 {
+            // The crouch is table state 5: off as it ends, its last part not
+            // had (the oracle: 868, 868, then 814). A moving jump's state
+            // (41) is off the frame after it comes, with nothing more of
+            // its keys (the run's 751, then 731 in state 41, then 585).
+            let off = state != 5 && (was.state == 5 || state == was.state);
+            if state != was.state {
+                self.root_y += done;
+            } else if !off {
+                self.root_y += dy;
+            }
+            if off {
                 self.pending_jump = None;
                 self.pos[1] += self.root_y;
                 self.root_y = 0;
@@ -795,6 +805,8 @@ struct Climb {
 /// The base track as `Player::root_step` last saw it.
 #[derive(Clone, Copy, Debug, Default)]
 struct RootSeen {
+    /// Seen in the air: none of it carries on to the ground.
+    air: bool,
     state: i16,
     first: usize,
     count: usize,

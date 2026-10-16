@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use rugrats::actors::player::State;
 use rugrats::disc::GameDisc;
 use rugrats::input::{self, Pads};
 use rugrats::levels::Level;
@@ -1259,4 +1260,25 @@ fn running_bobs_as_the_original() {
     for (k, (&y, &o)) in seen.iter().zip(&oracle).enumerate() {
         assert!((y - o).abs() <= 2, "frame {k}: {y} against {o} ({seen:?})");
     }
+}
+
+/// A running jump (logical 28, table state 41) has no crouch: one frame in
+/// state 41, then off, the same arc as the standing jump's (the oracle's
+/// steps from VSync 2742: -146, -124, -102, -80, -58, -36, -15, +7), and
+/// the landing played out, the stick held, before the run goes on.
+#[test]
+fn a_running_jump_moves_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 1);
+    run(&mut g, &[(&[], 3), (&[input::UP, input::LEFT], 12)], |_, _| {});
+    let mut seen = Vec::new();
+    let mut states = Vec::new();
+    run(&mut g, &[(&[input::UP, input::LEFT, input::CROSS], 1), (&[input::UP, input::LEFT], 20)], |g, _| {
+        seen.push(g.player.parts(&g.anims, &g.trig)[0].1.y as i32);
+        states.push(g.player.state);
+    });
+    let steps: Vec<i32> = seen.windows(2).map(|w| w[1] - w[0]).collect();
+    assert_eq!(&steps[..8], &[-146, -124, -102, -80, -58, -36, -15, 7], "{seen:?}");
+    let landing = states.iter().position(|s| *s == State::Land).expect("a landing");
+    assert!(states[landing..landing + 6].iter().all(|s| *s == State::Land), "{states:?}");
 }

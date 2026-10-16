@@ -290,6 +290,10 @@ and the room object lists (0x80090554, 0x80090340):
 - The first wall hit (+0x2e = 0): reflects when 0x8007666c allows (result
   1025 or more), effects 0x80090acc and 0x80090c0c, sound 70. Later wall
   hits do not reflect.
+  0x8007666c(beam, normal, out): d = n . dir / 4096; when d < 0, out =
+  dir - 2 d n / 4096 (the mirror image), else dir; it returns
+  0x80021500(d) (guess: acos), so a hit head-on enough (1025 or more)
+  reflects.
 - An object with a +0x58 callback: effects, then +0x58(object, hit
   point), unless it is a character (+0x00 bit 0x4000) with health 0 or
   less; the beam is done (+0x00 |= 4).

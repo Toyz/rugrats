@@ -65,6 +65,8 @@ struct Beam {
     dir: [i32; 2],
     life: i32,
     done: bool,
+    /// The first wall hit reflects it (+0x2e); later ones stop it.
+    bounced: bool,
 }
 
 /// A sliding door: its placement, where it stands, whether it is open.
@@ -167,7 +169,7 @@ impl OuterSpace {
         let (s, c) = (g.trig.sin(g.player.heading), g.trig.cos(g.player.heading));
         let p = g.player.pos;
         let at = [p[0], p[1] - 500, p[2]];
-        self.beams.push(Beam { from: at, pos: at, dir: [s, c], life: BEAM_LIFE, done: false });
+        self.beams.push(Beam { from: at, pos: at, dir: [s, c], life: BEAM_LIFE, done: false, bounced: false });
     }
 
     fn beams(&mut self, g: &mut Game) {
@@ -188,8 +190,25 @@ impl OuterSpace {
                 let next = [b.pos[0] + ((b.dir[0] * step) >> 12), b.pos[1], b.pos[2] + ((b.dir[1] * step) >> 12)];
                 let q = collide::query(&g.col, next);
                 if q.kind != 0 {
-                    b.done = true;
-                    break;
+                    if b.bounced {
+                        b.done = true;
+                        break;
+                    }
+                    // The first wall reflects it about the wall's normal
+                    // (0x8007666c, sound 70). Guess: the normal is the axis
+                    // whose step is blocked; the original tests the room's
+                    // polygons (0x80090554).
+                    b.bounced = true;
+                    let open = |p: [i32; 3]| collide::query(&g.col, p).kind == 0;
+                    let along_x = open([next[0], b.pos[1], b.pos[2]]);
+                    let along_z = open([b.pos[0], b.pos[1], next[2]]);
+                    match (along_x, along_z) {
+                        (true, false) => b.dir[1] = -b.dir[1],
+                        (false, true) => b.dir[0] = -b.dir[0],
+                        _ => b.dir = [-b.dir[0], -b.dir[1]],
+                    }
+                    g.play(70);
+                    continue;
                 }
                 b.pos = next;
                 let near = |p: [i32; 3]| {
@@ -318,7 +337,7 @@ impl Script for OuterSpace {
     }
 
     fn describe(&self) -> String {
-        let b: Vec<_> = self.beams.iter().map(|b| (b.from, b.pos, b.done)).collect();
+        let b: Vec<_> = self.beams.iter().map(|b| (b.pos, b.dir, b.bounced, b.done)).collect();
         format!(
             "phase {:?} charge {} beams {:?} doors open {}",
             self.phase,

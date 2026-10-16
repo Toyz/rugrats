@@ -275,7 +275,8 @@ impl Game {
                 self.pending_throw = Some(PendingThrow::Aimed(k));
                 return;
             }
-            if put_down {
+            // Never the pie; only with room for it (0x8005d11c).
+            if put_down && self.things[k].template != PIE && self.room_to_put(k) {
                 self.player.act(PUT_DOWN, &self.anims);
                 self.pending_throw = Some(PendingThrow::Down(k));
             }
@@ -289,6 +290,30 @@ impl Game {
         // event (2048, 0x800601e4).
         self.player.act(PICK_UP, &self.anims);
         self.pending_grab = Some(k);
+    }
+
+    /// Whether carried thing `k` may be put down (0x80063888): the middle
+    /// of its first model box, where it is held, outside every model box
+    /// of the objects about (the nearby list) grown by the larger of its
+    /// box's half-width and half-depth, each in its object's frame; a
+    /// character's body likewise.
+    pub(super) fn room_to_put(&self, k: usize) -> bool {
+        let t = &self.things[k];
+        let Some(&(lo, hi)) = self.set.models.get(t.shape).and_then(|m| m.boxes.first()) else { return true };
+        let mid = Vec3::new((lo[0] + hi[0]) as f32, (lo[1] + hi[1]) as f32, (lo[2] + hi[2]) as f32) / 2.0;
+        let at = t.pos + t.rot * mid;
+        let grow = ((hi[0] - lo[0]) / 2).max((hi[2] - lo[2]) / 2) as f32;
+        !self.bodies.iter().any(|b| {
+            if b.character {
+                (at.x - b.pos.x).abs() <= 200.0 + grow
+                    && (at.z - b.pos.z).abs() <= 200.0 + grow
+                    && at.y >= b.min_y as f32 - grow
+                    && at.y <= b.max_y as f32 + grow
+            } else {
+                let l = b.rot.transpose() * (at - b.pos);
+                (0..3).all(|i| l[i] >= b.lo[i] as f32 - grow && l[i] <= b.hi[i] as f32 + grow)
+            }
+        })
     }
 
     /// The thing GRAB takes (0x800631d8, oracle-checked in level 6): of

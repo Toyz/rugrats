@@ -70,7 +70,8 @@ pub fn table_state(a: i16, climb: i32, current: i16) -> Option<i16> {
 /// What a state does at its last frame (0x800b9c30, by table state; read
 /// by 0x8005562c): 4 turns back (ping-pong), 2 loops, 1 completes into the
 /// next state (0x80056484), else it holds the last frame (8 or nothing).
-/// 32 adds the root's motion (not ported).
+/// 32 adds the root's motion (not ported); 64 takes the tracks over a
+/// state on them (0x80056708).
 const ENDS: [u16; 66] = [
     1, 1, 1, 1, 1, 33, 40, 8, 1, 33, 33, 33, 33, 33, 33, 33, 97, 1, 1, 2, 33, 2, 33, 1, 1, 1, 1, 1, 33, 33, 33, 34, 33,
     4, 1, 1, 1, 33, 33, 33, 2, 40, 33, 2, 1, 1, 8, 2, 1, 1, 1, 1, 33, 1, 33, 1, 2, 1, 1, 1, 8, 1, 1, 1, 1, 0,
@@ -343,6 +344,20 @@ impl Animator {
     /// says (0x8005562c); the others loop. Standing still long enough
     /// fidgets (0x800563bc).
     pub fn step(&mut self, anims: &Anims) {
+        // A base state of flag 64 (the put-down, 16) takes the tracks over
+        // a state on them (0x80056708 -> 0x800561b0): the carry's arms give
+        // way to its own, whose frame 755 lets go (2048).
+        if let Some(u) = self.upper
+            && self.tracks[0].count > 0
+            && ENDS.get(self.tracks[0].anim as usize).is_some_and(|e| e & 64 != 0)
+            && self.tracks[1].anim == u
+        {
+            self.upper = None;
+            let base = self.tracks[0].anim;
+            for k in 1..4 {
+                self.set_track(k, base, anims);
+            }
+        }
         if self.tracks[0].anim == 0 && self.tracks[0].count > 0 {
             self.fidget.1 -= DT;
             if self.fidget.1 <= 0 {

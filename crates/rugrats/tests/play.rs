@@ -3247,32 +3247,34 @@ fn level_5s_elevator_stays_down_while_ridden_as_the_original() {
     assert_eq!(g.player.pos[1], 6739);
 }
 
-/// A box put down beside another comes down on the floor, not on top of
-/// it (the oracle, level 6: box LP 198 moved to (42741, -1280, 14263),
-/// Tommy picks up LP 197 and, 1163 or 863 short of 198, puts it down: it
-/// ends at y -1280 overlapping 198 at z 14219 / 14160).
+/// A box put down comes down in front of the player, on the floor, from
+/// the put-down's hands (event 2048 of frame 755, carried there by the
+/// animation's own arms, 0x80056708): the oracle, level 6, Tommy at
+/// (42741, 12263) facing +z with box LP 197, box LP 198 linked in at z
+/// 13500 (room to put it down, 0x80063888): 197 rests at (42731, -1280,
+/// 12959), short of 198. No stacking: a box held into another is not let
+/// go at all (`a_box_held_into_another_is_not_put_down_as_the_original`).
 #[test]
-fn a_box_put_down_by_another_does_not_stack_as_the_original() {
+fn a_box_put_down_comes_down_in_front_as_the_original() {
     let Some(disc) = disc() else { return };
     let mut g = open(&disc, 6);
     g.played(46);
     let at = |g: &Game, lp: usize| g.things.iter().position(|t| t.placement == lp).expect("the box");
     let (first, second) = (at(&g, 197), at(&g, 198));
-    g.things[second].pos = rrt::glam::Vec3::new(42741.0, -1280.0, 14263.0);
+    g.things[second].pos = rrt::glam::Vec3::new(42741.0, -1280.0, 13500.0);
     run(&mut g, &[(&[], 2)], |_, _| {});
-    for z in [13100, 13400] {
-        put(&mut g, [42741, -1269, 12263], 0);
-        run(&mut g, &[(&[input::CIRCLE], 1), (&[], 50)], |_, _| {});
-        assert_eq!(g.carried(), Some(first), "picked up");
-        g.player.pos = [42741, -1269, z];
-        run(&mut g, &[(&[], 4), (&[input::CIRCLE], 1), (&[], 90)], |_, _| {});
-        assert_eq!(g.carried(), None, "put down");
-        let p = g.things[first].pos;
-        assert_eq!(p.y as i32, -1280, "on the floor from {z}: at {p:?}");
-        // Ahead of him (the oracle's 559 to 819 on).
-        assert!((500..900).contains(&(p.z as i32 - z)), "ahead from {z}: at {p:?}");
-        g.things[first].pos = rrt::glam::Vec3::new(42741.0, -1280.0, 12863.0);
-    }
+    g.player.pos = [42741, -1269, 12263];
+    g.player.heading = 0;
+    g.player.target = 0;
+    run(&mut g, &[(&[], 2), (&[input::CIRCLE], 1), (&[], 60)], |_, _| {});
+    assert_eq!(g.carried(), Some(first), "picked up");
+    run(&mut g, &[(&[input::CIRCLE], 1), (&[], 60)], |_, _| {});
+    assert_eq!(g.carried(), None, "put down");
+    let p = g.things[first].pos;
+    assert_eq!(p.y as i32, -1280, "on the floor: {p:?}");
+    // (The port's comes to rest where it lands, 12912; the oracle's slides
+    // on to 12959.)
+    assert!((42681..42801).contains(&(p.x as i32)) && (12850..13000).contains(&(p.z as i32)), "in front: {p:?}");
 }
 
 /// GRAB takes a box in front of the player up to his cylinder and its
@@ -3317,5 +3319,30 @@ fn tommy_runs_past_level_3s_tipped_toy_as_the_original() {
         let xs: Vec<i32> = seen.iter().map(|p| p[0]).collect();
         assert!(xs.windows(2).all(|w| w[1] - w[0] == 170), "phase {k}: {xs:?}");
         assert!(seen.iter().all(|p| p[1] > 700), "phase {k}: not up on it: {seen:?}");
+    }
+}
+
+/// A box held into another is not put down (0x80063888): the oracle, level
+/// 6, Tommy at (42741, 12263) facing +z holding box LP 197, box LP 198
+/// moved to z 13100 or 13400 (and linked into his room): Circle does
+/// nothing; at 13500 he puts it down (198's half-depth 256 and the held
+/// box's half-width 450 from the held box's middle, z 12744).
+#[test]
+fn a_box_held_into_another_is_not_put_down_as_the_original() {
+    let Some(disc) = disc() else { return };
+    for (z, refused) in [(13100, true), (13400, true), (13500, false)] {
+        let mut g = open(&disc, 6);
+        g.played(46);
+        let at = |g: &Game, lp: usize| g.things.iter().position(|t| t.placement == lp).expect("the box");
+        let (first, second) = (at(&g, 197), at(&g, 198));
+        g.things[second].pos = rrt::glam::Vec3::new(42741.0, -1280.0, z as f32);
+        run(&mut g, &[(&[], 2)], |_, _| {});
+        g.player.pos = [42741, -1269, 12263];
+        g.player.heading = 0;
+        g.player.target = 0;
+        run(&mut g, &[(&[], 2), (&[input::CIRCLE], 1), (&[], 60)], |_, _| {});
+        assert_eq!(g.carried(), Some(first), "picked up");
+        run(&mut g, &[(&[input::CIRCLE], 1), (&[], 60)], |_, _| {});
+        assert_eq!(g.carried().is_some(), refused, "198 at {z}");
     }
 }

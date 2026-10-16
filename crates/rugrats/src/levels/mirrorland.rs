@@ -128,7 +128,12 @@ impl Mirrorland {
         let at = g.set.placements.iter().find(|p| p.id == id).map(|p| p.pos);
         g.hide(id, true);
         match at {
-            Some(at) => g.play_at(114, at),
+            Some(at) => {
+                g.play_at(114, at);
+                // Its burst of five (0x80054894), the sprite by its room.
+                let room = g.room_of(at).unwrap_or(room);
+                g.flights.break_burst(room, at, 0, g.sprites.as_ref());
+            }
             None => g.play(114),
         }
         if self.since.is_empty() {

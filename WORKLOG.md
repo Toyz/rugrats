@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-115 entries: audio 15, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 13, format 9, input 4, play 51, render 17, save 4, test 17, tooling 18, ui 9, video 10.
+116 entries: audio 15, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 13, format 9, input 4, play 51, render 18, save 4, test 17, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -127,3 +127,4 @@ The [reference](docs/README.md) says what is true now.
 | 113 | [Throws let go at their release; animations over the base; speed](worklog/0113-throws-let-go-at-their-release-animations-over-the-base.md) | 2026-10-15 | play |
 | 114 | [Effect flights and animated sprites: flames, explosions, debris, splats](worklog/0114-effect-flights-and-animated-sprites-flames-explosions.md) | 2026-10-15 | render |
 | 115 | [Collectibles sparkle; Reptar's sounds in the world](worklog/0115-collectibles-sparkle-reptar-s-sounds-in-the-world.md) | 2026-10-15 | render |
+| 116 | [The break burst](worklog/0116-the-break-burst.md) | 2026-10-16 | render |

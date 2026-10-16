@@ -263,11 +263,16 @@ pub struct Seeds {
     pub direction: u32,
     pub debris: u32,
     pub pie: u32,
+    /// The break burst's speeds (0x800c41d0).
+    pub burst: u32,
 }
+
+/// 0x800c41d0 as the executable has it.
+const BURST_SEED: u32 = 48732;
 
 impl Default for Seeds {
     fn default() -> Seeds {
-        Seeds { direction: 1_092_843, debris: 48732, pie: 48732 }
+        Seeds { direction: 1_092_843, debris: 48732, pie: 48732, burst: BURST_SEED }
     }
 }
 
@@ -599,6 +604,44 @@ impl Flights {
                 sprite: Some(sprite),
                 size: [200, 200],
                 face: 0xd280_0000,
+                damage,
+                ..Launch::default()
+            };
+            self.launch(&l, sprites);
+        }
+    }
+
+    /// A broken object's burst (0x80054894, use callback 2): five kind-5
+    /// bits (flags 0x10505: gravity, the world collides), radius 300,
+    /// half-size 240 x 300, 1000 ms, spin 3391, bounce 2048, face
+    /// 0xc0800000, speed rand mod 400 (0x800c41d0), within 1024 of up.
+    /// The sprite by the object's room (+0x3b): 2 303, 5 300, 19 304, 21
+    /// 299, 25 301, 45 302, else entry 0.
+    pub fn break_burst(&mut self, room: usize, at: [i32; 3], damage: i16, sprites: Option<&Sprites>) {
+        let sprite = match room {
+            2 => 303,
+            5 => 300,
+            19 => 304,
+            21 => 299,
+            25 => 301,
+            45 => 302,
+            _ => 0,
+        };
+        for _ in 0..5 {
+            let speed = (((lcg(&mut self.seeds.burst) >> 16) & 0x7fff) % 400) as i32;
+            let dir = self.cone([0, -4096, 0], &IDENTITY, 0, 1024);
+            let l = Launch {
+                flags: 0x10505,
+                at,
+                radius: 300,
+                life: 1000,
+                dir,
+                speed,
+                spin: 3391,
+                bounce: 2048,
+                sprite: Some(sprite),
+                size: [240, 300],
+                face: 0xc080_0000,
                 damage,
                 ..Launch::default()
             };

@@ -169,8 +169,9 @@ pub struct Player {
     /// it below the floor (the oracle: 868, 845, 822, 799, 779 after a
     /// landing).
     root_y: i32,
-    /// The base track's root y so far, and which animation it was of.
-    root_seen: (i16, usize, i32),
+    /// The base track's root y so far, which animation it was of, and the
+    /// frame it was at (a loop starts again under it).
+    root_seen: RootSeen,
 }
 
 impl Player {
@@ -237,7 +238,7 @@ impl Player {
             climb: None,
             pending_jump: None,
             root_y: 0,
-            root_seen: (-1, 0, 0),
+            root_seen: RootSeen::default(),
         };
         let q = collide::query(col, start);
         if q.tile.is_some() {
@@ -644,15 +645,25 @@ impl Player {
     /// The base track's root y this step (0x80055904 into +0xda), and the
     /// jump's take-off when its airborne state comes.
     fn root_step(&mut self, anims: &Anims) {
-        let (state, first, ..) = self.animator.track();
-        let done = self.animator.root_progress(anims).map_or(0, |r| r.0[1]);
-        let dy = if (self.root_seen.0, self.root_seen.1) == (state, first) { done - self.root_seen.2 } else { done };
-        self.root_seen = (state, first, done);
+        let (state, first, count, cur, _) = self.animator.track();
+        let (done, total) = self.animator.root_progress(anims).map_or((0, 0), |r| (r.0[1], r.1[1]));
+        let was = self.root_seen;
+        // An animation that ran to its last frame gives the rest of it.
+        let rest = if was.cur + 1 == was.first + was.count { was.total - was.done } else { 0 };
+        let dy = match (was.state, was.first) == (state, first) {
+            // Round again: the rest of the loop, then this pass's part.
+            true if cur < was.cur => rest + done,
+            true => done - was.done,
+            false => rest + done,
+        };
+        self.root_seen = RootSeen { state, first, count, cur, done, total };
         if self.climb.is_some() {
             return;
         }
         if let Some(v) = self.pending_jump {
-            self.root_y += dy;
+            // The crouch's last part is not had: the body is off as state 6
+            // comes (the oracle: 868, 868, then 814).
+            self.root_y += if state == was.state { dy } else { done };
             // The crouch is table state 5; any other state is off.
             if state != 5 {
                 self.pending_jump = None;
@@ -779,6 +790,17 @@ pub const HEIGHT: i32 = 600;
 struct Climb {
     from: [i32; 3],
     moved: [i32; 3],
+}
+
+/// The base track as `Player::root_step` last saw it.
+#[derive(Clone, Copy, Debug, Default)]
+struct RootSeen {
+    state: i16,
+    first: usize,
+    count: usize,
+    cur: usize,
+    done: i32,
+    total: i32,
 }
 
 /// What the floor takes back a frame of a body sunk under it by its

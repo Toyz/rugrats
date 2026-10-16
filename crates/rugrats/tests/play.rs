@@ -1245,3 +1245,18 @@ fn a_jump_moves_as_the_original() {
         assert!((y - o).abs() <= 2, "frame {k}: {y} against {o} ({seen:?})");
     }
 }
+
+/// Running bobs by the run's root keys, table states 3 and 4 in turn (the
+/// oracle's body from the hub's start, the stick held: VSyncs 2716-2750).
+#[test]
+fn running_bobs_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 1);
+    run(&mut g, &[(&[], 3)], |_, _| {});
+    let oracle = [746, 739, 756, 761, 769, 780, 751, 731, 720, 753, 773, 778, 747, 739, 756, 761, 769, 780];
+    let mut seen = Vec::new();
+    run(&mut g, &[(&[input::UP, input::LEFT], 18)], |g, _| seen.push(g.player.parts(&g.anims, &g.trig)[0].1.y as i32));
+    for (k, (&y, &o)) in seen.iter().zip(&oracle).enumerate() {
+        assert!((y - o).abs() <= 2, "frame {k}: {y} against {o} ({seen:?})");
+    }
+}

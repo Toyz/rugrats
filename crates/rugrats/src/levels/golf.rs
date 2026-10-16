@@ -46,13 +46,11 @@ const OTHERS: [u16; 5] = [15, 600, 608, 609, 1776];
 /// Templates: the ball and the cup (0x800494d8).
 const BALL: u16 = 724;
 const CUP: u16 = 789;
-/// Animations: walk-in, the stance, the stroke. States 13-15 ask for 29,
-/// 30 and 31 (0x800572a8), which 0x80056fe4 turns into the table's states
-/// 42, 43 and 44; 29-31 themselves are other animations, missing from the
-/// golf databases for most babies (the T-pose).
-const WALK_IN: i16 = 42;
-const STANCE: i16 = 43;
-const STROKE: i16 = 44;
+/// Animations: walk-in (29), the stance (30), the stroke (31); the table's
+/// states 42, 43 and 44 (0x80056fe4).
+const WALK_IN: i16 = 29;
+const STANCE: i16 = 30;
+const STROKE: i16 = 31;
 /// The walk-up reach (0x80058538: d^2 <= 0xfffff).
 const REACH2: i64 = 0xfffff;
 /// The clubs (0x80057404) and bare hands (0x80057468) by character.

@@ -122,7 +122,9 @@ fn level_6_box_stack_reaches_the_platform() {
         g.things[k].pos = rrt::glam::Vec3::new(44500.0, -2304.0 - 506.0 * i as f32, 13900.0);
     }
     put(&mut g, [44500, -2293, 12900], 0);
-    run(&mut g, &[(&[], 3), (&[input::UP], 60)], |_, _| {});
+    // Each climb plays its height's animation (0x80056e44), about a
+    // second for two boxes.
+    run(&mut g, &[(&[], 3), (&[input::UP], 120)], |_, _| {});
     assert!(g.player.pos[2] > 14336 && g.player.pos[1] < -4800, "on the platform: {:?}", g.player.pos);
 }
 
@@ -160,6 +162,21 @@ fn every_level_runs() {
     for level in [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 15, 16, 17, 18, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31] {
         let mut g = open(&disc, level);
         run(&mut g, &[(&[], 5), (&[input::UP], 60), (&[input::CROSS], 1), (&[input::LEFT], 40), (&[], 100)], |_, _| {});
+    }
+}
+
+/// Every level's body has frames for standing, walking, running and
+/// jumping once the logical animations are the table's states.
+#[test]
+fn every_body_has_its_moves() {
+    use rugrats::actors::player::anim;
+    let Some(disc) = disc() else { return };
+    for level in [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 15, 16, 17, 18, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 31] {
+        let g = open(&disc, level);
+        for a in [anim::IDLE, anim::STAND, anim::RUN, anim::JUMP] {
+            let frames = g.player.anm(a).map_or(0, |id| g.anims.frames_of(id).len());
+            assert!(frames > 0, "level {level}: animation {a} has no frames");
+        }
     }
 }
 
@@ -299,7 +316,7 @@ fn level_6_toy_palace_is_won() {
         g.things[k].pos = rrt::glam::Vec3::new(44500.0, -2304.0 - 506.0 * i as f32, 13900.0);
     }
     put(&mut g, [44500, -2293, 12900], 0);
-    run(&mut g, &[(&[], 3), (&[input::UP], 60)], |_, _| {});
+    run(&mut g, &[(&[], 3), (&[input::UP], 120)], |_, _| {});
     assert!(g.player.pos[1] < -4800, "on the platform: {:?}", g.player.pos);
     let switch = g.set.placements.iter().find(|p| p.kind == 1 && p.cine == 47).expect("the switch").pos;
     let me = g.player.pos;
@@ -389,6 +406,34 @@ fn the_lob_reaches_the_baby() {
         play(&mut g, 200, |_, f| if f == 1 { vec![input::TRIANGLE] } else { vec![] });
         assert_ne!(g.character, before, "{d} away: {}", g.script.as_ref().map_or(String::new(), |s| s.describe()));
     }
+}
+
+/// The player's table states as the oracle shows them on level 3
+/// (0x800e2b48 +0xa8): running alternates 3 and 4, walking 1 and 2, a
+/// jump rises in 5 and comes down in 6, stopped is 0.
+#[test]
+fn the_animations_follow_the_original_states() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 3);
+    let seen = |g: &mut Game, steps: &[(&[usize], usize)]| {
+        let mut states = Vec::new();
+        run(g, steps, |g, _| {
+            let s = g.player.track().0;
+            if states.last() != Some(&s) {
+                states.push(s);
+            }
+        });
+        states
+    };
+    seen(&mut g, &[(&[], 20)]);
+    let run_states = seen(&mut g, &[(&[input::DOWN], 60)]);
+    assert!(run_states.windows(2).any(|w| w == [3, 4]) && run_states.windows(2).any(|w| w == [4, 3]), "{run_states:?}");
+    assert_eq!(seen(&mut g, &[(&[], 30)]).last(), Some(&0));
+    let walk = seen(&mut g, &[(&[input::SQUARE, input::DOWN], 60)]);
+    assert!(walk.windows(2).any(|w| w == [1, 2]), "{walk:?}");
+    seen(&mut g, &[(&[], 30)]);
+    let jump = seen(&mut g, &[(&[input::CROSS], 4), (&[], 40)]);
+    assert!(jump.windows(2).any(|w| w == [5, 6]), "{jump:?}");
 }
 
 /// Turns the player to face `to` (the stick's turn, done at once).

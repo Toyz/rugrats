@@ -434,6 +434,54 @@ anim, blend)). Names are guesses from the code that sets them.
 | 28 | 0x8005f3a4 | 43 | |
 | 29, 30 | 0x8005cc2c, 0x8005ce74 | 49, 51 | Reptar 2010 (Triangle, Circle) |
 
+### Animations (0x800572a8, 0x80056fe4, 0x80056834)
+
+The anim numbers above, and every 0x800572a8 argument, are logical. The
+first thing 0x800572a8 does is 0x80056fe4, which maps a logical number to
+a state of the character's table (object +0xec, from 0x8008a42c). Only
+those states index the table.
+
+| logical | state | logical | state | logical | state |
+|---|---|---|---|---|---|
+| 0, 32, 38, 44, 54+ | 0 | 1 | 1 | 2 | 3 |
+| 3 | 5 | 4 | 8 | 7 | 27 |
+| 8 | 30 | 9 | 31 | 10 | 33 |
+| 11 | 20 | 12 | 22 | 13 | 15 |
+| 14 | 16 | 15 | 7 | 16 | 60 |
+| 18 | 26 | 19 | 25 | 20 | 19 |
+| 21 | 17 | 22, 23 .. 31 | 34, 36 .. 44 | 33 .. 37 | 45 .. 49 |
+| 39 .. 43 | 50 .. 54 | 45 .. 49 | 55 .. 59 | 50, 51, 52, 53 | 61, 62, 64, 63 |
+
+Three cases are not a table lookup:
+
+- 5 (climb) picks by the rise at +0x144 (0x80056e44): under 394 is 9,
+  then one more per 128, to 14 under 1034; higher is -1.
+- 6 is 28 while 0x800590d4 says running, else 32.
+- 17 keeps the state playing. +0xe7, the stand's animation, is 17 from
+  init.
+
+Seen in the oracle on level 3, the player's track state (+0xa8):
+
+- stopped: 0;
+- running: 3 and 4 in turn;
+- walking: 1 and 2;
+- a jump: 5, then 6, then 8 on landing.
+
+At a state's last frame, 0x8005562c reads its word at 0x800b9c30:
+
+- 4: back the other way (ping-pong, +0xb);
+- 2: loop;
+- 1: complete. 0x80056484 then picks the next state:
+  - 1 and 2 swap, 3 and 4 swap, 17 and 18 swap, 34 and 35 swap;
+  - 5 goes to 6, 39 and 58 to 40, 45 to 46;
+  - anything else goes to logical +0xe6 (0: standing).
+- otherwise (8 or nothing): hold the last frame.
+
+Bit 32 adds the root's motion into +0xd8..+0xdc. At loop ends,
+0x800562bc plays the footsteps of states 1 and 2 (sound 164-166 by
+character, 132 for Spike in levels 9 and 14), sound 6 for states 6 and
+41, and sound 11 for state 8.
+
 The stand handler (0x8005d11c), in order:
 
 - ACTION pressed: carrying, request a throw (+0x188 bit 4, anim 18; the

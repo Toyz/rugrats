@@ -43,11 +43,13 @@ const TAKE_OFF: u8 = 6;
 const GRAVITY: i32 = 14;
 const LIFT: i32 = -5;
 
-/// Animation states (0x800572a8's argument) the port uses.
+/// Logical animations (0x800572a8's argument) the port uses; the
+/// animator turns them into the character table's states (0x80056fe4).
 pub mod anim {
-    /// Standing plays the idle (+0xe7, which init sets to 17:
-    /// 0x80057244(player, 17, 0)); walking state 1's animation.
-    pub const IDLE: i16 = 17;
+    /// Standing. The stand state asks for +0xe7 (17 from init: "as you
+    /// were"); what shows in the oracle once stopped is table state 0,
+    /// logical 0.
+    pub const IDLE: i16 = 0;
     pub const CARRY_IDLE: i16 = 20;
     pub const PICK_UP: i16 = 13;
     pub const PUT_DOWN: i16 = 14;
@@ -415,6 +417,8 @@ impl Player {
             }
         }
         if let Some(top) = climb_to {
+            // The rise picks the climb (+0x144, 0x80056e44).
+            self.animator.climb = self.floor - top;
             self.pos[1] = top + self.feet;
             self.floor = top;
             self.state = State::Stand;
@@ -480,6 +484,10 @@ impl Player {
                     anim::JUMP
                 }
             }
+            // A jump's way down is still the jump (state 5) in the
+            // original: its rise runs on into its fall (5, 6). Falling
+            // off an edge is state 4, animation 15.
+            State::Fall if matches!(self.animator.asked(), anim::JUMP | anim::JUMP_MOVING) => self.animator.asked(),
             State::Fall => anim::FALL,
             State::Land => anim::LAND,
         };
@@ -576,7 +584,7 @@ impl Player {
     pub fn act(&mut self, a: i16, anims: &Anims) {
         self.action = Some(a);
         self.speed = 0;
-        self.animator.set(a, anims);
+        self.animator.start(a, anims);
     }
 
     /// The heading as a rotation (0x80020d10's matrix).

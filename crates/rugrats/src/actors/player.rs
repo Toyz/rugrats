@@ -122,6 +122,9 @@ pub struct Player {
     /// The moving jump's lift and factor (0x80060f1c case 25: -1000 and
     /// 40; Spike in level 11 -1700 and 20).
     pub moving_jump: (i32, i32),
+    /// The last jump was from standing (0x800c4bc4 = 1, 0x80060f1c
+    /// case 0); a moving jump clears it.
+    pub standing_jump: bool,
     /// The stick's run and walk factors (0x8005be24: 17 and 8; Spike 20
     /// and 10; the tricycle runs at 20, as seen).
     pub gait: (i32, i32),
@@ -191,6 +194,7 @@ impl Player {
             hold: None,
             no_jump: false,
             moving_jump: (-1000, 40),
+            standing_jump: false,
             gait: (RUN, WALK),
             float: None,
             carrying: false,
@@ -308,7 +312,8 @@ impl Player {
             if pressed(input::CROSS) && !acting && self.jump_lock == 0 && !self.no_jump && !self.frozen {
                 // The launch (0x80060f1c): up 1000, and along the facing
                 // 40 a unit of speed when running, else 12.
-                let (up, factor) = if self.speed > WALK { self.moving_jump } else { (-1000, 12) };
+                self.standing_jump = self.speed <= WALK;
+                let (up, factor) = if self.standing_jump { (-1000, 12) } else { self.moving_jump };
                 let along = factor * self.speed;
                 self.v = [(s * along) >> 12, up, (c * along) >> 12];
                 self.state = State::Jump;

@@ -456,7 +456,7 @@ impl Player {
         if let Some(top) = climb_to {
             // The rise picks the climb (+0x144, 0x80056e44).
             self.animator.climb = self.floor - top;
-            self.climb = Some(Climb { rise: self.floor - top, from: start, moved: [0; 3] });
+            self.climb = Some(Climb { from: start, moved: [0; 3] });
             self.pos[1] = top + self.feet;
             self.floor = top;
             self.state = State::Stand;
@@ -537,7 +537,7 @@ impl Player {
         };
         self.animator.set(a, anims);
         self.animator.step(anims);
-        if let Some((_, m, _)) = self.climb_motion(anims, trig)
+        if let Some((_, m)) = self.climb_motion(anims, trig)
             && let Some(c) = &mut self.climb
         {
             c.moved = m;
@@ -652,16 +652,16 @@ impl Player {
 
     /// A climb's root motion so far, turned and scaled into the world
     /// (0x80055904: a body other than 0x800c5680's, 1 Tommy, moves by its
-    /// root offset, hierarchy +0x4c, over 0x800c41dc's -561), and the part
-    /// of the rise still to come (in proportion to the animation's own y).
-    fn climb_motion(&self, anims: &Anims, trig: &Trig) -> Option<(Climb, [i32; 3], f32)> {
+    /// root offset, hierarchy +0x4c, over 0x800c41dc's -561). The y is the
+    /// animation's own: the oracle's Tommy rose 904 for a 900 band's
+    /// climb, then settled on the top.
+    fn climb_motion(&self, anims: &Anims, trig: &Trig) -> Option<(Climb, [i32; 3])> {
         let c = self.climb?;
         (self.action == Some(anim::CLIMB)).then_some(())?;
-        let (done, total) = self.animator.root_progress(anims)?;
-        let left_y = if total[1] != 0 { c.rise as f32 * (1.0 - done[1] as f32 / total[1] as f32) } else { 0.0 };
+        let (done, _) = self.animator.root_progress(anims)?;
         let scale = if self.animator.character == TOMMY { 1.0 } else { self.feet as f32 / ROOT_SCALE };
-        let m = self.rotation(trig) * Vec3::new(done[0] as f32, 0.0, done[2] as f32) * scale;
-        Some((c, [m.x as i32, 0, m.z as i32], left_y))
+        let m = self.rotation(trig) * Vec3::new(done[0] as f32, done[1] as f32, done[2] as f32) * scale;
+        Some((c, [m.x as i32, m.y as i32, m.z as i32]))
     }
 
     /// Where the body is drawn: during a climb, where its root motion has
@@ -669,7 +669,7 @@ impl Player {
     fn drawn_at(&self, anims: &Anims, trig: &Trig) -> Vec3 {
         let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
         match self.climb_motion(anims, trig) {
-            Some((c, m, left_y)) => Vec3::new((c.from[0] + m[0]) as f32, pos.y + left_y, (c.from[2] + m[2]) as f32),
+            Some((c, m)) => Vec3::new((c.from[0] + m[0]) as f32, (c.from[1] + m[1]) as f32, (c.from[2] + m[2]) as f32),
             None => pos,
         }
     }
@@ -711,11 +711,10 @@ const STEP_UP: i32 = 384;
 /// The body's radius and height for the object test.
 pub const RADIUS: i32 = 160;
 pub const HEIGHT: i32 = 600;
-/// A climb under way: its rise, where it began, and its root motion so
-/// far in the world.
+/// A climb under way: where it began, and its root motion so far in the
+/// world.
 #[derive(Clone, Copy, Debug)]
 struct Climb {
-    rise: i32,
     from: [i32; 3],
     moved: [i32; 3],
 }

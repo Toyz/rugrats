@@ -1198,3 +1198,31 @@ fn hole_26_reptar_roars() {
     });
     assert!(noises >= 2, "{noises} noises in 250 frames");
 }
+
+/// A climb is carried by its animation's root keys (0x80055904): Tommy
+/// onto the hub's template 130 (a rise of about 850, the 900 band). The
+/// oracle's body, every frame of the climb (VSyncs 2706-2734 with Tommy put
+/// at (8945, 779, 12500) and the stick held toward it): its height, and
+/// its distance along from where the climb began.
+#[test]
+fn a_climb_moves_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 1);
+    run(&mut g, &[(&[], 1)], |_, _| {});
+    put(&mut g, [8945, 779, 12500], 0);
+    let oracle_y = [725, 683, 653, 475, 358, 303, 314, 256, 126, 25, -50, -97, -84, -92];
+    let oracle_along = [0, 1, 1, 52, 79, 79, 73, 94, 141, 294, 366, 353, 401, 419];
+    let mut seen = Vec::new();
+    run(&mut g, &[(&[input::UP], 15)], |g, _| {
+        if g.player.action.is_some() {
+            let root = g.player.parts(&g.anims, &g.trig)[0].1;
+            seen.push((root.y as i32, root.z as i32));
+        }
+    });
+    assert_eq!(seen.len(), oracle_y.len(), "climb frames {seen:?}");
+    let z0 = seen[0].1;
+    for (k, &(y, z)) in seen.iter().enumerate() {
+        assert!((y - oracle_y[k]).abs() <= 3, "frame {k}: y {y} against {}", oracle_y[k]);
+        assert!((z - z0 - oracle_along[k]).abs() <= 4, "frame {k}: along {} against {}", z - z0, oracle_along[k]);
+    }
+}

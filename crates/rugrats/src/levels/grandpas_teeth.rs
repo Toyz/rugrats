@@ -22,6 +22,10 @@ const CHUCKIE: u16 = 1776;
 const GOOSE: u16 = 11;
 const SPIKE: u16 = 14;
 const GEESE: [u16; 5] = [900, 901, 902, 903, 904];
+/// A struck goose's or Spike's animation (0x800511a8: 8).
+const FLINCH: i16 = 8;
+/// A struck goose's lines (0x800b93f4).
+const HONK_LINES: [u16; 6] = [405, 49, 437, 311, 323, 469];
 /// Shown by cine 3, hidden at the start (0x8007914c).
 const BOARD: u16 = 335;
 const HIDDEN: u16 = 1313;
@@ -321,6 +325,27 @@ impl GrandpasTeeth {
 
     /// One frame of the level's own play.
     pub fn frame(&mut self, g: &mut Game, pads: &Pads) {
+        // A thrown thing on a goose (char 12) or Spike (6) (0x800511a8):
+        // animation 8. A goose honks at its event (0x80084084: sound 32
+        // at it, and a line of 0x800b93f4, 0x800805e0).
+        for s in std::mem::take(&mut g.struck) {
+            let n = &mut g.npcs[s.npc];
+            if !matches!(n.character, 6 | 12) {
+                continue;
+            }
+            n.hold = Some(FLINCH);
+            n.animator.start(FLINCH, &g.anims);
+            if n.character == 12 {
+                let at = n.pos;
+                g.play_at(32, at);
+                g.speech.push(HONK_LINES[(g.rand.next() & 255) as usize % HONK_LINES.len()]);
+            }
+        }
+        for n in g.npcs.iter_mut().filter(|n| n.hold == Some(FLINCH)) {
+            if !n.animator.playing(FLINCH) {
+                n.hold = None;
+            }
+        }
         // Bites (Damage, 0x80077864): on the player, health; at 0 a cry.
         for e in std::mem::take(&mut g.npc_events) {
             match e {

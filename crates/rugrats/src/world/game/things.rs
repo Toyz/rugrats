@@ -51,6 +51,10 @@ pub struct Thing {
 pub enum PendingThrow {
     Aimed(usize),
     Given(usize, [i32; 3]),
+    /// Put down (state 8, 0x80060910): let go at the animation's event
+    /// 2048, where it has carried the thing out in front, then dropped
+    /// ahead (0x80062ac4).
+    Down(usize),
 }
 
 /// The throw's animation speed (0x8005d11c: 0x800572a8(player, 18,
@@ -102,8 +106,6 @@ pub(super) const OTHER_HAND: usize = 12;
 /// Where floor dust rises from (0x80044fc8(player, 16)).
 const DUST_PART: usize = 16;
 
-/// How near an object must be to be touched (the player's radius and some).
-pub(super) const REACH: f32 = 520.0;
 
 /// A throw (0x80060b44): direction (0, -384, 1024) turned by the heading,
 /// speed 170; the velocity is dir * (speed * 65536 / 6000) >> 12
@@ -164,6 +166,16 @@ impl Game {
     fn release(&mut self, throw: PendingThrow) {
         let (k, v) = match throw {
             PendingThrow::Given(k, v) => (k, v),
+            PendingThrow::Down(k) => {
+                // The drop flight: (0, 0, 4096) turned by the player,
+                // normalised, at the drop's speed (0x80062ac4).
+                let v = (self.player.rotation(&self.trig) * Vec3::new(0.0, 0.0, 4096.0)).normalize() * DROP_SPEED;
+                if self.things[k].template == HIGH_BOX {
+                    // Put down (0x80060910): message 8.
+                    self.training.show(8);
+                }
+                (k, [v.x as i32, v.y as i32, v.z as i32])
+            }
             PendingThrow::Aimed(k) => {
                 let rot = self.player.rotation(&self.trig);
                 let v = match if self.aim { self.aim_at() } else { None } {
@@ -233,7 +245,11 @@ impl Game {
         }
         if let Some(throw) = self.pending_throw {
             let anim = &self.player.animator;
-            if anim.events & 16 != 0 || !anim.playing(THROW) {
+            let (event, playing) = match throw {
+                PendingThrow::Down(_) => (2048, PUT_DOWN),
+                _ => (16, THROW),
+            };
+            if anim.events & event != 0 || !anim.playing(playing) {
                 self.pending_throw = None;
                 self.release(throw);
             }
@@ -244,8 +260,6 @@ impl Game {
         if !standing {
             return;
         }
-        let me = Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32);
-        let rot = p.rotation(&self.trig);
         if let Some(k) = self.carried {
             // The carry's animation done (0x80060b44): message 6, 27 for
             // the pie.
@@ -262,46 +276,71 @@ impl Game {
                 return;
             }
             if put_down {
-                // Level 9 aims (0x80061c98): at the nearest visible character
-                // within 512 of the facing, the direction's y -300.
-                let aimed = if throw && self.aim { self.aim_at() } else { None };
-                let (dir, speed, anim) = if let Some(d) = aimed {
-                    (d, THROW_SPEED, THROW)
-                } else if throw {
-                    (rot * Vec3::new(0.0, -384.0, 1024.0), THROW_SPEED, THROW)
-                } else {
-                    (rot * Vec3::new(0.0, 0.0, 4096.0), DROP_SPEED, PUT_DOWN)
-                };
-                let v = if aimed.is_some() { dir * speed } else { dir.normalize() * speed };
-                self.things[k].state = ThingState::Flying([v.x as i32, v.y as i32, v.z as i32]);
-                self.carried = None;
-                self.player.carrying = false;
-                self.player.act(anim, &self.anims);
-                if throw {
-                    self.player.jump_lock = 300;
-                } else if self.things[k].template == HIGH_BOX {
-                    // Put down (0x80060910): message 8.
-                    self.training.show(8);
-                }
+                self.player.act(PUT_DOWN, &self.anims);
+                self.pending_throw = Some(PendingThrow::Down(k));
             }
             return;
         }
         if !pads.pressed(0, input::CIRCLE) {
             return;
         }
-        let near = self
-            .things
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| t.state == ThingState::Rest && !t.hidden)
-            .map(|(k, t)| (k, Vec3::new(t.pos.x - me.x, 0.0, t.pos.z - me.z).length(), (t.pos.y - me.y).abs()))
-            .filter(|&(_, d, dy)| d < REACH && dy < 1200.0)
-            .min_by(|a, b| a.1.total_cmp(&b.1));
-        let Some((k, _, _)) = near else { return };
+        let Some(k) = self.touched() else { return };
         // State 7: the pick-up's animation, the object taken at its grab
         // event (2048, 0x800601e4).
         self.player.act(PICK_UP, &self.anims);
         self.pending_grab = Some(k);
+    }
+
+    /// The thing GRAB takes (0x800631d8, oracle-checked in level 6): of
+    /// those in the player's nearby list (0x80062ed4 / 0x8006abbc: his
+    /// cylinder, 3 x his body box's larger half-extent across and 3 x its
+    /// height's, meets the thing's, its farthest model box corner
+    /// round its place; a box of level 6, 577, is taken from 1324 straight
+    /// ahead and not from 1330), within 511 below to 4095 above him, his
+    /// box's depth + 1800 off, and strictly within a quarter turn of his
+    /// heading (D_800c430a; none from behind), the nearest; not the one he
+    /// stands on.
+    pub(super) fn touched(&self) -> Option<usize> {
+        let p = &self.player;
+        let (lo, hi) = p.body_box();
+        let half = |i: usize| lo[i].abs().max(hi[i].abs());
+        let across = 3 * half(0).max(half(2));
+        let tall = 3 * half(1);
+        let reach = half(2) + 1800;
+        let me = p.pos;
+        let off = |a: i32| (a + 2048).rem_euclid(4096) - 2048;
+        self.things
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.state == ThingState::Rest && !t.hidden)
+            .filter_map(|(k, t)| {
+                let radius = self.set.models.get(t.shape).map_or(0.0, |m| {
+                    m.boxes
+                        .iter()
+                        .flat_map(|(lo, hi)| (0..8).map(move |c| {
+                            Vec3::new(
+                                if c & 1 == 0 { lo[0] } else { hi[0] } as f32,
+                                if c & 2 == 0 { lo[1] } else { hi[1] } as f32,
+                                if c & 4 == 0 { lo[2] } else { hi[2] } as f32,
+                            )
+                            .length()
+                        }))
+                        .fold(0.0f32, f32::max)
+                }) as i32;
+                let (dx, dy, dz) = (t.pos.x as i32 - me[0], t.pos.y as i32 - me[1], t.pos.z as i32 - me[2]);
+                let d = ((dx as f32).hypot(dz as f32)) as i32;
+                let bearing = ((dx as f32).atan2(dz as f32) * 4096.0 / std::f32::consts::TAU) as i32;
+                let stood = p.support.is_some_and(|b| self.bodies.get(b).is_some_and(|b| b.template == t.template && b.covers(me, 0)));
+                (d <= across + radius
+                    && dy.abs() <= tall + radius
+                    && (-4095..512).contains(&dy)
+                    && d <= reach
+                    && off(bearing - p.heading).abs() < 1024
+                    && !stood)
+                    .then_some((k, d))
+            })
+            .min_by_key(|&(_, d)| d)
+            .map(|(k, _)| k)
     }
 
     /// The walk's effects (0x8005e1f4): on a water tile (COL byte 4 bit

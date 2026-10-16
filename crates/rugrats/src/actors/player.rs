@@ -655,6 +655,13 @@ impl Player {
     /// 0x80067ba4), both ways. Seen in the oracle: Tommy (250) stops 268
     /// short of a wall at 170 a frame; Spike (x 315, z -220..1000) 479
     /// short at 200, so his reach is not the box's 1000 along z.
+    /// The body's box (hierarchy header +4..+0x10: lo x, y, z, hi x, y,
+    /// z; 0x80067ba4 without a carried thing).
+    pub fn body_box(&self) -> ([i32; 3], [i32; 3]) {
+        let h = |at: usize| self.hierarchy.header.get(at..at + 2).map_or(0, |b| i16::from_le_bytes([b[0], b[1]]) as i32);
+        ([h(0x04), h(0x06), h(0x08)], [h(0x0c), h(0x0e), h(0x10)])
+    }
+
     fn extents(&self) -> (i32, i32) {
         let h = |at: usize| self.hierarchy.header.get(at..at + 2).map_or(0, |b| i16::from_le_bytes([b[0], b[1]]) as i32).abs();
         let x = h(0x04).max(h(0x0c));

@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-159 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 71, render 27, save 4, test 23, tooling 18, ui 9, video 10.
+160 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 4, play 72, render 27, save 4, test 23, tooling 18, ui 9, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -171,3 +171,4 @@ The [reference](docs/README.md) says what is true now.
 | 157 | [Levels 9 and 10 walked: characters gone up to by stick](worklog/0157-levels-9-and-10-walked-characters-gone-up-to-by-stick.md) | 2026-10-16 | test |
 | 158 | [Tipped objects block only where they lie; every level walked](worklog/0158-tipped-objects-block-only-where-they-lie-every-level-walked.md) | 2026-10-16 | play |
 | 159 | [The elevator stays down; a spinner turns about its own upright](worklog/0159-the-elevator-stays-down-a-spinner-turns-about-its-own.md) | 2026-10-16 | play |
+| 160 | [GRAB reaches as the original; a box put down does not stack](worklog/0160-grab-reaches-as-the-original-a-box-put-down-does-not-stack.md) | 2026-10-16 | play |

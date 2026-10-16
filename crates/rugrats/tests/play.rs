@@ -365,16 +365,26 @@ fn box_route(g: &mut Game) {
     let laid = [(boxes[6], 1, 0), (boxes[7], 3, 1024), (boxes[3], 5, 1024), (boxes[0], 7, 0), (boxes[4], 9, 3072)];
     for (k, n, h) in laid {
         let b = g.things[k].pos;
-        // Beside it on its own floor, clear of other things.
+        // 900 from it on its own floor, clear of other things (room to turn
+        // to it without a step into it).
         let floor = b.y as i32 + 256;
-        let side = (0..8)
-            .map(|d| {
-                let a = d as f32 * std::f32::consts::TAU / 8.0;
-                [b.x as i32 + (a.sin() * 450.0) as i32, b.z as i32 + (a.cos() * 450.0) as i32]
+        // (Nearer where a shelf has no room so far off.)
+        let room = |x: i32, z: i32| {
+            [(0, 0), (300, 0), (-300, 0), (0, 300), (0, -300)]
+                .iter()
+                .all(|&(dx, dz)| floor_under(g, x + dx, z + dz, floor - 384, 0) == Some(floor) && !Ground::new(g).blocked(x + dx, z + dz, floor))
+        };
+        let side = [900.0f32, 700.0, 450.0]
+            .iter()
+            .flat_map(|&r| {
+                (0..8).map(move |d| {
+                    let a = d as f32 * std::f32::consts::TAU / 8.0;
+                    [b.x as i32 + (a.sin() * r) as i32, b.z as i32 + (a.cos() * r) as i32]
+                })
             })
-            .find(|&[x, z]| floor_under(g, x, z, floor - 384, 0) == Some(floor) && !Ground::new(g).blocked(x, z, floor))
+            .find(|&[x, z]| room(x, z))
             .unwrap_or([b.x as i32, b.z as i32 - 450]);
-        // Circle takes the nearest within reach (520), any way faced. The
+        // Circle takes the nearest in reach that is faced. The
         // guard by two of them bites and pushes, and may be stood on: back
         // beside it and again.
         for _ in 0..5 {
@@ -388,18 +398,24 @@ fn box_route(g: &mut Game) {
                 stride_to(g, 2 * me[0] - b.x as i32, 2 * me[2] - b.z as i32, 100, 8);
                 run(g, &[(&[], 10)], |_, _| {});
             }
-            // Nearer only if out of reach (520): walking into it climbs it.
+            // Nearer only if out of reach (1327 in front for Tommy and a
+            // box): walking into it climbs it.
             let me = g.player.pos;
-            if ((b.x as i64 - me[0] as i64).pow(2) + (b.z as i64 - me[2] as i64).pow(2)) > 500 * 500 {
-                stride_to(g, b.x as i32, b.z as i32, 480, 30);
+            if ((b.x as i64 - me[0] as i64).pow(2) + (b.z as i64 - me[2] as i64).pow(2)) > 1100 * 1100 {
+                stride_to(g, b.x as i32, b.z as i32, 1000, 30);
             }
+            // Facing it: GRAB takes only what is within a quarter turn of
+            // the heading (0x800631d8).
+            let me = g.player.pos;
+            let h = ((b.x - me[0] as f32).atan2(b.z - me[2] as f32) * 4096.0 / std::f32::consts::TAU) as i32;
+            turn_near(g, h.rem_euclid(4096), 256);
             run(g, &[(&[input::CIRCLE], 1), (&[], 40)], |_, _| {});
             if g.carried() == Some(k) {
                 break;
             }
         }
         let p = g.player.pos;
-        assert_eq!(g.carried(), Some(k), "box {k} picked up: at {p:?}, the box at {b:?}");
+        assert_eq!(g.carried(), Some(k), "box {k} picked up: at {p:?} heading {} {:?} {:?}, the box at {b:?}", g.player.heading, g.player.state, g.player.action);
         put(g, [44500, -1269, 10500], 0);
         run(g, &[(&[], 5)], |_, _| {});
         go(g, &up[..n]);
@@ -3160,4 +3176,53 @@ fn level_5s_elevator_stays_down_while_ridden_as_the_original() {
     run(&mut g, &[(&[], 600)], |_, _| {});
     assert_eq!(y(&g), 7722, "still down, Angelica at {:?}", g.player.pos);
     assert_eq!(g.player.pos[1], 6739);
+}
+
+/// A box put down beside another comes down on the floor, not on top of
+/// it (the oracle, level 6: box LP 198 moved to (42741, -1280, 14263),
+/// Tommy picks up LP 197 and, 1163 or 863 short of 198, puts it down: it
+/// ends at y -1280 overlapping 198 at z 14219 / 14160).
+#[test]
+fn a_box_put_down_by_another_does_not_stack_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 6);
+    g.played(46);
+    let at = |g: &Game, lp: usize| g.things.iter().position(|t| t.placement == lp).expect("the box");
+    let (first, second) = (at(&g, 197), at(&g, 198));
+    g.things[second].pos = rrt::glam::Vec3::new(42741.0, -1280.0, 14263.0);
+    run(&mut g, &[(&[], 2)], |_, _| {});
+    for z in [13100, 13400] {
+        put(&mut g, [42741, -1269, 12263], 0);
+        run(&mut g, &[(&[input::CIRCLE], 1), (&[], 50)], |_, _| {});
+        assert_eq!(g.carried(), Some(first), "picked up");
+        g.player.pos = [42741, -1269, z];
+        run(&mut g, &[(&[], 4), (&[input::CIRCLE], 1), (&[], 90)], |_, _| {});
+        assert_eq!(g.carried(), None, "put down");
+        let p = g.things[first].pos;
+        assert_eq!(p.y as i32, -1280, "on the floor from {z}: at {p:?}");
+        // Ahead of him (the oracle's 559 to 819 on).
+        assert!((500..900).contains(&(p.z as i32 - z)), "ahead from {z}: at {p:?}");
+        g.things[first].pos = rrt::glam::Vec3::new(42741.0, -1280.0, 12863.0);
+    }
+}
+
+/// GRAB takes a box in front of the player up to his cylinder and its
+/// (0x800631d8 over the nearby list): the oracle, level 6's box LP 197 at
+/// (42741, -1280, 12863), Tommy on its line facing it: taken from 1324
+/// short, not from 1330 (3 x 250 + its corner radius 577), from 1000 with
+/// the box 768 off his heading, not 1024 off, nor from 400 behind.
+#[test]
+fn grab_reaches_as_the_original() {
+    let Some(disc) = disc() else { return };
+    for (short, heading, taken) in [(1324, 0, true), (1330, 0, false), (1000, 768, true), (1000, 1024, false), (400, 2048, false), (600, 0, true)] {
+        let mut g = open(&disc, 6);
+        g.played(46);
+        let k = g.things.iter().position(|t| t.placement == 197).expect("the box");
+        run(&mut g, &[(&[], 2)], |_, _| {});
+        g.player.pos = [42741, -1269, 12863 - short];
+        g.player.heading = heading;
+        g.player.target = heading;
+        run(&mut g, &[(&[], 2), (&[input::CIRCLE], 1), (&[], 50)], |_, _| {});
+        assert_eq!(g.carried() == Some(k), taken, "{short} short, heading {heading}");
+    }
 }

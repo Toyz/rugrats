@@ -159,6 +159,18 @@ pub struct Player {
     /// keys (0x80055904 into +0xd8..+0xdc, moved by 0x80066e60), so the
     /// body is drawn where that motion has it.
     climb: Option<Climb>,
+    /// A standing jump's crouch: its launch, kept until the jump's
+    /// airborne state comes (table state 6, whose entry sets +0xe0 bit 31,
+    /// 0x800562bc, which 0x8005ec9c takes as leaving the ground).
+    pending_jump: Option<[i32; 3]>,
+    /// The root's y the animations have moved the body by on the ground
+    /// (into +0xda each step, 0x80056834): drawn under its position.
+    /// Standing, walking or running, the floor takes back 23 a frame of
+    /// it below the floor (the oracle: 868, 845, 822, 799, 779 after a
+    /// landing).
+    root_y: i32,
+    /// The base track's root y so far, and which animation it was of.
+    root_seen: (i16, usize, i32),
 }
 
 impl Player {
@@ -223,6 +235,9 @@ impl Player {
             support: None,
             landed: false,
             climb: None,
+            pending_jump: None,
+            root_y: 0,
+            root_seen: (-1, 0, 0),
         };
         let q = collide::query(col, start);
         if q.tile.is_some() {
@@ -352,9 +367,12 @@ impl Player {
                 self.standing_jump = self.speed <= WALK;
                 let (up, factor) = if self.standing_jump { (-1000, 12) } else { self.moving_jump };
                 let along = factor * self.speed;
-                self.v = [(s * along) >> 12, up, (c * along) >> 12];
+                self.pending_jump = Some([(s * along) >> 12, up, (c * along) >> 12]);
+                self.v = [0; 3];
                 self.state = State::Jump;
             }
+        } else if self.pending_jump.is_some() {
+            // Crouching for the jump: still on the floor.
         } else {
             // The air (0x80061330): gravity 14, less 5 while jump is held
             // on the way up; drag 32/4096 of the speed.
@@ -471,6 +489,8 @@ impl Player {
             } else {
                 self.pos[1] = self.floor + self.feet;
             }
+        } else if self.pending_jump.is_some() {
+            self.pos[1] = self.floor + self.feet;
         } else if feet_y >= self.floor && self.v[1] >= 0 {
             self.pos[1] = self.floor + self.feet;
             self.v = [0; 3];
@@ -537,6 +557,7 @@ impl Player {
         };
         self.animator.set(a, anims);
         self.animator.step(anims);
+        self.root_step(anims);
         if let Some((_, m)) = self.climb_motion(anims, trig)
             && let Some(c) = &mut self.climb
         {
@@ -620,7 +641,48 @@ impl Player {
 
     /// Thrown through the air (state 16, 0x8005ec9c): along `heading` at
     /// `speed`, up at `up`.
+    /// The base track's root y this step (0x80055904 into +0xda), and the
+    /// jump's take-off when its airborne state comes.
+    fn root_step(&mut self, anims: &Anims) {
+        let (state, first, ..) = self.animator.track();
+        let done = self.animator.root_progress(anims).map_or(0, |r| r.0[1]);
+        let dy = if (self.root_seen.0, self.root_seen.1) == (state, first) { done - self.root_seen.2 } else { done };
+        self.root_seen = (state, first, done);
+        if self.climb.is_some() {
+            return;
+        }
+        if let Some(v) = self.pending_jump {
+            self.root_y += dy;
+            // The crouch is table state 5; any other state is off.
+            if state != 5 {
+                self.pending_jump = None;
+                self.pos[1] += self.root_y;
+                self.root_y = 0;
+                // Off this frame: the air's first step with it (the
+                // animation steps before the state's handler, 0x8005a068).
+                self.v = v;
+                for k in [0, 2] {
+                    self.pos[k] += (self.v[k] * DT) >> 6;
+                }
+                self.pos[1] += (self.v[1] * DT + GRAVITY * DT * DT / 2) >> 6;
+                self.v[1] += GRAVITY * DT;
+            }
+            return;
+        }
+        match self.state {
+            State::Jump | State::Fall => {}
+            State::Land => self.root_y += dy,
+            _ => {
+                self.root_y += dy;
+                if self.root_y > 0 {
+                    self.root_y = (self.root_y - FLOOR_RETURN).max(0);
+                }
+            }
+        }
+    }
+
     pub fn launch(&mut self, heading: i32, up: i32, speed: i32, trig: &Trig) {
+        self.pending_jump = None;
         self.heading = heading;
         self.target = heading;
         self.speed = 0;
@@ -670,7 +732,7 @@ impl Player {
         let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
         match self.climb_motion(anims, trig) {
             Some((c, m)) => Vec3::new((c.from[0] + m[0]) as f32, (c.from[1] + m[1]) as f32, (c.from[2] + m[2]) as f32),
-            None => pos,
+            None => pos + Vec3::new(0.0, self.root_y as f32, 0.0),
         }
     }
 
@@ -718,6 +780,10 @@ struct Climb {
     from: [i32; 3],
     moved: [i32; 3],
 }
+
+/// What the floor takes back a frame of a body sunk under it by its
+/// animation (the oracle after a landing: 23).
+const FLOOR_RETURN: i32 = 23;
 
 /// The root motion's reference height (0x800c41dc, as peeked).
 const ROOT_SCALE: f32 = -561.0;

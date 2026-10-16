@@ -1226,3 +1226,22 @@ fn a_climb_moves_as_the_original() {
         assert!((z - z0 - oracle_along[k]).abs() <= 4, "frame {k}: along {} against {}", z - z0, oracle_along[k]);
     }
 }
+
+/// A standing jump as the original's: the crouch (table state 5, its root
+/// keys taking the body 89 down) before it leaves the floor at state 6
+/// (0x800562bc, 0x8005ec9c), the arc, and the landing's sink of 144 under
+/// the floor taken back 23 a frame. The oracle's body height, a game frame
+/// apart, from the press at the hub's start (VSyncs 2706-2746).
+#[test]
+fn a_jump_moves_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let mut g = open(&disc, 1);
+    run(&mut g, &[(&[], 3)], |_, _| {});
+    let oracle =
+        [783, 794, 810, 827, 843, 859, 868, 868, 814, 668, 544, 442, 362, 304, 268, 253, 260, 289, 340, 413, 508];
+    let mut seen = Vec::new();
+    run(&mut g, &[(&[input::CROSS], 1), (&[], 20)], |g, _| seen.push(g.player.parts(&g.anims, &g.trig)[0].1.y as i32));
+    for (k, (&y, &o)) in seen.iter().zip(&oracle).enumerate() {
+        assert!((y - o).abs() <= 2, "frame {k}: {y} against {o} ({seen:?})");
+    }
+}

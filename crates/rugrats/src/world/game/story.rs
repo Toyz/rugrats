@@ -112,6 +112,14 @@ impl Game {
     pub(super) fn cried(&mut self) {
         self.player.health = 255;
         self.player.action = None;
+        // The cry's camera hold ends (0x8002953c, +0x188 bit 64): the
+        // follow camera again (0x800290a4, the level's height), but levels
+        // 9, 20 and 21 set the camera's own kind again (0x800291f8 with
+        // +0x4a), so a room's fixed camera stays.
+        if !matches!(self.level, Level::MR_FRIEND | Level::NO_MORE_COOKIES | Level::TOUCHDOWN_TOMMY) {
+            self.post_camera = None;
+            self.eye_up = default_eye_up(self.level);
+        }
         if self.with_script(|s, g| s.cry(g)) {
             return;
         }

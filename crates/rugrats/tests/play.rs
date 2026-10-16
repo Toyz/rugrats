@@ -501,6 +501,28 @@ fn level_9_a_can_bounces_back() {
     assert_eq!(g.player.health, mine - 30, "the can came back");
 }
 
+/// After a cry the follow camera comes back (0x800290a4), but levels 9,
+/// 20 and 21 keep a room's fixed camera (0x8002953c).
+#[test]
+fn the_camera_after_a_cry() {
+    let Some(disc) = disc() else { return };
+    let fixed_after_cry = |level: u8| -> Option<bool> {
+        let mut g = open(&disc, level);
+        let room = (0..g.set.room_info.len()).find(|&k| {
+            let r = g.set.room_info[k];
+            r.flags & 4 != 0 && r.camera == 3 && r.flags & 2 == 0
+        })?;
+        enter_room(&mut g, room);
+        g.fixed_camera()?;
+        g.cry();
+        run(&mut g, &[(&[], 200)], |_, _| {});
+        Some(g.fixed_camera().is_some())
+    };
+    assert_eq!(fixed_after_cry(9), Some(true), "level 9 keeps it");
+    let other = [2u8, 3, 6, 10, 11, 12, 13, 15, 17, 18].into_iter().find_map(fixed_after_cry);
+    assert_eq!(other, Some(false), "elsewhere the follow camera");
+}
+
 /// Turns the player to face `to` (the stick's turn, done at once).
 fn face(g: &mut Game, to: [i32; 3]) {
     let me = g.player.pos;

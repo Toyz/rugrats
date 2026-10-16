@@ -81,6 +81,11 @@ pub(super) fn default_eye_up(level: Level) -> f32 {
 
 impl Game {
     /// The projection distance in play.
+    /// The room's fixed camera post in use (kind 3), if any.
+    pub fn fixed_camera(&self) -> Option<usize> {
+        self.post_camera
+    }
+
     pub fn focal(&self) -> f32 {
         self.focal
     }

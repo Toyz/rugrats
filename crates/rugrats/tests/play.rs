@@ -2146,8 +2146,17 @@ impl<'a> Ground<'a> {
                         }
                     })
             };
+            // A thin box between the two middles (a board, a rail) is crossed
+            // by the step (`Box3::crosses`, 0x80069c40).
+            let from = [centre(cx), floor, centre(cz)];
+            let across = |f: i32| {
+                // (Not one the step starts inside: the way out of it.)
+                self.near(x, z).filter(|b| self.characters || !b.character).any(|b| {
+                    b.crosses(from, [x, f, z]) && !b.covers(from, 0) && b.min_y < f.min(floor) - 384 && b.max_y > f.min(floor) - 600
+                })
+            };
             match self.floor(x, z, floor - 384) {
-                Some(f) if !self.blocked(x, z, f.min(floor)) && room(f.min(floor)) => {
+                Some(f) if !self.blocked(x, z, f.min(floor)) && room(f.min(floor)) && !across(f) => {
                     edge |= f > floor + 384;
                     out.push(((cx + dx, cz + dz, f), Way::Step));
                 }
@@ -2351,6 +2360,7 @@ fn walk_to(g: &mut Game, goal: impl Fn(Spot) -> bool + Copy, end: Option<[i32; 2
     let mut ban = std::collections::HashSet::new();
     // Doors used once on the way; those that stayed shut are walls.
     let mut used: Vec<[i32; 3]> = Vec::new();
+    let mut hopped = 0;
     for _ in 0..40 {
         let shut: Vec<[i32; 3]> = used.iter().copied().filter(|p| g.doors.iter().any(|d| g.set.placements[d.placement].pos == *p && !d.open && !d.moving)).collect();
         let mut ground = Ground::with_shut(g, &shut);
@@ -2365,7 +2375,15 @@ fn walk_to(g: &mut Game, goal: impl Fn(Spot) -> bool + Copy, end: Option<[i32; 2
         }
         let Some(to) = found else {
             if log {
-                eprintln!("no way from {:?}", g.player.pos);
+                eprintln!("no way from {:?} (spot {start:?}, steps {:?}, ban {ban:?})", g.player.pos, ground.steps(start));
+            }
+            // Up on something the plan has no way off (a rail come down on
+            // after a jump): off it ahead, and again.
+            if hopped < 3 {
+                hopped += 1;
+                let ahead = toward(g, g.player.heading).to_vec();
+                run(g, &[(&ahead, 12), (&[], 6)], |_, _| {});
+                continue;
             }
             return false;
         };

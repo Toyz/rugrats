@@ -39,6 +39,11 @@ const CINE_COURT: usize = 4;
 const CINE_WIN: usize = 5;
 const CINE_LOSE: usize = 16;
 
+/// Where cine 1 leaves Tommy and Chuckie, and their headings (the oracle,
+/// after it, with the intro played).
+const AFTER_INTRO: ([i32; 3], i32) = ([-5334, -245, 10864], 2881);
+const CHUCKIE_AFTER_INTRO: ([i32; 3], i32) = ([-5562, -354, 11757], 1885);
+
 /// The respawn at the start (0x8007914c) and tries (0x800b2920[2]).
 const RESPAWN: [i32; 3] = [1720, -245, 5608];
 const TRIES: i32 = 3;
@@ -127,11 +132,24 @@ impl GrandpasTeeth {
                 g.npcs[k].hidden = true;
             }
         }
-        if let Some(k) = find(g, BOARD) {
-            g.npcs[k].hidden = g.checkpoint.is_none();
-        }
+        // The board (id 335, an object) is out until cine 3 (0x80078bc4).
+        g.hide(BOARD, g.checkpoint.is_none());
         if g.checkpoint.is_some() {
             l.respawn = g.player.pose();
+        } else {
+            // Cine 1 (the intro, played before) ends with Tommy and Chuckie
+            // out of the playpen (LP 283, template 261) the loader put them
+            // in: seen in the oracle after it.
+            let (at, heading) = AFTER_INTRO;
+            g.player.pos = at;
+            g.player.heading = heading;
+            g.player.target = heading;
+            l.respawn = Pose::new(RESPAWN, heading);
+            if let Some(c) = find(g, CHUCKIE) {
+                let (at, heading) = CHUCKIE_AFTER_INTRO;
+                g.npcs[c].pos = at;
+                g.npcs[c].heading = heading;
+            }
         }
         Ok(l)
     }
@@ -140,9 +158,7 @@ impl GrandpasTeeth {
     pub fn cine_finished(&mut self, g: &mut Game, n: usize) {
         match n {
             CINE_GAP => {
-                if let Some(k) = find(g, BOARD) {
-                    g.npcs[k].hidden = false;
-                }
+                g.hide(BOARD, false);
                 self.chase(g, false);
             }
             CINE_COURT => self.court(g),

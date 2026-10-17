@@ -1286,6 +1286,7 @@ impl Game {
         self.player.bumps =
             self.level != Level::REPTAR_2010 && !(self.level == Level::CIRCUS && self.character == 6);
         self.player.head_on = if self.character == 6 { 220 } else { 384 };
+        self.player.set_character(self.character as u16);
         self.player.frame(pads, self.camera_heading(), &self.col, &boxes, &self.anims, &self.trig);
         // A thing run into with a +0x6d hurts by it (Damage, 0x800780ac).
         if let Some(t) = self.player.bumped.take() {

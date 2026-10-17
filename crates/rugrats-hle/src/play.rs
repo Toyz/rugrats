@@ -42,6 +42,8 @@ pub struct Player {
     pub flags: u32,
     /// +0x170: the air velocity (body frame).
     pub velocity: [i16; 3],
+    /// +0x178: the way the ground step goes.
+    pub way: [i32; 3],
 }
 
 /// What a boot asks for.
@@ -156,6 +158,7 @@ impl Play {
             speed: self.read_i32(p + 0x184),
             flags: self.read_u32(p + 0x188),
             velocity: [self.read_i16(p + 0x170), self.read_i16(p + 0x172), self.read_i16(p + 0x174)],
+            way: [self.read_i32(p + 0x178), self.read_i32(p + 0x17c), self.read_i32(p + 0x180)],
         }
     }
 

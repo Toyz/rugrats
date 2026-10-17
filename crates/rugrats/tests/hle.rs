@@ -81,7 +81,7 @@ impl Both {
                 let o = self.hle.player();
                 let camera = self.hle.camera_heading();
                 if std::env::var_os("HLEVEL").is_some() {
-                    eprintln!("    vel {:?} port {:?} speed {} cam {camera} pad {bits:#06x}", o.velocity, self.game.player.v, o.speed);
+                    eprintln!("    vel {:?} port {:?} speed {} way {:?} heading {} cam {camera} pad {bits:#06x}", o.velocity, self.game.player.v, o.speed, o.way, o.heading);
                 }
                 orig.push(Seen { pos: o.pos, heading: o.heading as i32 & 4095, state: o.state, camera });
             }
@@ -163,5 +163,18 @@ fn egg_hunt_slide_and_bump_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 2)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 70)]);
     let worst = report("slide", &port, &orig);
+    assert!(worst <= 16, "{worst}");
+}
+
+/// Level 11 as Spike: a run at the wall past the first hurdle.
+#[test]
+#[ignore]
+fn spike_run_at_a_wall_as_the_original() {
+    use rugrats::input::{R1, UP};
+    let Some(mut b) = Both::open(Boot { level: 11, character: Some(6), ..Default::default() }) else { return };
+    b.put([25252, 720, 4500], 0, 6);
+    b.script(&[(bits(&[R1]), 1), (0, 4)]);
+    let (port, orig) = b.script(&[(bits(&[UP]), 12)]);
+    let worst = report("spike", &port, &orig);
     assert!(worst <= 16, "{worst}");
 }

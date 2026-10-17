@@ -2,5 +2,6 @@
 //! animation.
 
 pub mod animator;
+pub mod ground;
 pub mod npc;
 pub mod player;

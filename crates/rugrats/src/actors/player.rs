@@ -19,6 +19,7 @@ use crate::actors::animator::Animator;
 use crate::disc::GameDisc;
 use crate::gte::Trig;
 use crate::input::{self, Pads};
+use crate::actors::ground;
 use crate::world::collide;
 
 /// dt a frame at 30 fps (0x800c3f1c: 5 a vertical blank).
@@ -117,6 +118,8 @@ pub struct Player {
     pub script_aims: bool,
     /// The turn rate (0x800c41fc; 298 for chars 6 and 34).
     pub turn_rate: i32,
+    /// The highest step walked up (0x800c430c by +0x15e: 256, or 750).
+    pub step_limit: i32,
     /// The slant under which a thing is met head-on, climbed or bumped
     /// rather than slid along (0x8005e1f4: 384, 220 as Spike, +0x15c 6).
     pub head_on: i32,
@@ -245,6 +248,7 @@ impl Player {
             script_aims: false,
             turn_rate: TURN,
             head_on: 384,
+            step_limit: 256,
             push: [0; 2],
             animator,
             effects: Vec::new(),
@@ -407,15 +411,20 @@ impl Player {
         self.push = if self.frozen { [0; 2] } else { air_push([sx, sz], camera_heading, self.heading, trig) };
         // A wall met head-on (or no way along it) by the ground move.
         let mut wall_met = false;
+        // The probe's record that held the step head-on (`ground_move`).
+        let mut ground_held: Option<ground::Record> = None;
         let first_step = self.state == State::Stand && self.speed > 0 && !acting && self.pending_jump.is_none();
+        // The floor the probes measure from (+0x148): a thing stood on's
+        // top, which the height field's floor below replaces.
+        let probe_floor = self.floor;
         let mut probe_step: Option<(i32, i32)> = None;
         if on_ground {
             // The ground move along the facing (0x8005caac); none while
             // landing.
             if !self.frozen && self.state != State::Land {
-                let (dx, dz) = along([s, c], self.speed * DT);
-                let ((dx, dz), wall) = self.ground_step_wall(col, dx, dz);
-                wall_met = wall;
+                let ((dx, dz), held) = self.ground_move(col, trig, [s, 0, c], self.speed * DT);
+                wall_met = held.is_some();
+                ground_held = held;
                 if first_step {
                     // Standing, the stick pushed (0x8005d11c): the probes
                     // run along the step, a slide or a climb may start and
@@ -507,6 +516,22 @@ impl Player {
             }
         } else {
             self.floor = q.floor;
+        }
+        // Held head-on by the height field (0x8005e1f4 -> 0x80058da4): a
+        // ledge up to the body's reach is climbed (0x80056e44 from the
+        // record's floor delta, +0x144); a step of 1025 to 3071 is too
+        // tall (message 16); no floor (a narrow way) is neither.
+        if let Some(r) = ground_held
+            && walking
+            && r.delta != ground::VOID
+        {
+            let rise = -r.delta;
+            let top = probe_floor + r.delta;
+            if rise > 0 && rise <= reach {
+                climb_to = Some(climb_to.map_or(top, |c: i32| c.min(top)));
+            } else if rise > CLIMB && rise <= TOO_TALL {
+                self.hints.push(16);
+            }
         }
         // Objects' boxes: one whose top is within a step of the feet and
         // not above the body's origin (or below them, falling) is floor
@@ -874,6 +899,37 @@ impl Player {
         (x, x)
     }
 
+    /// The ground step `len` long along `way` (a unit, the heading's) as
+    /// the height field lets it (0x80064a34, `ground::probe`): had when the
+    /// probes are clear; held, slid along the wall's tangent when it is met
+    /// at a slant from `head_on` to a right angle and the way along it is
+    /// clear or meets a wall there at 512 or more (0x80065120); else held,
+    /// with the record that held it (for the climb or the bump).
+    fn ground_move(&self, col: &Col, trig: &Trig, way: [i32; 3], len: i32) -> ((i32, i32), Option<ground::Record>) {
+        let (lo, hi) = self.body_box();
+        let body = ground::Body { lo, hi };
+        let probe = |w: [i32; 3]| ground::probe(col, trig, self.pos, self.floor, w, len, body, self.step_limit);
+        match probe(way) {
+            ground::Probed::Clear(_) => (along([way[0], way[2]], len), None),
+            p @ ground::Probed::Held { record, slide } => {
+                let a = p.slant().abs();
+                if let Some((t, _)) = slide
+                    && a >= self.head_on
+                    && a < 1024
+                {
+                    // The way turned along the tangent, its length kept,
+                    // made a unit again (0x80076a74, 0x8009f278).
+                    let w = trig.normal(ground::set_length(t, 4096, trig));
+                    let again = probe(w);
+                    if !again.held() || (512..1025).contains(&again.slant().abs()) {
+                        return (along([w[0], w[2]], len), None);
+                    }
+                }
+                ((0, 0), Some(record))
+            }
+        }
+    }
+
     /// The ground step (dx, dz) as the wall test lets it (0x80066014): three
     /// points ahead of the body, its reach past the step straight on and its
     /// half width to each side, must be in the open at a step's height; a
@@ -932,6 +988,17 @@ impl Player {
         match ways.into_iter().find(|&(x, z)| (x != 0 || z != 0) && open(x, z)) {
             Some(way) => (way, false),
             None => ((0, 0), true),
+        }
+    }
+
+    /// What being character `ch` sets on the body: its size class
+    /// (0x80062eac: 1 for Spike, 6, and 21, else 0) and so the step it
+    /// walks up (0x800c430c: 256, 750), and Spike's own copy of his
+    /// hierarchy 1400 deep (0x800450ac sets the copy's +0x10).
+    pub fn set_character(&mut self, ch: u16) {
+        self.step_limit = if matches!(ch, 6 | 21) { 750 } else { 256 };
+        if ch == 6 && let Some(b) = self.hierarchy.header.get_mut(0x10..0x12) {
+            b.copy_from_slice(&1400i16.to_le_bytes());
         }
     }
 

@@ -1328,6 +1328,16 @@ impl Player {
         }
     }
 
+    /// Part `k`'s joint in the world as posed now (the parts' matrices'
+    /// translations, +0x158, UpdatePartRotations).
+    pub fn part_at(&self, k: usize, anims: &Anims, trig: &Trig) -> [i32; 3] {
+        let local = self.animator.locals(&self.hierarchy, anims);
+        let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
+        models::posed_parts(&self.hierarchy, &local, self.rotation(trig), pos)
+            .get(k)
+            .map_or(self.pos, |(_, at)| [at.x.round() as i32, at.y.round() as i32, at.z.round() as i32])
+    }
+
     /// The lowest of the body's posed joints (+0x68, set as
     /// UpdatePartRotations, 0x8004a5dc, poses the parts): the air probes
     /// reach down to it at least.

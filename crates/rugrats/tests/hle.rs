@@ -109,6 +109,12 @@ impl Both {
                     let same = o == p;
                     eprintln!("    cam {} orig {o:?}\n        port {p:?}", if same { "same" } else { "DIFF" });
                 }
+                if std::env::var_os("FOCUS").is_some() {
+                    let f = self.hle.read_u32(rugrats_hle::play::PLAYER + 0x1e8);
+                    let ot = if f == 0 { None } else { Some(self.hle.read_i16(f + 0x96) as u16 as u32) };
+                    let pt = self.game.focus().map(|k| self.game.set.placements[k].template);
+                    eprintln!("    focus {} orig {ot:?} port {pt:?}", if ot == pt { "same" } else { "DIFF" });
+                }
                 orig.push(Seen { pos: o.pos, heading: o.heading as i32 & 4095, state: o.state, camera });
             }
         }
@@ -257,4 +263,18 @@ fn hub_tap_turn_as_the_original() {
     let worst = report("tap", &port, &orig);
     let turned = port.iter().zip(&orig).filter(|(p, o)| p.heading != o.heading).count();
     assert_eq!((worst, turned), (0, 0), "the same as the original's, every frame");
+}
+
+/// Level 1: a run across the playpen (template 1032, flag 8: passed
+/// through, the object in focus over it).
+#[test]
+#[ignore]
+fn hub_run_across_the_playpen_as_the_original() {
+    use rugrats::input::{R1, UP};
+    let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
+    b.put([5200, 779, 25776], 1024, 6);
+    b.script(&[(bits(&[R1]), 1), (0, 4)]);
+    let (port, orig) = b.script(&[(bits(&[UP]), 30)]);
+    let worst = report("pen", &port, &orig);
+    assert_eq!(worst, 0, "the same as the original's, every frame");
 }

@@ -397,13 +397,26 @@ impl Game {
         self.flights.shatter(m, rot, pos, q.pos, speed, &mut self.rand, self.sprites.as_ref());
     }
 
+    /// The object in focus (player +0x1e8, 0x8006af4c), as its placement:
+    /// the body's cylinder (its box's widest across and tallest) and the
+    /// segment down from the part the hierarchy names (header +0x24).
+    pub fn focus(&self) -> Option<usize> {
+        let p = &self.player;
+        let (lo, hi) = p.body_box();
+        let radius = lo[0].abs().max(hi[0].abs()).max(lo[2].abs().max(hi[2].abs()));
+        let half = lo[1].abs().max(hi[1].abs());
+        let part = p.hierarchy.header.get(0x24).copied().unwrap_or(0) as usize;
+        let at = p.part_at(part, &self.anims, &self.trig);
+        boxes::focus_at(&self.set, &self.trig, p.pos, radius, half, at)
+    }
+
     /// The landing's sounds (state 10's entry, 0x8005b624): 102 when the
     /// object in focus is template 505 (level 11), 43 on template 494
     /// (level 3), 57 on water in level 4.
     pub(super) fn land_sounds(&mut self, on: u16) {
-        let p = &self.player;
-        let (at, feet) = (p.pos, p.pos[1] - p.feet());
-        if boxes::focus(&self.set, at, at[1], feet) == Some(505) {
+        let at = self.player.pos;
+        let feet = at[1] - self.player.feet();
+        if self.focus().map(|k| self.set.placements[k].template) == Some(505) {
             self.play(102);
         } else if on == 494 {
             self.play_at(43, at);
@@ -422,9 +435,9 @@ impl Game {
     /// foot (slot 7 or 3 by the C rand's low bit).
     fn floor_touches(&mut self, q: &collide::Query) {
         let p = &self.player;
-        let (at, feet) = (p.pos, p.pos[1] - p.feet());
+        let at = p.pos;
         let step = p.animator.events & 256 != 0;
-        if let Some(k) = boxes::focus_placement(&self.set, at, at[1], feet) {
+        if let Some(k) = self.focus() {
             let place = self.set.placements[k];
             let template = self.set.templates.get(place.template as usize);
             let damage = template.map_or(0, |t| t.raw[0x32] as i16);

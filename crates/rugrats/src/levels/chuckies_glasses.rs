@@ -19,10 +19,9 @@ const BABIES: [(u16, usize, usize); 3] = [(608, 76, 42), (609, 75, 41), (1492, 7
 const HIDDEN: [u16; 5] = [13, 14, 15, 16, 600];
 /// Home: post 120 gets flag 32 (EpisodeStart 0x8007ee54).
 const HOME_POST: usize = 120;
-/// The playpen (template 1032 at (5926, -1387, 21212)): the area the
-/// oracle's catches fit (guess at 0x8006abbc's test).
-const PEN: [i32; 2] = [5926, 21212];
-const PEN_HALF: [i32; 2] = [1390, 2070];
+/// The playpen: the catch runs while it is the object in focus
+/// (0x8005ae98: +0x1e8 of template 1032, 0x8007f2e8).
+const PEN: u32 = 1032;
 /// Running speed (table row 1, index 4) and the tag's reach.
 const RUN: i32 = 11;
 const TAG_REACH: i64 = 900;
@@ -167,8 +166,7 @@ impl Script for ChuckiesGlasses {
             }
         }
         // The playpen (0x8007f2e8): a running baby is caught.
-        let p = g.player.pos;
-        let in_pen = (p[0] - PEN[0]).abs() < PEN_HALF[0] && (p[2] - PEN[1]).abs() < PEN_HALF[1];
+        let in_pen = g.focus().is_some_and(|k| g.set.placements[k].template == PEN);
         if in_pen {
             let caught = self
                 .babies

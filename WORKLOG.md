@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-176 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 83, render 28, save 4, test 24, tooling 18, ui 11, video 10.
+177 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 84, render 28, save 4, test 24, tooling 18, ui 11, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -188,3 +188,4 @@ The [reference](docs/README.md) says what is true now.
 | 174 | [The characters as the collision tests see them](worklog/0174-the-characters-as-the-collision-tests-see-them.md) | 2026-10-16 | play |
 | 175 | [Jumps as the original's, from press to landing](worklog/0175-jumps-as-the-original-s-from-press-to-landing.md) | 2026-10-16 | play |
 | 176 | [Letting go stops the turn; a hazard hurts once a contact](worklog/0176-letting-go-stops-the-turn-a-hazard-hurts-once-a-contact.md) | 2026-10-16 | play |
+| 177 | [The object in focus as the original finds it](worklog/0177-the-object-in-focus-as-the-original-finds-it.md) | 2026-10-17 | play |

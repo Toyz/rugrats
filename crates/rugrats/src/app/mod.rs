@@ -107,7 +107,7 @@ impl Rugrats {
             Boot::Game { .. } | Boot::Fade { .. } => "game",
             Boot::Credits { .. } => "credits",
             Boot::Screen { .. } => "screen",
-            Boot::FrontEnd => "front end",
+            Boot::Blank => "blank",
         }
     }
 
@@ -246,7 +246,7 @@ impl rrt::prelude::Game for Rugrats {
         if t.pressed().contains(Buttons::SELECT) && t.pad.held(Buttons::START) {
             t.exit();
         }
-        let boot = std::mem::replace(&mut self.boot, Boot::FrontEnd);
+        let boot = std::mem::replace(&mut self.boot, Boot::Blank);
         self.boot = self.step(boot, t);
     }
 

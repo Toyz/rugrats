@@ -42,6 +42,8 @@ const TOMMY: u16 = 1;
 /// Gravity (0x80061330): vy += 14 * dt, less 5 while jump is held.
 const GRAVITY: i32 = 14;
 const LIFT: i32 = -5;
+/// The timers' step a frame (0x800c3f20: dt * 4096 / 300).
+const TIMER_STEP: i32 = 136;
 /// The stick's push in the air at full, straight on (`air_push`: 12 an
 /// axis, the original's stack).
 pub const AIR_PUSH: i32 = 12;
@@ -190,6 +192,9 @@ pub struct Player {
     /// whether the flight has met something (D_800c4bc4 flag 2).
     launch_at: [i32; 3],
     air_hit: bool,
+    /// The held jump's lift left (D_800c4288), and Cross held this frame.
+    lift_time: i32,
+    lifting: bool,
     /// The heading before this frame's turn (the way's, +0x178), and the
     /// frame before's (the launch's).
     way_heading: i32,
@@ -291,6 +296,8 @@ impl Player {
             below: None,
             launch_at: [0; 3],
             air_hit: false,
+            lift_time: 0,
+            lifting: false,
             way_heading: 0,
             launch_heading: 0,
             landed: false,
@@ -330,6 +337,7 @@ impl Player {
         self.hints.clear();
         let held = |b: usize| pads.held(0, b);
         let pressed = |b: usize| pads.pressed(0, b);
+        self.lifting = held(input::CROSS);
         let start = self.pos;
         // The stick: digital directions are full (4096) on their axis;
         // up is +z.
@@ -494,8 +502,7 @@ impl Player {
             // The air (0x80061330): gravity 14, less 5 while jump is held
             // on the way up; across, the stick's push against the drag
             // (`air_step`).
-            let lift = if held(input::CROSS) && self.v[1] < 0 { LIFT } else { 0 };
-            air_landed = self.air_move(lift, col, trig, solids, anims, false);
+            air_landed = self.air_move(held(input::CROSS), col, trig, solids, anims, false);
             exact_air = true;
         }
         // The floor (0x800627a0): the feet on it, or back where the frame
@@ -766,6 +773,8 @@ impl Player {
                 // frame, +0x170).
                 self.v = [0, 0, self.speed << 6];
                 self.air_hit = false;
+                self.lift_time = 0;
+                self.air = 0;
             } else {
                 self.pos[1] = self.floor + self.feet;
             }
@@ -790,9 +799,6 @@ impl Player {
         } else if self.v[1] > 0 {
             self.state = State::Fall;
         }
-        // Counted on the way down only (guess: a held jump's whole time
-        // in the air would pass 193).
-        self.air = if matches!(self.state, State::Jump | State::Fall) && self.v[1] > 0 { self.air + DT } else { 0 };
         // Running onto a slippery floor (flag 2, 0x8005c96c): message 32,
         // the slip (anim 33), then its fall.
         let on_floor = matches!(self.state, State::Walk | State::Run);
@@ -1170,11 +1176,12 @@ impl Player {
             return;
         }
         if let Some(v) = self.pending_jump {
-            // The crouch is table state 5: off as it ends, its last part not
-            // had (the oracle: 868, 868, then 814). A moving jump's state
-            // (41) is off the frame after it comes, with nothing more of
-            // its keys (the run's 751, then 731 in state 41, then 585).
-            let off = state != 5 && (was.state == 5 || state == was.state);
+            // The crouch is table state 5; the state after it (6), or a
+            // moving jump's own (41), comes with the launch (0x80060f1c),
+            // and the first step in the air is the frame after (the oracle:
+            // 868, 868, 814 as the crouch's last part is had, then 664; the
+            // run's 778, then 632). Its keys are not had.
+            let off = state != 5 && state == was.state && was.state != 0;
             // (A moving jump's own state adds none of its keys: the
             // original leaves from the run's height that frame, 778 then
             // 632 from the hub's start.)
@@ -1201,7 +1208,11 @@ impl Player {
                 self.v = launch_v(trig.turn(h, [0, 0, 4096]), v[1], v[2], h, trig);
                 self.launch_at = self.pos;
                 self.air_hit = false;
-                self.air_move(0, col, trig, solids, anims, false);
+                // The lift's clock and the time in the air from the launch
+                // (0x80060f1c).
+                self.lift_time = 1024;
+                self.air = 0;
+                self.air_move(self.lifting, col, trig, solids, anims, false);
             }
             return;
         }
@@ -1259,29 +1270,62 @@ impl Player {
     /// (over 64), turned from the body's frame into the world's
     /// (0x80075ee8). Proved against the original's +0x170 frame by frame
     /// (`hub_start_run_and_jump_as_the_original`).
-    fn air_velocity(&mut self, lift: i32, trig: &Trig) -> [i32; 3] {
-        // Once the flight has met something (D_800c4bc4 flag 2) the stick
-        // no longer pushes and a held jump no longer lifts.
-        let (lift, push) = if self.air_hit { (0, [0, 0]) } else { (lift, self.push) };
-        let [vx, vy, vz] = self.v;
-        let len = if (vx.unsigned_abs() | vz.unsigned_abs()) >> 16 != 0 {
-            0
-        } else {
-            ((vx * vx + vz * vz) as u32).isqrt() as i32
-        };
+    fn air_velocity(&mut self, lifting: bool, trig: &Trig) -> [i32; 3] {
         let toward_zero = |v: i32| if v < 0 { (v + 4095) >> 12 } else { v >> 12 };
-        let l = toward_zero(-(len << 5));
-        let u = collide::normalize([vx, 0, vz]);
-        let a = [push[0] + toward_zero(u[0] * l), lift + GRAVITY, push[1] + toward_zero(u[2] * l)];
-        let half = |v: i32| (v + (v < 0) as i32) >> 1;
-        let d = [0, 1, 2].map(|k| (half(a[k] * DT * DT) + self.v[k] * DT) >> 6);
-        self.v = [
-            (vx + a[0] * DT) as i16 as i32,
-            (vy + a[1] * DT).min(4096),
-            (vz + a[2] * DT) as i16 as i32,
-        ];
-        // Back into the world (0x80075ee8): the move (+0xd8).
-        trig.turn(self.heading, d)
+        let mut moved = [0; 3];
+        let mut dt = DT;
+        loop {
+            // Once the flight has met something (D_800c4bc4 flag 2) the
+            // stick no longer pushes and a held jump no longer lifts.
+            let push = if self.air_hit { [0, 0] } else { self.push };
+            // The held jump's lift (D_800c4288): 1024 at the launch, a
+            // timer step (136) less each frame Cross is held on the way
+            // up; the frame it runs out has its lift for the rest of the
+            // clock's time (back in dt, * 300 / 4096) and the remainder
+            // without (0x80061330 has itself again). Any other frame ends
+            // it.
+            let mut step = dt;
+            let mut lift = 0;
+            if self.v[1] < 0 && !self.air_hit && self.lift_time > 0 && lifting {
+                lift = LIFT;
+                self.lift_time -= TIMER_STEP;
+                if self.lift_time < 0 {
+                    step = toward_zero((TIMER_STEP + self.lift_time) * 300);
+                }
+            } else {
+                self.lift_time = 0;
+            }
+            // The time in the air for the long fall (D_800c428c), once the
+            // lift is spent.
+            if self.lift_time <= 0 {
+                self.air += step;
+            }
+            let [vx, vy, vz] = self.v;
+            let len = if (vx.unsigned_abs() | vz.unsigned_abs()) >> 16 != 0 {
+                0
+            } else {
+                ((vx * vx + vz * vz) as u32).isqrt() as i32
+            };
+            let l = toward_zero(-(len << 5));
+            let u = collide::normalize([vx, 0, vz]);
+            let a = [push[0] + toward_zero(u[0] * l), lift + GRAVITY, push[1] + toward_zero(u[2] * l)];
+            let half = |v: i32| (v + (v < 0) as i32) >> 1;
+            let d = [0, 1, 2].map(|k| (half(a[k] * step * step) + self.v[k] * step) >> 6);
+            self.v = [
+                (vx + a[0] * step) as i16 as i32,
+                (vy + a[1] * step).min(4096),
+                (vz + a[2] * step) as i16 as i32,
+            ];
+            // Back into the world (0x80075ee8), added to the move (+0xd8).
+            let w = trig.turn(self.heading, d);
+            for k in 0..3 {
+                moved[k] += w[k];
+            }
+            if self.lift_time >= 0 {
+                return moved;
+            }
+            dt = toward_zero(-self.lift_time * 300);
+        }
     }
 
     /// The lowest of the body's posed joints (+0x68, set as
@@ -1304,7 +1348,7 @@ impl Player {
     /// the body or stops its way across, and the move is had once more
     /// this frame (`again` set for it). Whether it landed.
     #[allow(clippy::too_many_arguments)]
-    fn air_move(&mut self, lift: i32, col: &Col, trig: &Trig, solids: &[Exact], anims: &Anims, again: bool) -> bool {
+    fn air_move(&mut self, lift: bool, col: &Col, trig: &Trig, solids: &[Exact], anims: &Anims, again: bool) -> bool {
         let saved = self.pos;
         let mut d = self.air_velocity(lift, trig);
         let plane = collide::query(col, self.pos).floor;
@@ -1356,7 +1400,7 @@ impl Player {
     /// it (0x80061be8), the way across stopped. The move left, and whether
     /// it landed.
     #[allow(clippy::too_many_arguments)]
-    fn air_react(&mut self, r: ground::Air, d: [i32; 3], saved: [i32; 3], lift: i32, col: &Col, trig: &Trig, solids: &[Exact], anims: &Anims, again: bool) -> ([i32; 3], bool) {
+    fn air_react(&mut self, r: ground::Air, d: [i32; 3], saved: [i32; 3], lift: bool, col: &Col, trig: &Trig, solids: &[Exact], anims: &Anims, again: bool) -> ([i32; 3], bool) {
         let jumping = matches!(self.state, State::Jump | State::Fall);
         match r {
             ground::Air::Clear => (d, false),

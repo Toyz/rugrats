@@ -471,9 +471,11 @@ impl Animator {
             } else {
                 0
             };
+            // (Each part rounded toward zero, as 0x80055904's deltas are.)
             for i in 0..3 {
                 total[i] += r[i];
-                done[i] += (r[i] * part) >> 12;
+                let p = r[i] * part;
+                done[i] += if p < 0 { (p + 4095) >> 12 } else { p >> 12 };
             }
         }
         any.then_some((done, total))

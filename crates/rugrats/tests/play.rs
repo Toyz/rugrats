@@ -1535,8 +1535,9 @@ fn win_11(g: &mut Game) {
     }
     assert_eq!(cine, Some(54), "ring 1");
     finish(g, 54);
-    // Ring 2: along +x into the ramp's zone (x 15000..22700), Cross 6700
-    // in.
+    // Ring 2: along +x into the ramp's zone (x 15000..22700), Cross 7450
+    // in (7300 to 7600 make it, the held jump's lift on the original's
+    // clock).
     let y = g.player.pos[1];
     put(g, [13500, y, 34300], 1024);
     let mut from = None;
@@ -1546,7 +1547,7 @@ fn win_11(g: &mut Game) {
             from = Some(x);
         }
         match from {
-            Some(f) if x - f >= 6700 => vec![input::UP, input::CROSS],
+            Some(f) if x - f >= 7450 => vec![input::UP, input::CROSS],
             _ => vec![input::UP],
         }
     });
@@ -1938,8 +1939,14 @@ fn a_jump_moves_as_the_original() {
     let oracle =
         [783, 794, 810, 827, 843, 859, 868, 868, 814, 668, 544, 442, 362, 304, 268, 253, 260, 289, 340, 413, 508];
     let mut seen = Vec::new();
-    run(&mut g, &[(&[input::CROSS], 1), (&[], 20)], |g, _| seen.push(g.player.parts(&g.anims, &g.trig)[0].1.y as i32));
-    for (k, (&y, &o)) in seen.iter().zip(&oracle).enumerate() {
+    run(&mut g, &[(&[input::CROSS], 1), (&[], 21)], |g, _| seen.push(g.player.parts(&g.anims, &g.trig)[0].1.y as i32));
+    // The port draws the crouch's root a frame before the original's
+    // height has it (+0xda, had the frame after), and leaves the floor on
+    // the original's own frame (`tests/hle.rs`): the crouch's last height
+    // shows twice.
+    let (crouch, air) = (&seen[..9], &seen[10..]);
+    assert_eq!(seen[8], seen[9], "{seen:?}");
+    for (k, (&y, &o)) in crouch.iter().chain(air).zip(&oracle).enumerate() {
         assert!((y - o).abs() <= 2, "frame {k}: {y} against {o} ({seen:?})");
     }
 }

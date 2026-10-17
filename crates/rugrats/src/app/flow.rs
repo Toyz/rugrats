@@ -78,8 +78,9 @@ pub(super) enum Boot {
     /// The screens between and inside levels (the piece, the board, the
     /// bars): the level frozen, not drawn.
     Screen { screen: Box<Screen>, then: Then },
-    /// Where the port ends for now.
-    FrontEnd,
+    /// Black, nothing running: where a screen whose files failed to load
+    /// leaves the game (its error logged).
+    Blank,
 }
 
 /// The pages after a piece was given in `level` (0x8009480c): the message,
@@ -164,7 +165,7 @@ impl Rugrats {
             Ok(movie) => Boot::Logo { n, movie: Box::new(movie) },
             Err(e) => {
                 rrt::tracing::error!("movie {n}: {e}");
-                Boot::FrontEnd
+                Boot::Blank
             }
         }
     }
@@ -174,7 +175,7 @@ impl Rugrats {
             Ok(cine) => Boot::Opening { cine: Box::new(cine) },
             Err(e) => {
                 rrt::tracing::error!("the opening: {e}");
-                self.front_end()
+                self.blank()
             }
         }
     }
@@ -214,7 +215,7 @@ impl Rugrats {
             }
             Err(e) => {
                 rrt::tracing::error!("the title: {e}");
-                self.front_end()
+                self.blank()
             }
         }
     }
@@ -495,14 +496,14 @@ impl Rugrats {
             }
             Err(e) => {
                 rrt::tracing::error!("level {level}: {e}");
-                self.front_end()
+                self.blank()
             }
         }
     }
 
-    pub(super) fn front_end(&mut self) -> Boot {
-        rrt::tracing::info!("boot: the front end is not ported yet");
+    pub(super) fn blank(&mut self) -> Boot {
+        rrt::tracing::warn!("boot: nothing to show after that error");
         self.picture = Picture::filled(320, 240, [0, 0, 0, 255]);
-        Boot::FrontEnd
+        Boot::Blank
     }
 }

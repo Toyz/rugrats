@@ -983,7 +983,11 @@ impl Game {
             strokes: None,
         };
         g.talkers = talkers(&g.set, level);
-        g.player.falls_hurt = !g.no_damage;
+        // A long fall hurts (0x8005b2d8) but in the hub, level 2 and the
+        // circus, and not Spike (the player's type 9, character 6).
+        g.player.falls_hurt = !g.no_damage
+            && !matches!(level, Level::HUB | Level::GRANDPAS_TEETH | Level::CIRCUS)
+            && g.character != 6;
         // Spinners still hurt on touch where they stand (their +0x6d).
         let hazard_skip: Vec<bool> =
             (0..g.apart.len()).map(|k| g.apart[k] && !g.spinners.iter().any(|s| s.placement == k)).collect();

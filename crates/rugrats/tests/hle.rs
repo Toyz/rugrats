@@ -232,3 +232,15 @@ fn hub_run_at_the_seat_as_the_original() {
     let worst = report("seat", &port, &orig);
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
+
+/// Level 1 from its start: a standing jump with Cross held (the lift's
+/// clock, D_800c4288, runs out on the way up).
+#[test]
+#[ignore]
+fn hub_held_jump_as_the_original() {
+    use rugrats::input::CROSS;
+    let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
+    let (port, orig) = b.script(&[(0, 3), (bits(&[CROSS]), 20), (0, 20)]);
+    let worst = report("held", &port, &orig);
+    assert_eq!(worst, 0, "the same as the original's, every frame");
+}

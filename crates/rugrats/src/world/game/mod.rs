@@ -11,7 +11,7 @@ use rugrats_render::{Vtx, models};
 
 use crate::actors::animator::{self, Animator};
 use crate::actors::npc::{self, Event, Mode, Post, REACH, World};
-use crate::actors::player::anim::{CRY, IDLE};
+use crate::actors::player::anim::IDLE;
 use crate::actors::player::{Box3, DT, HEIGHT, Player, RADIUS, SLOW_TURN, State, TURN};
 use crate::audio::ambience::{self, Tables};
 use crate::audio::speech::Speech;
@@ -526,6 +526,11 @@ impl Game {
             pan(&self.trig, angle.rem_euclid(4096), v)
         };
         Some(at)
+    }
+
+    /// The cry's time left (dt; 0 when not crying), for tools.
+    pub fn crying(&self) -> i32 {
+        self.crying
     }
 
     pub fn open(disc: &GameDisc, level: Level) -> Result<Game, String> {
@@ -1263,11 +1268,18 @@ impl Game {
                 None => self.player.hurt(amount),
             }
         }
+        // (The player's health at 0 there is ForceCry at once, 0x8007fd0c
+        // from 0x80077864: no update this frame.)
+        if self.player.health <= 0 {
+            self.cry();
+        }
         if self.crying > 0 {
             // The cry runs on its own (0x8007f920's loop): the world waits.
             self.crying -= DT;
             self.player.animator.step(&self.anims, &self.trig);
-            if self.crying <= 0 || !self.player.animator.playing(CRY) {
+            // (Its time out, or the base's end, +0xe0 0x8000000; a cry
+            // held on its last frame waits for the time.)
+            if self.crying <= 0 || self.player.animator.events & 0x800_0000 != 0 {
                 self.crying = 0;
                 self.cried();
             }

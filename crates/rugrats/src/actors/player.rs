@@ -1165,7 +1165,9 @@ impl Player {
             p @ ground::Probed::Held { record, slide } => {
                 let a = p.slant().abs();
                 match slide {
-                    Some((t, _)) if a >= self.head_on && a < 1024 => {
+                    // (A character, flag 0x4000, never slides: 0x80065120
+                    // answers no at once.)
+                    Some((t, _)) if !character && a >= self.head_on && a < 1024 => {
                         // The way turned along the tangent, the old way's
                         // length kept (its floor square root, 0x8001f4ec),
                         // made a unit again (0x80076a74, 0x8009f278).
@@ -1178,6 +1180,9 @@ impl Player {
                             ((0, 0), Some(record), true)
                         }
                     }
+                    // Nor does it climb what holds it at a slant (0x80062cf4:
+                    // under `head_on` only): held, no floor to climb to.
+                    _ if character && a >= self.head_on => ((0, 0), Some(ground::Record { delta: ground::VOID, ..record }), true),
                     _ => ((0, 0), Some(record), true),
                 }
             }

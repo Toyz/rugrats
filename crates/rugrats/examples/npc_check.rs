@@ -169,6 +169,33 @@ fn main() -> Result<(), String> {
         && let Some(m) = moves
         && let Some(&(_, o)) = pairs.iter().find(|(k, _)| *k == m)
     {
+        // The character probe's kind (0x80064444 back in 0x80064838):
+        // kind, limit, the record's delta and normal (+0xf4 + 0x50, +0x20).
+        p.hle.m.hook(0x8006_49a0, move |c| {
+            if c.cpu.reg(19) as u32 == o {
+                let mut r = |a: u32| c.bus.read_u32(a).unwrap_or(0) as i32;
+                let rec = o + 0xf4;
+                println!(
+                    "     PROBE kind {} limit {} delta {} normal {:?} way {:?} touched {:#x} template {}",
+                    c.cpu.reg(2) as i32,
+                    c.cpu.reg(17) as i32,
+                    r(rec + 0x50),
+                    [r(rec + 0x20), r(rec + 0x24), r(rec + 0x28)],
+                    [r(o + 0x178), r(o + 0x17c), r(o + 0x180)],
+                    r(o + 0xf4) as u32,
+                    { let t = r(o + 0xf4) as u32; if t != 0 { r(t + 0x94) >> 16 } else { 0 } }
+                );
+            }
+            rrt::emu::HookResult::Continue
+        });
+        p.hle.m.hook(0x8006_4970, move |c| {
+            if c.cpu.reg(19) as u32 == o {
+                let sp = c.cpu.reg(29) as u32;
+                let mut r = |a: u32| c.bus.read_u32(a).unwrap_or(0) as i32;
+                println!("     ZZPOINT reach {} off {:?} point {:?}", c.cpu.reg(20) as i32, [r(sp + 16), r(sp + 20), r(sp + 24)], [r(sp + 32), r(sp + 36), r(sp + 40)]);
+            }
+            rrt::emu::HookResult::Continue
+        });
         for a in [0x8008_4084u32, 0x8005_a068, 0x8005_6834, 0x8005_7214, 0x8005_72a8] {
             p.hle.m.hook(a, move |c| {
                 if c.arg32(0) == o {
@@ -200,6 +227,8 @@ fn main() -> Result<(), String> {
     let mut clock = p.read_i32(0x800c_3e98);
     for f in 0..frames {
         if sync_at.is_some_and(|s| s == f || s < f && lagged) {
+            // (The player's health too: a bite may end it.)
+            g.player.health = p.read_i16(0x800e_2b48 + 0x1a4) as i32;
             for &(k, o) in &pairs {
                 let t = tracks(&mut p, o);
                 let speed = p.read_i16(o + 0xe4) as i32;
@@ -218,10 +247,31 @@ fn main() -> Result<(), String> {
                 if let rugrats::actors::npc::Mode::Posts { .. } = n.mode {
                     n.mode = rugrats::actors::npc::Mode::Posts { prev, cur };
                 }
+                // A follower's place in its bite (+0x699: 5, 1, 0, else 4).
+                if let rugrats::actors::npc::Mode::Follow(_) = n.mode {
+                    use rugrats::actors::npc::Bite;
+                    // (Where it aims, +0x67c.)
+                    n.goal = [0, 4, 8].map(|i| p.read_i32(o + 0x67c + i));
+                    n.bite = match p.read_u8(o + 0x699) {
+                        5 => Bite::Strike,
+                        1 => Bite::Recover,
+                        0 => Bite::Resume,
+                        _ => Bite::Chase,
+                    };
+                }
             }
         }
         g.frame(&pads);
         p.frame(0)?;
+        // PLAYER=1: the player's base track beside the port's, each frame.
+        if std::env::var_os("PLAYER").is_some() {
+            println!("{f:3} PLAYER orig {:?} health {} | port {:?} health {} crying {}", tracks(&mut p, 0x800e_2b48)[0], p.read_i16(0x800e_2b48 + 0x1a4), g.player.animator.record()[0], g.player.health, g.crying());
+        }
+        // (The level left: no more to compare.)
+        if let Some(e) = &g.exit {
+            println!("{f:3} EXIT {e:?}");
+            break;
+        }
         let dt = p.read_i32(0x800c_3e98) - clock;
         clock += dt;
         lagged = dt != 10;
@@ -236,7 +286,7 @@ fn main() -> Result<(), String> {
             let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
             let way = [0, 4, 8].map(|i| p.read_i32(o + 0x178 + i));
             println!(
-                "{f:3} MOVE orig {at:?} h {} to {} mode {} wait {} ev {:#x} track0 {:?} speed {} way {way:?} v {:?} state {} flags {:#x} held {} posts {}<{} | port {:?} h {} speed {} {:?} {:?} {:?}",
+                "{f:3} MOVE orig {at:?} h {} to {} mode {} wait {} ev {:#x} track0 {:?} speed {} way {way:?} v {:?} state {} flags {:#x} held {} posts {}<{} player health {} | port {:?} h {} speed {} {:?} {:?} {:?}",
                 p.read_i16(o + 0x24),
                 p.read_i16(o + 0x2c),
                 p.read_u8(o + 0x699),
@@ -250,6 +300,7 @@ fn main() -> Result<(), String> {
                 p.read_i16(o + 0x1b0),
                 p.read_u8(o + 0x695),
                 p.read_u8(o + 0x694),
+                p.read_i16(0x800e_2b48 + 0x1a4),
                 n.pos,
                 n.heading,
                 n.speed,

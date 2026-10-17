@@ -98,8 +98,10 @@ impl Game {
             return;
         }
         self.crying = CRY_TIME;
-        // 0x8007f920: 0x800572a8(player, 16, 2560).
+        // 0x8007f920: 0x800572a8(player, 16, 2560), and the body's update
+        // after it (0x8005a068) steps it once before the loop's first.
         self.player.act_at(CRY, 2560, &self.anims);
+        self.player.animator.step(&self.anims, &self.trig);
         // 0x8007f920: characters 1-5 say 2040 + character at once
         // (0x8008df78).
         if (1..=5).contains(&self.character) {

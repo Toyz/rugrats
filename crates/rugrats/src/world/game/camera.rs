@@ -242,6 +242,15 @@ impl Game {
         (self.follow.eye, self.follow.look)
     }
 
+    /// The follow camera's whole state, for comparing with the original:
+    /// eye, its velocity (camera +0x98), look-at, the follow bits
+    /// (0x800c4a3c), the swing's time (0x800c4a58), the look-ahead and its
+    /// speed (0x800c4a5c, 0x800c4a38).
+    pub fn follow_state(&self) -> ([i32; 3], [i32; 3], [i32; 3], u32, i32, i32, i32) {
+        let f = &self.follow;
+        (f.eye, f.vel, f.look, f.flags, f.swing, f.ahead, f.ahead_speed)
+    }
+
     /// Puts the follow camera behind heading `yaw` at once, as the follow
     /// setup does for the player's (0x80025e90: straight behind, then the
     /// reset 0x80026ddc); for levels and tools.

@@ -3476,6 +3476,12 @@ fn tommy_runs_past_level_3s_tipped_toy_as_the_original() {
     run(&mut g, &[(&[], 5)], |_, _| {});
     for k in 0..4 {
         run(&mut g, &[(&[], 37 * k)], |_, _| {});
+        // The creatures kept out of it: they now meet the player as their
+        // posed parts, and where they wander is the port's own (the route
+        // walkers, `npc`), not the oracle's.
+        for n in g.npcs.iter_mut() {
+            n.hidden = true;
+        }
         g.player.pos = [68500, 779, 4290];
         g.player.heading = 1024;
         g.player.target = 1024;

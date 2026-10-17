@@ -93,6 +93,22 @@ impl Both {
                     let exact = self.game.trig.look_at(cam_eye, look);
                     eprintln!("    eye {eye:?} look {look:?} cam {cam_eye:?} at {smooth:?} m {mat:?} exact {exact:?} | port {:?}", self.game.follow_camera());
                 }
+                if std::env::var_os("CAMSTATE").is_some() {
+                    let r = |h: &mut Play, a: u32| [0, 4, 8].map(|k| h.read_i32(a + k));
+                    let m = self.hle.read_u32(rugrats_hle::play::PLAYER + 0x224);
+                    let o = (
+                        r(&mut self.hle, 0x800d_e530),
+                        r(&mut self.hle, m + 0x98),
+                        r(&mut self.hle, 0x800d_e454),
+                        self.hle.read_u32(0x800c_4a3c),
+                        self.hle.read_i32(0x800c_4a58),
+                        self.hle.read_i32(0x800c_4a5c),
+                        self.hle.read_i32(0x800c_4a38),
+                    );
+                    let p = self.game.follow_state();
+                    let same = o == p;
+                    eprintln!("    cam {} orig {o:?}\n        port {p:?}", if same { "same" } else { "DIFF" });
+                }
                 orig.push(Seen { pos: o.pos, heading: o.heading as i32 & 4095, state: o.state, camera });
             }
         }

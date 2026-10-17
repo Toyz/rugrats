@@ -123,6 +123,9 @@ pub struct Npc {
     pub loops: (i32, i32),
     /// Half its size (the hierarchy's, which a level may grow).
     pub size: i32,
+    /// Its template's flag 0x2000: the collision tests meet its posed
+    /// parts (0x8006a318), not its hierarchy's one box (0x8006a008).
+    pub posed: bool,
     /// Left in a state that does not walk (Mr. Friend's 19 after his
     /// return in level 9's phase 2): following, it stays put until the
     /// target is within a bite.

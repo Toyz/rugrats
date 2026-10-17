@@ -628,12 +628,12 @@ impl Player {
             let floor_like = top >= start_feet.min(feet_y) - STEP_UP && (b.character || !ground || top >= start[1].min(self.pos[1]));
             let met = !floor_like
                 && b.max_y > head
-                && if b.character || !ground {
-                    near && (b.depth(self.pos, RADIUS) > b.depth(start, RADIUS) || b.crosses(start, self.pos))
-                } else if b.solid.is_some() {
+                && if b.solid.is_some() && ground {
                     // On the ground the probes met it, if at all
                     // (`ground_move`).
                     false
+                } else if b.character || !ground {
+                    near && (b.depth(self.pos, RADIUS) > b.depth(start, RADIUS) || b.crosses(start, self.pos))
                 } else {
                     let n = probe_hit(b, &probes, feet_y, self.pos[1]);
                     face = face.or(n);

@@ -205,6 +205,7 @@ impl GrandpasTeeth {
                 first_post: 0,
                 loops: (0, 0),
                 size: 0,
+                posed: false,
                 rooted: false,
                 bumped: false,
                 reach: 600,

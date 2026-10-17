@@ -832,8 +832,8 @@ impl Game {
             // index, +0x32 damage (0x80081bac).
             let t = &set.templates[p.template as usize];
             let h16 = |at: usize| u16::from_le_bytes([t.raw[at], t.raw[at + 1]]) as i32;
-            let [_, qy, _, qw] = p.rotation.map(|v| v as f64);
-            let heading = ((2.0 * qy.atan2(qw) / std::f64::consts::TAU * 4096.0).round() as i32).rem_euclid(4096);
+            // Its heading: the placement's angles (0x800202b8).
+            let heading = (trig.placed_angles(p.rotation)[0] as i32).rem_euclid(4096);
             let mut n = Npc {
                 id: p.id,
                 character: h,
@@ -856,6 +856,7 @@ impl Game {
                 first_post: p.post,
                 loops: (p.level as i32, p.level as i32),
                 size: 0,
+                posed: t.flags & 0x2000 != 0,
                 rooted: false,
                 bumped: false,
                 reach: 600,
@@ -1274,9 +1275,10 @@ impl Game {
                 }));
             }
         }
-        // The other characters stand in the way: a box of their radius
-        // (object +0x86 is 0x2000 / 8 for a baby, guessed at 200) from the
-        // feet up.
+        // The other characters stand in the way: for the player's probes
+        // their hierarchy's box (below, `solids`); this float box of 200
+        // about them from the feet up 700 for the rest (the things' flights,
+        // the doors).
         for n in self.npcs.iter().filter(|n| !n.hidden && !matches!(n.mode, Mode::Ride { .. })) {
             let feet = (n.pos[1] - n.feet()) as f32;
             boxes.push(Box3 {
@@ -1305,7 +1307,45 @@ impl Game {
             self.level != Level::REPTAR_2010 && !(self.level == Level::CIRCUS && self.character == 6);
         self.player.head_on = if self.character == 6 { 220 } else { 384 };
         self.player.set_character(self.character as u16);
-        let solids = boxes::solids(&mut boxes, &self.set);
+        let mut solids = boxes::solids(&mut boxes, &self.set);
+        // The characters as the collision tests see them (0x8006a008):
+        // their hierarchy's one box, turned by their heading, screened by
+        // a cube of 1773 (+0x78), size 8192 (+0x86), each its float box
+        // linked.
+        let mut npcs = self.npcs.iter().filter(|n| !n.hidden && !matches!(n.mode, Mode::Ride { .. }));
+        for b in boxes.iter_mut().filter(|b| b.character) {
+            let Some(n) = npcs.next() else { break };
+            let h = |at: usize| n.hierarchy.header.get(at..at + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
+            let shape = if n.posed {
+                // Its parts as posed (0x8006a318): each part's matrix (the
+                // world into the part, its rotation transposed) and joint,
+                // and its model's boxes; from the pose as drawn.
+                let at = Vec3::new(n.pos[0] as f32, (n.pos[1] + n.root.y) as f32, n.pos[2] as f32);
+                let posed = rugrats_render::models::posed_parts(&n.hierarchy, &n.animator.locals(&n.hierarchy, &self.anims), n.rotation(&self.trig), at);
+                let parts = n
+                    .hierarchy
+                    .parts
+                    .iter()
+                    .zip(posed)
+                    .map(|(part, (rot, joint))| crate::world::boxhit::Part {
+                        rot: [0, 1, 2].map(|r| [0, 1, 2].map(|c| (rot.col(r)[c] * 4096.0).round() as i32)),
+                        trans: [joint.x.round() as i32, joint.y.round() as i32, joint.z.round() as i32],
+                        boxes: self
+                            .set
+                            .models
+                            .get(part.model)
+                            .map(|m| m.boxes.iter().map(|(lo, hi)| (lo.map(|v| v as i32), hi.map(|v| v as i32))).collect())
+                            .unwrap_or_default(),
+                    })
+                    .collect();
+                crate::world::boxhit::Shape::Parts(parts)
+            } else {
+                crate::world::boxhit::Shape::Body([h(4), h(6), h(8)], [h(0xc), h(0xe), h(0x10)])
+            };
+            let solid = crate::world::boxhit::Solid { pos: n.pos, angles: [n.heading as i16, 0, 0], bound: 1773, size: 8192, shape };
+            solids.push(crate::world::boxhit::Exact { solid, climb: false, template: 0 });
+            b.solid = Some(((solids.len() - 1) as u16, 0));
+        }
         self.player.frame(pads, self.camera_heading(), &self.col, &boxes, &solids, &self.anims, &self.trig);
         // A thing run into with a +0x6d hurts by it (Damage, 0x800780ac).
         if let Some(t) = self.player.bumped.take() {

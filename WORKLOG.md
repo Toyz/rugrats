@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-190 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 92, render 29, save 4, test 26, tooling 18, ui 13, video 10.
+191 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 93, render 29, save 4, test 26, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -202,3 +202,4 @@ The [reference](docs/README.md) says what is true now.
 | 188 | [The NPCs step before they ask; Spike held to the original](worklog/0188-the-npcs-step-before-they-ask-spike-held-to-the-original.md) | 2026-10-17 | play |
 | 189 | [What this session has answered](worklog/0189-what-this-session-has-answered.md) | 2026-10-17 | test |
 | 190 | [The follow camera's heading held to the original's](worklog/0190-the-follow-camera-s-heading-held-to-the-original-s.md) | 2026-10-17 | render |
+| 191 | [Held standing puts the speed by](worklog/0191-held-standing-puts-the-speed-by.md) | 2026-10-17 | play |

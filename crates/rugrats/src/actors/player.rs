@@ -851,6 +851,11 @@ impl Player {
                 s if s <= WALK => State::Walk,
                 _ => State::Run,
             };
+            // Held standing, its speed is put by (+0x184 into +0x176) and
+            // is 0 (0x8005d11c).
+            if stopped && self.state == State::Stand {
+                self.speed = 0;
+            }
         }
         let a = match self.state {
             _ if self.hold.is_some() => self.hold.unwrap(),

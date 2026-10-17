@@ -93,6 +93,14 @@ impl Both {
     fn put(&mut self, pos: [i32; 3], heading: i32, settle: usize) {
         self.sync_animation();
         self.hle.put(pos, heading as i16);
+        // And the body's matrix (+4, 0x80020d10 of its angles), which the
+        // original makes again only as it turns.
+        let m = self.game.trig.rotation([heading as i16, 0, 0]);
+        for r in 0..3 {
+            for c in 0..3 {
+                self.hle.write_i16(rugrats_hle::play::PLAYER + 4 + 2 * (3 * r + c) as u32, m[r][c] as i16);
+            }
+        }
         let p = &mut self.game.player;
         p.pos = pos;
         p.heading = heading;
@@ -260,6 +268,7 @@ fn hub_start_run_and_jump_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[UP, LEFT]), 12), (bits(&[UP, LEFT, CROSS]), 1), (bits(&[UP, LEFT]), 24)]);
     let worst = report("start", &port, &orig);
+    assert_eq!(camera_off(&port, &orig), 0, "the original's camera heading");
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
@@ -277,6 +286,7 @@ fn egg_hunt_slide_and_bump_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 2)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 70)]);
     let worst = report("slide", &port, &orig);
+    assert_eq!(camera_off(&port, &orig), 0, "the original's camera heading");
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");

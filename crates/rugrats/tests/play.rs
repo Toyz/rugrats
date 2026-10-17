@@ -3564,3 +3564,16 @@ fn the_stick_pushes_a_jump_on_as_the_original() {
     run(&mut g, &[(&[input::UP, input::CROSS], 12)], |g, _| ys.push(g.player.pos[1]));
     assert!(ys.iter().all(|&y| y < -4000) && ys.iter().any(|&y| y < -5000), "{ys:?}");
 }
+
+/// Each cinematic's lens is its own (0x8001dfb8, the table at 0x800b8bd4):
+/// the opening's field of view 955, the projection 178 the port had for
+/// all; the new game's (cine 7) 512, as most, about 2.2 times nearer. The
+/// oracle's cine 7 opens on the car and the blocks filling the screen.
+#[test]
+fn a_cinematic_has_its_own_lens_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let trig = rugrats::gte::Trig::load(&disc).unwrap();
+    let focal = |n| rugrats::media::cine::focal(&disc, &trig, n);
+    assert_eq!(focal(0), 178.0);
+    assert!((380.0..=390.0).contains(&focal(7)), "{}", focal(7));
+}

@@ -10,7 +10,8 @@ fn main() -> Result<(), String> {
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let stream = rugrats::media::cine::Stream::read(&disc, 0)?;
     let (_, f) = &stream.frames[want - 1];
-    let m = rugrats::media::cine::camera(f);
+    let trig = rugrats::gte::Trig::load(&disc)?;
+    let m = rugrats::media::cine::camera(f, rugrats::media::cine::focal(&disc, &trig, 0));
     let lp = rugrats_data::placement::parse_lp(&disc.file(402 + 22)?);
     let templates = rugrats_data::placement::parse_templates(&disc.file(239)?);
     for (k, p) in lp.iter().enumerate().filter(|(_, p)| p.kind == 1) {

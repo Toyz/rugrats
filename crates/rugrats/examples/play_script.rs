@@ -88,7 +88,11 @@ fn main() -> Result<(), String> {
         game.player.health = h;
     }
     let gpu = Gpu::headless().map_err(|e| e.to_string())?;
-    let (w, h) = (640, 480);
+    // SHOT_SIZE=WxH for another size than 640 x 480.
+    let (w, h) = std::env::var("SHOT_SIZE")
+        .ok()
+        .and_then(|s| s.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?))))
+        .unwrap_or((640, 480));
     let target = Target::new(&gpu.device, w, h);
     let mut pads = Pads::default();
     let mut frame = 0usize;

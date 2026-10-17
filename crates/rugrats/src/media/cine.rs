@@ -48,8 +48,25 @@ const SKIPPED: [u32; 6] = [1242, 1041, 1267, 834, 382, 625];
 /// with `set_backdrop` (0x8001d218).
 pub const BACKDROP: [u8; 3] = [217, 175, 141];
 
-/// The GTE's projection distance in cinematics, on the 512 x 240 screen.
+/// The GTE's projection distance in cinematics, on the 512 x 240 screen,
+/// where a cinematic's lens is out of range: the opening's (field of view
+/// 955).
 const FOCAL: f32 = 178.0;
+
+/// Cinematic `n`'s projection distance (0x8007424c -> 0x8001dfb8): its
+/// field of view, the first half-word of its row of the table at
+/// 0x800b8bd4 (955 the opening's, 512 most others), as 160 over the
+/// tangent of half of it (0xa0000 / tan in 4.12), SetGeomScreen's H.
+pub fn focal(disc: &GameDisc, trig: &Trig, n: usize) -> f32 {
+    let Ok(b) = disc.exe_bytes(0x800b_8bd4 + 16 * n as u32, 2) else { return FOCAL };
+    let fov = i16::from_le_bytes([b[0], b[1]]) as i32;
+    if !(2..2048).contains(&fov) {
+        return FOCAL;
+    }
+    let half = fov / 2;
+    let tan = ((trig.sin(half) << 12) / trig.cos(half).max(1)) as i16 as i32;
+    if tan <= 0 { FOCAL } else { (0xa0000 / tan) as i16 as f32 }
+}
 
 /// A database as a cinematic sees it: rooms, models, skeletons, and the
 /// objects its LP file places.
@@ -280,8 +297,8 @@ fn vec3(p: [i32; 3]) -> Vec3 {
 
 /// The view and projection of frame `f`'s camera. The stream's quaternion
 /// goes through 0x80020580, the transpose of the parts' matrix.
-pub fn camera(f: &Frame) -> Mat4 {
-    crate::stage::view(vec3(f.camera_pos), quat_matrix(f.camera_q).transpose(), FOCAL)
+pub fn camera(f: &Frame, focal: f32) -> Mat4 {
+    crate::stage::view(vec3(f.camera_pos), quat_matrix(f.camera_q).transpose(), focal)
 }
 
 /// A cinematic's stream: its frames, each with the tick (from the start)
@@ -382,6 +399,8 @@ pub struct Cine {
     /// What the frame shown leaves on screen: the rooms, the objects, the
     /// camera, the backdrop.
     pub stage: Stage,
+    /// Its lens's projection distance (`focal`).
+    focal: f32,
     /// Whether it fades out at its end, and how far it has.
     fades: bool,
     fade: i32,
@@ -406,7 +425,9 @@ impl Cine {
         let ending =
             if n == ending::CINE { Some((Ending::new(), Trig::load(disc)?, Fonts::load(disc)?)) } else { None };
         let fades = music_flags(disc, n) & 1 == 0;
+        let focal = focal(disc, &Trig::load(disc)?, n);
         Ok(Cine {
+            focal,
             set,
             stream,
             started: now,
@@ -446,7 +467,7 @@ impl Cine {
         self.stage.vram_rev += 1;
         let f = &self.stream.frames[k].1;
         self.stage.set_moving(self.set.objects(f));
-        self.stage.camera = camera(f);
+        self.stage.camera = camera(f, self.focal);
         self.stage.overlay.clear();
         if let Some((e, trig, fonts)) = &self.ending
             && Ending::started(Some(f.number))

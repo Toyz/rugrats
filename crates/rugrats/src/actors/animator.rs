@@ -7,10 +7,8 @@
 //! The tables by character (0x8008a42c, into object +0xe8 and +0xec): a
 //! state's entry (s16 a state) and per entry four ANM ids (s16, -1 none).
 
-use rrt::glam::Mat3;
 use rugrats_data::anim::{Anims, Key};
 use rugrats_data::hierarchy::Hierarchy;
-use rugrats_render::models::quat_matrix;
 
 use crate::disc::GameDisc;
 use crate::gte::Trig;
@@ -775,19 +773,19 @@ impl Animator {
         any.then_some((done, total))
     }
 
-    /// The parts' rotations as the samplers left them (None: never
-    /// turned).
-    pub fn locals(&self, hierarchy: &Hierarchy, _anims: &Anims) -> Vec<Option<Mat3>> {
+    /// Each part's kept quaternion (the part's +4 in the original), by
+    /// part (None: never turned, the disc's zeros).
+    pub fn turns(&self, hierarchy: &Hierarchy) -> Vec<Option<[i32; 4]>> {
         let mut out = vec![None; hierarchy.parts.len()];
         for (channel, q) in self.pose.iter().enumerate() {
-            let Some(q) = q else { continue };
             let part = hierarchy.header.get(0x14 + channel).copied().unwrap_or(0xff);
-            if let Some(slot) = out.get_mut(part as usize) {
-                *slot = Some(quat_matrix(q.map(|v| v as i16)));
+            if let (Some(q), Some(slot)) = (q, out.get_mut(part as usize)) {
+                *slot = Some(*q);
             }
         }
         out
     }
+
 }
 
 /// A frame's length (its +2, at least 1), as a track's time left starts.

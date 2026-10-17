@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-180 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 85, render 28, save 4, test 24, tooling 18, ui 13, video 10.
+181 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 86, render 28, save 4, test 24, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -192,3 +192,4 @@ The [reference](docs/README.md) says what is true now.
 | 178 | [HUD icons at the original's sizes; the overlay drawn in its order](worklog/0178-hud-icons-at-the-original-s-sizes-the-overlay-drawn-in-its.md) | 2026-10-17 | ui |
 | 179 | [The timer laid out as the original lays it out](worklog/0179-the-timer-laid-out-as-the-original-lays-it-out.md) | 2026-10-17 | ui |
 | 180 | [The animator is the original's; the carry holds by the pose as drawn](worklog/0180-the-animator-is-the-original-s-the-carry-holds-by-the-pose.md) | 2026-10-17 | play |
+| 181 | [The parts' matrices are the original's integers](worklog/0181-the-parts-matrices-are-the-original-s-integers.md) | 2026-10-17 | play |

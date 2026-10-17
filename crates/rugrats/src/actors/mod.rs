@@ -5,3 +5,4 @@ pub mod animator;
 pub mod ground;
 pub mod npc;
 pub mod player;
+pub mod pose;

@@ -68,6 +68,11 @@ impl Both {
     /// Runs `steps` of (pad bits, game frames) on both; the players after
     /// each frame, the port's then the original's.
     fn script(&mut self, steps: &[(u16, usize)]) -> (Vec<Seen>, Vec<Seen>) {
+        self.script_with(steps, |_, _| {})
+    }
+
+    /// [`Self::script`], `each` shown both after every frame.
+    fn script_with(&mut self, steps: &[(u16, usize)], mut each: impl FnMut(&Game, &mut Play)) -> (Vec<Seen>, Vec<Seen>) {
         let (mut port, mut orig) = (Vec::new(), Vec::new());
         let mut pads = Pads::default();
         for &(bits, n) in steps {
@@ -122,6 +127,7 @@ impl Both {
                     eprintln!("    focus {} orig {ot:?} port {pt:?}", if ot == pt { "same" } else { "DIFF" });
                 }
                 orig.push(Seen { pos: o.pos, heading: o.heading as i32 & 4095, state: o.state, camera });
+                each(&self.game, &mut self.hle);
             }
         }
         (port, orig)
@@ -283,4 +289,48 @@ fn hub_run_across_the_playpen_as_the_original() {
     let (port, orig) = b.script(&[(bits(&[UP]), 30)]);
     let worst = report("pen", &port, &orig);
     assert_eq!(worst, 0, "the same as the original's, every frame");
+}
+
+/// Level 1: toy 896 picked up (Circle), carried and thrown (Triangle). Each
+/// part's turn (the hierarchy's quaternions, +4 of each part, as the
+/// samplers leave them) is the original's on every frame once the pick-up
+/// has blended out of what the boot left (the oracle stands mid-fidget);
+/// the carried toy is on the original's place across (x, z) on every
+/// frame, and within 1 in height (the root curve, kept apart in the port).
+#[test]
+#[ignore]
+fn hub_pick_up_as_the_original() {
+    use rugrats::input::{CIRCLE, TRIANGLE};
+    let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
+    let k = b.game.things.iter().position(|t| t.template == 896).expect("toy 896");
+    let t = b.game.things[k].pos;
+    b.put([t.x as i32, 779, t.z as i32 - 700], 0, 6);
+    let p = rugrats_hle::play::PLAYER;
+    let (mut turns, mut held, mut obj) = (Vec::new(), Vec::new(), 0u32);
+    b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[TRIANGLE]), 1), (0, 12)], |g, h| {
+        let hier = h.read_u32(p + 0x154);
+        let n = h.read_i16(hier) as u32;
+        let orig: Vec<[i32; 4]> = (0..n).map(|i| [0, 4, 8, 12].map(|c| h.read_i32(hier + 0x34 + 40 * i + 4 + c))).collect();
+        let port: Vec<[i32; 4]> = g.player.animator.turns(&g.player.hierarchy).iter().map(|q| q.unwrap_or([0; 4])).collect();
+        turns.push(orig == port);
+        let o = h.read_u32(p + 0x1f0);
+        if o != 0 {
+            obj = o;
+        }
+        if let Some(c) = g.carried() {
+            let at = g.things[c].pos;
+            let mine = [at.x as i32, at.y as i32, at.z as i32];
+            let theirs = [0, 4, 8].map(|i| h.read_i32(obj + 0x18 + i));
+            held.push((mine, theirs));
+        }
+    });
+    let off = turns.iter().enumerate().filter(|(f, same)| *f >= 8 && !**same).count();
+    // The grab's own frame: the carry (0x8005ff88 mode 1) moves it from the
+    // next.
+    let carried = &held[1..];
+    let across = carried.iter().filter(|(m, t)| m[0] != t[0] || m[2] != t[2]).count();
+    let height = carried.iter().map(|(m, t)| (m[1] - t[1]).abs()).max().unwrap_or(0);
+    eprintln!("turns off {off} of {}, carried {} frames: across off {across}, height off at most {height}", turns.len(), carried.len());
+    assert_eq!((off, across), (0, 0), "the original's turns and place");
+    assert!(height <= 1, "height within the root curve's 1");
 }

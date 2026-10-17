@@ -7,7 +7,7 @@
 //! physics; the port moves them along the floor with the same speed
 //! units (speed * dt along the facing) and plays their run or idle.
 
-use rrt::glam::{Mat3, Vec3};
+use rrt::glam::Mat3;
 use rugrats_data::anim::Anims;
 use rugrats_data::col::Col;
 use rugrats_data::hierarchy::Hierarchy;
@@ -16,6 +16,7 @@ use rugrats_data::placement::Placement;
 use rugrats_render::{Vtx, models};
 
 use crate::actors::animator::{Animator, RootCurve};
+use crate::actors::pose::{self, PartMatrix};
 use crate::actors::player::anim::{IDLE, RUN};
 use crate::actors::player::{Box3, DT, Pose};
 use crate::gte::Trig;
@@ -149,6 +150,9 @@ pub struct Npc {
     pub hold: Option<i16>,
     /// Its height by its animations on the ground.
     pub root: RootCurve,
+    /// Its parts as last drawn (+0x158: the collision tests read the
+    /// pose the draw left, 0x8006a318).
+    pub drawn: Option<Vec<PartMatrix>>,
 }
 
 /// What a step of the NPCs asks of the level.
@@ -187,6 +191,13 @@ impl Npc {
 
     pub fn feet(&self) -> i32 {
         self.hierarchy.parts.first().map_or(0, |r| r.offset[1])
+    }
+
+    /// Each part's matrix as the draw poses it (0x8003205c into
+    /// 0x8004a5dc), at its position raised by its root curve.
+    pub fn posed(&self, trig: &Trig) -> Vec<PartMatrix> {
+        let at = [self.pos[0], self.pos[1] + self.root.y, self.pos[2]];
+        pose::posed(trig, &self.hierarchy, &self.animator.turns(&self.hierarchy), [self.heading as i16, 0, 0], at).0
     }
 
     pub fn rotation(&self, trig: &Trig) -> Mat3 {
@@ -503,10 +514,16 @@ fn next_post(p: &Post, prev: u8, rand: &mut Rand) -> u8 {
 /// and 6): a body other than the player's moves by its root offset over it.
 const ROOT_SCALE: f32 = -561.0;
 
-pub fn triangles(n: &Npc, models: &Models, anims: &Anims, trig: &Trig, out: &mut Vec<Vtx>) {
+pub fn triangles(n: &mut Npc, models: &Models, trig: &Trig, out: &mut Vec<Vtx>) {
     if n.hidden {
         return;
     }
-    let pos = Vec3::new(n.pos[0] as f32, (n.pos[1] + n.root.y) as f32, n.pos[2] as f32);
-    models::posed_triangles(&n.hierarchy, models, &n.animator.locals(&n.hierarchy, anims), n.rotation(trig), pos, out);
+    let posed = n.posed(trig);
+    for (part, p) in n.hierarchy.parts.iter().zip(&posed) {
+        if let Some(m) = models.get(part.model) {
+            let (rot, joint) = p.float();
+            models::model_triangles(m, rot, joint, out);
+        }
+    }
+    n.drawn = Some(posed);
 }

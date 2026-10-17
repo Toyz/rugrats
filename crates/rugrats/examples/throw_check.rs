@@ -72,6 +72,14 @@ fn main() -> Result<(), String> {
                     .collect();
                 println!("     tracks port {} | orig {}", g.player.animator.describe(), raw.join(" | "));
             }
+            if std::env::var_os("QUATS").is_some() {
+                let h = p.read_u32(PLAYER + 0x154);
+                let n = p.read_i16(h) as u32;
+                let oq: Vec<[i32; 4]> = (0..n).map(|i| [0, 4, 8, 12].map(|k| p.read_i32(h + 0x34 + 40 * i + 4 + k))).collect();
+                let pq = g.player.animator.turns(&g.player.hierarchy);
+                println!("     quats orig {:?}", oq);
+                println!("     quats port {:?}", pq.iter().map(|q| q.unwrap_or([0; 4])).collect::<Vec<_>>());
+            }
             if std::env::var_os("HANDS").is_some() {
                 println!("     hand15 port {:?} orig {oh15:?} | hand12 port {:?} orig {oh12:?}", ph(15), ph(12));
             }

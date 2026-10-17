@@ -214,6 +214,7 @@ impl GrandpasTeeth {
                 post_reach: REACH,
                 hold: None,
                 root: Default::default(),
+                drawn: None,
             };
             rider.animator.set(IDLE, &g.anims);
             g.npcs.push(rider);

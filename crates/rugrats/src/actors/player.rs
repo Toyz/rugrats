@@ -13,9 +13,10 @@ use rugrats_data::col::Col;
 use rugrats_data::hierarchy::Hierarchy;
 use rugrats_data::model::Models;
 use rugrats_render::Vtx;
-use rugrats_render::models::{self, posed_triangles};
+use rugrats_render::models;
 
 use crate::actors::animator::Animator;
+use crate::actors::pose::{self, PartMatrix};
 use crate::disc::GameDisc;
 use crate::gte::Trig;
 use crate::world::boxhit::Exact;
@@ -1331,25 +1332,20 @@ impl Player {
 
     /// Part `k`'s joint in the world as posed now (the parts' matrices'
     /// translations, +0x158, UpdatePartRotations).
-    pub fn part_at(&self, k: usize, anims: &Anims, trig: &Trig) -> [i32; 3] {
-        let local = self.animator.locals(&self.hierarchy, anims);
-        let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
-        models::posed_parts(&self.hierarchy, &local, self.rotation(trig), pos)
-            .get(k)
-            .map_or(self.pos, |(_, at)| [at.x.round() as i32, at.y.round() as i32, at.z.round() as i32])
+    pub fn part_at(&self, k: usize, _anims: &Anims, trig: &Trig) -> [i32; 3] {
+        self.posed_at(trig).0.get(k).map_or(self.pos, |p| p.joint)
+    }
+
+    /// The parts posed at the position itself (no root curve).
+    fn posed_at(&self, trig: &Trig) -> (Vec<PartMatrix>, i32) {
+        pose::posed(trig, &self.hierarchy, &self.animator.turns(&self.hierarchy), [self.heading as i16, 0, 0], self.pos)
     }
 
     /// The lowest of the body's posed joints (+0x68, set as
     /// UpdatePartRotations, 0x8004a5dc, poses the parts): the air probes
     /// reach down to it at least.
-    fn lowest_joint(&self, anims: &Anims, trig: &Trig) -> i32 {
-        let local = self.animator.locals(&self.hierarchy, anims);
-        let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
-        models::posed_parts(&self.hierarchy, &local, self.rotation(trig), pos)
-            .iter()
-            .map(|(_, at)| at.y as i32)
-            .max()
-            .unwrap_or(self.pos[1])
+    fn lowest_joint(&self, _anims: &Anims, trig: &Trig) -> i32 {
+        self.posed_at(trig).1
     }
 
     /// The air's move (0x8005f1b4): the velocity's step (0x80061330); held
@@ -1500,9 +1496,16 @@ impl Player {
         }
     }
 
+    /// Each part's matrix as the original's draw leaves it (+0x158,
+    /// 0x8004a5dc), and the joints' greatest y (+0x68).
+    pub fn posed(&self, anims: &Anims, trig: &Trig) -> (Vec<PartMatrix>, i32) {
+        let at = self.drawn_at(anims, trig);
+        let pos = [at.x as i32, at.y as i32, at.z as i32];
+        pose::posed(trig, &self.hierarchy, &self.animator.turns(&self.hierarchy), [self.heading as i16, 0, 0], pos)
+    }
+
     pub fn parts(&self, anims: &Anims, trig: &Trig) -> Vec<(Mat3, Vec3)> {
-        let pos = self.drawn_at(anims, trig);
-        models::posed_parts(&self.hierarchy, &self.animator.locals(&self.hierarchy, anims), self.rotation(trig), pos)
+        self.posed(anims, trig).0.iter().map(PartMatrix::float).collect()
     }
 
     /// The part a hand slot names (hierarchy +0x14 + slot).
@@ -1510,22 +1513,14 @@ impl Player {
         self.hierarchy.header.get(0x14 + slot).copied().filter(|&p| p != 0xff).map(|p| p as usize)
     }
 
-    /// The player's triangles, turned by its heading (0x80020d10).
+    /// The player's triangles: each part's model by its matrix as posed
+    /// (0x8004a5dc).
     pub fn triangles(&self, models: &Models, anims: &Anims, trig: &Trig, out: &mut Vec<Vtx>) {
-        let e = trig.euler([self.heading as i16, 0, 0]);
-        let rows = Mat3::from_cols_array(
-            &e.concat().into_iter().map(|v| v as f32 / 4096.0).collect::<Vec<_>>().try_into().unwrap(),
-        )
-        .transpose();
-        let pos = self.drawn_at(anims, trig);
-        posed_triangles(
-            &self.hierarchy,
-            models,
-            &self.animator.locals(&self.hierarchy, anims),
-            rows.transpose(),
-            pos,
-            out,
-        );
+        for (part, (rot, joint)) in self.hierarchy.parts.iter().zip(self.parts(anims, trig)) {
+            if let Some(m) = models.get(part.model) {
+                models::model_triangles(m, rot, joint, out);
+            }
+        }
     }
 }
 

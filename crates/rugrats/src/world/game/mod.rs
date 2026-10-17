@@ -284,11 +284,14 @@ pub struct Game {
     pub state_block: [u8; STATE_SIZE],
     pub loaded: Option<Box<[u8; STATE_SIZE]>>,
     carried: Option<usize>,
-    grip: Vec3,
+    grip: [i32; 3],
     /// The player's parts and rotation as last drawn (+0x158 and +4, the
     /// matrices the grip reads: the original draws before it updates, so
     /// the hands it holds by are the frame before's).
-    pose_before: Option<(Vec<(Mat3, Vec3)>, Mat3)>,
+    pose_before: Option<(Vec<crate::actors::pose::PartMatrix>, [[i32; 3]; 3])>,
+    /// The frame a thing was grabbed on: the grip is set then and the
+    /// carry (0x8005ff88 mode 1) first moves it the frame after.
+    grabbed_on: Option<u32>,
     /// Objects hidden by id (0x80078bc4) and the placements always drawn
     /// apart (characters, pickables, collectibles).
     hidden: std::collections::HashSet<u16>,
@@ -884,6 +887,7 @@ impl Game {
                 post_reach: REACH,
                 hold: None,
                 root: Default::default(),
+                drawn: None,
             };
             // On the floor under it (0x80081bac asks 0x8002b240), the root
             // the hierarchy's offset above the feet.
@@ -942,8 +946,9 @@ impl Game {
             state_block: [0; STATE_SIZE],
             loaded: None,
             carried: None,
-            grip: Vec3::ZERO,
+            grip: [0; 3],
             pose_before: None,
+            grabbed_on: None,
             hidden: Default::default(),
             apart,
             unusable: Default::default(),
@@ -1344,17 +1349,17 @@ impl Game {
             let shape = if n.posed {
                 // Its parts as posed (0x8006a318): each part's matrix (the
                 // world into the part, its rotation transposed) and joint,
-                // and its model's boxes; from the pose as drawn.
-                let at = Vec3::new(n.pos[0] as f32, (n.pos[1] + n.root.y) as f32, n.pos[2] as f32);
-                let posed = rugrats_render::models::posed_parts(&n.hierarchy, &n.animator.locals(&n.hierarchy, &self.anims), n.rotation(&self.trig), at);
+                // and its model's boxes; from the pose as last drawn (or
+                // posed now, never drawn: 0x8006a318 poses into a scratch).
+                let posed = n.drawn.clone().unwrap_or_else(|| n.posed(&self.trig));
                 let parts = n
                     .hierarchy
                     .parts
                     .iter()
                     .zip(posed)
-                    .map(|(part, (rot, joint))| crate::world::boxhit::Part {
-                        rot: [0, 1, 2].map(|r| [0, 1, 2].map(|c| (rot.col(r)[c] * 4096.0).round() as i32)),
-                        trans: [joint.x.round() as i32, joint.y.round() as i32, joint.z.round() as i32],
+                    .map(|(part, p)| crate::world::boxhit::Part {
+                        rot: p.rot,
+                        trans: p.joint,
                         boxes: self
                             .set
                             .models
@@ -1618,14 +1623,16 @@ impl Game {
         self.player.triangles(&self.set.models, &self.anims, &self.trig, &mut moving);
         // The carried object rides hand 15 (0x8005ff88 mode 1), as the
         // frame before drew it.
-        let (parts, rot) = self.drawn_pose();
+        let (parts, m) = self.drawn_pose();
         if let Some(k) = self.carried
+            && self.grabbed_on != Some(self.frames)
             && let Some(hand) = self.player.slot_part(HAND).and_then(|i| parts.get(i))
         {
-            self.things[k].pos = hand.1 + rot * self.grip;
-            self.things[k].rot = rot;
+            let g = things::apply_sv(&m, self.grip);
+            self.things[k].pos = Vec3::new((hand.joint[0] + g[0]) as f32, (hand.joint[1] + g[1]) as f32, (hand.joint[2] + g[2]) as f32);
+            self.things[k].rot = self.player.rotation(&self.trig);
         }
-        self.pose_before = Some((self.player.parts(&self.anims, &self.trig), self.player.rotation(&self.trig)));
+        self.pose_before = Some(self.pose_now());
         for t in self.things.iter().filter(|t| !t.hidden) {
             if let Some(m) = self.set.models.get(t.shape) {
                 models::model_triangles(m, t.rot, t.pos, &mut moving);
@@ -1665,9 +1672,9 @@ impl Game {
                 models::model_triangles(m, g.rot, g.pos, &mut moving);
             }
         }
-        for (k, n) in self.npcs.iter().enumerate() {
+        for (k, n) in self.npcs.iter_mut().enumerate() {
             if self.npc_rooms.get(k).is_some_and(|r| r.is_some()) {
-                npc::triangles(n, &self.set.models, &self.anims, &self.trig, &mut moving);
+                npc::triangles(n, &self.set.models, &self.trig, &mut moving);
             }
         }
         for (shape, angles, at) in self.flights.models() {

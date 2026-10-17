@@ -83,6 +83,12 @@ fn hurts_player(templates: &[Template], template: u16) -> bool {
     templates.get(template as usize).is_some_and(|t| t.raw[0x30] != 1)
 }
 
+/// ApplyMatrixSV (0x8009fc38, 0x8009fbe8): `m` times the short vector
+/// `v` through the GTE (>> 12, kept to 16 bits).
+pub(super) fn apply_sv(m: &[[i32; 3]; 3], v: [i32; 3]) -> [i32; 3] {
+    [0, 1, 2].map(|r| (((0..3).map(|k| m[r][k] as i64 * v[k] as i64).sum::<i64>() >> 12) as i32).clamp(-0x8000, 0x7fff))
+}
+
 /// The bounce off a surface of normal `n` (0x8007666c, 0x80087594): back
 /// out along the reflection at (|v| - 95) * bounce >> 12; None when
 /// moving away from it, without a bounce, or too slow.
@@ -210,28 +216,29 @@ impl Game {
         self.pose_before = None;
     }
 
-    /// The player's parts and rotation as the grip reads them: as last
-    /// drawn (the original draws before it updates), else as now.
-    pub(super) fn drawn_pose(&self) -> (Vec<(Mat3, Vec3)>, Mat3) {
-        self.pose_before
-            .clone()
-            .unwrap_or_else(|| (self.player.parts(&self.anims, &self.trig), self.player.rotation(&self.trig)))
+    /// The player's part matrices (+0x158) and matrix (+4) now.
+    pub(super) fn pose_now(&self) -> (Vec<crate::actors::pose::PartMatrix>, [[i32; 3]; 3]) {
+        (self.player.posed(&self.anims, &self.trig).0, self.trig.rotation([self.player.heading as i16, 0, 0]))
+    }
+
+    /// The player's part matrices and matrix as the grip reads them: as
+    /// last drawn (the original draws before it updates), else as now.
+    pub(super) fn drawn_pose(&self) -> (Vec<crate::actors::pose::PartMatrix>, [[i32; 3]; 3]) {
+        self.pose_before.clone().unwrap_or_else(|| self.pose_now())
     }
 
     /// The grip (0x8005ff88 mode 0): the hands' midpoint (halved toward
-    /// zero) less hand 15, into the player's frame, its z on by half the
-    /// object's deepest box (0x8005fd58), as last drawn.
-    fn grip_of(&self, depth: i32) -> Vec3 {
-        let (parts, rot) = self.drawn_pose();
-        let at = |slot| self.player.slot_part(slot).and_then(|i| parts.get(i)).map(|p| p.1.round().as_ivec3());
-        match (at(HAND), at(OTHER_HAND)) {
-            (Some(a), Some(b)) => {
-                let mid = (a + b) / 2;
-                let g = (rot.transpose() * (mid - a).as_vec3()).trunc();
-                g + Vec3::new(0.0, 0.0, (depth >> 1) as f32)
-            }
-            _ => Vec3::new(0.0, -300.0, (depth >> 1) as f32 + 200.0),
-        }
+    /// zero) less hand 15, into the player's frame (ApplyMatrixSV of the
+    /// matrix transposed), its z on by half the object's deepest box
+    /// (0x8005fd58), as last drawn.
+    fn grip_of(&self, depth: i32) -> [i32; 3] {
+        let (parts, m) = self.drawn_pose();
+        let at = |slot| self.player.slot_part(slot).and_then(|i| parts.get(i)).map(|p| p.joint);
+        let (Some(a), Some(b)) = (at(HAND), at(OTHER_HAND)) else { return [0, -300, (depth >> 1) + 200] };
+        let d = [0, 1, 2].map(|k| ((a[k] + b[k]) / 2 - a[k]) as i16 as i32);
+        let t = [0, 1, 2].map(|r| [0, 1, 2].map(|c| m[c][r]));
+        let g = apply_sv(&t, d);
+        [g[0], g[1], (g[2] + ((depth << 11) >> 12)) as i16 as i32]
     }
 
     /// Puts thing `k` in the player's hand (0x8005ff88 mode 0 with no
@@ -585,6 +592,7 @@ impl Game {
         let depth =
             self.set.models.get(self.things[k].shape).map_or(0, |m| m.boxes.iter().map(|b| b.1[2] as i32 - b.0[2] as i32).fold(0, i32::max));
         self.grip = self.grip_of(depth);
+        self.grabbed_on = Some(self.frames);
         self.things[k].state = ThingState::Carried;
         self.carried = Some(k);
         self.player.carrying = true;

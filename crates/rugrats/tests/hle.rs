@@ -568,6 +568,47 @@ fn level_9_ball_rolls_as_the_original() {
     assert_eq!(camera_off(&port, &orig), 0, "the follow camera's heading");
 }
 
+/// Level 9 past cine 17: ball 3 picked up and put down again (Circle,
+/// state 8, 0x80060910). The put-down is a flight as a throw is
+/// (0x80062ac4: (0, 0, 4096) turned by the player, speed 10), and the
+/// ball's template makes it roll: the ball on the original's place every
+/// frame from the put-down to where it stops.
+#[test]
+#[ignore]
+fn level_9_ball_put_down_as_the_original() {
+    use rugrats::input::CIRCLE;
+    let Some(mut b) = Both::open(Boot { level: 9, cinematics: true, ..Default::default() }) else { return };
+    for _ in 0..900 {
+        b.hle.frame(0).unwrap();
+    }
+    let k = b
+        .game
+        .things
+        .iter()
+        .position(|t| t.template == 777 && (t.pos.x as i32, t.pos.z as i32) == (30003, -3772))
+        .expect("ball 3");
+    b.put([30003, 7947, -4472], 0, 6);
+    b.script(&[(bits(&[rugrats::input::R1]), 1), (0, 4)]);
+    let p = rugrats_hle::play::PLAYER;
+    let (mut moved, mut obj) = (Vec::new(), 0u32);
+    let (port, orig) = b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[CIRCLE]), 1), (0, 90)], |g, h| {
+        let o = h.read_u32(p + 0x1f0);
+        if o != 0 {
+            obj = o;
+        }
+        if g.carried().is_none() && obj != 0 {
+            let at = g.things[k].pos;
+            moved.push(([at.x as i32, at.y as i32, at.z as i32], [0, 4, 8].map(|i| h.read_i32(obj + 0x18 + i))));
+        }
+    });
+    let off = moved.iter().filter(|(m, t)| m != t).count();
+    eprintln!("ball put down: {} frames, {off} off; at rest {:?}", moved.len(), moved.last());
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
+    assert!(moved.len() >= 30 && off == 0, "the ball's places: {:?}", moved.iter().find(|(m, t)| m != t));
+    assert_eq!(b.game.things[k].state, rugrats::world::game::ThingState::Rest, "at rest");
+    assert_eq!(camera_off(&port, &orig), 0, "the follow camera's heading");
+}
+
 /// The original's objects in the rooms' lists (0x800c4a8c).
 fn objects(p: &mut Play) -> Vec<u32> {
     let rooms = p.read_u32(0x800c_4a8c);

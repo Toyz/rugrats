@@ -9,7 +9,7 @@
 //!                         none
 //! model
 //!   u32  link
-//!   u32  unknown_04       (the loader writes the index here)
+//!   u32  index            run-time: the loader writes the model's index
 //!   u16  radius           the culling test's (0x80031834)
 //!   u16  boxes
 //!   u32  boxes_at         16 bytes each: s16 min[3], pad, s16 max[3], pad
@@ -53,7 +53,7 @@ pub struct Model {
     pub vertices: Vec<[i16; 4]>,
     pub palette: Vec<[u8; 3]>,
     pub faces: Vec<Face>,
-    /// Collision boxes (`unknown_0a` of them at `bounds_at`, 16 bytes each:
+    /// Collision boxes (`boxes` of them at `boxes_at`, 16 bytes each:
     /// s16 min[3], pad, s16 max[3], pad), in the model's space; the object
     /// code (0x80046570, 0x8006a714) tests against them.
     pub boxes: Vec<([i16; 3], [i16; 3])>,

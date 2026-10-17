@@ -625,7 +625,6 @@ impl Game {
                     last_hit: None,
                     bounced: false,
                     flown: None,
-                    slides: false,
                 }
             })
             .collect();

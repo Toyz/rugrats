@@ -5,14 +5,21 @@
 //! u32 at[256]          offset of hierarchy i, 0 for none
 //! hierarchy
 //!   s16  parts
-//!   u8   unknown[0x32]     byte lists (part groups, 0xff ended)
+//!   s16  unknown_02        2 to 7 (5 in most)
+//!   s16  min[3], pad       the body's box (0x80067ba4 hands +0x04 out:
+//!   s16  max[3], pad       the character probe's depth, the larger of
+//!                          |min z| and |max z|, and its height, min y,
+//!                          0x80064838; the bite's half size, 0x80084084)
+//!   u8   channel[32]       +0x14: each animation channel's part, 0xff
+//!                          for none
 //!   part[parts]            40 bytes each, from +0x34
-//!     u16  unknown_00
+//!     u16  pad             0 in every file
 //!     u16  depth           1 for the root; a part's parent is the
 //!                          nearest earlier part one level up
 //!     u8   [16]            0 on disc (run-time)
 //!     s32  offset[3]       from the parent's joint
-//!     u32  unknown_20
+//!     u32  unknown_20      0 but in DB08, whose parts have depth + 1 in
+//!                          its high half
 //!     u32  model           an index into the database's MOD file
 //! ```
 

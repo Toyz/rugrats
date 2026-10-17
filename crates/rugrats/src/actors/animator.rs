@@ -99,8 +99,8 @@ fn root_key(anims: &Anims, k: usize, lo: Option<i32>) -> Option<[i32; 3]> {
 /// What a state does at its last frame (0x800b9c30, by table state; read
 /// by 0x8005562c): 4 turns back (ping-pong), 2 loops, 1 completes into the
 /// next state (0x80056484), else it holds the last frame (8 or nothing).
-/// 32 adds the root's motion (not ported); 64 takes the tracks over a
-/// state on them (0x80056708).
+/// 32 moves the body across by its root (0x80056834, `RootCurve::across`);
+/// 64 takes the tracks over a state on them (0x80056708).
 const ENDS: [u16; 66] = [
     1, 1, 1, 1, 1, 33, 40, 8, 1, 33, 33, 33, 33, 33, 33, 33, 97, 1, 1, 2, 33, 2, 33, 1, 1, 1, 1, 1, 33, 33, 33, 34, 33,
     4, 1, 1, 1, 33, 33, 33, 2, 40, 33, 2, 1, 1, 8, 2, 1, 1, 1, 1, 33, 1, 33, 1, 2, 1, 1, 1, 8, 1, 1, 1, 1, 0,
@@ -545,7 +545,7 @@ impl Animator {
         let frame = |i: i16| anims.frames.get(i as usize);
         if t.phase == 3 {
             *time = 0;
-            self.events |= frame(t.prev).map_or(0, |f| f.unknown_0 as u32);
+            self.events |= frame(t.prev).map_or(0, |f| f.events as u32);
             return;
         }
         let first = self.span(t.state, k, anims).map_or(0, |s| s.0);
@@ -564,7 +564,7 @@ impl Animator {
         }
         self.tracks[k].left = left;
         if left == 0 {
-            self.events |= frame(t.cur).map_or(0, |f| f.unknown_0 as u32);
+            self.events |= frame(t.cur).map_or(0, |f| f.events as u32);
         }
     }
 

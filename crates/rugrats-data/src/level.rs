@@ -219,6 +219,8 @@ pub struct Face {
 /// ```text
 /// u32  link            (the room list's)
 /// s16  min[3], u16 unknown_0a, s16 max[3], u16 unknown_12   the bounds
+///      (the two u16s vary by blob, 0 to 0x8172, and the renderer does
+///      not read them)
 /// u32  vertices
 /// u32  faces_at        from the blob's start
 /// vertex[vertices]     s16 x, y, z, pad; u8 r, g, b, flash

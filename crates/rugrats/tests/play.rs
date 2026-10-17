@@ -1850,7 +1850,9 @@ fn rooms_are_found_through_portals() {
 
 /// A thrown thing meets objects (0x80061f88's flags 0x9070700: the world,
 /// objects and their touches): dropped over one, it comes to rest on its
-/// top, not on the floor under it.
+/// top, not on the floor under it. (A flight stops once a fall's step
+/// under its radius meets something, 0x80087594, so it rests a few units
+/// over the top.)
 #[test]
 fn a_thrown_thing_lands_on_an_object() {
     use rugrats::world::game::ThingState;
@@ -1876,11 +1878,11 @@ fn a_thrown_thing_lands_on_an_object() {
     let shape = g.things[k].shape;
     let bottom = g.set.models.get(shape).and_then(|m| m.boxes.iter().map(|x| x.1[1]).max()).unwrap_or(0) as f32;
     g.things[k].pos = rrt::glam::Vec3::new(b.pos.x, b.min_y as f32 - 1500.0, b.pos.z);
-    g.things[k].state = ThingState::Flying([0; 3]);
+    g.start_flight(k, [0; 3]);
     run(&mut g, &[(&[], 60)], |_, _| {});
     let t = &g.things[k];
     assert_eq!(t.state, ThingState::Rest);
-    assert!((t.pos.y + bottom - b.min_y as f32).abs() < 2.0, "rests at {} + {bottom}, the top is {}", t.pos.y, b.min_y);
+    assert!((t.pos.y + bottom - b.min_y as f32).abs() < 32.0, "rests at {} + {bottom}, the top is {}", t.pos.y, b.min_y);
 }
 
 /// Objects are drawn from their rooms' lists; a character placed in no

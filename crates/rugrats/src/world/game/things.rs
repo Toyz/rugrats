@@ -4,7 +4,7 @@
 use super::*;
 use crate::actors::npc::Mode;
 use crate::actors::player::anim::{PICK_UP, PUT_DOWN, THROW};
-use crate::actors::player::{Box3, DT, State};
+use crate::actors::player::{DT, State};
 use crate::world::collide;
 
 /// A breakable (class 14, 0x8004d7c4): touched, its model becomes shape +
@@ -43,13 +43,9 @@ pub struct Thing {
     /// `PLAYER_HIT`; and whether it has bounced off anything.
     pub last_hit: Option<usize>,
     pub bounced: bool,
-    /// Its flight as the original's record keeps it (0x8008864c), for a
-    /// throw or a lob by 0x80087594: none for the port's own (the put-down,
-    /// a template whose +0x30 is 1).
+    /// Its flight as the original's record keeps it (0x8008864c): a throw,
+    /// a lob or a put-down.
     pub flown: Option<Flown>,
-    /// Put down: on the floor it slides on, 16 less a frame (the oracle's
-    /// box goes 17, 14, 12, 10, 7, 5, 2 on).
-    pub slides: bool,
 }
 
 /// A thrown thing's flight record (0x8008864c from 0x80061f88): where it
@@ -76,10 +72,6 @@ enum Met {
     Npc(usize),
     Player,
 }
-
-/// A put-down thing's slide's loss of speed a frame (17 on falling 2.5 a
-/// frame in the oracle: 16 in the flight's units, 64 to 10 a frame).
-const SLIDE_LOSS: f32 = 16.0;
 
 /// A throw asked for, waiting for its release: the carried thing, aimed
 /// at release as a plain or level 9 throw, or with a level's velocity.
@@ -414,21 +406,6 @@ pub(super) fn apply_sv(m: &[[i32; 3]; 3], v: [i32; 3]) -> [i32; 3] {
     [0, 1, 2].map(|r| (((0..3).map(|k| m[r][k] as i64 * v[k] as i64).sum::<i64>() >> 12) as i32).clamp(-0x8000, 0x7fff))
 }
 
-/// The bounce off a surface of normal `n` (0x8007666c, 0x80087594): back
-/// out along the reflection at (|v| - 95) * bounce >> 12; None when
-/// moving away from it, without a bounce, or too slow.
-fn rebound(v: [i32; 3], n: [i32; 3], bounce: i32) -> Option<[i32; 3]> {
-    let u = collide::unit(v);
-    let c = collide::fix(n[0], u[0]) + collide::fix(n[1], u[1]) + collide::fix(n[2], u[2]);
-    let speed = collide::length(v) - 95;
-    if bounce == 0 || c >= 0 || speed <= 0 {
-        return None;
-    }
-    let r = [0, 1, 2].map(|k| u[k] - (c.wrapping_mul(n[k]) >> 11));
-    let s = (speed * bounce) >> 12;
-    Some(r.map(|r| collide::fix(r, s)))
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ThingState {
     Rest,
@@ -444,14 +421,6 @@ pub(super) const OTHER_HAND: usize = 12;
 /// Where floor dust rises from (0x80044fc8(player, 16)).
 const DUST_PART: usize = 16;
 
-
-/// A throw (0x80060b44): direction (0, -384, 1024) turned by the heading,
-/// speed 170; the velocity is dir * (speed * 65536 / 6000) >> 12
-/// (0x8008864c); a put-down is speed 10 along (0, 0, 4096).
-pub(super) const DROP_SPEED: f32 = 10.0 * 65536.0 / 6000.0;
-
-/// How near a flight passes a character to strike it (the radii, guess).
-pub(super) const STRIKE: i32 = 450;
 
 /// Thrown objects fall at 13 (flight flags 0x700).
 pub(super) const THING_GRAVITY: i32 = 13;
@@ -541,6 +510,19 @@ impl Game {
         }
     }
 
+    /// Thing `k` set flying at `v` from where it is, its record as the
+    /// throw builds it (0x80061f88, 0x8008864c): its radius, the larger of
+    /// its first box's y extents; its template's bounce; objects met
+    /// unless it meets the world only; rolling when its template says so.
+    pub fn start_flight(&mut self, k: usize, v: [i32; 3]) {
+        let t = &self.things[k];
+        let radius = self.set.models.get(t.shape).and_then(|m| m.boxes.first()).map_or(10, |b| (b.0[1] as i32).abs().max((b.1[1] as i32).abs()));
+        let rolls = !hurts_player(&self.set.templates, t.template);
+        let f = Flown { pos: [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32], radius, bounce: bounce_of(&self.set.templates, t.template), objects: !t.world_only, rolls };
+        self.things[k].flown = Some(f);
+        self.things[k].state = ThingState::Flying(v);
+    }
+
     /// Lets go of a thrown thing (0x80060b44's release): the direction
     /// and speed of the plain or aimed throw as they are now, or the
     /// level's own velocity.
@@ -551,15 +533,16 @@ impl Game {
         let (k, v) = match throw {
             PendingThrow::Given(k, v) => (k, v),
             PendingThrow::Down(k) => {
-                // The drop flight: (0, 0, 4096) turned by the player,
-                // normalised, at the drop's speed (0x80062ac4).
-                let v = (self.player.rotation(&self.trig) * Vec3::new(0.0, 0.0, 4096.0)).normalize() * DROP_SPEED;
+                // The drop flight (0x80062ac4): (0, 0, 4096) turned by the
+                // player's angles and made a unit, at speed 10 (0x80061f88,
+                // 0x8008864c).
                 if self.things[k].template == HIGH_BOX {
                     // Put down (0x80060910): message 8.
                     self.training.show(8);
                 }
-                self.things[k].slides = true;
-                (k, [v.x as i32, v.y as i32, v.z as i32])
+                let dir = collide::unit(self.trig.turn_by([self.player.heading as i16, 0, 0], [0, 0, 4096]));
+                let speed = (10 << 16) / 6000;
+                (k, dir.map(|d| (d * speed) >> 12))
             }
             // (0, -384, 1024) (D_800b7fe0) turned by the player's angles
             // (0x80075ee8) and made a unit (0x8007652c), or level 9's aim, at
@@ -572,18 +555,10 @@ impl Game {
                 (k, dir.map(|d| (d * speed) >> 12))
             }
         };
-        // A throw or a lob flies as the original's record (0x80087594's
-        // path, or 0x80086ef0's roll for template +0x30 of 1); the put-down
-        // keeps the port's slide.
-        let exact = !matches!(throw, PendingThrow::Down(_));
-        self.things[k].flown = exact.then(|| {
-            let t = &self.things[k];
-            let radius = self.set.models.get(t.shape).and_then(|m| m.boxes.first()).map_or(10, |b| (b.0[1] as i32).abs().max((b.1[1] as i32).abs()));
-            let rolls = !hurts_player(&self.set.templates, t.template);
-            Flown { pos: [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32], radius, bounce: bounce_of(&self.set.templates, t.template), objects: !t.world_only, rolls }
-        });
+        // A throw, a lob or a put-down flies as the original's record
+        // (0x80087594's path, or 0x80086ef0's roll for template +0x30 of 1).
         if self.carried == Some(k) {
-            self.things[k].state = ThingState::Flying(v);
+            self.start_flight(k, v);
             self.carried = None;
             self.player.carrying = false;
             // The arms as they were after (0x80060910, 0x80060b44:
@@ -1016,12 +991,10 @@ impl Game {
         self.training.show(5);
     }
 
-    /// Flights (0x80087c5c): gravity 13, pos += (v dt + a dt^2 / 2) >> 6,
-    /// until the object's bottom reaches the floor.
+    /// Flights (0x80087c5c): each thrown, lobbed or put down thing flown as
+    /// the original's record flies it (`fly_exact`, `roll_exact`).
     pub(super) fn fly(&mut self, solids: &[crate::world::boxhit::Exact], npc_of: &[Option<usize>]) {
-        let dt = DT;
         self.struck.clear();
-        // The throws and lobs flown as the original flies them.
         let mut touched = Vec::new();
         if self.things.iter().any(|t| t.flown.is_some()) {
             let targets = self.flight_targets(solids, npc_of);
@@ -1029,186 +1002,6 @@ impl Game {
                 if self.things[k].flown.is_some() && matches!(self.things[k].state, ThingState::Flying(_)) {
                     touched.extend(self.fly_exact(k, &targets));
                 }
-            }
-        }
-        // What a flight may land on besides the floor: the boxes of things
-        // at rest (stacking, 0x8006c7a0).
-        let resting: Vec<(usize, Box3)> = self
-            .things
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| t.state == ThingState::Rest && !t.hidden)
-            .filter_map(|(k, t)| self.set.models.get(t.shape).map(|m| (k, m, t)))
-            .flat_map(|(k, m, t)| world_boxes(m, t.rot, t.pos).into_iter().map(move |b| (k, b)))
-            .collect();
-        for (k, t) in self.things.iter_mut().enumerate() {
-            let ThingState::Flying(mut v) = t.state else { continue };
-            if t.flown.is_some() {
-                continue;
-            }
-            // A flight that reaches a character (0x80086ef0, 0x80087594):
-            // its touch (0x800511a8) with the thing's +0x6d, then the bounce
-            // off it by the template's bounce (none: the thing drops).
-            let bounce = bounce_of(&self.set.templates, t.template);
-            if v[0] != 0 || v[2] != 0 {
-                let last = t.last_hit;
-                let hit = self.npcs.iter().enumerate().position(|(i, n)| {
-                    let (dx, dz) = (n.pos[0] as f32 - t.pos.x, n.pos[2] as f32 - t.pos.z);
-                    last != Some(i)
-                        && !n.hidden
-                        && !matches!(n.mode, Mode::Ride { .. })
-                        && dx * dx + dz * dz < (STRIKE * STRIKE) as f32
-                        && (t.pos.y - (n.pos[1] - n.feet() / 2) as f32).abs() < 900.0
-                });
-                if let Some(n) = hit {
-                    self.struck.push(Strike { npc: n, thing: k, damage: t.damage });
-                    let c = self.npcs[n].character;
-                    let r = self.rand.next() & 1;
-                    self.speech.extend(hit_line(c, self.level, r));
-                    t.last_hit = Some(n);
-                    // The face of its bounds cube (+0x78..+0x84, an axis-
-                    // aligned cube about it) the thing came at.
-                    let p = self.npcs[n].pos;
-                    let (dx, dz) = (t.pos.x as i32 - p[0], t.pos.z as i32 - p[2]);
-                    let out = if dx.abs() > dz.abs() { [dx.signum() * 4096, 0, 0] } else { [0, 0, dz.signum() * 4096] };
-                    match rebound(v, out, bounce) {
-                        Some(b) => {
-                            v = b;
-                            t.bounced = true;
-                        }
-                        None => {
-                            v[0] = 0;
-                            v[2] = 0;
-                        }
-                    }
-                }
-                // Coming back into Tommy after a bounce: 0x80087594 hurts
-                // any class 1 object (Damage(player, player, +0x8e)).
-                let me = self.player.pos;
-                let (dx, dz) = (me[0] as f32 - t.pos.x, me[2] as f32 - t.pos.z);
-                if t.bounced
-                    && t.last_hit != Some(PLAYER_HIT)
-                    && hurts_player(&self.set.templates, t.template)
-                    && dx * dx + dz * dz < (STRIKE * STRIKE) as f32
-                    && (t.pos.y - (me[1] - self.player.feet() / 2) as f32).abs() < 900.0
-                {
-                    t.last_hit = Some(PLAYER_HIT);
-                    self.player.hurt(t.damage);
-                    v[0] = 0;
-                    v[2] = 0;
-                }
-            }
-            let bottom =
-                self.set.models.get(t.shape).and_then(|m| m.boxes.iter().map(|b| b.1[1]).max()).unwrap_or(0) as f32;
-            let top =
-                self.set.models.get(t.shape).and_then(|m| m.boxes.iter().map(|b| b.0[1]).min()).unwrap_or(0) as f32;
-            let before = t.pos;
-            for k in [0, 2] {
-                t.pos[k] += ((v[k] * dt) >> 6) as f32;
-            }
-            // An object's side (0x80086ef0's object test, by the objects'
-            // boxes here): stepped into this step at the thing's height,
-            // it bounces off that side.
-            let (at, from) = ([t.pos.x as i32, 0, t.pos.z as i32], [before.x as i32, 0, before.z as i32]);
-            let (high, low) = ((t.pos.y + top) as i32, (t.pos.y + bottom) as i32);
-            let solid: &[Box3] = if t.world_only { &[] } else { &self.solid };
-            if let Some(b) =
-                solid.iter().find(|b| b.covers(at, 0) && !b.covers(from, 0) && low > b.min_y && high < b.max_y)
-            {
-                // Its touch (0x80086ef0 with 0x40000): what it knocks off.
-                let touch = self.set.templates.get(b.template as usize).map_or(0, |tp| tp.raw[0x0a]);
-                if (1..=7).contains(&touch) {
-                    let obj = [b.pos.x as i32, b.pos.y as i32, b.pos.z as i32];
-                    let hit = [before.x as i32, t.pos.y as i32, before.z as i32];
-                    let models = &self.set.models;
-                    let radius_of = |m: u32| models.get(m).map_or(0, |m| m.radius as i32);
-                    if self.flights.touch_parts(touch, obj, hit, radius_of, self.sprites.as_ref()) {
-                        touched.push(obj);
-                    }
-                }
-                match rebound(v, b.side_normal(from), bounce) {
-                    Some(r) => {
-                        v = r;
-                        t.bounced = true;
-                    }
-                    None => {
-                        v[0] = 0;
-                        v[2] = 0;
-                    }
-                }
-                t.pos.x = before.x;
-                t.pos.z = before.z;
-            }
-            // The wall test (0x80060810): a step into a wall or a higher
-            // column is taken back, and the thing drops where it was. A
-            // step onto level ground is not one, even with the thing's
-            // bottom a little under it (a lob from the hand).
-            let y = (t.pos.y + bottom - 1.0) as i32;
-            let side = collide::query(&self.col, [t.pos.x as i32, y, t.pos.z as i32]);
-            let here = collide::query(&self.col, [before.x as i32, y, before.z as i32]);
-            let higher = side.kind != 0 && (here.kind == 0 || side.floor < here.floor);
-            if side.kind == 2 || side.tile.is_none() || higher {
-                // The bounce (0x80087594): off the wall's normal from the
-                // segment test.
-                let mut hit = collide::Segment::default();
-                let u = collide::unit(v);
-                let from = [before.x as i32, y, before.z as i32];
-                let to = [t.pos.x as i32 + collide::fix(u[0], 10), y, t.pos.z as i32 + collide::fix(u[2], 10)];
-                let n = if collide::segment(&self.col, from, to, &mut hit) == 1 {
-                    hit.normal
-                } else if v[0].abs() >= v[2].abs() {
-                    [-v[0].signum() * 4096, 0, 0]
-                } else {
-                    [0, 0, -v[2].signum() * 4096]
-                };
-                // Slower than 95 + 382 on a floor it stops (0x80087414).
-                let speed = collide::length(v) - 95;
-                let on_floor = here.kind == 0 && (here.floor as f32 - (before.y + bottom)).abs() < 100.0;
-                match rebound(v, n, bounce).filter(|_| !(on_floor && (0..382).contains(&speed))) {
-                    Some(b) => {
-                        v = b;
-                        t.bounced = true;
-                    }
-                    None => {
-                        v[0] = 0;
-                        v[2] = 0;
-                    }
-                }
-                t.pos.x = before.x;
-                t.pos.z = before.z;
-            }
-            t.pos.y += ((v[1] * dt + THING_GRAVITY * dt * dt / 2) >> 6) as f32;
-            v[1] += THING_GRAVITY * dt;
-            let q = collide::query(&self.col, [t.pos.x as i32, (t.pos.y - 1.0) as i32, t.pos.z as i32]);
-            let mut floor = if q.tile.is_some() { q.floor as f32 } else { f32::MAX };
-            // Another thing's top under it, crossed this step.
-            let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
-            // And an object's top (stacking, 0x8006c7a0).
-            let solid: &[Box3] = if t.world_only { &[] } else { &self.solid };
-            let tops = resting.iter().filter(|(j, _)| *j != k).map(|(_, b)| b).chain(solid);
-            for b in tops {
-                let top = b.min_y as f32;
-                if b.covers(at, 0) && top >= before.y + bottom - 1.0 && top < floor {
-                    floor = top;
-                }
-            }
-            if q.kind == 2 || t.pos.y + bottom >= floor {
-                if floor < f32::MAX {
-                    t.pos.y = floor - bottom;
-                }
-                let along = (v[0] as f32).hypot(v[2] as f32);
-                if t.slides && q.kind != 2 && along > SLIDE_LOSS {
-                    // Sliding on along the floor.
-                    let keep = (along - SLIDE_LOSS) / along;
-                    t.state = ThingState::Flying([(v[0] as f32 * keep) as i32, 0, (v[2] as f32 * keep) as i32]);
-                } else {
-                    t.state = ThingState::Rest;
-                    t.last_hit = None;
-                    t.bounced = false;
-                    t.slides = false;
-                }
-            } else {
-                t.state = ThingState::Flying(v);
             }
         }
         // Touch 1's sound at the object, once its count runs out

@@ -8,7 +8,7 @@
 //!   u16  chunk      this sector's place in the frame
 //!   u16  chunks     sectors in the frame
 //!   u32  frame      from 1
-//!   u32  unknown_0c
+//!   u32  size       the frame's bytes (its chunks are padded past them)
 //!   u16  width
 //!   u16  height
 //!   u8   [12]       the frame's BS header, repeated in every chunk

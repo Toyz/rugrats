@@ -7,7 +7,7 @@
 //! first sector  u32 0xf00dbabe, u16 version (3), u16 0xdead,
 //!               u16 frames, u16 setup bytes, setup
 //! a frame (data sector; 0xdddddddd first ends the stream)
-//!   u16 frame, u16 unknown_02
+//!   u16 frame, u16 bytes    the record's length past these four
 //!   s32 camera position[3]
 //!   u32 a: bits 0-12 q0, 13-25 q1 (signed), 26-31 actors
 //!   u32 b: bits 0-12 q2, 13-25 q3 (signed), 26-31 poses
@@ -15,7 +15,7 @@
 //!     u32 bits 0-12 q0, 13-25 q1, 26-29 mouth, 30-31 eyes
 //!     u32 bits 0-12 q2, 13-25 q3
 //!     s32 position[3]
-//!     s16 id, u16 unknown_16
+//!     s16 id, u16 pad        0 in every record
 //!   pose[poses], 16 bytes and 8 a key
 //!     s32 position[3]
 //!     u32 bits 0-15 id, 16-23 keys, 24-27 mouth, 28-29 eyes
@@ -35,8 +35,6 @@ pub struct Placed {
     pub pos: [i32; 3],
     pub mouth: u8,
     pub eyes: u8,
-    /// The record's u16 after the id (unknown).
-    pub unknown_16: u16,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -52,8 +50,8 @@ pub struct Pose {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Frame {
     pub number: u16,
-    /// The u16 after the frame number (unknown).
-    pub unknown_02: u16,
+    /// The record's length past its first four bytes (u16 +0x02).
+    pub bytes: u16,
     pub camera_pos: [i32; 3],
     pub camera_q: [i16; 4],
     pub actors: Vec<Placed>,
@@ -103,9 +101,9 @@ pub fn frame(d: &[u8]) -> Option<Frame> {
         .map(|_| {
             let (x, y) = (w(d, p)?, w(d, p + 4)?);
             let pos = [w(d, p + 8)? as i32, w(d, p + 12)? as i32, w(d, p + 16)? as i32];
-            let (id, unknown_16) = (w(d, p + 20)? as i16, (w(d, p + 20)? >> 16) as u16);
+            let id = w(d, p + 20)? as i16;
             p += 24;
-            Some(Placed { id, q: quat(x, y), pos, mouth: (x >> 26 & 15) as u8, eyes: (x >> 30) as u8, unknown_16 })
+            Some(Placed { id, q: quat(x, y), pos, mouth: (x >> 26 & 15) as u8, eyes: (x >> 30) as u8 })
         })
         .collect::<Option<Vec<_>>>()?;
     let poses = (0..b >> 26)
@@ -124,6 +122,6 @@ pub fn frame(d: &[u8]) -> Option<Frame> {
             Some(Pose { id: h as u16 as i16, pos, mouth: (h >> 24 & 15) as u8, eyes: (h >> 28 & 3) as u8, keys })
         })
         .collect::<Option<Vec<_>>>()?;
-    let unknown_02 = u16::from_le_bytes([d[2], d[3]]);
-    Some(Frame { number, unknown_02, camera_pos, camera_q: quat(a, b), actors, poses })
+    let bytes = u16::from_le_bytes([d[2], d[3]]);
+    Some(Frame { number, bytes, camera_pos, camera_q: quat(a, b), actors, poses })
 }

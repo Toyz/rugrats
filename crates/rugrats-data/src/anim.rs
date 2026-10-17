@@ -5,8 +5,9 @@
 //!
 //! ```text
 //! ANM  (u16 first_frame, u16 frames)[1280]     first 0xffff: none
-//! FRM  frame: u16 unknown_0, u16 duration, u16 first_key, u16 keys
-//!             (the loader multiplies duration by 5)
+//! FRM  frame: u16 events, u16 duration, u16 first_key, u16 keys
+//!             (the loader multiplies duration by 5; the events are
+//!             or'd into the body's +0xe0 as the frame ends, 0x80055d40)
 //! ROT  key, two words:
 //!        w0: bits 0-13 q0, 14-27 q1 (signed), bit 29 a lift key
 //!        w1: bits 0-13 q2, 14-26 q3 (signed), 27-31 channel
@@ -22,7 +23,10 @@ use crate::level::LevelError as Error;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Frame {
-    pub unknown_0: u16,
+    /// The event bits the frame posts as it ends (+0xe0, 0x80055d40: 1 an
+    /// animation's last frame, 16 a throw's release, 2048 a grab, 0x2000 a
+    /// hurt state's wait).
+    pub events: u16,
     /// As the game keeps it: the file's value times 5.
     pub duration: u16,
     pub first_key: u16,
@@ -74,7 +78,7 @@ impl Anims {
         let index = anm.chunks_exact(4).map(|e| (h(e, 0) != 0xffff).then(|| (h(e, 0), h(e, 2)))).collect();
         let frames = frm
             .chunks_exact(8)
-            .map(|f| Frame { unknown_0: h(f, 0), duration: h(f, 2).wrapping_mul(5), first_key: h(f, 4), keys: h(f, 6) })
+            .map(|f| Frame { events: h(f, 0), duration: h(f, 2).wrapping_mul(5), first_key: h(f, 4), keys: h(f, 6) })
             .collect::<Vec<_>>();
         let keys = rot.chunks_exact(8).map(|k| Key::parse(w(k, 0), w(k, 4))).collect::<Vec<_>>();
         if let Some(f) = frames.iter().find(|f| f.first_key as usize + f.keys as usize > keys.len()) {

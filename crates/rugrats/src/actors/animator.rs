@@ -309,6 +309,15 @@ impl Animator {
         self.spans = std::array::from_fn(|k| self.span(self.tracks[k].state, k, anims));
     }
 
+    /// Marks logical animation `a` as asked last on its track, without
+    /// asking (for a body whose state was taken on, `load_record`).
+    pub fn mark_asked(&mut self, a: i16) {
+        if let Some(s) = table_state(a, self.climb, self.tracks[0].state, self.running) {
+            self.asked = a;
+            self.asked_on[self.track_of(s)] = a;
+        }
+    }
+
     /// The tracks in words, for tools.
     pub fn describe(&self) -> String {
         let t: Vec<String> =

@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-187 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 91, render 28, save 4, test 25, tooling 18, ui 13, video 10.
+188 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 92, render 28, save 4, test 25, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -199,3 +199,4 @@ The [reference](docs/README.md) says what is true now.
 | 185 | [Root motion across for every state that has it](worklog/0185-root-motion-across-for-every-state-that-has-it.md) | 2026-10-17 | play |
 | 186 | [The put-down lets go only at its event](worklog/0186-the-put-down-lets-go-only-at-its-event.md) | 2026-10-17 | play |
 | 187 | [The player's animation tracks held to the original's in every script](worklog/0187-the-player-s-animation-tracks-held-to-the-original-s-in.md) | 2026-10-17 | test |
+| 188 | [The NPCs step before they ask; Spike held to the original](worklog/0188-the-npcs-step-before-they-ask-spike-held-to-the-original.md) | 2026-10-17 | play |

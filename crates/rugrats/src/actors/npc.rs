@@ -300,6 +300,11 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         Target::Point(p) => Pose::new(p, 0),
     };
     for (k, n) in npcs.iter_mut().enumerate() {
+        // The animation steps first and its root with it (0x8005a068),
+        // then the mode asks for what plays from the next step.
+        n.animator.step(w.anims, w.trig);
+        let scale = n.feet() as f32 / ROOT_SCALE;
+        n.root.step(&n.animator, w.anims, scale);
         n.cooldown = (n.cooldown - DT).max(0);
         let base = n.run_speed.unwrap_or(SPEEDS[n.speed_index.min(5)]);
         let mode = n.mode.clone();
@@ -465,9 +470,6 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         }
         let a = n.hold.unwrap_or(if n.speed > 0 { RUN } else { IDLE });
         n.animator.set(a, w.anims);
-        n.animator.step(w.anims, w.trig);
-        let scale = n.feet() as f32 / ROOT_SCALE;
-        n.root.step(&n.animator, w.anims, scale);
     }
     events
 }

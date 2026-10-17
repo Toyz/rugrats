@@ -14,6 +14,67 @@ readme = "README.md"
 dir   = "docs"
 label = "Reference"
 
+[[link]]
+label = "GitHub"
+icon  = "github"
+url   = "https://github.com/Toyz/rugrats"
+
+[[link]]
+label = "GitHub Issues"
+icon  = "github"
+url   = "https://github.com/Toyz/rugrats/issues"
+
+[[link]]
+label = "The Rust port"
+icon  = "code"
+url   = "https://github.com/Toyz/rugrats/tree/main/crates"
+
+[[link]]
+label = "retro_rt"
+icon  = "link"
+url   = "https://github.com/Toyz/retro_rt"
+
+# Rugrats, loosely: the title burst's lavender and the green of its outline
+# (Reptar's), with the logo's orange for code. Accents only; the page stays a
+# neutral grey for long reads.
+[colors.dark]
+paper         = "#151419"
+paper-sunk    = "#1d1c23"
+ink           = "#ecebf0"
+ink-soft      = "#bcbac7"
+ink-faint     = "#85839a"
+rule          = "#2e2c37"
+rule-faint    = "#23222a"
+link          = "#b9a8ff"
+accent        = "#7ac943"
+code-bg       = "#1b1a21"
+mark          = "#2f4a1e"
+code-keyword  = "#ff7a59"
+code-string   = "#9bdc5f"
+code-comment  = "#807e90"
+code-number   = "#ffb84d"
+code-function = "#d9c6ff"
+code-type     = "#7ec8ff"
+
+[colors.light]
+paper         = "#f7f6fa"
+paper-sunk    = "#edebf3"
+ink           = "#1c1b20"
+ink-soft      = "#47455a"
+ink-faint     = "#7a788c"
+rule          = "#dad7e4"
+rule-faint    = "#e7e5ee"
+link          = "#5a3fc0"
+accent        = "#3f8f1a"
+code-bg       = "#efedf5"
+mark          = "#dff3c8"
+code-keyword  = "#c2410c"
+code-string   = "#3f7f12"
+code-comment  = "#87859a"
+code-number   = "#b45309"
+code-function = "#6d3fc0"
+code-type     = "#0b6aa8"
+
 [index]
 header = """
 # Worklog

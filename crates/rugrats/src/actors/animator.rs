@@ -47,7 +47,7 @@ fn tables(character: u16) -> (u32, u32) {
 /// are not the table's. `climb` is the height a climb rises (+0x144),
 /// which picks one of six climbs. None keeps the state playing (17, the
 /// idle's "as you were"), or names none (a climb over 1033).
-pub fn table_state(a: i16, climb: i32, current: i16) -> Option<i16> {
+pub fn table_state(a: i16, climb: i32, current: i16, running: bool) -> Option<i16> {
     const MAP: [i16; 54] = [
         0, 1, 3, 5, 8, -1, 32, 27, 30, 31, 33, 20, 22, 15, 16, 7, 60, -1, 26, 25, 19, 17, 34, 36, 37, 38, 39, 40, 41,
         42, 43, 44, 0, 45, 46, 47, 48, 49, 0, 50, 51, 52, 53, 54, 0, 55, 56, 57, 58, 59, 61, 62, 64, 63,
@@ -59,8 +59,9 @@ pub fn table_state(a: i16, climb: i32, current: i16) -> Option<i16> {
             (0..6).find(|&k| h < 394 + 128 * k).map(|k| 9 + k as i16)
         }
         17 => Some(current),
-        // 0x80056e10 gives 28 when 0x800590d4 says running; nothing
-        // asks for 6 that the port plays.
+        // 0x80056e10: 28 when 0x800590d4 says running (the bump after a
+        // run), else 32.
+        6 => Some(if running { 28 } else { 32 }),
         0..=53 => Some(MAP[a as usize]),
         _ => Some(0),
     }
@@ -163,6 +164,9 @@ pub struct Animator {
     /// 1 (an upper state's ask leaves the base's as it was).
     asked_on: [i16; 2],
     pub climb: i32,
+    /// Running as 0x800590d4 judges it (above 3933/4096 of the top speed)
+    /// when the body asks: the bump after a run is state 28, else 32.
+    pub running: bool,
     /// The table states entered on the base track since last taken (for
     /// their sounds, 0x800562bc).
     entered: Vec<i16>,
@@ -224,6 +228,7 @@ impl Animator {
             asked: 0,
             asked_on: [-1; 2],
             climb: 0,
+            running: false,
             entered: Vec::new(),
             fidget: (FIDGETS.0, FIDGET_AFTER),
             after_base: 0,
@@ -279,6 +284,31 @@ impl Animator {
         self.tracks.map(|t| [t.state, t.prev, t.cur, t.left, 0, (t.phase as u16 | (t.back as u16) << 8) as i16])
     }
 
+    /// Takes on another body's state as the original keeps it (for the
+    /// oracle's checks): the track records (+0xa8, as [`Self::record`]),
+    /// the speed (+0xe4), the states after (+0xe6, +0xe7), the fidget
+    /// (+0xf0, +0xf2) and each channel's kept quaternion.
+    #[allow(clippy::too_many_arguments)]
+    pub fn load_record(
+        &mut self,
+        tracks: [[i16; 6]; 4],
+        speed: i32,
+        after: (u8, u8),
+        fidget: (i16, i32),
+        pose: Vec<Option<[i32; 4]>>,
+        anims: &Anims,
+    ) {
+        self.tracks = tracks.map(|t| Track { state: t[0], prev: t[1], cur: t[2], left: t[3], phase: t[5] as u8, back: (t[5] as u16 >> 8) as u8 });
+        self.speed = speed;
+        (self.after_base, self.after_upper) = after;
+        self.fidget = fidget;
+        self.pose = pose;
+        // (Standing: the idle asked last on the base.)
+        self.asked = 0;
+        self.asked_on = [0, -1];
+        self.spans = std::array::from_fn(|k| self.span(self.tracks[k].state, k, anims));
+    }
+
     /// The tracks in words, for tools.
     pub fn describe(&self) -> String {
         let t: Vec<String> =
@@ -312,7 +342,7 @@ impl Animator {
     /// Whether logical animation `a` plays and has not finished: asked
     /// last, on its track, not held on its last frame.
     pub fn playing(&self, a: i16) -> bool {
-        let Some(s) = table_state(a, self.climb, self.tracks[0].state) else { return false };
+        let Some(s) = table_state(a, self.climb, self.tracks[0].state, self.running) else { return false };
         let k = self.track_of(s);
         let t = &self.tracks[k];
         self.asked_on[k] == a && t.state == s && t.phase != 3
@@ -321,7 +351,7 @@ impl Animator {
     /// The ANM animation of logical animation `a` on the base track
     /// (0x80055f7c: -1 none).
     pub fn anm(&self, a: i16) -> Option<usize> {
-        self.column(table_state(a, self.climb, self.tracks[0].state)?, 0)
+        self.column(table_state(a, self.climb, self.tracks[0].state, self.running)?, 0)
     }
 
     /// The logical state asked for after the base (`base`) or an upper
@@ -345,7 +375,7 @@ impl Animator {
             self.start(a, anims);
             return;
         }
-        let Some(s) = table_state(a, self.climb, self.tracks[0].state) else { return };
+        let Some(s) = table_state(a, self.climb, self.tracks[0].state, self.running) else { return };
         let k = self.track_of(s);
         if self.asked_on[k] == a {
             return;
@@ -380,7 +410,7 @@ impl Animator {
     /// tracks set up first (0x80055f7c).
     fn ask(&mut self, a: i16, speed: i32, anims: &Anims) {
         self.speed = speed.clamp(2048, 0x4000);
-        let Some(s) = table_state(a, self.climb, self.tracks[0].state) else { return };
+        let Some(s) = table_state(a, self.climb, self.tracks[0].state, self.running) else { return };
         if self.tracks[0].state == -1 {
             self.init(s, anims);
         }
@@ -540,7 +570,7 @@ impl Animator {
         }
         let to = match next(s) {
             Some(n) => n,
-            None => match table_state(self.after_base as i16, self.climb, s) {
+            None => match table_state(self.after_base as i16, self.climb, s, self.running) {
                 Some(n) => n,
                 None => return,
             },
@@ -559,7 +589,7 @@ impl Animator {
         if self.after_upper == AS_YOU_WERE {
             return true;
         }
-        if let Some(s) = table_state(self.after_upper as i16, self.climb, self.tracks[0].state) {
+        if let Some(s) = table_state(self.after_upper as i16, self.climb, self.tracks[0].state, self.running) {
             let t = &mut self.tracks[1];
             t.state = s;
             t.phase = 0;

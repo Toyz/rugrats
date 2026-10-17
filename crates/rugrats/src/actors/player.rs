@@ -1327,6 +1327,7 @@ impl Player {
     /// third argument).
     pub fn act_at(&mut self, a: i16, speed: i32, anims: &Anims) {
         self.action = Some(a);
+        self.animator.running = self.speed > (self.gait.0 * 3933) >> 12;
         self.speed = 0;
         self.animator.start_at(a, speed, anims);
     }

@@ -29,6 +29,10 @@ struct Both {
     /// reaches the original's player a game frame later (read at the
     /// vertical blank, used by the next frame).
     held: std::collections::VecDeque<u16>,
+    /// Frames whose animation tracks (+0xa8, four of 12 bytes) were not
+    /// the original's.
+    tracks_off: Vec<usize>,
+    frames: usize,
 }
 
 /// The original's input latency, in game frames.
@@ -52,12 +56,42 @@ impl Both {
         let disc = GameDisc::open(&cue).ok()?;
         let game = Game::open_from(&disc, Level(boot.level), None, &Progress::default()).ok()?;
         let hle = Play::boot(Rc::new(rrt::disc::Image::open(&cue).ok()?), boot).ok()?;
-        Some(Both { game, hle, held: std::iter::repeat_n(0, LAG).collect() })
+        let mut b = Both { game, hle, held: std::iter::repeat_n(0, LAG).collect(), tracks_off: Vec::new(), frames: 0 };
+        b.sync_animation();
+        Some(b)
     }
 
-    /// Both players put at `pos` facing `heading`, then `settle` frames
-    /// with nothing held.
+    /// The port's animator given the original's state as it stands (its
+    /// tracks, speed, states after, fidget and parts' turns), so both play
+    /// on from the same place.
+    fn sync_animation(&mut self) {
+        let p = rugrats_hle::play::PLAYER;
+        let h = &mut self.hle;
+        let tracks: [[i16; 6]; 4] = std::array::from_fn(|k| std::array::from_fn(|i| h.read_i16(p + 0xa8 + 12 * k as u32 + 2 * i as u32)));
+        let speed = h.read_i16(p + 0xe4) as i32;
+        let after = (h.read_u8(p + 0xe6), h.read_u8(p + 0xe7));
+        let fidget = (h.read_i16(p + 0xf0), h.read_i16(p + 0xf2) as i32);
+        let hier = h.read_u32(p + 0x154);
+        let parts = h.read_i16(hier) as u32;
+        let header: Vec<u8> = (0..0x34).map(|i| h.read_u8(hier + i)).collect();
+        let mut pose = vec![None; 32];
+        for (channel, slot) in pose.iter_mut().enumerate() {
+            let part = header.get(0x14 + channel).copied().unwrap_or(0xff) as u32;
+            if part < parts {
+                let q = [0, 4, 8, 12].map(|c| h.read_i32(hier + 0x34 + 40 * part + 4 + c));
+                if q != [0; 4] {
+                    *slot = Some(q);
+                }
+            }
+        }
+        let g = &mut self.game;
+        g.player.animator.load_record(tracks, speed, after, fidget, pose, &g.anims);
+    }
+
+    /// Both players put at `pos` facing `heading`, the port's animation
+    /// given the original's, then `settle` frames with nothing held.
     fn put(&mut self, pos: [i32; 3], heading: i32, settle: usize) {
+        self.sync_animation();
         self.hle.put(pos, heading as i16);
         let p = &mut self.game.player;
         p.pos = pos;
@@ -117,11 +151,17 @@ impl Both {
                     let same = o == p;
                     eprintln!("    cam {} orig {o:?}\n        port {p:?}", if same { "same" } else { "DIFF" });
                 }
-                if std::env::var_os("TRACKS").is_some() {
+                {
                     let orig: Vec<[i16; 6]> = (0..4u32).map(|k| std::array::from_fn(|i| self.hle.read_i16(rugrats_hle::play::PLAYER + 0xa8 + 12 * k + 2 * i as u32))).collect();
                     let port = self.game.player.animator.record();
                     let same = orig.iter().zip(&port).all(|(o, p)| o[..4] == p[..4] && (o[5] & 0xff) == (p[5] & 0xff));
-                    eprintln!("    tracks {} port {:?}\n                orig {:?}", if same { "same" } else { "DIFF" }, port, orig);
+                    if !same {
+                        self.tracks_off.push(self.frames);
+                    }
+                    if std::env::var_os("TRACKS").is_some() {
+                        eprintln!("    tracks {} port {:?}\n                orig {:?}", if same { "same" } else { "DIFF" }, port, orig);
+                    }
+                    self.frames += 1;
                 }
                 if std::env::var_os("FOCUS").is_some() {
                     let f = self.hle.read_u32(rugrats_hle::play::PLAYER + 0x1e8);
@@ -193,6 +233,7 @@ fn hub_run_as_the_original() {
     let hold: usize = std::env::var("HOLD").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
     let (port, orig) = b.script(&[(bits(&[UP]), hold), (0, 10)]);
     let worst = report("run", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
@@ -207,6 +248,7 @@ fn hub_start_run_and_jump_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[UP, LEFT]), 12), (bits(&[UP, LEFT, CROSS]), 1), (bits(&[UP, LEFT]), 24)]);
     let worst = report("start", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
@@ -223,6 +265,7 @@ fn egg_hunt_slide_and_bump_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 2)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 70)]);
     let worst = report("slide", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
@@ -237,6 +280,7 @@ fn spike_run_at_a_wall_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 4)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 12)]);
     let worst = report("spike", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
@@ -250,6 +294,7 @@ fn hub_standing_jump_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[CROSS]), 1), (0, 40)]);
     let worst = report("stand", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
@@ -265,6 +310,7 @@ fn hub_run_at_the_seat_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 4)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 40)]);
     let worst = report("seat", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
@@ -278,6 +324,7 @@ fn hub_held_jump_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[CROSS]), 20), (0, 20)]);
     let worst = report("held", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
@@ -292,6 +339,7 @@ fn hub_tap_turn_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[UP, LEFT]), 1), (0, 12)]);
     let worst = report("tap", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     let turned = port.iter().zip(&orig).filter(|(p, o)| p.heading != o.heading).count();
     assert_eq!((worst, turned), (0, 0), "the same as the original's, every frame");
@@ -308,6 +356,7 @@ fn hub_run_across_the_playpen_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 4)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 30)]);
     let worst = report("pen", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
@@ -365,6 +414,7 @@ fn hub_pick_up_as_the_original() {
         thrown.len()
     );
     assert_eq!((off, across), (0, 0), "the original's turns and place");
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height, 0, "the original's height");
     assert!(thrown.len() >= 60 && flown == 0, "the flight the original's: {:?}", thrown.iter().find(|(m, t)| m != t));
 }
@@ -395,6 +445,7 @@ fn level_6_chuckie_box_as_the_original() {
         }
     });
     let worst = report("box", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     let off = held.iter().filter(|(m, t)| m != t).count();
     eprintln!("box held {} frames, {off} off", held.len());
     assert_eq!(worst, 0, "the body's places");

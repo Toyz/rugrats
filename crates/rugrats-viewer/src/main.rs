@@ -96,7 +96,8 @@ impl Scene {
             let (_, frame) = stream.frames.get(want.saturating_sub(1)).ok_or(format!("no cine frame {want}"))?;
             triangles = set.rooms.clone();
             triangles.extend(set.objects(frame));
-            cine_camera = Some(rugrats::media::cine::camera(frame));
+            let trig = rugrats::gte::Trig::load(disc)?;
+            cine_camera = Some(rugrats::media::cine::camera(frame, rugrats::media::cine::focal(disc, &trig, 0)));
             rrt::tracing::info!("cine frame {}: camera at {:?}, {} poses", frame.number, frame.camera_pos, frame.poses.len());
         } else if let Some((hn, an)) = anim {
             // Hierarchy hn at each key frame of animation an, in a row.

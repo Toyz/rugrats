@@ -40,6 +40,16 @@ fn main() -> Result<(), String> {
     let every: usize = a.next().and_then(|s| s.parse().ok()).unwrap_or(10);
     let disc = GameDisc::open(&rrt::disc::Image::find(std::path::Path::new("work/disc")).map_err(|e| e.to_string())?)?;
     let mut game = rugrats::world::game::Game::open(&disc, db)?;
+    // START=x,y,z,heading puts the player there first.
+    if let Ok(v) = std::env::var("START") {
+        let n: Vec<i32> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+        if let [x, y, z, h] = n[..] {
+            game.player.pos = [x, y, z];
+            game.player.heading = h;
+            game.player.target = h;
+            game.set_camera_yaw(h as f32);
+        }
+    }
     // BOXAT=x,z: the object boxes covering that point.
     if let Ok(v) = std::env::var("BOXAT") {
         let p: Vec<i32> = v.split(',').filter_map(|s| s.parse().ok()).collect();

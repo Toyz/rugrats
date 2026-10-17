@@ -3,9 +3,11 @@ spec_version = 1
 [project]
 name        = "rugrats"
 slug        = "rugrats"
+repository  = "https://github.com/Toyz/rugrats"
 description = "Reverse engineering Rugrats: Search for Reptar for the PlayStation (n-Space / THQ, 1998, SLUS-00650) and porting it natively to the PC on retro_rt, using tools written for the job in Rust. No game data included."
 
 [site]
+base_url = "https://toyz.github.io/rugrats/"
 readme = "README.md"
 
 [docs]

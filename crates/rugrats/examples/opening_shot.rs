@@ -23,7 +23,11 @@ fn main() -> Result<(), String> {
     let env = |k: &str, d: usize| std::env::var(k).ok().and_then(|s| s.parse().ok()).unwrap_or(d);
     let mut cine = rugrats::media::cine::Cine::open(&disc, env("CINE", 0), env("DB", 22), 0, &audio)?;
     let gpu = Gpu::headless().map_err(|e| e.to_string())?;
-    let (w, h) = (640, 480);
+    // SHOT_SIZE=WxH for another size than 640 x 480.
+    let (w, h) = std::env::var("SHOT_SIZE")
+        .ok()
+        .and_then(|s| s.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?))))
+        .unwrap_or((640, 480));
     let target = Target::new(&gpu.device, w, h);
     let mut t = 0;
     let mut want = from;

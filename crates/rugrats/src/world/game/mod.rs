@@ -412,6 +412,9 @@ pub struct Game {
     shaft: bool,
     /// Damage events are dropped (level 1, 0x800780d8).
     pub no_damage: bool,
+    /// Damage posted to the player (0x800780ac's event 8 on D_800c4408),
+    /// taken at the next frame's start (0x8007871c).
+    damage_posted: Vec<i32>,
     /// The levels won (+0x38), for the hub's signs, and the pieces earned
     /// (0x80094b8c) for the pause.
     pub won_levels: u32,
@@ -884,6 +887,9 @@ impl Game {
                 size: 0,
                 posed: t.flags & 0x2000 != 0,
                 rooted: false,
+                bite: Default::default(),
+                goal: [0; 3],
+                reenter: false,
                 bumped: false,
                 reach: 600,
                 bite_wait: 900,
@@ -994,6 +1000,7 @@ impl Game {
             card: None,
             aim: false,
             aim_target: None,
+            damage_posted: Vec::new(),
             fourth_bar: false,
             activity: progress.activity(),
             flags: progress.flags(),
@@ -1166,6 +1173,16 @@ impl Game {
 
     /// One frame of the level (0x80018c38): the player, then the camera,
     /// then the draw.
+    /// Damage to the player (0x800780ac): posted as an event, taken at the
+    /// next frame's start; none in Pickles' Home, the circus, Gold Rush
+    /// and golf.
+    pub fn post_damage(&mut self, amount: i32) {
+        if matches!(self.level, Level::HUB | Level::CIRCUS | Level::GOLD_RUSH) || self.level.is_hole() {
+            return;
+        }
+        self.damage_posted.push(amount);
+    }
+
     pub fn frame(&mut self, pads: &Pads) {
         self.frames = self.frames.wrapping_add(1);
         self.effects.clear();
@@ -1200,6 +1217,11 @@ impl Game {
             self.effects.extend(self.pause.sounds.drain(..).map(Effect::new));
             self.draw();
             return;
+        }
+        // Damage posted last frame (0x8007871c's events, before the
+        // player's update).
+        for amount in std::mem::take(&mut self.damage_posted) {
+            self.player.hurt(amount);
         }
         if self.crying > 0 {
             // The cry runs on its own (0x8007f920's loop): the world waits.
@@ -1561,6 +1583,11 @@ impl Game {
             walls: &boxes,
             obstacles: &obstacles,
             level: self.level.0,
+            player_y: self.player.pos[1] + self.player.root_y,
+            player_box_y: {
+                let h = |at: usize| self.player.hierarchy.header.get(at..at + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
+                [h(6), h(0xe)]
+            },
         };
         self.npc_events = npc::step(&mut self.npcs, &world, &mut self.rand);
         for k in 0..self.npcs.len() {

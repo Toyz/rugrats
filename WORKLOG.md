@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-193 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 95, render 29, save 4, test 26, tooling 18, ui 13, video 10.
+194 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 96, render 29, save 4, test 26, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -205,3 +205,4 @@ The [reference](docs/README.md) says what is true now.
 | 191 | [Held standing puts the speed by](worklog/0191-held-standing-puts-the-speed-by.md) | 2026-10-17 | play |
 | 192 | [Rolling throws, level 9's aim, flights after the objects](worklog/0192-rolling-throws-level-9-s-aim-flights-after-the-objects.md) | 2026-10-17 | play |
 | 193 | [Characters move as 0x80082264 moves them; the seat's held probe; post cameras](worklog/0193-characters-move-as-0x80082264-moves-them-the-seat-s-held.md) | 2026-10-17 | play |
+| 194 | [Followers bite in the original's mode cycle; damage posted a frame late](worklog/0194-followers-bite-in-the-original-s-mode-cycle-damage-posted-a.md) | 2026-10-17 | play |

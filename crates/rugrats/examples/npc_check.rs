@@ -124,6 +124,21 @@ fn main() -> Result<(), String> {
     // MOVES=k: the original's object k's place, heading, speed (+0x184)
     // and way (+0x178) each frame beside the port's.
     let moves: Option<usize> = std::env::var("MOVES").ok().and_then(|s| s.parse().ok());
+    // CALLS=1 with MOVES: the original's update (0x80084084) and body
+    // (0x8005a068) calls for that object.
+    if std::env::var_os("CALLS").is_some()
+        && let Some(m) = moves
+        && let Some(&(_, o)) = pairs.iter().find(|(k, _)| *k == m)
+    {
+        for a in [0x8008_4084u32, 0x8005_a068, 0x8005_6834] {
+            p.hle.m.hook(a, move |c| {
+                if c.arg32(0) == o {
+                    println!("     CALL {a:#x}");
+                }
+                rrt::emu::HookResult::Continue
+            });
+        }
+    }
     // SYNCAT=f: each paired NPC given the original's place and heading
     // again before frame f.
     let sync_at: Option<usize> = std::env::var("SYNCAT").ok().and_then(|s| s.parse().ok());
@@ -146,15 +161,20 @@ fn main() -> Result<(), String> {
             let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
             let way = [0, 4, 8].map(|i| p.read_i32(o + 0x178 + i));
             println!(
-                "{f:3} MOVE orig {at:?} h {} to {} mode {} speed {} way {way:?} state {} | port {:?} h {} speed {}",
+                "{f:3} MOVE orig {at:?} h {} to {} mode {} wait {} ev {:#x} track0 {:?} speed {} way {way:?} state {} | port {:?} h {} speed {} {:?} {:?}",
                 p.read_i16(o + 0x24),
                 p.read_i16(o + 0x2c),
                 p.read_u8(o + 0x699),
+                p.read_i32(o + 0x69c),
+                p.read_u32(o + 0xe0),
+                tracks(&mut p, o)[0],
                 p.read_i32(o + 0x184),
                 p.read_u8(o + 0x18c),
                 n.pos,
                 n.heading,
-                n.speed
+                n.speed,
+                n.bite,
+                n.animator.record()[0]
             );
         }
         for &(k, o) in &pairs {

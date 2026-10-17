@@ -144,7 +144,7 @@ impl Script for MrFriend {
             if let Event::Bite { target: Target::Player, amount, .. } = e
                 && amount > 0
             {
-                g.player.hurt(amount);
+                g.post_damage(amount);
             }
         }
         // Things thrown at him (0x800834b0 and Damage with the thing's

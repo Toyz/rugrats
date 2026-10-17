@@ -158,7 +158,7 @@ impl Script for ToyPalace {
             if let Event::Bite { target: Target::Player, amount, .. } = e
                 && amount > 0
             {
-                g.player.hurt(amount);
+                g.post_damage(amount);
             }
         }
         let p = g.player.pos;

@@ -501,6 +501,9 @@ fn level_6_chuckie_box_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 6, character: Some(2), ..Default::default() }) else { return };
     let k = b.game.things.iter().position(|t| t.template == 1016 && (t.pos.x as i32, t.pos.z as i32) == (42741, 12863)).expect("box 8");
     b.put([42741, -1378, 12163], 0, 6);
+    // The camera behind on both (the put leaves the original's where it
+    // was).
+    b.script(&[(bits(&[rugrats::input::R1]), 1), (0, 4)]);
     let p = rugrats_hle::play::PLAYER;
     let (mut held, mut obj) = (Vec::new(), 0u32);
     let (port, orig) = b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[CIRCLE]), 1), (0, 24)], |g, h| {
@@ -520,6 +523,7 @@ fn level_6_chuckie_box_as_the_original() {
     assert_eq!(worst, 0, "the body's places");
     assert!(held.len() >= 50 && off == 0, "the box's places: {:?}", held.iter().find(|(m, t)| m != t));
     assert_eq!(b.game.carried(), Some(k), "still in hand");
+    assert_eq!(camera_off(&port, &orig), 0, "the follow camera's heading");
 }
 
 /// Level 9 past cine 17 (where the port starts): ball 3 (template 777)
@@ -613,7 +617,7 @@ fn level_9_friend_chases_as_the_original() {
     n.pos = [0, 4, 8].map(|i| b.hle.read_i32(o + 0x18 + i));
     n.heading = b.hle.read_i16(o + 0x24) as i32 & 4095;
     let mut seen = Vec::new();
-    let (port, orig) = b.script_with(&[(0, 280)], |g, h| {
+    let (port, orig) = b.script_with(&[(0, 520)], |g, h| {
         let n = &g.npcs[k];
         let theirs = ([0, 8].map(|i| h.read_i32(o + 0x18 + i)), h.read_i16(o + 0x24) as i32 & 4095);
         seen.push((([n.pos[0], n.pos[2]], n.heading), theirs));
@@ -623,4 +627,87 @@ fn level_9_friend_chases_as_the_original() {
     eprintln!("Mr. Friend chased {} frames, {off} off", seen.len());
     assert_eq!(off, 0, "his place and heading: {:?}", seen.iter().position(|(m, t)| m != t).map(|f| (f, seen[f])));
     assert_eq!(camera_off(&port, &orig), 0, "the follow camera's heading");
+}
+
+/// Level 9 past cine 17, Tommy where the cinematic leaves him, within Mr.
+/// Friend's bite. His bite cycle (0x80084084): mode 4 stops him and asks
+/// mode 5 within half his range with the two bodies level; mode 5 asks the
+/// bite (37) and gives the Damage, without a body update; mode 1 plays it
+/// out; mode 0 goes back to 4, again without one. Given the original's
+/// mode and animation once, his tracks are the original's every frame, and
+/// Tommy's health falls on the same frames.
+#[test]
+#[ignore]
+fn level_9_friend_bites_as_the_original() {
+    use rugrats::actors::npc::Bite;
+    let Some(mut b) = Both::open(Boot { level: 9, cinematics: true, ..Default::default() }) else { return };
+    for _ in 0..900 {
+        b.hle.frame(0).unwrap();
+    }
+    let k = b.game.npcs.iter().position(|n| n.id == 46).expect("Mr. Friend");
+    let at = b.game.npcs[k].pos;
+    let mut bodies = Vec::new();
+    for o in objects(&mut b.hle) {
+        if b.hle.read_u32(o + 0x154) != 0 {
+            let d: i32 = (0..3).map(|i| (b.hle.read_i32(o + 0x18 + 4 * i as u32) - at[i]).abs()).sum();
+            bodies.push((d, o));
+        }
+    }
+    let o = bodies.into_iter().min().expect("his object").1;
+    let p = rugrats_hle::play::PLAYER;
+    let tracks = |h: &mut Play| -> [[i16; 6]; 4] { std::array::from_fn(|j| std::array::from_fn(|i| h.read_i16(o + 0xa8 + 12 * j as u32 + 2 * i as u32))) };
+    // His mode, animation, place and heading as the original's stand.
+    {
+        let t = tracks(&mut b.hle);
+        let speed = b.hle.read_i16(o + 0xe4) as i32;
+        let after = (b.hle.read_u8(o + 0xe6), b.hle.read_u8(o + 0xe7));
+        let fidget = (b.hle.read_i16(o + 0xf0), b.hle.read_i16(o + 0xf2) as i32);
+        let hier = b.hle.read_u32(o + 0x154);
+        let parts = b.hle.read_i16(hier) as u32;
+        let mut pose = vec![None; 32];
+        for (channel, slot) in pose.iter_mut().enumerate() {
+            let part = b.hle.read_u8(hier + 0x14 + channel as u32) as u32;
+            if part < parts {
+                let q = [0, 4, 8, 12].map(|c| b.hle.read_i32(hier + 0x34 + 40 * part + 4 + c));
+                if q != [0; 4] {
+                    *slot = Some(q);
+                }
+            }
+        }
+        let mode = b.hle.read_u8(o + 0x699);
+        let g = &mut b.game;
+        let n = &mut g.npcs[k];
+        n.animator.load_record(t, speed, after, fidget, pose, &g.anims);
+        n.pos = [0, 4, 8].map(|i| b.hle.read_i32(o + 0x18 + i));
+        n.heading = b.hle.read_i16(o + 0x24) as i32 & 4095;
+        n.bite = match mode {
+            5 => Bite::Strike,
+            1 => Bite::Recover,
+            0 => Bite::Resume,
+            _ => Bite::Chase,
+        };
+        g.player.health = b.hle.read_i16(p + 0x1a4) as i32;
+    }
+    b.sync_animation();
+    let look = [0, 4, 8].map(|i| b.hle.read_i32(0x800d_e454 + i));
+    b.game.set_camera_look(look);
+    let (mut seen, mut health) = (Vec::new(), Vec::new());
+    let (port, orig) = b.script_with(&[(0, 120)], |g, h| {
+        let n = &g.npcs[k];
+        let theirs = tracks(h);
+        let mine = n.animator.record();
+        let same = theirs.iter().zip(&mine).all(|(o, p)| o[..4] == p[..4] && (o[5] & 0xff) == (p[5] & 0xff));
+        if std::env::var_os("TRACKS").is_some() {
+            eprintln!("    friend {} {:?} | {:?} {:?} mode {}", if same { "same" } else { "DIFF" }, theirs[0], mine[0], n.bite, h.read_u8(o + 0x699));
+        }
+        seen.push(same);
+        health.push((g.player.health, h.read_i16(p + 0x1a4) as i32));
+    });
+    let off: Vec<usize> = seen.iter().enumerate().filter(|(_, s)| !**s).map(|(f, _)| f).collect();
+    eprintln!("Mr. Friend's tracks off at {off:?}; Tommy's health {health:?}");
+    assert!(off.is_empty(), "his tracks, off at {off:?}");
+    assert!(health.iter().all(|(m, t)| m == t), "Tommy's health: {health:?}");
+    assert!(b.tracks_off.is_empty(), "Tommy's animation tracks, off at {:?}", b.tracks_off);
+    assert_eq!(report("bitten", &port, &orig), 0, "Tommy's place");
+    assert_eq!(camera_off(&port, &orig), 0, "the camera's heading");
 }

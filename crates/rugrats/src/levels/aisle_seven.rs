@@ -296,7 +296,7 @@ impl Script for AisleSeven {
         for e in std::mem::take(&mut g.npc_events) {
             match e {
                 Event::Bite { by, target: Target::Player, amount } if amount > 0 => {
-                    g.player.hurt(amount);
+                    g.post_damage(amount);
                     // At the biter (0x80084084: 0x8006f644(52, it)).
                     let at = g.npcs[by].pos;
                     g.play_at(52, at);

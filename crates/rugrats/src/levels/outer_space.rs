@@ -258,7 +258,7 @@ impl Script for OuterSpace {
             if let Event::Bite { target: Target::Player, amount, .. } = e
                 && amount > 0
             {
-                g.player.hurt(amount);
+                g.post_damage(amount);
             }
         }
         // Batteries (kind 12, 0x80051c68): +30 charge, sound 69.

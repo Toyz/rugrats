@@ -97,6 +97,20 @@ pub enum Mode {
     Block { heading: i32 },
 }
 
+/// Where a follower is in its bite (0x80084084's modes 4, 5, 1, 0).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Bite {
+    /// Mode 4: after the target.
+    #[default]
+    Chase,
+    /// Mode 5: the bite to give this frame (no body update).
+    Strike,
+    /// Mode 1: the bite playing out, the body updated.
+    Recover,
+    /// Mode 0: back to mode 4 (no body update).
+    Resume,
+}
+
 pub struct Npc {
     /// The registry id (LP +0x2a) and the character (the hierarchy).
     pub id: u16,
@@ -135,6 +149,12 @@ pub struct Npc {
     /// return in level 9's phase 2): following, it stays put until the
     /// target is within a bite.
     pub rooted: bool,
+    /// The bite under way (mode 4's).
+    pub bite: Bite,
+    /// Where the steer aims (+0x67c), as last set.
+    pub goal: [i32; 3],
+    /// Its state set anew (mode 1's end): the next ask starts it again.
+    pub reenter: bool,
     /// Its last step was taken back off a wall or an object (the bump,
     /// state 9).
     pub bumped: bool,
@@ -191,6 +211,12 @@ impl Npc {
     /// Loses `amount` health, to 0 at least.
     pub fn hurt(&mut self, amount: i32) {
         self.health = (self.health - amount).max(0);
+    }
+
+    /// The hierarchy box's top and bottom (+0x154 + 6, + 0xe).
+    pub fn box_y(&self) -> [i32; 2] {
+        let h = |at: usize| self.hierarchy.header.get(at..at + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
+        [h(6), h(0xe)]
     }
 
     pub fn feet(&self) -> i32 {
@@ -410,6 +436,10 @@ pub struct World<'a> {
     pub obstacles: &'a [Obstacle],
     /// The level (0x800c5678).
     pub level: u8,
+    /// The player's height with its root (+0x1c) and its hierarchy box's
+    /// top and bottom (+0x154 + 6, + 0xe).
+    pub player_y: i32,
+    pub player_box_y: [i32; 2],
 }
 
 /// An object as the characters' casts see it.
@@ -433,12 +463,18 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         Target::Npc(k) => places.get(k).copied().unwrap_or(Pose::new(w.player, 0)),
         Target::Point(p) => Pose::new(p, 0),
     };
+    let heights: Vec<(i32, [i32; 2])> = npcs.iter().map(|n| (n.pos[1] + n.root.y, n.box_y())).collect();
     for (k, n) in npcs.iter_mut().enumerate() {
         // The animation steps first and its root with it (0x8005a068),
-        // then the mode asks for what plays from the next step.
-        n.animator.step(w.anims, w.trig);
-        let scale = n.feet() as f32 / ROOT_SCALE;
-        n.root.step(&n.animator, w.anims, scale);
+        // then the mode asks for what plays from the next step. A bite's
+        // modes 5 and 0 have no body update (0x80084084 leaves without
+        // 0x80082230).
+        let body = !(matches!(n.mode, Mode::Follow(_)) && matches!(n.bite, Bite::Strike | Bite::Resume));
+        if body {
+            n.animator.step(w.anims, w.trig);
+            let scale = n.feet() as f32 / ROOT_SCALE;
+            n.root.step(&n.animator, w.anims, scale);
+        }
         n.cooldown = (n.cooldown - DT).max(0);
         let base = n.run_speed.unwrap_or(SPEEDS[n.slow as usize][n.speed_index.min(5)]);
         let mode = n.mode.clone();
@@ -450,31 +486,72 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 n.heading = (h + turn).rem_euclid(4096);
                 n.speed = 0;
             }
-            Mode::Follow(t) => {
-                let p = at(t).pos;
-                let d = n.dist(p);
-                if n.rooted && d >= n.range / 2 {
-                    // Still in its hurt state (19), which does not walk:
-                    // it waits for the target to come within a bite.
-                    n.speed = 0;
-                } else if d > 2 * n.range {
-                    n.go(k, p, 2 * base, w);
-                } else if d >= n.range / 2 {
-                    n.go(k, p, base, w);
-                } else {
-                    n.speed = 0;
-                    // Only with the way to the target clear (0x80084084:
-                    // the segment test 0x8002cd7c gets through).
+            Mode::Follow(t) => match n.bite {
+                // Mode 5 (0x800846e4): state 19, the bite (37) asked at
+                // 4096, Damage to the target (0x800780ac); then mode 1.
+                Bite::Strike => {
+                    events.push(Event::Bite { by: k, target: t, amount: n.damage });
+                    n.animator.start_at(37, 4096, w.anims);
+                    n.bite = Bite::Recover;
+                    continue;
+                }
+                // Mode 1 (0x800841cc): the bite plays out, the body still
+                // turning to where it aimed; done (0x8000000), mode 0 and
+                // its speed back. (The wait on event 0x2000 does not come
+                // in the bites seen.)
+                Bite::Recover => {
+                    let goal = n.goal;
+                    n.go(k, goal, 0, w);
+                    if n.animator.events & 0x800_0000 != 0 {
+                        n.bite = Bite::Resume;
+                    }
+                    continue;
+                }
+                // Mode 0: mode 4 again (+0x69b).
+                Bite::Resume => {
+                    n.bite = Bite::Chase;
+                    n.reenter = true;
+                    continue;
+                }
+                // Mode 4 (0x80084cd0): with the way to the target clear
+                // (0x8002cd7c), within half the range and the two bodies
+                // level (0x80083ff0, their boxes' heights overlapping) it
+                // stops, and with +0x688 bit 8 bites (mode 5). Its speed:
+                // twice the table's past twice the range, the table's past
+                // half of it, else as it was.
+                Bite::Chase => {
+                    let p = at(t).pos;
+                    n.goal = p;
+                    let d = n.dist(p);
+                    let (ty, tb) = match t {
+                        Target::Player => (w.player_y, w.player_box_y),
+                        Target::Npc(j) => heights.get(j).copied().unwrap_or((p[1], [0, 0])),
+                        Target::Point(p) => (p[1], [0, 0]),
+                    };
+                    let (my, mb) = (n.pos[1] + n.root.y, n.box_y());
+                    let level = !(ty + tb[1] < my + mb[0]) && !(my + mb[1] < ty + tb[0]);
                     let mut seg = collide::Segment::default();
                     let seen = collide::segment(w.col, n.pos, p, &mut seg) == 0;
-                    if seen && n.attacks && n.cooldown == 0 && (p[1] - n.pos[1]).abs() < 1200 {
-                        events.push(Event::Bite { by: k, target: t, amount: n.damage });
-                        n.cooldown = n.bite_wait.min(600);
-                        // The bite's state ends in state 0 (mode 1's end).
-                        n.rooted = false;
+                    let mut speed = n.speed;
+                    if seen && d < n.range / 2 && level {
+                        speed = 0;
+                        if n.attacks {
+                            n.bite = Bite::Strike;
+                            n.rooted = false;
+                        }
                     }
+                    if n.rooted && d >= n.range / 2 {
+                        // Still in its hurt state (19), which does not walk:
+                        // it waits for the target to come within a bite.
+                        speed = 0;
+                    } else if d > 2 * n.range {
+                        speed = 2 * base;
+                    } else if d >= n.range / 2 {
+                        speed = base;
+                    }
+                    n.go(k, p, speed, w);
                 }
-            }
+            },
             Mode::Posts { prev, cur } => {
                 let Some(post) = w.posts.get((cur as usize).wrapping_sub(1)).copied() else {
                     n.mode = Mode::Idle;
@@ -603,7 +680,13 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
             }
         }
         let a = n.hold.unwrap_or(if n.speed > 0 { RUN } else { IDLE });
-        n.animator.set(a, w.anims);
+        if std::mem::take(&mut n.reenter) {
+            // Back from the bite's state 19 (mode 1 left state 0 for the
+            // body's next update): the state's entry asks anew (0x8005b2d8).
+            n.animator.start(a, w.anims);
+        } else {
+            n.animator.set(a, w.anims);
+        }
     }
     events
 }

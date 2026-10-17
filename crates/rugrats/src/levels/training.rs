@@ -184,7 +184,7 @@ impl Script for Training {
             if let Event::Bite { by, target: Target::Player, amount } = e
                 && amount > 0
             {
-                g.player.hurt(amount);
+                g.post_damage(amount);
                 // At the biter (0x80084084: 0x8006f644(52, it)).
                 let at = g.npcs[by].pos;
                 g.play_at(52, at);

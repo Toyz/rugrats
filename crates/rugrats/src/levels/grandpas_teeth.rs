@@ -208,6 +208,9 @@ impl GrandpasTeeth {
                 size: 0,
                 posed: false,
                 rooted: false,
+                bite: Default::default(),
+                goal: [0; 3],
+                reenter: false,
                 bumped: false,
                 reach: 600,
                 bite_wait: 900,
@@ -364,7 +367,7 @@ impl GrandpasTeeth {
         for e in std::mem::take(&mut g.npc_events) {
             match e {
                 Event::Bite { target: Target::Player, amount, .. } if amount > 0 => {
-                    g.player.hurt(amount);
+                    g.post_damage(amount);
                     g.play(30);
                 }
                 _ => {}

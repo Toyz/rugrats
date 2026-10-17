@@ -378,6 +378,12 @@ impl Game {
         }
     }
 
+    /// Gives the camera this look-at (0x800de454), whatever camera is up
+    /// (for tools, before the port's first frame).
+    pub fn set_camera_look(&mut self, look: [i32; 3]) {
+        self.follow.look = look;
+    }
+
     /// 0x800c3f60: 256 in level 15, else 0.
     fn look_lift(&self) -> i32 {
         if self.level == Level::MIRRORLAND { 256 } else { 0 }

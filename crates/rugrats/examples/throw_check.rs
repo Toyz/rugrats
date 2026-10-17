@@ -27,12 +27,16 @@ fn main() -> Result<(), String> {
     let cue = rrt::disc::Image::find(Path::new("work/disc")).map_err(|e| e.to_string())?;
     let disc = GameDisc::open(&cue)?;
     let mut g = Game::open_from(&disc, Level(level), None, &Progress::default())?;
-    let mut p = Play::boot(Rc::new(rrt::disc::Image::open(&cue).map_err(|e| e.to_string())?), Boot { level, ..Default::default() })?;
+    // The level's own player (level 6 and 10 Chuckie, 4 and 11 Spike, 5
+    // Phil or Lil, 7 Reptar, 17 Angelica).
+    let character = Some(g.character as u32).filter(|&c| c != 1);
+    let mut p = Play::boot(Rc::new(rrt::disc::Image::open(&cue).map_err(|e| e.to_string())?), Boot { level, character, ..Default::default() })?;
     let t = g.things[k].pos;
     let heading = turn.unwrap_or(0) & 4095;
     let a = heading as f64 * std::f64::consts::TAU / 4096.0;
-    let floor = rugrats::world::collide::query(&g.col, [t.x as i32, t.y as i32 - 64, t.z as i32]).floor;
-    let pos = [t.x as i32 - (a.sin() * away as f64) as i32, floor + g.player.feet(), t.z as i32 - (a.cos() * away as f64) as i32];
+    let (x, z) = (t.x as i32 - (a.sin() * away as f64) as i32, t.z as i32 - (a.cos() * away as f64) as i32);
+    let floor = rugrats::world::collide::query(&g.col, [x, t.y as i32 - 64, z]).floor;
+    let pos = [x, floor + g.player.feet(), z];
     p.put(pos, heading as i16);
     g.player.pos = pos;
     g.player.heading = heading;
@@ -56,7 +60,9 @@ fn main() -> Result<(), String> {
             rrt::emu::HookResult::Continue
         });
     }
-    let script = [(0u16, 6usize), (1 << input::CIRCLE, 1), (0, 40), (1 << input::TRIANGLE, 1), (0, 80)];
+    // PUTDOWN=1: Circle again to put it down instead of the throw.
+    let second = if std::env::var_os("PUTDOWN").is_some() { input::CIRCLE } else { input::TRIANGLE };
+    let script = [(0u16, 6usize), (1 << input::CIRCLE, 1), (0, 40), (1 << second, 1), (0, 80)];
     let mut held: std::collections::VecDeque<u16> = std::iter::repeat_n(0, 1).collect();
     let mut pads = Pads::default();
     let mut obj = 0u32;

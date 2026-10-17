@@ -173,6 +173,9 @@ pub struct Player {
     pub bumped: Option<u16>,
     /// The bump's root keys had so far (x, z).
     bump_root: [i32; 2],
+    /// The whole move across of the animation showing its last frame, so
+    /// that one run out gives the rest of it.
+    across_rest: Option<[i32; 2]>,
     /// Time falling (0x800c428c, summed in 0x80061330).
     air: i32,
     /// Slipping on floor flag 2 (states 3, 17, 18: 0x8005dedc), and the
@@ -291,6 +294,7 @@ impl Player {
             bumps: true,
             bumped: None,
             bump_root: [0; 2],
+            across_rest: None,
             air: 0,
             slipping: false,
             slip_sound: 56,
@@ -752,7 +756,6 @@ impl Player {
             && self.speed > WALK
         {
             self.bumped = ran_into;
-            self.bump_root = [0; 2];
             // The speed (+0x184) stays this frame: the bump's state zeroes
             // it as it runs, the next (the follow camera still sees the
             // player moving, 0x80027304).
@@ -1161,16 +1164,33 @@ impl Player {
     /// The base track's root y this step (0x80055904 into +0xda), and the
     /// jump's take-off when its airborne state comes.
     fn root_step(&mut self, anims: &Anims, col: &Col, trig: &Trig) {
-        // The bump moves the body by its root keys across (state 32's
-        // word has 32): Spike's throws him back.
-        if self.action == Some(anim::BUMP)
-            && self.animator.moves_across()
-            && let Some((done, _)) = self.animator.root_progress(anims)
+        // A state whose word has 32 moves the body by its root keys across
+        // (+0xd8, +0xdc, turned by the body's angles, 0x80055904): the bump
+        // (Spike's throws him back), Chuckie's pick-up and put-down. (The
+        // climb carries itself.)
+        // (One run out this step gives what it still had first.)
+        let ground = self.climb.is_none() && !matches!(self.state, State::Jump | State::Fall);
+        let mut d = [0; 2];
+        if self.animator.began() {
+            if let Some(rest) = self.across_rest.take() {
+                d = [rest[0] - self.bump_root[0], rest[1] - self.bump_root[1]];
+            }
+            self.bump_root = [0; 2];
+        }
+        self.across_rest = None;
+        if self.animator.moves_across()
+            && let Some((done, total)) = self.animator.root_progress(anims)
         {
-            let d = [done[0] - self.bump_root[0], done[2] - self.bump_root[1]];
+            d = [d[0] + done[0] - self.bump_root[0], d[1] + done[2] - self.bump_root[1]];
             self.bump_root = [done[0], done[2]];
-            let w = self.rotation(trig) * Vec3::new(d[0] as f32, 0.0, d[1] as f32);
-            let (dx, dz) = self.ground_step(col, w.x as i32, w.z as i32);
+            let (_, first, count, cur, _) = self.animator.track();
+            if cur + 1 == first + count {
+                self.across_rest = Some([total[0], total[2]]);
+            }
+        }
+        if ground && d != [0; 2] {
+            let w = trig.turn_by([self.heading as i16, 0, 0], [d[0], 0, d[1]]);
+            let (dx, dz) = self.ground_step(col, w[0], w[2]);
             self.pos[0] += dx;
             self.pos[2] += dz;
         }

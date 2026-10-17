@@ -368,3 +368,34 @@ fn hub_pick_up_as_the_original() {
     assert_eq!(height, 0, "the original's height");
     assert!(thrown.len() >= 60 && flown == 0, "the flight the original's: {:?}", thrown.iter().find(|(m, t)| m != t));
 }
+
+/// Level 6 as Chuckie (character 2): box 1016 picked up off its shelf,
+/// carried and put down. The states whose word has 32 move the body by
+/// their root keys across (the pick-up steps him in and back, the put-down
+/// back), and the box rides the hand as last drawn: body and box on the
+/// original's places every frame until the box leaves the hand.
+#[test]
+#[ignore]
+fn level_6_chuckie_box_as_the_original() {
+    use rugrats::input::CIRCLE;
+    let Some(mut b) = Both::open(Boot { level: 6, character: Some(2), ..Default::default() }) else { return };
+    let k = b.game.things.iter().position(|t| t.template == 1016 && (t.pos.x as i32, t.pos.z as i32) == (42741, 12863)).expect("box 8");
+    b.put([42741, -1378, 12163], 0, 6);
+    let p = rugrats_hle::play::PLAYER;
+    let (mut held, mut obj) = (Vec::new(), 0u32);
+    let (port, orig) = b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[CIRCLE]), 1), (0, 24)], |g, h| {
+        let o = h.read_u32(p + 0x1f0);
+        if o != 0 {
+            obj = o;
+        }
+        if g.carried().is_some() && obj != 0 {
+            let at = g.things[k].pos;
+            held.push(([at.x as i32, at.y as i32, at.z as i32], [0, 4, 8].map(|i| h.read_i32(obj + 0x18 + i))));
+        }
+    });
+    let worst = report("box", &port, &orig);
+    let off = held.iter().filter(|(m, t)| m != t).count();
+    eprintln!("box held {} frames, {off} off", held.len());
+    assert_eq!(worst, 0, "the body's places");
+    assert!(held.len() > 40 && off == 0, "the box's places: {:?}", held.iter().find(|(m, t)| m != t));
+}

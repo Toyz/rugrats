@@ -172,12 +172,14 @@ impl Script for GoldRush {
 
     fn draw(&self, g: &Game, _moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
         if let Some(s) = &g.sprites {
-            s.draw(COUNTER, (-192, -80), 32.0, 32.0, 1024.0, 0.0, g.focal(), overlay);
+            // The counter (0x80079870): half 64 by 64 at depth 1024, its
+            // count at (-205, -93).
+            s.draw(COUNTER, (-192, -80), 64.0, 64.0, 1024.0, 0.0, g.focal(), overlay);
             if self.gold {
                 s.draw(GOLD_ICON, (-140, -60), 32.0, 32.0, 1024.0, 0.0, g.focal(), overlay);
             }
         }
-        game::shadowed(&g.fonts, -170, -93, format!("{}", NICKELS.saturating_sub(self.taken)), overlay);
+        game::shadowed(&g.fonts, -205, -93, format!("{}", NICKELS.saturating_sub(self.taken)), overlay);
     }
 
     fn phase(&self) -> u8 {

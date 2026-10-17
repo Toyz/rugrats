@@ -281,7 +281,6 @@ impl rrt::prelude::Game for Rugrats {
         renderer.set_semi(&d.gpu.device, &d.gpu.queue, &stage.semi);
         renderer.set_under(&d.gpu.device, &d.gpu.queue, &stage.under);
         renderer.set_overlay(&d.gpu.device, &d.gpu.queue, &stage.overlay);
-        renderer.set_overlay_semi(&d.gpu.device, &d.gpu.queue, &stage.overlay_semi());
         let cmd = renderer.draw(&d.gpu.device, &d.gpu.queue, &target.view, (w, h), stage.camera);
         d.submit(cmd);
         d.present_target(target, None);

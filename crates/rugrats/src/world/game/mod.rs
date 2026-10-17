@@ -23,7 +23,7 @@ use crate::rand::Rand;
 use crate::save::card::STATE_SIZE;
 use crate::save::progress::Progress;
 use crate::stage::Stage;
-use crate::ui::hud::{self, METER_DEPTH, METER_TIME, Sprites};
+use crate::ui::hud::{self, METER_TIME, Sprites};
 use crate::ui::screens::Page;
 use crate::ui::text::{Fonts, Text};
 use crate::ui::tips::Training;
@@ -409,8 +409,15 @@ pub struct Game {
     pub strokes: Option<u32>,
 }
 
-/// The HUD's bar and clock icons (sprites; their sizes are guesses).
+/// The HUD's bar and clock icons (sprites, 0x8008f8f4): their half sizes
+/// at their depth, as the original makes them (the bars' 52 by 64 at 1024,
+/// 0x800514b0; the clock's 64 by 64 at 1024, 0x8007f5a8).
 const BAR_ICON: u32 = 291;
+const BAR_ICON_SIZE: (f32, f32) = (52.0, 64.0);
+const CLOCK_ICON_SIZE: (f32, f32) = (64.0, 64.0);
+/// The pause's pieces icon: half 64 by 56 at 1024 (0x8003e05c).
+const PIECE_ICON_SIZE: (f32, f32) = (64.0, 56.0);
+const ICON_DEPTH: f32 = 1024.0;
 
 const PIECE_ICON: u32 = 292;
 
@@ -1691,8 +1698,8 @@ impl Game {
             // pause page only (0x80090174).
             let page = self.pause.card.is_none();
             if let (Some(sp), true) = (&self.sprites, page) {
-                sp.draw(PIECE_ICON, (-192, 76), 26.0, 32.0, METER_DEPTH, 0.0, self.focal, &mut over);
-                sp.draw(BAR_ICON, (192, 76), 26.0, 32.0, METER_DEPTH, 0.0, self.focal, &mut over);
+                sp.draw(PIECE_ICON, (-192, 76), PIECE_ICON_SIZE.0, PIECE_ICON_SIZE.1, ICON_DEPTH, 0.0, self.focal, &mut over);
+                sp.draw(BAR_ICON, (192, 76), BAR_ICON_SIZE.0, BAR_ICON_SIZE.1, ICON_DEPTH, 0.0, self.focal, &mut over);
             }
             if page {
                 shadowed(&self.fonts, -160, 70, format!("{}", self.pieces), &mut over);
@@ -1701,13 +1708,16 @@ impl Game {
             let cubes = self.pause.shown_cubes();
             self.pause.view.draw(&cubes, over);
         } else {
-            // The level timer: "%ld" seconds at the top by the clock
-            // (model 375).
+            // The level timer (0x8007f5a8): "%ld" seconds at the top, the
+            // clock (model 375) behind it, semi-transparent, 20 right of
+            // and 13 below the text's corner.
             if let Some(t) = self.timer {
+                let text = (-20, -92);
                 if let Some(sp) = &self.sprites {
-                    sp.draw(CLOCK_ICON, (-40, -96), 24.0, 24.0, METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
+                    let at = (text.0 + 20, text.1 + 13);
+                    sp.draw_as(CLOCK_ICON, at, CLOCK_ICON_SIZE.0, CLOCK_ICON_SIZE.1, ICON_DEPTH, 0.0, self.focal, true, &mut self.stage.overlay);
                 }
-                shadowed(&self.fonts, -12, -100, format!("{}", t / 300), &mut self.stage.overlay);
+                shadowed(&self.fonts, text.0, text.1, format!("{}", t / 300), &mut self.stage.overlay);
             }
             if self.bar_shown > 0 {
                 // The bar counter (0x80090004): model 291 at (-192, -76)
@@ -1719,7 +1729,7 @@ impl Game {
                     _ => ((-192, -76), (-150, -80)),
                 };
                 if let Some(sp) = &self.sprites {
-                    sp.draw(BAR_ICON, icon, 26.0, 32.0, METER_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
+                    sp.draw(BAR_ICON, icon, BAR_ICON_SIZE.0, BAR_ICON_SIZE.1, ICON_DEPTH, 0.0, self.focal, &mut self.stage.overlay);
                 }
                 shadowed(&self.fonts, text.0, text.1, format!("{}", self.bars), &mut self.stage.overlay);
             }

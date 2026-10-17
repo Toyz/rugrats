@@ -259,7 +259,8 @@ impl Script for Mirrorland {
         // left.
         if let Some((_, group)) = self.running {
             s.draw(COUNTER[group as usize], (-192, 73), 48.0, 64.0, 1024.0, 0.0, f, overlay);
-            game::shadowed(&g.fonts, -150, 66, format!("{}", self.total.saturating_sub(self.taken)), overlay);
+            // (Its count at (-205, 58), 0x8007ccb4.)
+            game::shadowed(&g.fonts, -205, 58, format!("{}", self.total.saturating_sub(self.taken)), overlay);
         }
     }
 

@@ -401,7 +401,9 @@ impl Script for BoxToss {
                 s.draw(365, (-172, 73), 36.0, 54.0, 1024.0, top, g.focal(), overlay);
                 s.draw(366, (-172, 73), 36.0, 64.0, 1024.0, 0.0, g.focal(), overlay);
             } else {
-                s.draw(COUNTER, (-160, 50), 48.0, 48.0, 1024.0, 0.0, g.focal(), overlay);
+                // The counter (0x80079cb0): half 128 by 128 at depth 1024,
+                // its count on it.
+                s.draw(COUNTER, (-160, 50), 128.0, 128.0, 1024.0, 0.0, g.focal(), overlay);
             }
             // The arrow over the target (0x80031a28): sprite 364 turned
             // half round (2048) to point down, over the target's bounds,
@@ -415,7 +417,7 @@ impl Script for BoxToss {
             }
         }
         if !self.rules.throw_costs {
-            game::shadowed(&g.fonts, -130, 43, format!("{}", self.cookies.max(0)), overlay);
+            game::shadowed(&g.fonts, -160, 50, format!("{}", self.cookies.max(0)), overlay);
         }
     }
 

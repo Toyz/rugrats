@@ -149,13 +149,21 @@ impl Sprites {
     /// that much (a meter's fill).
     #[allow(clippy::too_many_arguments)]
     pub fn draw(&self, n: u32, at: (i16, i16), w: f32, h: f32, z: f32, top: f32, focal: f32, out: &mut Vec<Vtx>) {
+        self.draw_as(n, at, w, h, z, top, focal, false, out);
+    }
+
+    /// [`Self::draw`], semi-transparent when `semi` (the sprite's flag,
+    /// 0x8008f8f4's fifth argument: packet flags 0xd2800000 over
+    /// 0xd0800000, 0x8008f5d8).
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_as(&self, n: u32, at: (i16, i16), w: f32, h: f32, z: f32, top: f32, focal: f32, semi: bool, out: &mut Vec<Vtx>) {
         let Some(t) = self.texture(n) else { return };
         let sx = focal / z * (512.0 / 320.0);
         let sy = focal / z;
         let (cx, cy) = (at.0 as f32 + 256.0, at.1 as f32 + 120.0);
         // Corners in 0x8008f808's order: (-w, -h), (w, -h), (-w, h), (w, h).
         let corners = [(-w, -h + top), (w, -h + top), (-w, h), (w, h)];
-        let mode = t.clut as u32 | (t.tpage as u32) << 16;
+        let mode = t.clut as u32 | (t.tpage as u32) << 16 | if semi { Vtx::SEMI } else { 0 };
         let window = Vtx::window_of(
             [t.uv[0][0], t.uv[1][0], t.uv[2][0], t.uv[3][0]],
             [t.uv[0][1], t.uv[1][1], t.uv[2][1], t.uv[3][1]],

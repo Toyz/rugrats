@@ -127,19 +127,15 @@ pub struct Renderer {
     group: wgpu::BindGroup,
     camera: wgpu::Buffer,
     /// The HUD over the world, in the screen's pixels, replaced each frame
-    /// by `set_overlay`.
+    /// by `set_overlay`, drawn in its order as runs of one kind (opaque, or
+    /// semi-transparent by blend mode), as the ordering table draws it.
     overlay_pipeline: wgpu::RenderPipeline,
+    overlay_semi_pipelines: [wgpu::RenderPipeline; 4],
     overlay_group: wgpu::BindGroup,
     overlay_camera: wgpu::Buffer,
     overlay: GrowBuffer,
-    overlay_count: u32,
+    overlay_runs: Vec<(u32, u32, Option<usize>)>,
     overlay_staging: Staging,
-    /// The overlay's semi-transparent shapes, by blend mode, drawn over the
-    /// world and under the overlay (the wreck's flash).
-    overlay_semi_pipelines: [wgpu::RenderPipeline; 4],
-    overlay_semi: GrowBuffer,
-    overlay_semi_ranges: [(u32, u32); 4],
-    overlay_semi_staging: Staging,
     /// Shapes in the PlayStation screen's pixels drawn in their order under
     /// the world (the back of the ordering table: a menu's backdrop), as
     /// runs of one kind: opaque, or semi-transparent by blend mode.
@@ -306,12 +302,9 @@ impl Renderer {
             overlay_group,
             overlay_camera,
             overlay: GrowBuffer::new("overlay", wgpu::BufferUsages::VERTEX),
-            overlay_count: 0,
+            overlay_runs: Vec::new(),
             overlay_staging: Staging::new(),
             overlay_semi_pipelines,
-            overlay_semi: GrowBuffer::new("overlay semi", wgpu::BufferUsages::VERTEX),
-            overlay_semi_ranges: [(0, 0); 4],
-            overlay_semi_staging: Staging::new(),
             under: GrowBuffer::new("under", wgpu::BufferUsages::VERTEX),
             under_runs: Vec::new(),
             under_staging: Staging::new(),
@@ -374,41 +367,20 @@ impl Renderer {
         self.semi.write(device, queue, self.semi_staging.pack(&sorted));
     }
 
-    /// The overlay's semi-transparent triangles, in the PlayStation screen's
-    /// pixels, each by its page's blend mode.
-    pub fn set_overlay_semi(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tris: &[Vtx]) {
-        let abr = |v: &Vtx| ((v.mode >> 21) & 3) as usize;
-        let mut sorted = Vec::with_capacity(tris.len());
-        for k in 0..4 {
-            let from = sorted.len() as u32;
-            for t in tris.as_chunks::<3>().0.iter().filter(|t| abr(&t[0]) == k) {
-                sorted.extend_from_slice(t);
-            }
-            self.overlay_semi_ranges[k] = (from, sorted.len() as u32);
-        }
-        self.overlay_semi.write(device, queue, self.overlay_semi_staging.pack(&sorted));
-    }
-
     /// Shapes drawn under the world in this order, in the PlayStation
     /// screen's pixels. A semi-transparent triangle (mode bit 31) blends
     /// its marked texels by its page's mode, as on the PlayStation.
     pub fn set_under(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tris: &[Vtx]) {
-        let kind = |v: &Vtx| (v.mode >> 31 == 1).then_some(((v.mode >> 21) & 3) as usize);
-        self.under_runs.clear();
-        for (k, t) in tris.as_chunks::<3>().0.iter().enumerate() {
-            let at = 3 * k as u32;
-            match self.under_runs.last_mut() {
-                Some(run) if run.2 == kind(&t[0]) && run.1 == at => run.1 = at + 3,
-                _ => self.under_runs.push((at, at + 3, kind(&t[0]))),
-            }
-        }
+        runs_of(tris, &mut self.under_runs);
         self.under.write(device, queue, self.under_staging.pack(tris));
     }
 
-    /// The overlay's triangles, in the PlayStation screen's pixels.
+    /// The overlay's triangles, in the PlayStation screen's pixels, drawn
+    /// over the world in this order; semi-transparent ones blend as
+    /// [`Self::set_under`]'s do (a screen fade, put last, covers all).
     pub fn set_overlay(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tris: &[Vtx]) {
+        runs_of(tris, &mut self.overlay_runs);
         self.overlay.write(device, queue, self.overlay_staging.pack(tris));
-        self.overlay_count = tris.len() as u32;
     }
 
     /// Draws into `target` with the camera's view-projection matrix.
@@ -487,29 +459,36 @@ impl Renderer {
                     pass.draw(from..to, 0..1);
                 }
             }
-            if let Some(slice) = self.overlay.slice()
-                && self.overlay_count > 0
-            {
-                pass.set_pipeline(&self.overlay_pipeline);
-                pass.set_bind_group(0, &self.overlay_group, &[]);
+            if let Some(slice) = self.overlay.slice() {
                 pass.set_vertex_buffer(0, slice);
-                pass.draw(0..self.overlay_count, 0..1);
-            }
-            // Last: a screen fade (0x8001cf2c) goes over everything.
-            if let Some(slice) = self.overlay_semi.slice() {
-                pass.set_vertex_buffer(0, slice);
-                for (k, &(from, to)) in self.overlay_semi_ranges.iter().enumerate() {
-                    if from == to {
-                        continue;
-                    }
-                    pass.set_pipeline(&self.overlay_semi_pipelines[k]);
+                for &(from, to, kind) in &self.overlay_runs {
+                    pass.set_pipeline(&self.overlay_pipeline);
                     pass.set_bind_group(0, &self.overlay_group, &[]);
-                    pass.set_blend_constant(wgpu::Color { r: BLEND[k], g: BLEND[k], b: BLEND[k], a: BLEND[k] });
                     pass.draw(from..to, 0..1);
+                    if let Some(k) = kind {
+                        pass.set_pipeline(&self.overlay_semi_pipelines[k]);
+                        pass.set_bind_group(0, &self.overlay_group, &[]);
+                        pass.set_blend_constant(wgpu::Color { r: BLEND[k], g: BLEND[k], b: BLEND[k], a: BLEND[k] });
+                        pass.draw(from..to, 0..1);
+                    }
                 }
             }
         }
         encoder.finish()
+    }
+}
+
+/// Splits `tris` into runs of one kind: opaque (`None`), or
+/// semi-transparent (mode bit 31) by the page's blend mode.
+fn runs_of(tris: &[Vtx], runs: &mut Vec<(u32, u32, Option<usize>)>) {
+    let kind = |v: &Vtx| (v.mode >> 31 == 1).then_some(((v.mode >> 21) & 3) as usize);
+    runs.clear();
+    for (k, t) in tris.as_chunks::<3>().0.iter().enumerate() {
+        let at = 3 * k as u32;
+        match runs.last_mut() {
+            Some(run) if run.2 == kind(&t[0]) && run.1 == at => run.1 = at + 3,
+            _ => runs.push((at, at + 3, kind(&t[0]))),
+        }
     }
 }
 

@@ -81,7 +81,8 @@ impl Both {
                 let o = self.hle.player();
                 let camera = self.hle.camera_heading();
                 if std::env::var_os("HLEVEL").is_some() {
-                    eprintln!("    vel {:?} port {:?} speed {} way {:?} heading {} cam {camera} pad {bits:#06x}", o.velocity, self.game.player.v, o.speed, o.way, o.heading);
+                    let (low, plane) = (self.hle.read_i16(rugrats_hle::play::PLAYER + 0x68), self.hle.read_i32(rugrats_hle::play::PLAYER + 0x13c));
+                    eprintln!("    vel {:?} port {:?} speed {} way {:?} heading {} cam {camera} pad {bits:#06x} low {low} plane {plane}", o.velocity, self.game.player.v, o.speed, o.way, o.heading);
                 }
                 if std::env::var_os("CAMLOG").is_some() {
                     let r = |h: &mut Play, a: u32| [0, 4, 8].map(|k| h.read_i32(a + k));
@@ -150,7 +151,8 @@ fn hub_run_as_the_original() {
 }
 
 /// Level 1 from its start, nothing put: Up and Left held (the run across
-/// the hall), then Cross (a running jump).
+/// the hall), then Cross (a running jump) into toy 403, met in the air: the
+/// bounce, the fall had twice that frame, the landing.
 #[test]
 #[ignore]
 fn hub_start_run_and_jump_as_the_original() {
@@ -158,7 +160,7 @@ fn hub_start_run_and_jump_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[UP, LEFT]), 12), (bits(&[UP, LEFT, CROSS]), 1), (bits(&[UP, LEFT]), 24)]);
     let worst = report("start", &port, &orig);
-    assert!(worst <= 16, "{worst}");
+    assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
 /// Level 18: a run at the wall at a slant slides along it (door 213), into

@@ -149,7 +149,7 @@ fn main() -> Result<(), String> {
             // The port.
             let near: Vec<Near> = list.iter().map(|(_, s, skip)| Near { solid: s, skip: *skip }).collect();
             let angles = [p.read_i16(b + 0x24), p.read_i16(b + 0x26), p.read_i16(b + 0x28)];
-            let g = Ground { col: &game.col, trig: &trig, near: &near, body, limit: 256, angles, reflect: flags & 0x10_0000 != 0 };
+            let g = Ground { col: &game.col, trig: &trig, near: &near, body, limit: 256, angles, reflect: flags & 0x10_0000 != 0, low: p.read_i16(b + 0x68) as i32 };
             let mut st = Probes { below: Some((k, j as u8)), ..Probes::default() };
             let (mut py, mut pfloor, mut pstep, mut fell) = (pos[1], floor, None, false);
             if mode == 2 {

@@ -141,7 +141,7 @@ fn main() -> Result<(), String> {
             let near: Vec<Near> = list.iter().map(|(_, s, skip)| Near { solid: s, skip: *skip }).collect();
             let angles = [p.read_i16(b + 0x24), p.read_i16(b + 0x26), p.read_i16(b + 0x28)];
             let reflect = p.read_u32(b) & 0x10_0000 != 0;
-            let g = Ground { col: &game.col, trig: &trig, near: &near, body, limit: 256, angles, reflect };
+            let g = Ground { col: &game.col, trig: &trig, near: &near, body, limit: 256, angles, reflect, low: p.read_i16(b + 0x68) as i32 };
             // The frame's time (0x800c3f1c: 5 a vertical blank).
             let dt = p.read_i32(0x800c_3f1c);
             let port = g.probe(pos, floor, way, speed * dt, &mut Probes::default());

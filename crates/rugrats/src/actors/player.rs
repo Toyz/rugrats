@@ -186,6 +186,10 @@ pub struct Player {
     /// frame's solids.
     probes: ground::Probes,
     below: Option<Obj>,
+    /// Where the jump began (+0x670 .. +0x678, set at the launch), and
+    /// whether the flight has met something (D_800c4bc4 flag 2).
+    launch_at: [i32; 3],
+    air_hit: bool,
     /// The heading before this frame's turn (the way's, +0x178), and the
     /// frame before's (the launch's).
     way_heading: i32,
@@ -285,6 +289,8 @@ impl Player {
             support: None,
             probes: ground::Probes::default(),
             below: None,
+            launch_at: [0; 3],
+            air_hit: false,
             way_heading: 0,
             launch_heading: 0,
             landed: false,
@@ -417,7 +423,6 @@ impl Player {
         // toward the wanted heading (0x8005bc80) comes after the step is
         // added (0x8005cb48), so this frame's turn moves the next frame's
         // step (`hub_start_run_and_jump_as_the_original`).
-        let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
         // The way (+0x178): the body's matrix (0x80020d10 of the heading,
         // MatrixNormal'd) applied to (0, 0, 4096), a little off unit
         // (0x8005c8d8).
@@ -435,6 +440,10 @@ impl Player {
         // The probe's record that held the step head-on (`ground_move`).
         let mut ground_held: Option<ground::Record> = None;
         let first_step = self.state == State::Stand && self.speed > 0 && !acting && self.pending_jump.is_none();
+        // In the air the original's own air move tests and has the step
+        // (`air_move`), landing included.
+        let mut exact_air = false;
+        let mut air_landed = false;
         // The floor the probes measure from (+0x148): a thing stood on's
         // top, which the height field's floor below replaces.
         let probe_floor = self.floor;
@@ -486,7 +495,8 @@ impl Player {
             // on the way up; across, the stick's push against the drag
             // (`air_step`).
             let lift = if held(input::CROSS) && self.v[1] < 0 { LIFT } else { 0 };
-            self.air_step(lift, trig);
+            air_landed = self.air_move(lift, col, trig, solids, anims, false);
+            exact_air = true;
         }
         // The floor (0x800627a0): the feet on it, or back where the frame
         // began when the point is not in the open.
@@ -498,7 +508,7 @@ impl Player {
         // In the air the move goes across, then down (0x8005f1b4 through
         // 0x8005ee78): across into a place with no floor record stops the
         // across part only, and the fall goes on.
-        if !on_ground && (q.kind != 0 && q.tile.is_none() || q.kind == 2) {
+        if !exact_air && !on_ground && (q.kind != 0 && q.tile.is_none() || q.kind == 2) {
             self.pos[0] = start[0];
             self.pos[2] = start[2];
             probe = [self.pos[0], self.pos[1] - self.feet - lift, self.pos[2]];
@@ -517,7 +527,9 @@ impl Player {
         let landing = (!on_ground && self.v[1] > 0 && q.kind != 0)
             .then(|| collide::query(col, [self.pos[0], start[1] - self.feet - 1, self.pos[2]]))
             .filter(|f| f.kind == 0 && f.tile.is_some() && self.pos[1] - self.feet >= f.floor);
-        if let Some(f) = landing {
+        if exact_air {
+            // (Had by the air move.)
+        } else if let Some(f) = landing {
             self.pos[1] = f.floor + self.feet;
             self.floor = f.floor;
         } else if q.kind != 0 && q.tile.is_none() || q.kind == 2 {
@@ -604,6 +616,10 @@ impl Player {
             probes.iter().find_map(|&(dx, dz)| b.segment_hit([start[0], h, start[2]], [start[0] + dx, h, start[2] + dz]).map(|hit| hit.2))
         };
         for (k, b) in boxes.iter().enumerate() {
+            // (Things in the air: the air move met them.)
+            if exact_air && b.solid.is_some() {
+                continue;
+            }
             let near = b.covers(self.pos, RADIUS);
             if !near && probes.is_empty() {
                 continue;
@@ -744,6 +760,7 @@ impl Player {
                 // Off along the facing at the step's speed (the body's own
                 // frame, +0x170).
                 self.v = [0, 0, self.speed << 6];
+                self.air_hit = false;
             } else {
                 self.pos[1] = self.floor + self.feet;
             }
@@ -755,7 +772,7 @@ impl Player {
             if self.floor - feet_y <= STEP_DOWN {
                 self.pos[1] = self.floor + self.feet;
             }
-        } else if feet_y >= self.floor && self.v[1] >= 0 {
+        } else if !exact_air && feet_y >= self.floor && self.v[1] >= 0 {
             self.pos[1] = self.floor + self.feet;
             self.v = [0; 3];
             self.state = State::Land;
@@ -830,7 +847,15 @@ impl Player {
         if !self.landed {
             self.animator.step(anims);
         }
-        self.root_step(anims, col, trig);
+        self.root_step(anims, col, trig, solids);
+        if air_landed {
+            self.landed = true;
+            // A long fall (state 10, 0x8005b2d8): Damage 5, message 31.
+            if self.air >= LONG_FALL && self.falls_hurt {
+                self.hurt(FALL_DAMAGE);
+                self.hints.push(31);
+            }
+        }
         if let Some((_, m)) = self.climb_motion(anims, trig)
             && let Some(c) = &mut self.climb
         {
@@ -959,6 +984,7 @@ impl Player {
             limit: self.step_limit,
             angles: [self.heading as i16, 0, 0],
             reflect,
+            low: i32::MIN,
         };
         let mut st = self.probes;
         let (pos, floor) = (self.pos, self.floor);
@@ -1106,7 +1132,7 @@ impl Player {
 
     /// The base track's root y this step (0x80055904 into +0xda), and the
     /// jump's take-off when its airborne state comes.
-    fn root_step(&mut self, anims: &Anims, col: &Col, trig: &Trig) {
+    fn root_step(&mut self, anims: &Anims, col: &Col, trig: &Trig, solids: &[Exact]) {
         // The bump moves the body by its root keys across (state 32's
         // word has 32): Spike's throws him back.
         if self.action == Some(anim::BUMP)
@@ -1144,8 +1170,13 @@ impl Player {
             // (41) is off the frame after it comes, with nothing more of
             // its keys (the run's 751, then 731 in state 41, then 585).
             let off = state != 5 && (was.state == 5 || state == was.state);
+            // (A moving jump's own state adds none of its keys: the
+            // original leaves from the run's height that frame, 778 then
+            // 632 from the hub's start.)
             if state != was.state {
-                self.root_y += done;
+                if state == 5 {
+                    self.root_y += done;
+                }
             } else if !off {
                 self.root_y += dy;
             }
@@ -1163,15 +1194,9 @@ impl Player {
                 // animation's event a frame before its first air step.)
                 let h = self.launch_heading;
                 self.v = launch_v(trig.turn(h, [0, 0, 4096]), v[1], v[2], h, trig);
-                let before = self.pos;
-                self.air_step(0, trig);
-                // The step across meets walls as any air step does
-                // (0x8005ee78): into one, it is not had.
-                let q = collide::query(col, [self.pos[0], self.pos[1] - self.feet - 1, self.pos[2]]);
-                if q.kind != 0 {
-                    self.pos[0] = before[0];
-                    self.pos[2] = before[2];
-                }
+                self.launch_at = self.pos;
+                self.air_hit = false;
+                self.air_move(0, col, trig, solids, anims, false);
             }
             return;
         }
@@ -1229,7 +1254,10 @@ impl Player {
     /// (over 64), turned from the body's frame into the world's
     /// (0x80075ee8). Proved against the original's +0x170 frame by frame
     /// (`hub_start_run_and_jump_as_the_original`).
-    fn air_step(&mut self, lift: i32, trig: &Trig) {
+    fn air_velocity(&mut self, lift: i32, trig: &Trig) -> [i32; 3] {
+        // Once the flight has met something (D_800c4bc4 flag 2) the stick
+        // no longer pushes and a held jump no longer lifts.
+        let (lift, push) = if self.air_hit { (0, [0, 0]) } else { (lift, self.push) };
         let [vx, vy, vz] = self.v;
         let len = if (vx.unsigned_abs() | vz.unsigned_abs()) >> 16 != 0 {
             0
@@ -1239,7 +1267,7 @@ impl Player {
         let toward_zero = |v: i32| if v < 0 { (v + 4095) >> 12 } else { v >> 12 };
         let l = toward_zero(-(len << 5));
         let u = collide::normalize([vx, 0, vz]);
-        let a = [self.push[0] + toward_zero(u[0] * l), lift + GRAVITY, self.push[1] + toward_zero(u[2] * l)];
+        let a = [push[0] + toward_zero(u[0] * l), lift + GRAVITY, push[1] + toward_zero(u[2] * l)];
         let half = |v: i32| (v + (v < 0) as i32) >> 1;
         let d = [0, 1, 2].map(|k| (half(a[k] * DT * DT) + self.v[k] * DT) >> 6);
         self.v = [
@@ -1247,10 +1275,135 @@ impl Player {
             (vy + a[1] * DT).min(4096),
             (vz + a[2] * DT) as i16 as i32,
         ];
-        // Back into the world (0x80075ee8).
-        let w = trig.turn(self.heading, d);
-        for k in 0..3 {
-            self.pos[k] += w[k];
+        // Back into the world (0x80075ee8): the move (+0xd8).
+        trig.turn(self.heading, d)
+    }
+
+    /// The lowest of the body's posed joints (+0x68, set as
+    /// UpdatePartRotations, 0x8004a5dc, poses the parts): the air probes
+    /// reach down to it at least.
+    fn lowest_joint(&self, anims: &Anims, trig: &Trig) -> i32 {
+        let local = self.animator.locals(&self.hierarchy, anims);
+        let pos = Vec3::new(self.pos[0] as f32, self.pos[1] as f32, self.pos[2] as f32);
+        models::posed_parts(&self.hierarchy, &local, self.rotation(trig), pos)
+            .iter()
+            .map(|(_, at)| at.y as i32)
+            .max()
+            .unwrap_or(self.pos[1])
+    }
+
+    /// The air's move (0x8005f1b4): the velocity's step (0x80061330); held
+    /// at the height field's floor under the body (+0x13c); across first,
+    /// tested without its fall (0x8005ee78 through 0x80066014) and had as
+    /// the test leaves it, then the fall, tested and had. A wall bounces
+    /// the body or stops its way across, and the move is had once more
+    /// this frame (`again` set for it). Whether it landed.
+    #[allow(clippy::too_many_arguments)]
+    fn air_move(&mut self, lift: i32, col: &Col, trig: &Trig, solids: &[Exact], anims: &Anims, again: bool) -> bool {
+        let saved = self.pos;
+        let mut d = self.air_velocity(lift, trig);
+        let plane = collide::query(col, self.pos).floor;
+        let mut landed = false;
+        if self.pos[1] + d[1] >= plane {
+            d[1] = plane - self.pos[1];
+            if d[1] == 0 {
+                self.state = State::Land;
+                self.v[1] = 0;
+                landed = true;
+            }
+        }
+        let near: Vec<ground::Near> = solids.iter().map(|e| ground::Near { solid: &e.solid, skip: false }).collect();
+        let (lo, hi) = self.body_box();
+        let low = self.lowest_joint(anims, trig);
+        let mut st = self.probes;
+        st.below = None;
+        if d[0] != 0 || d[2] != 0 {
+            let g = ground::Ground { col, trig, near: &near, body: ground::Body { lo, hi }, limit: self.step_limit, angles: [self.heading as i16, 0, 0], reflect: false, low };
+            let r = g.air(self.pos, [d[0], 0, d[2]], plane, &mut self.floor, &mut st);
+            self.probes = st;
+            let (moved, land) = self.air_react(r, [d[0], 0, d[2]], saved, lift, col, trig, solids, anims, again);
+            st = self.probes;
+            landed |= land;
+            self.pos[0] += moved[0];
+            self.pos[2] += moved[2];
+        }
+        if d[1] != 0 {
+            let low = self.lowest_joint(anims, trig);
+            let g = ground::Ground { col, trig, near: &near, body: ground::Body { lo, hi }, limit: self.step_limit, angles: [self.heading as i16, 0, 0], reflect: false, low };
+            let r = g.air(self.pos, [0, d[1], 0], plane, &mut self.floor, &mut st);
+            self.probes = st;
+            let (moved, land) = self.air_react(r, [0, d[1], 0], saved, lift, col, trig, solids, anims, again);
+            landed |= land;
+            self.pos[1] += moved[1];
+        } else {
+            self.probes = st;
+        }
+        landed
+    }
+
+    /// 0x8005ee78: what the air test's answer does to the move `d` (and
+    /// the velocity). Clear: had. A wall met going up within 512 of where
+    /// the jump began (+0x670): the way across stopped. Met head-on (or at
+    /// a right angle and more): the body bounces (0x80061a64: no rising,
+    /// no way across, the move had again); at a slant it loses its way
+    /// across (0x80061b28) and has the move again. Landed: none of it, the
+    /// state 10. A slope overhead met going up: the velocity turned along
+    /// it (0x80061be8), the way across stopped. The move left, and whether
+    /// it landed.
+    #[allow(clippy::too_many_arguments)]
+    fn air_react(&mut self, r: ground::Air, d: [i32; 3], saved: [i32; 3], lift: i32, col: &Col, trig: &Trig, solids: &[Exact], anims: &Anims, again: bool) -> ([i32; 3], bool) {
+        let jumping = matches!(self.state, State::Jump | State::Fall);
+        match r {
+            ground::Air::Clear => (d, false),
+            ground::Air::Wall { turned } => {
+                let slant = match turned {
+                    Some((t, a)) => {
+                        self.probes.turned = (t, a);
+                        a
+                    }
+                    None => self.probes.turned.1,
+                };
+                let (dx, dz) = (saved[0] - self.launch_at[0], saved[2] - self.launch_at[2]);
+                if jumping && self.v[1] < 0 && ((dx * dx + dz * dz) as u32) <= 0x3ffff {
+                    return ([0, d[1], 0], false);
+                }
+                let a = slant.abs();
+                if a < self.head_on || a >= 1024 {
+                    if self.v[1] < 0 {
+                        self.v[1] = 0;
+                    }
+                }
+                self.air_hit = true;
+                if jumping && !again {
+                    self.v[0] = 0;
+                    self.v[2] = 0;
+                    let landed = self.air_move(lift, col, trig, solids, anims, true);
+                    return ([0, 0, 0], landed);
+                }
+                if !(a < self.head_on || a >= 1024) {
+                    self.v[0] = 0;
+                    self.v[2] = 0;
+                }
+                (d, false)
+            }
+            ground::Air::Land => {
+                self.state = State::Land;
+                self.v = [0; 3];
+                ([0; 3], true)
+            }
+            ground::Air::Slide(t) => {
+                if d[1] < 0 && self.v[1] <= 0 {
+                    self.air_hit = true;
+                    let len = ((self.v[0] * self.v[0] + self.v[1] * self.v[1] + self.v[2] * self.v[2]) as u32).isqrt() as i16 as i32;
+                    let w = ground::set_length(t, len, trig);
+                    self.v = to_body(w, self.heading, trig).map(|c| c as i16 as i32);
+                    if jumping && !again {
+                        let landed = self.air_move(lift, col, trig, solids, anims, true);
+                        return ([0, 0, 0], landed);
+                    }
+                }
+                ([0, d[1], 0], false)
+            }
         }
     }
 

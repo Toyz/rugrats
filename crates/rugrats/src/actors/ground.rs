@@ -194,7 +194,7 @@ pub fn turned_off(back: [i32; 3], wall: [i32; 3], trig: &Trig, reflect: bool) ->
 /// `limit` at most (0x80064a34), with no objects near.
 #[allow(clippy::too_many_arguments)]
 pub fn probe(col: &Col, trig: &Trig, pos: [i32; 3], floor: i32, way: [i32; 3], step: i32, body: Body, limit: i32) -> Probed {
-    let g = Ground { col, trig, near: &[], body, limit, angles: [0; 3], reflect: false };
+    let g = Ground { col, trig, near: &[], body, limit, angles: [0; 3], reflect: false, low: i32::MIN };
     g.probe(pos, floor, way, step, &mut Probes::default())
 }
 
@@ -205,6 +205,8 @@ pub fn probe(col: &Col, trig: &Trig, pos: [i32; 3], floor: i32, way: [i32; 3], s
 pub struct Probes {
     pub below: Option<(usize, u8)>,
     pub met: Met,
+    /// The way turned off the last wall and its slant (+0x124, +0x130).
+    pub turned: ([i32; 3], i32),
 }
 
 /// What the run's probe of its own step (0x800645d8) does.
@@ -221,6 +223,20 @@ pub enum Ahead {
     Fall,
 }
 
+/// What the air's move meets (0x80066014's answer).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Air {
+    /// Nothing (0).
+    Clear,
+    /// A wall (1): the way turned off it and the slant across (+0x124,
+    /// +0x130), none set when the move went into the floor.
+    Wall { turned: Option<([i32; 3], i32)> },
+    /// Landed (2): the floor moved to where.
+    Land,
+    /// A slope overhead (3): its tangent.
+    Slide([i32; 3]),
+}
+
 /// The world the probes see: the height field, the objects near (the
 /// nearby list), the body and the step it takes, and the body's angles
 /// (+0x24, for 0x80067374).
@@ -234,6 +250,8 @@ pub struct Ground<'a> {
     /// The player's flag 0x100000: a wall turns the way back off it
     /// rather than along it (0x8007627c).
     pub reflect: bool,
+    /// +0x68: the air probes' bottom is never above it.
+    pub low: i32,
 }
 
 impl Ground<'_> {
@@ -242,22 +260,7 @@ impl Ground<'_> {
     fn one(&self, pos: [i32; 3], floor: i32, off: [i32; 3], point: [i32; 3], st: &mut Probes) -> Record {
         let top_y = pos[1] + self.body.lo[1];
         objects(self.col, self.trig, pos, self.body, st.below, off, self.near, &mut st.met);
-        let mut delta = match st.met.hit {
-            Some((k, b)) => self.height_on(k, b, pos, point, floor),
-            None => height(self.col, point, top_y, floor),
-        };
-        // The thing stood on, under the point: its top if as high.
-        if let Some((k, _)) = st.below {
-            let from = [point[0], point[1] + self.body.lo[1], point[2]];
-            let to = [point[0], floor + 2048, point[2]];
-            if let Some((_, h)) = self.near[k].solid.meet(self.trig, from, to, &mut [0; 3])
-                && h.t > 0
-                && floor + delta >= h.point[1]
-            {
-                st.met.hit = Some((k, st.met.index as u8));
-                delta = h.point[1] - floor;
-            }
-        }
+        let delta = self.height_at(pos, floor, point, st);
         // The wall on the way: an object met keeps its face; going down,
         // the thing stood on is met on the way back from the drop.
         if delta < 0 {
@@ -272,11 +275,14 @@ impl Ground<'_> {
                     let behind = [pos[0] - o[0], h - o[1], pos[2] - o[2]];
                     let ahead = [pos[0] + o[0], h + o[1], pos[2] + o[2]];
                     match self.near[k].solid.meet(self.trig, ahead, behind, &mut st.met.normal) {
-                        Some((b, hit)) if hit.t > 0 => {
+                        Some((b, hit)) => {
                             st.met.point = hit.point;
                             st.met.index = b as i32;
+                            if hit.t <= 0 {
+                                st.met.normal = [0; 3];
+                            }
                         }
-                        _ => st.met.normal = [0; 3],
+                        None => st.met.normal = [0; 3],
                     }
                 }
                 None => st.met.normal = wall(self.col, self.trig, pos, off, delta, floor, top_y),
@@ -285,6 +291,30 @@ impl Ground<'_> {
             st.met.normal = [0; 3];
         }
         Record { delta, normal: st.met.normal, hit: st.met.hit }
+    }
+
+    /// The floor under `point` less `floor` (0x80067448): on the object
+    /// the probe met if any ([`Self::height_on`]), else the height field's;
+    /// then the thing stood on under the point, its top if as high (which
+    /// it then is the object met by).
+    fn height_at(&self, pos: [i32; 3], floor: i32, point: [i32; 3], st: &mut Probes) -> i32 {
+        let top_y = pos[1] + self.body.lo[1];
+        let mut delta = match st.met.hit {
+            Some((k, b)) => self.height_on(k, b, pos, point, floor),
+            None => height(self.col, point, top_y, floor),
+        };
+        if let Some((k, _)) = st.below {
+            let from = [point[0], point[1] + self.body.lo[1], point[2]];
+            let to = [point[0], floor + 2048, point[2]];
+            if let Some((_, h)) = self.near[k].solid.meet(self.trig, from, to, &mut [0; 3])
+                && h.t > 0
+                && floor + delta >= h.point[1]
+            {
+                st.met.hit = Some((k, st.met.index as u8));
+                delta = h.point[1] - floor;
+            }
+        }
+        delta
     }
 
     /// 0x80067448 for an object met (`k`, its box `b`): across at the
@@ -321,6 +351,259 @@ impl Ground<'_> {
         v[2] += if v[2] < 0 { -16 } else { 16 };
         let w = self.trig.turn_by(self.angles, v);
         [0, 1, 2].map(|i| w[i] + pos[i])
+    }
+
+    /// A segment through the height field (0x800671f8): stopped, the point
+    /// and normal it stops at left in the record (+0x104, +0x114) and the
+    /// face's kind ([`face_kind`]); else 0, the record as it was.
+    fn col_seg(&self, from: [i32; 3], to: [i32; 3], met: &mut Met) -> u8 {
+        let mut out = Segment::default();
+        if collide::segment(self.col, from, to, &mut out) != 1 {
+            return 0;
+        }
+        met.point = out.point;
+        met.normal = out.normal;
+        face_kind(out.normal, self.trig)
+    }
+
+    /// A segment against object `k` (0x80067284): met past its start, the
+    /// face's kind; the meeting written to the record either way.
+    fn obj_seg(&self, k: usize, from: [i32; 3], to: [i32; 3], met: &mut Met) -> u8 {
+        match self.near[k].solid.meet(self.trig, from, to, &mut met.normal) {
+            Some((b, h)) => {
+                met.point = h.point;
+                met.index = b as i32;
+                if h.t > 0 { face_kind(met.normal, self.trig) } else { 0 }
+            }
+            None => 0,
+        }
+    }
+
+    /// The five segments of an air probe `off` ahead (0x80065210 for the
+    /// objects, 0x80065578 for the height field): up the body's axis to
+    /// its `top`, across at the top, down to its `bottom`, across at the
+    /// bottom, and down at the probe from top to bottom; met on that last,
+    /// across again just under where it was met (+0x108 + 5). Its kind,
+    /// and whether the last segment met (the answer then the one just
+    /// under it, which ends an object pass however it comes out).
+    fn air_segs(&self, pos: [i32; 3], off: [i32; 3], top: i32, bottom: i32, met: &mut Met, seg: &mut dyn FnMut(&Self, [i32; 3], [i32; 3], &mut Met) -> u8) -> (u8, bool) {
+        let [x, y, z] = pos;
+        let at = |h: i32| [x + off[0], h + off[1], z + off[2]];
+        for (from, to) in [([x, y, z], [x, top, z]), ([x, top, z], at(top)), ([x, y, z], [x, bottom, z]), ([x, bottom, z], at(bottom))] {
+            let r = seg(self, from, to, met);
+            if r != 0 {
+                return (r, false);
+            }
+        }
+        if seg(self, at(top), at(bottom), met) == 0 {
+            return (0, false);
+        }
+        let y5 = met.point[1] + 5;
+        (seg(self, [x, y5, z], [x + off[0], y5, z + off[2]], met), true)
+    }
+
+    /// The objects' air probe (0x80065210): each object in turn, those of
+    /// type flag 8 passed by; the one met is +0xf4, +0xfc.
+    fn air_objects(&self, pos: [i32; 3], off: [i32; 3], top: i32, bottom: i32, st: &mut Probes) -> u8 {
+        st.met.hit = None;
+        for (k, n) in self.near.iter().enumerate() {
+            if n.skip {
+                continue;
+            }
+            let (r, last) = self.air_segs(pos, off, top, bottom, &mut st.met, &mut |g: &Self, a, b, m: &mut Met| g.obj_seg(k, a, b, m));
+            if r != 0 {
+                st.met.hit = Some((k, st.met.index as u8));
+                return r;
+            }
+            if last {
+                return 0;
+            }
+        }
+        0
+    }
+
+    /// The air probe `off` ahead (0x800658cc): the objects', else the
+    /// height field's (0x80065578). Its face's kind: 0 clear, 1 a slope
+    /// overhead, 2 a wall, 3 a floor to stand on.
+    fn air_probe(&self, pos: [i32; 3], off: [i32; 3], top: i32, bottom: i32, st: &mut Probes) -> u8 {
+        match self.air_objects(pos, off, top, bottom, st) {
+            0 => self.air_segs(pos, off, top, bottom, &mut st.met, &mut |g: &Self, a, b, m: &mut Met| g.col_seg(a, b, m)).0,
+            r => r,
+        }
+    }
+
+    /// The objects' probe straight up or down (0x8006592c): up the body's
+    /// axis from its origin to its top and to its bottom, each carried on
+    /// by a move down.
+    fn air_objects_v(&self, pos: [i32; 3], dy: i32, top: i32, bottom: i32, st: &mut Probes) -> u8 {
+        let [x, y, z] = pos;
+        let down = if dy > 0 { dy } else { 0 };
+        st.met.hit = None;
+        for (k, n) in self.near.iter().enumerate() {
+            if n.skip {
+                continue;
+            }
+            for to in [top + down, bottom + down] {
+                let r = self.obj_seg(k, [x, y, z], [x, to, z], &mut st.met);
+                if r != 0 {
+                    st.met.hit = Some((k, st.met.index as u8));
+                    return r;
+                }
+            }
+        }
+        0
+    }
+
+    /// The height field's probe straight up or down (0x80065b3c): to the
+    /// top carried by a move up, to the bottom by a move down.
+    fn air_col_v(&self, pos: [i32; 3], dy: i32, top: i32, bottom: i32, st: &mut Probes) -> u8 {
+        let [x, y, z] = pos;
+        for to in [if dy < 0 { top + dy } else { top }, if dy > 0 { bottom + dy } else { bottom }] {
+            let r = self.col_seg([x, y, z], [x, to, z], &mut st.met);
+            if r != 0 {
+                return r;
+            }
+        }
+        0
+    }
+
+    /// Landing (0x80065cbc): the move's own probe (straight when it has no
+    /// across) meeting a floor to stand on (kind 3), a thing's (which is
+    /// then stood on) or else the height field's; the floor moved to the
+    /// height there (0x80067448).
+    fn landing(&self, pos: [i32; 3], d: [i32; 3], floor: &mut i32, st: &mut Probes) -> bool {
+        let (lo, hi) = (self.body.lo, self.body.hi);
+        let (top, bottom) = (pos[1] + lo[1], (pos[1] + hi[1]).max(self.low));
+        let vertical = d[0] == 0 && d[2] == 0;
+        let off = if vertical { [0, d[1], 0] } else { d };
+        let on_thing = if vertical { self.air_objects_v(pos, d[1], top, bottom, st) } else { self.air_objects(pos, off, top, bottom, st) } == 3;
+        let on_floor = on_thing
+            || if vertical {
+                self.air_col_v(pos, d[1], top, bottom, st)
+            } else {
+                self.air_segs(pos, off, top, bottom, &mut st.met, &mut |g: &Self, a, b, m: &mut Met| g.col_seg(a, b, m)).0
+            } == 3;
+        if !on_floor {
+            return false;
+        }
+        let p = st.met.point;
+        let delta = self.height_at(pos, *floor, [p[0], p[1] + lo[1], p[2]], st);
+        *floor += delta;
+        if on_thing {
+            st.below = st.met.hit;
+        }
+        true
+    }
+
+    /// The air's move `d` (+0xd8) from `pos` (0x80066014): at or past the
+    /// plane below (`plane`, +0x13c), landed there; across into the floor,
+    /// a wall facing back; else air probes the body's depth past the move
+    /// along it (its middle, then its sides), their faces' kinds deciding
+    /// the record kept and the answer; a floor to stand on met by a move
+    /// down is landed on ([`Self::landing`]).
+    pub fn air(&self, pos: [i32; 3], d: [i32; 3], plane: i32, floor: &mut i32, st: &mut Probes) -> Air {
+        if pos[1] >= plane {
+            *floor = plane;
+            return Air::Land;
+        }
+        let trig = self.trig;
+        if d[0] != 0 || d[2] != 0 {
+            let q = collide::query(self.col, [pos[0] + d[0], pos[1] + d[1], pos[2] + d[2]]);
+            if pos[1] + d[1] >= q.floor {
+                st.met.point = pos;
+                st.met.normal = collide::unit([-d[0], 0, -d[2]]);
+                return Air::Wall { turned: None };
+            }
+        }
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) as u32;
+        let r = if len < 2 { len as i32 } else { len.isqrt() as i16 as i32 };
+        let (lo, hi) = (self.body.lo, self.body.hi);
+        let reach = lo[2].abs().max(hi[2].abs()) + r;
+        let side = self.body.side();
+        let bottom = (pos[1] + hi[1]).max(self.low);
+        let top = pos[1] + lo[1];
+        if d[0] == 0 && d[2] == 0 {
+            let off = [0, d[1], 0];
+            let mut k = match self.air_objects_v(pos, d[1], top, bottom, st) {
+                0 => self.air_col_v(pos, d[1], top, bottom, st),
+                k => k,
+            };
+            if k == 3 {
+                k = 0;
+                if d[1] > 0 && self.landing(pos, d, floor, st) {
+                    return Air::Land;
+                }
+            }
+            return self.turned(k, off, st);
+        }
+        let u = collide::unit(d);
+        let angles = [trig.ratan2(u[0], u[2]) as i16, -(trig.asin(u[1] as i16 as i32)) as i16, 0];
+        let at = |x: i32| trig.turn_by(angles, [x, 0, reach]);
+        let centre = at(0);
+        let mut c = self.air_probe(pos, centre, top, bottom, st);
+        if c == 3 {
+            if d[1] > 0 && self.landing(pos, d, floor, st) {
+                return Air::Land;
+            }
+            c = 0;
+        }
+        let cm = st.met;
+        let r = match self.air_probe(pos, at(side), top, bottom, st) {
+            3 => 0,
+            k => k,
+        };
+        let rm = st.met;
+        let l = match self.air_probe(pos, at(-side), top, bottom, st) {
+            3 => 0,
+            k => k,
+        };
+        let lm = st.met;
+        // The record kept and the kind answered, by the middle's, the
+        // right's and the left's kinds (0x800664c8 on); all three walls,
+        // held with no way along (+0x124, +0x130 zero).
+        let (kept, kind) = match (c, r, l) {
+            (0, 0, 0) => (cm, Some(0)),
+            (0, 0, 1) => (rm, Some(0)),
+            (0, 0, 2) => (lm, Some(2)),
+            (0, 1, 0) | (0, 1, 1) => (rm, Some(1)),
+            (0, 1, 2) => (lm, Some(2)),
+            (0, 2, 0) | (0, 2, 1) => (rm, Some(2)),
+            (1, 0, 0) => (cm, Some(1)),
+            (1, 0, 1) => (lm, Some(1)),
+            (1, 0, 2) => (lm, Some(2)),
+            (1, 1, 0) | (1, 1, 2) => (rm, Some(1)),
+            (1, 1, 1) => (cm, Some(1)),
+            (1, 2, 0) | (1, 2, 1) => (rm, Some(2)),
+            (2, 0, 0) | (2, 0, 1) | (2, 1, 0) | (2, 1, 1) => (cm, Some(2)),
+            (2, 0, 2) | (2, 1, 2) => (lm, Some(2)),
+            (2, 2, 0) | (2, 2, 1) => (rm, Some(2)),
+            (_, 2, 2) => (cm, None),
+            _ => (st.met, Some(0)),
+        };
+        st.met = kept;
+        match kind {
+            None => Air::Wall { turned: Some(([0; 3], 0)) },
+            Some(k) => self.turned(k, centre, st),
+        }
+    }
+
+    /// 0x800657d0: the answer for a kind, `off` the probe's offset: a wall
+    /// (2) its tangent off the way back and its slant across (0x800761c8,
+    /// x and z only); a slope overhead (1) its tangent, to slide along.
+    fn turned(&self, kind: u8, off: [i32; 3], st: &mut Probes) -> Air {
+        let back = off.map(|v| -v);
+        match kind {
+            1 => Air::Slide(tangent(back, st.met.normal, self.trig).0),
+            2 => {
+                let (t, _) = tangent(back, st.met.normal, self.trig);
+                let n = st.met.normal;
+                let (a, b) = (self.trig.normal([back[0], 0, back[2]]), self.trig.normal([n[0], 0, n[2]]));
+                let dot = toward_zero12(b[0] * a[0]) + toward_zero12(b[1] * a[1]) + toward_zero12(b[2] * a[2]);
+                Air::Wall { turned: Some((t, self.trig.acos(dot as i16 as i32))) }
+            }
+            3 => Air::Land,
+            _ => Air::Clear,
+        }
     }
 
     /// The run's probe of its own step (0x800645d8): one probe the step's
@@ -419,6 +702,11 @@ impl Ground<'_> {
             (true, true, true) => (slide(centre), cm),
         };
         st.met = kept;
+        st.turned = match out {
+            Probed::Held { slide: Some(t), .. } => t,
+            Probed::Held { slide: None, .. } => ([0; 3], 0),
+            Probed::Clear(_) => st.turned,
+        };
         out
     }
 }
@@ -513,6 +801,25 @@ pub fn objects(col: &Col, trig: &Trig, pos: [i32; 3], body: Body, below: Option<
             met.hit = Some((k, bx as u8));
             return;
         }
+    }
+}
+
+/// The kind of face a normal makes (0x80067168): level across (y 0) a
+/// wall (2); facing down (y > 0) a slope overhead (1) within 512 of
+/// straight down, else a wall; facing up a floor to stand on (3) when its
+/// sine's angle plus a quarter turn is under 796, else a wall.
+pub fn face_kind(n: [i32; 3], trig: &Trig) -> u8 {
+    let ny = n[1];
+    if ny == 0 {
+        return 2;
+    }
+    let a = trig.asin(ny as i16 as i32) as i16 as i32;
+    if ny > 0 {
+        if 1024 - a < 512 { 1 } else { 2 }
+    } else if a + 1024 < 796 {
+        3
+    } else {
+        2
     }
 }
 

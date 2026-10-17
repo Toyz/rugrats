@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-172 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 79, render 28, save 4, test 24, tooling 18, ui 11, video 10.
+173 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 80, render 28, save 4, test 24, tooling 18, ui 11, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -184,3 +184,4 @@ The [reference](docs/README.md) says what is true now.
 | 170 | [The ground probes as the original runs them](worklog/0170-the-ground-probes-as-the-original-runs-them.md) | 2026-10-16 | play |
 | 171 | [The camera's rows and the objects in the probe](worklog/0171-the-camera-s-rows-and-the-objects-in-the-probe.md) | 2026-10-16 | play |
 | 172 | [The world's objects in the player's probe](worklog/0172-the-world-s-objects-in-the-player-s-probe.md) | 2026-10-16 | play |
+| 173 | [The air as the original moves it](worklog/0173-the-air-as-the-original-moves-it.md) | 2026-10-16 | play |

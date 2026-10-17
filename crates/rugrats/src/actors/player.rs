@@ -736,7 +736,12 @@ impl Player {
         {
             self.bumped = ran_into;
             self.bump_root = [0; 2];
+            // The speed (+0x184) stays this frame: the bump's state zeroes
+            // it as it runs, the next (the follow camera still sees the
+            // player moving, 0x80027304).
+            let speed = self.speed;
             self.act(anim::BUMP, anims);
+            self.speed = speed;
         }
         if let Some(top) = climb_to {
             // The rise picks the climb (+0x144, 0x80056e44).

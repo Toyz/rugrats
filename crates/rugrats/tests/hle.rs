@@ -82,7 +82,7 @@ impl Both {
                 let camera = self.hle.camera_heading();
                 if std::env::var_os("HLEVEL").is_some() {
                     let (low, plane) = (self.hle.read_i16(rugrats_hle::play::PLAYER + 0x68), self.hle.read_i32(rugrats_hle::play::PLAYER + 0x13c));
-                    eprintln!("    vel {:?} port {:?} speed {} way {:?} heading {} cam {camera} pad {bits:#06x} low {low} plane {plane}", o.velocity, self.game.player.v, o.speed, o.way, o.heading);
+                    eprintln!("    vel {:?} port {:?} speed {} way {:?} heading {} cam {camera} pad {bits:#06x} low {low} plane {plane} flags {:#x} d {:?}", o.velocity, self.game.player.v, o.speed, o.way, o.heading, o.flags, [0, 2, 4].map(|k| self.hle.read_i16(rugrats_hle::play::PLAYER + 0xd8 + k)));
                 }
                 if std::env::var_os("CAMLOG").is_some() {
                     let r = |h: &mut Play, a: u32| [0, 4, 8].map(|k| h.read_i32(a + k));
@@ -188,5 +188,31 @@ fn spike_run_at_a_wall_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 4)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 12)]);
     let worst = report("spike", &port, &orig);
+    assert_eq!(worst, 0, "the same as the original's, every frame");
+}
+
+/// Level 1 from its start, nothing put: a standing jump (Cross alone), up
+/// and back down onto the floor.
+#[test]
+#[ignore]
+fn hub_standing_jump_as_the_original() {
+    use rugrats::input::CROSS;
+    let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
+    let (port, orig) = b.script(&[(0, 3), (bits(&[CROSS]), 1), (0, 40)]);
+    let worst = report("stand", &port, &orig);
+    assert_eq!(worst, 0, "the same as the original's, every frame");
+}
+
+/// Level 1: put back from the seat (template 130) at (8945, 779, 11800),
+/// Up held: the run into it and the bump.
+#[test]
+#[ignore]
+fn hub_run_at_the_seat_as_the_original() {
+    use rugrats::input::{R1, UP};
+    let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
+    b.put([8945, 779, 11800], 0, 6);
+    b.script(&[(bits(&[R1]), 1), (0, 4)]);
+    let (port, orig) = b.script(&[(bits(&[UP]), 40)]);
+    let worst = report("seat", &port, &orig);
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }

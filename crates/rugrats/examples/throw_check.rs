@@ -15,6 +15,7 @@ use rugrats::input::{self, Pads};
 use rugrats::levels::Level;
 use rugrats::save::progress::Progress;
 use rugrats::world::game::Game;
+use rrt::emu::BusExt;
 use rugrats_hle::play::{Boot, PLAYER, Play};
 
 fn main() -> Result<(), String> {
@@ -38,6 +39,23 @@ fn main() -> Result<(), String> {
     g.player.target = heading;
     g.player.speed = 0;
     g.set_camera_yaw(heading as f32);
+    if std::env::var_os("HOOKS").is_some() {
+        p.hle.m.hook(0x8006_1f88, |c| {
+            let (o, pl) = (c.arg32(0), c.arg32(2));
+            let mut w = |a: u32| c.bus.read_u32(a).unwrap_or(0) as i32;
+            let op = [w(o + 0x18), w(o + 0x1c), w(o + 0x20)];
+            let pp = [w(pl + 0x18), w(pl + 0x1c), w(pl + 0x20)];
+            println!("     DESC obj {o:#x} at {op:?} player at {pp:?}");
+            rrt::emu::HookResult::Continue
+        });
+        p.hle.m.hook(0x8008_864c, |c| {
+            let d = c.arg32(0);
+            let mut w = |a: u32| c.bus.read_u32(a).unwrap_or(0) as i32;
+            let v: Vec<i32> = (0..16).map(|k| w(d + 4 * k)).collect();
+            println!("     LAUNCH desc {v:?}");
+            rrt::emu::HookResult::Continue
+        });
+    }
     let script = [(0u16, 6usize), (1 << input::CIRCLE, 1), (0, 40), (1 << input::TRIANGLE, 1), (0, 80)];
     let mut held: std::collections::VecDeque<u16> = std::iter::repeat_n(0, 1).collect();
     let mut pads = Pads::default();
@@ -71,6 +89,14 @@ fn main() -> Result<(), String> {
                     .map(|k| (0..6u32).map(|i| format!("{:04x}", p.read_i16(PLAYER + 0xa8 + 12 * k + 2 * i) as u16)).collect::<Vec<_>>().join(" "))
                     .collect();
                 println!("     tracks port {} | orig {}", g.player.animator.describe(), raw.join(" | "));
+            }
+            if std::env::var_os("BOUND").is_some() && obj != 0 {
+                let bound: Vec<i16> = (0..8).map(|k| p.read_i16(obj + 0x78 + 2 * k)).collect();
+                let angles: Vec<i16> = (0..3).map(|k| p.read_i16(obj + 0x24 + 2 * k)).collect();
+                let fl = p.read_u32(obj + 0x90);
+                let fpos = if fl != 0 { Some([0, 4, 8].map(|k| p.read_i32(fl + 0x10 + k))) } else { None };
+                let fv = if fl != 0 { Some([0, 4, 8].map(|k| p.read_i32(fl + 0x3c + k))) } else { None };
+                println!("     bound {bound:?} angles {angles:?} flight pos {fpos:?} v {fv:?} radius {} flags {:#x}", if fl != 0 { p.read_i32(fl + 0x1c) } else { 0 }, if fl != 0 { p.read_u32(fl + 8) } else { 0 });
             }
             if std::env::var_os("QUATS").is_some() {
                 let h = p.read_u32(PLAYER + 0x154);

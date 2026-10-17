@@ -34,7 +34,6 @@ use doors::*;
 use pause::*;
 use rooms::*;
 use story::*;
-use things::*;
 
 pub use crate::actors::npc::Npc;
 pub use crate::actors::player::Pose;
@@ -1623,14 +1622,8 @@ impl Game {
         self.player.triangles(&self.set.models, &self.anims, &self.trig, &mut moving);
         // The carried object rides hand 15 (0x8005ff88 mode 1), as the
         // frame before drew it.
-        let (parts, m) = self.drawn_pose();
-        if let Some(k) = self.carried
-            && self.grabbed_on != Some(self.frames)
-            && let Some(hand) = self.player.slot_part(HAND).and_then(|i| parts.get(i))
-        {
-            let g = things::apply_sv(&m, self.grip);
-            self.things[k].pos = Vec3::new((hand.joint[0] + g[0]) as f32, (hand.joint[1] + g[1]) as f32, (hand.joint[2] + g[2]) as f32);
-            self.things[k].rot = self.player.rotation(&self.trig);
+        if self.grabbed_on != Some(self.frames) {
+            self.carry_place();
         }
         self.pose_before = Some(self.pose_now());
         for t in self.things.iter().filter(|t| !t.hidden) {

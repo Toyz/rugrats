@@ -177,6 +177,9 @@ impl Game {
     /// and speed of the plain or aimed throw as they are now, or the
     /// level's own velocity.
     fn release(&mut self, throw: PendingThrow) {
+        // The carry runs before the throw's handler: the thing let go of
+        // where the hand as last drawn holds it.
+        self.carry_place();
         let (k, v) = match throw {
             PendingThrow::Given(k, v) => (k, v),
             PendingThrow::Down(k) => {
@@ -190,14 +193,20 @@ impl Game {
                 self.things[k].slides = true;
                 (k, [v.x as i32, v.y as i32, v.z as i32])
             }
-            PendingThrow::Aimed(k) => {
-                let rot = self.player.rotation(&self.trig);
-                let v = match if self.aim { self.aim_at() } else { None } {
-                    Some(d) => d * THROW_SPEED,
-                    None => (rot * Vec3::new(0.0, -384.0, 1024.0)).normalize() * THROW_SPEED,
-                };
-                (k, [v.x as i32, v.y as i32, v.z as i32])
-            }
+            PendingThrow::Aimed(k) => match if self.aim { self.aim_at() } else { None } {
+                Some(d) => {
+                    let v = d * THROW_SPEED;
+                    (k, [v.x as i32, v.y as i32, v.z as i32])
+                }
+                // (0, -384, 1024) (D_800b7fe0) turned by the player's angles
+                // (0x80075ee8) and made a unit (0x8007652c), at speed 170
+                // (D_800b7fec): dir * (170 << 16) / 6000 >> 12 (0x8008864c).
+                None => {
+                    let dir = collide::unit(self.trig.turn_by([self.player.heading as i16, 0, 0], [0, -384, 1024]));
+                    let speed = (170 << 16) / 6000;
+                    (k, dir.map(|d| (d * speed) >> 12))
+                }
+            },
         };
         if self.carried == Some(k) {
             self.things[k].state = ThingState::Flying(v);
@@ -206,6 +215,19 @@ impl Game {
             // The arms as they were after (0x80060910, 0x80060b44:
             // 0x80057244(player, 17, 0)).
             self.player.animator.set_after(17, false);
+        }
+    }
+
+    /// The carry (0x8005ff88 mode 1): the thing carried at hand 15 as last
+    /// drawn, plus the grip turned by the player's matrix (ApplyMatrixSV).
+    pub(super) fn carry_place(&mut self) {
+        let (parts, m) = self.drawn_pose();
+        if let Some(k) = self.carried
+            && let Some(hand) = self.player.slot_part(HAND).and_then(|i| parts.get(i))
+        {
+            let g = apply_sv(&m, self.grip);
+            self.things[k].pos = Vec3::new((hand.joint[0] + g[0]) as f32, (hand.joint[1] + g[1]) as f32, (hand.joint[2] + g[2]) as f32);
+            self.things[k].rot = self.player.rotation(&self.trig);
         }
     }
 

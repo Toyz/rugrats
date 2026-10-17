@@ -479,3 +479,43 @@ fn level_6_chuckie_box_as_the_original() {
     assert!(held.len() >= 50 && off == 0, "the box's places: {:?}", held.iter().find(|(m, t)| m != t));
     assert_eq!(b.game.carried(), Some(k), "still in hand");
 }
+
+/// Level 9 past cine 17 (where the port starts): ball 3 (template 777)
+/// picked up and thrown away from Mr. Friend. Its template's +0x30 of 1
+/// makes the throw roll (flag 0x10000000, 0x80086ef0): the segment bent
+/// along the floor, the centre 10 over it, friction 15 a frame
+/// (0x80086cd0). The ball on the original's place every frame of the
+/// roll, and at rest where it stops.
+#[test]
+#[ignore]
+fn level_9_ball_rolls_as_the_original() {
+    use rugrats::input::{CIRCLE, TRIANGLE};
+    let Some(mut b) = Both::open(Boot { level: 9, cinematics: true, ..Default::default() }) else { return };
+    for _ in 0..900 {
+        b.hle.frame(0).unwrap();
+    }
+    let k = b
+        .game
+        .things
+        .iter()
+        .position(|t| t.template == 777 && (t.pos.x as i32, t.pos.z as i32) == (30003, -3772))
+        .expect("ball 3");
+    b.put([30003, 7947, -4472], 0, 6);
+    let p = rugrats_hle::play::PLAYER;
+    let (mut rolled, mut obj) = (Vec::new(), 0u32);
+    b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[TRIANGLE]), 1), (0, 120)], |g, h| {
+        let o = h.read_u32(p + 0x1f0);
+        if o != 0 {
+            obj = o;
+        }
+        if g.carried().is_none() && obj != 0 {
+            let at = g.things[k].pos;
+            rolled.push(([at.x as i32, at.y as i32, at.z as i32], [0, 4, 8].map(|i| h.read_i32(obj + 0x18 + i))));
+        }
+    });
+    let off = rolled.iter().filter(|(m, t)| m != t).count();
+    eprintln!("ball rolled {} frames, {off} off; at rest {:?}", rolled.len(), rolled.last());
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
+    assert!(rolled.len() >= 60 && off == 0, "the ball's places: {:?}", rolled.iter().find(|(m, t)| m != t));
+    assert_eq!(b.game.things[k].state, rugrats::world::game::ThingState::Rest, "at rest");
+}

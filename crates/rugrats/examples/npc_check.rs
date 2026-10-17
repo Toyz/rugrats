@@ -44,7 +44,12 @@ fn main() -> Result<(), String> {
     let disc = GameDisc::open(&cue)?;
     let mut g = Game::open_from(&disc, Level(level), None, &Progress::default())?;
     let character = Some(g.character as u32).filter(|&c| c != 1);
-    let mut p = Play::boot(Rc::new(rrt::disc::Image::open(&cue).map_err(|e| e.to_string())?), Boot { level, character, ..Default::default() })?;
+    let mut p = Play::boot(Rc::new(rrt::disc::Image::open(&cue).map_err(|e| e.to_string())?), Boot { level, character, cinematics: std::env::var_os("CINES").is_some() })?;
+    // SETTLE=n: the original run on n frames first (with CINES, past the
+    // level's opening cinematic).
+    for _ in 0..std::env::var("SETTLE").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0) {
+        p.frame(0)?;
+    }
     let objs = objects(&mut p);
     // Each NPC's object: the one of its template at its place, or nearest.
     let mut pairs = Vec::new();
@@ -87,11 +92,40 @@ fn main() -> Result<(), String> {
         n.pos = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
         n.heading = p.read_i16(o + 0x24) as i32 & 4095;
     }
+    // PUT=x,y,z: both players put there first (heading 0).
+    if let Ok(at) = std::env::var("PUT") {
+        let v: Vec<i32> = at.split(',').filter_map(|s| s.parse().ok()).collect();
+        if let [x, y, z] = v[..] {
+            p.put([x, y, z], 0);
+            g.player.pos = [x, y, z];
+            g.player.heading = 0;
+            g.player.target = 0;
+        }
+    }
+    // MOVES=k: the original's object k's place, heading, speed (+0x184)
+    // and way (+0x178) each frame beside the port's.
+    let moves: Option<usize> = std::env::var("MOVES").ok().and_then(|s| s.parse().ok());
     let pads = Pads::default();
     let mut off = 0;
     for f in 0..frames {
         g.frame(&pads);
         p.frame(0)?;
+        if let Some(m) = moves
+            && let Some(&(k, o)) = pairs.iter().find(|(k, _)| *k == m)
+        {
+            let n = &g.npcs[k];
+            let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
+            let way = [0, 4, 8].map(|i| p.read_i32(o + 0x178 + i));
+            println!(
+                "{f:3} MOVE orig {at:?} h {} speed {} way {way:?} state {} | port {:?} h {} speed {}",
+                p.read_i16(o + 0x24),
+                p.read_i32(o + 0x184),
+                p.read_u8(o + 0x18c),
+                n.pos,
+                n.heading,
+                n.speed
+            );
+        }
         for &(k, o) in &pairs {
             let n = &g.npcs[k];
             let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));

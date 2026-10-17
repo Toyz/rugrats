@@ -75,7 +75,6 @@ const AIM_FINE: i32 = 8;
 /// The roll: radius 104, friction (98 dt) >> 6, bounce 3000 / 4096, the
 /// cup's 384 and the speed it still takes (132 as a power).
 const RADIUS: i32 = 104;
-const FRICTION: i32 = (98 * DT) >> 6;
 const BOUNCE: i32 = 3000;
 const CUP_REACH2: i64 = 0x24000;
 const CUP_SPEED: i32 = (132 << 16) / 6000;
@@ -382,39 +381,9 @@ impl Golf {
         self.ball = p;
         // Rolling (0x80086cd0): on the floor, friction 15 a frame, the
         // slope's push downhill.
-        let q = collide::query(&g.col, [self.ball[0], self.ball[1], self.ball[2]]);
-        let Some((cx, k)) = q.tile.filter(|_| q.kind == 0) else {
+        if !g.roll_on(&mut self.ball, &mut v, RADIUS.max(10), DT) {
             self.roll = None;
             return self.stopped(g);
-        };
-        self.ball[1] = q.floor - RADIUS;
-        let n = g
-            .col
-            .columns
-            .get(cx)
-            .and_then(|c| c.tiles.get(k))
-            .and_then(|t| g.col.floor_normals.get(t[1] as usize).filter(|_| t[1] != 0))
-            .map_or([0, -4096, 0], |n| n.map(|v| v as i32));
-        v[1] = 0;
-        let s = isqrt(v[0] as i64 * v[0] as i64 + v[2] as i64 * v[2] as i64);
-        let push = slope_push(n[1]);
-        if push == 0 && s <= FRICTION {
-            self.roll = None;
-            return self.stopped(g);
-        }
-        if s > 0 {
-            v[0] = tdiv(v[0] as i64 * (s - FRICTION) as i64, s as i64);
-            v[2] = tdiv(v[2] as i64 * (s - FRICTION) as i64, s as i64);
-        }
-        if push != 0 {
-            let h = isqrt(n[0] as i64 * n[0] as i64 + n[2] as i64 * n[2] as i64).max(1);
-            v[0] += tdiv(n[0] as i64 * push as i64, h as i64);
-            v[2] += tdiv(n[2] as i64 * push as i64, h as i64);
-            let s = isqrt(v[0] as i64 * v[0] as i64 + v[2] as i64 * v[2] as i64);
-            if s <= FRICTION {
-                self.roll = None;
-                return self.stopped(g);
-            }
         }
         // The cup (0x800580a8): within 384 (2D), slow enough drops; faster
         // lips out at half speed.
@@ -567,20 +536,6 @@ impl Golf {
         g.player.hold = Some(WALK_IN);
         self.stance(g, 1024, 0);
         self.stage = Stage::WalkIn(0);
-    }
-}
-
-/// The slope's push (0x80086a20) from the floor normal's y: 0 flat, 1190
-/// at 768 or steeper, linear between.
-fn slope_push(ny: i32) -> i32 {
-    let t = ((-(ny as f64) / 4096.0).clamp(-1.0, 1.0).asin() / std::f64::consts::TAU * 4096.0).round() as i32;
-    let slope = 1024 - t;
-    if slope >= 768 {
-        1190
-    } else if slope <= 0 {
-        0
-    } else {
-        ((((99 * slope) >> 6) + 2) * DT) >> 6
     }
 }
 

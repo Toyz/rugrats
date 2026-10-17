@@ -377,6 +377,8 @@ pub struct Game {
     pub card: Option<usize>,
     /// Throws aim at characters (level 9's case of 0x80061c98).
     pub aim: bool,
+    /// The player's aim target (+0x1f4, 0x80059b34): a character.
+    pub aim_target: Option<usize>,
     /// A bonus level's fourth bar was earned (0x80076ba8 and friends).
     pub fourth_bar: bool,
     /// Activity play (+0x21).
@@ -989,6 +991,7 @@ impl Game {
             spots,
             card: None,
             aim: false,
+            aim_target: None,
             fourth_bar: false,
             activity: progress.activity(),
             flags: progress.flags(),
@@ -1402,7 +1405,6 @@ impl Game {
             self.land_sounds(on);
         }
         self.carry(pads);
-        self.fly(&solids, &npc_of);
         self.touch();
         self.effects.extend(closed.into_iter().map(Effect::new));
         // The player's sounds are in the world (0x800562bc's 0x8006f644).
@@ -1540,6 +1542,19 @@ impl Game {
             walls: &boxes,
         };
         self.npc_events = npc::step(&mut self.npcs, &world, &mut self.rand);
+        for k in 0..self.npcs.len() {
+            self.consider_aim(k);
+        }
+        // The flights step after the objects (0x8008851c after 0x80072bf0):
+        // the characters met where they now are, by their pose as last
+        // drawn.
+        for (e, n) in solids.iter_mut().zip(&npc_of) {
+            if let Some(n) = n.and_then(|n| self.npcs.get(n)) {
+                e.solid.pos = n.pos;
+                e.solid.angles = [n.heading as i16, 0, 0];
+            }
+        }
+        self.fly(&solids, &npc_of);
         self.with_script(|s, g| s.frame(g, pads));
         self.flights.step(&self.col, self.sprites.as_ref(), DT);
         // Hazards (template flag 0x200000, their touch 0x8004e0f4): walking

@@ -24,7 +24,7 @@ const BOX: u16 = 442;
 const COOKIES: i32 = 15;
 /// The babies one can throw to (templates 2, 6, 7, 11: ids 1776, 609,
 /// 608, 1492), and Angelica.
-const BABIES: [u16; 4] = [1776, 609, 608, 1492];
+pub(crate) const BABIES: [u16; 4] = [1776, 609, 608, 1492];
 const ANGELICA: u16 = 600;
 /// The catch: the box within 1400 (x and z) of the target (0x80057518).
 const CATCH: i32 = 1400;
@@ -202,27 +202,6 @@ impl BoxToss {
         g.player.gait = (17, 17);
     }
 
-    /// 0x80059b34 in levels 20-21: the nearest baby within 512 of the
-    /// heading.
-    fn aim(&self, g: &Game) -> Option<usize> {
-        let p = g.player.pos;
-        let h = g.player.heading;
-        g.npcs
-            .iter()
-            .enumerate()
-            .filter(|(_, n)| BABIES.contains(&n.id) && n.id != self.me && !n.hidden)
-            .filter(|(_, n)| {
-                let (dx, dz) = ((n.pos[0] - p[0]) as f64, (n.pos[2] - p[2]) as f64);
-                let yaw = ((dx.atan2(dz) / std::f64::consts::TAU) * 4096.0).round() as i32;
-                ((yaw - h + 2048).rem_euclid(4096) - 2048).abs() < 513
-            })
-            .min_by_key(|(_, n)| {
-                (n.pos[0] - p[0]) as i64 * (n.pos[0] - p[0]) as i64
-                    + (n.pos[2] - p[2]) as i64 * (n.pos[2] - p[2]) as i64
-            })
-            .map(|(k, _)| k)
-    }
-
     /// 0x80057570: the player and the catching baby trade bodies, places
     /// and ids; the box goes to the new holder.
     fn swap(&mut self, g: &mut Game, k: usize) {
@@ -243,6 +222,7 @@ impl BoxToss {
         g.player.pos = there;
         g.player.v = [0; 3];
         g.forget_pose();
+        g.aim_target = None;
         let item = self.rules.item;
         if let Some(b) = g.things.iter().position(|t| t.template == item) {
             g.give(b);
@@ -309,7 +289,7 @@ impl Script for BoxToss {
                 return;
             }
         }
-        self.target = self.aim(g);
+        self.target = g.aim_target;
         // The throw (0x80060b44's levels 20-21 branch): a lob to the
         // target.
         // A press while a throw is under way is ignored (+0x188 bit 4).

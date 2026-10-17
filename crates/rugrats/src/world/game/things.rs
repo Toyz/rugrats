@@ -57,13 +57,15 @@ pub struct Thing {
 /// record), its radius (the larger of the first box's y extents) and
 /// bounce (+0x28: the template's +0x36, at most 4095), and whether it
 /// meets objects (flag 0x20000; levels 20 and 21's lobs meet the world
-/// only).
+/// only), and whether it rolls (flag 0x10000000, the object's 0x800000:
+/// template +0x30 of 1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Flown {
     pub pos: [i32; 3],
     pub radius: i32,
     pub bounce: i32,
     pub objects: bool,
+    pub rolls: bool,
 }
 
 /// Who a flight's segment can meet (0x80086340's room lists): an object
@@ -174,6 +176,9 @@ impl Game {
     fn fly_exact(&mut self, k: usize, targets: &[(crate::world::boxhit::Solid, Met)]) -> Option<[i32; 3]> {
         let dt = DT;
         let (Some(mut f), ThingState::Flying(mut v)) = (self.things[k].flown, self.things[k].state) else { return None };
+        if f.rolls {
+            return self.roll_exact(k, targets);
+        }
         let mut touched = None;
         let old = f.pos;
         let a = [0, THING_GRAVITY, 0];
@@ -258,6 +263,148 @@ impl Game {
         }
         touched
     }
+
+    /// A rolling flight's frame (0x80086ef0, flag 0x10000000), after the
+    /// same move (0x8004fbb4): the segment from where it was to its
+    /// leading edge (reach = radius, at least 10), turned along the floor
+    /// it was on (0x80086b58: -v along the plane, as long as the segment,
+    /// 0x80075f58), meets as a flight does. Off a surface met head on it
+    /// backs off the reach from the point and goes back along the
+    /// reflection at |v| bounce >> 12. Then it rolls (0x80086cd0).
+    fn roll_exact(&mut self, k: usize, targets: &[(crate::world::boxhit::Solid, Met)]) -> Option<[i32; 3]> {
+        let dt = DT;
+        let (Some(mut f), ThingState::Flying(mut v)) = (self.things[k].flown, self.things[k].state) else { return None };
+        let mut touched = None;
+        let old = f.pos;
+        let a = [0, THING_GRAVITY, 0];
+        for i in 0..3 {
+            let ad = a[i] * dt;
+            f.pos[i] += (((ad * dt) >> 1) + v[i] * dt) >> 6;
+            v[i] += ad;
+        }
+        let reach = f.radius.max(10);
+        let u = collide::unit(v);
+        let lead = [0, 1, 2].map(|i| f.pos[i] + ((u[i] * reach) >> 12));
+        let d = {
+            let dd = [0, 1, 2].map(|i| old[i] - lead[i]);
+            if dd.iter().any(|c| c.unsigned_abs() >= 0x4000) {
+                0x4000
+            } else {
+                dd.iter().map(|&c| c.wrapping_mul(c) as u32).fold(0u32, u32::wrapping_add).isqrt() as i16 as i32
+            }
+        };
+        let bend = collide::along_plane(v.map(|c| -c), collide::floor_normal(&self.col, old));
+        let to = [0, 1, 2].map(|i| old[i] + ((bend[i] * d) >> 12));
+        let mut bits = 0;
+        let mut normal = [0; 3];
+        let mut point = f.pos;
+        if let Some((who, p, n)) = self.flight_meets(old, to, f.objects, targets) {
+            (point, normal) = (p, n);
+            bits |= 1;
+            if let Some((who, at)) = who {
+                let damage = self.things[k].damage;
+                match who {
+                    Met::Object(template) => {
+                        let touch = self.set.templates.get(template as usize).map_or(0, |tp| tp.raw[0x0a]);
+                        if (1..=7).contains(&touch) {
+                            let models = &self.set.models;
+                            let radius_of = |m: u32| models.get(m).map_or(0, |m| m.radius as i32);
+                            if self.flights.touch_parts(touch, at, p, radius_of, self.sprites.as_ref()) {
+                                touched = Some(at);
+                            }
+                        }
+                    }
+                    // A character (object flag 0x4000) is struck
+                    // (0x800780ac), and not kept as the last hit.
+                    Met::Npc(n) => {
+                        self.struck.push(Strike { npc: n, thing: k, damage });
+                        let c = self.npcs[n].character;
+                        let r = self.rand.next() & 1;
+                        self.speech.extend(hit_line(c, self.level, r));
+                    }
+                    Met::Player => {}
+                }
+            }
+        }
+        if bits & 1 != 0 {
+            let (c, r) = crate::world::flights::reflect(&self.flights.angles, v, normal);
+            if c >= 1025 {
+                f.pos = [0, 1, 2].map(|i| point[i] - ((u[i] * reach) >> 12));
+                let s = (collide::length(v) * f.bounce) >> 12;
+                v = r.map(|r| (r * s) >> 12);
+                self.things[k].bounced = true;
+            }
+        }
+        let rolling = self.roll_on(&mut f.pos, &mut v, reach, dt);
+        let t = &mut self.things[k];
+        t.pos = Vec3::new(f.pos[0] as f32, f.pos[1] as f32, f.pos[2] as f32);
+        if rolling {
+            t.state = ThingState::Flying(v);
+            t.flown = Some(f);
+        } else {
+            t.state = ThingState::Rest;
+            t.flown = None;
+            t.last_hit = None;
+            t.bounced = false;
+        }
+        touched
+    }
+
+    /// The roll (0x80086cd0): on the floor under it (its centre `reach`
+    /// over it), level, slowed by the friction (D_800c4460, 98, by dt)
+    /// and pushed down a slope (0x80086a20). Without a floor, or too slow
+    /// on the level, it stops (false).
+    pub(crate) fn roll_on(&self, pos: &mut [i32; 3], v: &mut [i32; 3], reach: i32, dt: i32) -> bool {
+        let friction = (ROLL_FRICTION * dt) >> 6;
+        v[1] = 0;
+        let s = collide::length(*v);
+        let u = collide::unit(*v);
+        let q = collide::query(&self.col, *pos);
+        let Some((c, t)) = q.tile else {
+            *v = [0; 3];
+            return false;
+        };
+        let n = self
+            .col
+            .columns
+            .get(c)
+            .and_then(|c| c.tiles.get(t))
+            .and_then(|t| self.col.floor_normals.get(t[1] as usize))
+            .map_or([0, -4096, 0], |n| n.map(|v| v as i32));
+        pos[1] = q.floor - reach;
+        let push = self.slope_push(n[1], dt);
+        if push == 0 && friction >= s {
+            *v = [0; 3];
+            return false;
+        }
+        *v = [collide::fix(u[0], s - friction), 0, collide::fix(u[2], s - friction)];
+        if push != 0 {
+            let down = collide::unit([n[0], 0, n[2]]);
+            v[0] += collide::fix(down[0], push);
+            v[2] += collide::fix(down[2], push);
+            if collide::length(*v) <= friction {
+                *v = [0; 3];
+                return false;
+            }
+        }
+        true
+    }
+
+    /// A slope's push (0x80086a20) from the floor normal's y: by its
+    /// tilt |asin y + 1024|, none flat (D_800c446c, 0), 1190 (D_800c4468)
+    /// at 768 (D_800c4470) or steeper, between ((99 tilt >> 6) + 2) dt >> 6.
+    fn slope_push(&self, ny: i32, dt: i32) -> i32 {
+        let a = self.trig.asin(ny as i16 as i32);
+        let tilt = if -a - 1024 >= 0 { -a - 1024 } else { a + 1024 };
+        let k = ((0 - 1190) << 6) / (0 - 768);
+        if tilt >= 768 {
+            1190
+        } else if tilt <= 0 {
+            0
+        } else {
+            ((((k * tilt) >> 6) + (1190 - ((k * 768) >> 6))) * dt) >> 6
+        }
+    }
 }
 
 /// ApplyMatrixSV (0x8009fc38, 0x8009fbe8): `m` times the short vector
@@ -300,8 +447,6 @@ const DUST_PART: usize = 16;
 /// A throw (0x80060b44): direction (0, -384, 1024) turned by the heading,
 /// speed 170; the velocity is dir * (speed * 65536 / 6000) >> 12
 /// (0x8008864c); a put-down is speed 10 along (0, 0, 4096).
-pub(super) const THROW_SPEED: f32 = 170.0 * 65536.0 / 6000.0;
-
 pub(super) const DROP_SPEED: f32 = 10.0 * 65536.0 / 6000.0;
 
 /// How near a flight passes a character to strike it (the radii, guess).
@@ -309,6 +454,9 @@ pub(super) const STRIKE: i32 = 450;
 
 /// Thrown objects fall at 13 (flight flags 0x700).
 pub(super) const THING_GRAVITY: i32 = 13;
+
+/// A roll's friction a 64th of dt (D_800c4460).
+const ROLL_FRICTION: i32 = 98;
 
 /// A thrown thing that struck a character: the NPC, the thing and its
 /// +0x6d.
@@ -320,26 +468,66 @@ pub struct Strike {
 }
 
 impl Game {
-    /// The throw's direction at the aim target (0x80059b34, 0x80061c98):
-    /// the nearest character within 512 of the player's heading.
-    pub(super) fn aim_at(&self) -> Option<Vec3> {
+    /// 0x80059b34, which each character's update (0x80082230) runs for
+    /// itself: the player's aim target (+0x1f4) is the nearest character
+    /// within 512 of the heading and 768 of the pitch, by the squared
+    /// distance (0x8007681c: none past 32767 on an axis). One held stays
+    /// until a nearer one passes or it leaves the bounds itself. In levels
+    /// 20-21 only the babies count (templates 2, 6, 7, 11).
+    pub fn consider_aim(&mut self, k: usize) {
+        let n = &self.npcs[k];
+        if n.hidden || matches!(n.mode, Mode::Ride { .. }) {
+            return;
+        }
+        let box_toss = matches!(self.level, Level::NO_MORE_COOKIES | Level::TOUCHDOWN_TOMMY);
+        let wrap = |a: i32| {
+            let a = a as i16 as i32;
+            (if a > 2048 { a - 4096 } else if a < -2048 { a + 4096 } else { a }) as i16 as i32
+        };
         let p = self.player.pos;
-        let h = self.player.heading;
-        let target = self
-            .npcs
-            .iter()
-            .filter(|n| !n.hidden && !matches!(n.mode, Mode::Ride { .. }))
-            .filter(|n| {
-                let (dx, dz) = ((n.pos[0] - p[0]) as f64, (n.pos[2] - p[2]) as f64);
-                let yaw = ((dx.atan2(dz) / std::f64::consts::TAU) * 4096.0).round() as i32;
-                ((yaw - h + 2048).rem_euclid(4096) - 2048).abs() < 513
-            })
-            .min_by_key(|n| {
-                (n.pos[0] - p[0]) as i64 * (n.pos[0] - p[0]) as i64
-                    + (n.pos[2] - p[2]) as i64 * (n.pos[2] - p[2]) as i64
-            })?;
-        let d = Vec3::new((target.pos[0] - p[0]) as f32, 0.0, (target.pos[2] - p[2]) as f32).normalize_or(Vec3::Z);
-        Some(Vec3::new(d.x, -300.0 / 4096.0, d.z))
+        let d = [n.pos[0] - p[0], n.pos[1] - p[1], n.pos[2] - p[2]];
+        let dist = |d: [i32; 3]| {
+            if d.iter().any(|c| c.unsigned_abs() >> 15 != 0) {
+                u32::MAX
+            } else {
+                d.iter().map(|&c| c.wrapping_mul(c) as u32).fold(0u32, u32::wrapping_add)
+            }
+        };
+        let yaw = wrap(self.trig.ratan2(d[0], d[2]) - self.player.heading);
+        let pitch = wrap(-self.trig.asin(d[1] as i16 as i32));
+        let within = (!box_toss || crate::levels::box_toss::BABIES.contains(&n.id)) && yaw.abs() < 513 && pitch.abs() < 769;
+        if !within {
+            if self.aim_target == Some(k) {
+                self.aim_target = None;
+            }
+            return;
+        }
+        match self.aim_target {
+            Some(t) if t != k => {
+                let q = self.npcs[t].pos;
+                if dist(d) < dist([q[0] - p[0], q[1] - p[1], q[2] - p[2]]) {
+                    self.aim_target = Some(k);
+                }
+            }
+            _ => self.aim_target = Some(k),
+        }
+    }
+
+    /// Level 9's throw (0x80061c98): toward the aim target, (0, -384,
+    /// 1024) (D_800b7fe0) turned by the way to it (0x800760f4: ratan2 of
+    /// the unit way, minus the arc sine of its height) when that is within
+    /// 512 of the heading, else by the player's own angles; made a unit,
+    /// its height then -300, at speed 170 (D_800b7fec).
+    pub(super) fn aimed_dir(&self) -> Option<[i32; 3]> {
+        let t = self.aim_target?;
+        let (p, q) = (self.player.pos, self.npcs[t].pos);
+        let way = collide::unit([q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
+        let angles = [self.trig.ratan2(way[0], way[2]) as i16, -self.trig.asin(way[1] as i16 as i32) as i16, 0];
+        let off = (angles[0] as i32 - self.player.heading) as i16 as i32;
+        let off = if off < -2047 { off + 4096 } else if off > 2048 { off - 4096 } else { off };
+        let by = if off.abs() < 513 { angles } else { [self.player.heading as i16, 0, 0] };
+        let dir = collide::unit(self.trig.turn_by(by, [0, -384, 1024]));
+        Some([dir[0], -300, dir[2]])
     }
 
     /// Throws the carried thing with velocity `v` (a level's own throw),
@@ -370,28 +558,26 @@ impl Game {
                 self.things[k].slides = true;
                 (k, [v.x as i32, v.y as i32, v.z as i32])
             }
-            PendingThrow::Aimed(k) => match if self.aim { self.aim_at() } else { None } {
-                Some(d) => {
-                    let v = d * THROW_SPEED;
-                    (k, [v.x as i32, v.y as i32, v.z as i32])
-                }
-                // (0, -384, 1024) (D_800b7fe0) turned by the player's angles
-                // (0x80075ee8) and made a unit (0x8007652c), at speed 170
-                // (D_800b7fec): dir * (170 << 16) / 6000 >> 12 (0x8008864c).
-                None => {
-                    let dir = collide::unit(self.trig.turn_by([self.player.heading as i16, 0, 0], [0, -384, 1024]));
-                    let speed = (170 << 16) / 6000;
-                    (k, dir.map(|d| (d * speed) >> 12))
-                }
-            },
+            // (0, -384, 1024) (D_800b7fe0) turned by the player's angles
+            // (0x80075ee8) and made a unit (0x8007652c), or level 9's aim, at
+            // speed 170 (D_800b7fec): dir * (170 << 16) / 6000 >> 12
+            // (0x8008864c).
+            PendingThrow::Aimed(k) => {
+                let plain = || collide::unit(self.trig.turn_by([self.player.heading as i16, 0, 0], [0, -384, 1024]));
+                let dir = if self.aim { self.aimed_dir() } else { None }.unwrap_or_else(plain);
+                let speed = (170 << 16) / 6000;
+                (k, dir.map(|d| (d * speed) >> 12))
+            }
         };
         // A throw or a lob flies as the original's record (0x80087594's
-        // path, template +0x30 not 1); the put-down keeps the port's slide.
-        let exact = !matches!(throw, PendingThrow::Down(_)) && hurts_player(&self.set.templates, self.things[k].template);
+        // path, or 0x80086ef0's roll for template +0x30 of 1); the put-down
+        // keeps the port's slide.
+        let exact = !matches!(throw, PendingThrow::Down(_));
         self.things[k].flown = exact.then(|| {
             let t = &self.things[k];
             let radius = self.set.models.get(t.shape).and_then(|m| m.boxes.first()).map_or(10, |b| (b.0[1] as i32).abs().max((b.1[1] as i32).abs()));
-            Flown { pos: [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32], radius, bounce: bounce_of(&self.set.templates, t.template), objects: !t.world_only }
+            let rolls = !hurts_player(&self.set.templates, t.template);
+            Flown { pos: [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32], radius, bounce: bounce_of(&self.set.templates, t.template), objects: !t.world_only, rolls }
         });
         if self.carried == Some(k) {
             self.things[k].state = ThingState::Flying(v);

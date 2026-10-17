@@ -343,10 +343,11 @@ pub struct Game {
     behind: i32,
     post_camera: Option<usize>,
     /// Objects that hurt on touch (not pickable, not characters, +0x6d
-    /// over 0: Damage(player, 0, +0x6d), 0x8005e1f4), and the time until
-    /// the next hurt.
+    /// over 0: Damage(player, 0, +0x6d), 0x8005e1f4).
     hazards: Vec<Hazard>,
-    hurt_wait: i32,
+    /// The player's +0x188 bit 256: a hazard's touch has hurt, until it
+    /// is left.
+    hazard_touch: bool,
     /// The level timer (0x800c4430, dt left), set by a level.
     pub timer: Option<i32>,
     /// The level a finish is recorded for (golf records level 8).
@@ -951,7 +952,7 @@ impl Game {
             behind: if level == Level::REPTAR_2010 { BEHIND_LEVEL_7 } else { BEHIND },
             post_camera: None,
             hazards: Vec::new(),
-            hurt_wait: 0,
+            hazard_touch: false,
             timer: None,
             record: level,
             board: false,
@@ -1514,26 +1515,34 @@ impl Game {
         self.npc_events = npc::step(&mut self.npcs, &world, &mut self.rand);
         self.with_script(|s, g| s.frame(g, pads));
         self.flights.step(&self.col, self.sprites.as_ref(), DT);
-        // Hazards (0x8005e1f4, the walk and run states): walking into one
-        // costs its +0x6d; the next only after 300 dt (guess).
-        self.hurt_wait = (self.hurt_wait - DT).max(0);
+        // Hazards (template flag 0x200000, their touch 0x8004e0f4): walking
+        // into one costs its +0x6d and sets the player's +0x188 bit 256
+        // (0x80059570), which no touch hurts through; leaving it (its
+        // untouch, 0x80049e5c) clears the bit. Once a contact, then.
         let walking = matches!(self.player.state, State::Walk | State::Run);
-        if self.hurt_wait == 0 && self.crying == 0 && walking && !self.player.frozen && !self.no_damage {
-            let p = self.player.pos;
-            let (feet, head) = (p[1] - self.player.feet(), p[1] - self.player.feet() - HEIGHT);
-            let hurt = self
-                .hazards
-                .iter()
-                .filter(|h| {
-                    let b = &h.area;
-                    b.covers(p, RADIUS + 40) && b.min_y <= feet + 40 && b.max_y >= head
-                })
-                .map(|h| h.damage)
-                .max();
-            if let Some(d) = hurt {
-                self.player.hurt(d);
-                self.hurt_wait = 300;
-            }
+        let p = self.player.pos;
+        let (feet, head) = (p[1] - self.player.feet(), p[1] - self.player.feet() - HEIGHT);
+        let touched = self
+            .hazards
+            .iter()
+            .filter(|h| {
+                let b = &h.area;
+                b.covers(p, RADIUS + 40) && b.min_y <= feet + 40 && b.max_y >= head
+            })
+            .map(|h| h.damage)
+            .max();
+        if let Some(d) = touched
+            && !self.hazard_touch
+            && self.crying == 0
+            && walking
+            && !self.player.frozen
+            && !self.no_damage
+        {
+            self.player.hurt(d);
+            self.hazard_touch = true;
+        }
+        if touched.is_none() {
+            self.hazard_touch = false;
         }
         // The level timer (0x8007f5a8): at 0, sound 117 and TimerExpired.
         if let Some(t) = self.timer {

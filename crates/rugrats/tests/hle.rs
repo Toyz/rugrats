@@ -244,3 +244,17 @@ fn hub_held_jump_as_the_original() {
     let worst = report("held", &port, &orig);
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
+
+/// Level 1 from its start: Up and Left for one frame, then let go: the
+/// turn stops where the stick is let go (the target set to the heading
+/// under a magnitude of 70, 0x8005c8d8).
+#[test]
+#[ignore]
+fn hub_tap_turn_as_the_original() {
+    use rugrats::input::{LEFT, UP};
+    let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
+    let (port, orig) = b.script(&[(0, 3), (bits(&[UP, LEFT]), 1), (0, 12)]);
+    let worst = report("tap", &port, &orig);
+    let turned = port.iter().zip(&orig).filter(|(p, o)| p.heading != o.heading).count();
+    assert_eq!((worst, turned), (0, 0), "the same as the original's, every frame");
+}

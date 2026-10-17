@@ -189,17 +189,16 @@ fn turn_near(g: &mut Game, h: i32, near: i32) -> i32 {
     if off(h - g.player.heading).abs() <= near {
         return off(h - g.player.heading);
     }
-    // The analog stick pushed a little at `h` for a frame: the aim set,
-    // no step (under 241 the speed, 17 x 241 / 4096, is none).
-    let [x, z] = stick_toward(g, h);
-    run_stick(g, [x * 200 / 4100, z * 200 / 4100], &[], 1);
-    // The turn in place runs on to the way's heading (Spike's at 46 a
-    // frame takes 45 for half a turn).
+    // The analog stick pushed a little at `h` and held there: the aim
+    // set, no step (under 241 the speed, 17 x 241 / 4096, is none), the
+    // turn in place running on while it is held (let go, it stops,
+    // 0x8005c8d8; Spike's at 46 a frame takes 45 for half a turn).
     for _ in 0..100 {
+        let [x, z] = stick_toward(g, h);
+        run_stick(g, [x * 200 / 4100, z * 200 / 4100], &[], 1);
         if g.player.heading == g.player.target {
             break;
         }
-        run(g, &[(&[], 1)], |_, _| {});
     }
     off(h - g.player.heading)
 }

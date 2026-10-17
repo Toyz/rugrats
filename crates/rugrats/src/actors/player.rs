@@ -422,10 +422,10 @@ impl Player {
             }
         } else {
             self.speed = 0;
-            if self.frozen {
-                // The aim stops where the stick is let go (guess).
-                self.target = self.heading;
-            }
+            // The stick let go (its magnitude under 70): the target is the
+            // heading, the turn stops where it is (0x8005c8d8; the oracle,
+            // a tap of Up and Left from the hub's start: 2048, 1888, held).
+            self.target = self.heading;
         }
         // The state's handler steps along the heading as it is; the turn
         // toward the wanted heading (0x8005bc80) comes after the step is

@@ -5,7 +5,8 @@ use rugrats_data::placement::Placement;
 use rugrats_render::models;
 
 use super::*;
-use crate::actors::player::{Box3, Outline};
+use crate::actors::player::{Box3, Obj, Outline};
+use crate::world::boxhit::{Exact, Shape, Solid};
 
 /// The world boxes of the placed models (the player's placement left out):
 /// each model box with the placement's rotation and position, and the
@@ -34,7 +35,7 @@ pub(super) fn hazards(set: &Set, apart: &[bool]) -> Vec<Hazard> {
     out
 }
 
-pub(super) fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<Box3> {
+pub(super) fn object_boxes(set: &Set, trig: &Trig, skip: impl Fn(usize) -> bool) -> Vec<Box3> {
     let mut out = Vec::new();
     for (k, place) in set.placements.iter().enumerate() {
         if place.kind != 1 || skip(k) {
@@ -50,11 +51,57 @@ pub(super) fn object_boxes(set: &Set, skip: impl Fn(usize) -> bool) -> Vec<Box3>
         let rot = models::quat_matrix(place.rotation.map(|v| v as i16)).transpose();
         let pos = Vec3::new(place.pos[0] as f32, place.pos[1] as f32, place.pos[2] as f32);
         let climb = t.flags & 64 != 0;
-        out.extend(world_boxes(m, rot, pos).into_iter().map(|mut b| {
+        let angles = trig.placed_angles(place.rotation);
+        out.extend(exact(world_boxes(m, rot, pos), place.pos, angles, t.shape as u32).into_iter().map(|mut b| {
             b.climb = climb;
             b.template = place.template as u16;
             b
         }));
+    }
+    out
+}
+
+/// `boxes` (a model's, in order) marked as the object at `pos` turned by
+/// `angles` with model `shape`.
+pub(super) fn exact(boxes: Vec<Box3>, pos: [i32; 3], angles: [i16; 3], shape: u32) -> Vec<Box3> {
+    boxes
+        .into_iter()
+        .enumerate()
+        .map(|(j, mut b)| {
+            b.obj = Some(Obj { pos, angles, shape, index: j as u8 });
+            b
+        })
+        .collect()
+}
+
+/// The angles (+0x24) of an object turned by `rot` (its model to the
+/// world): its world-to-model matrix's (0x8002114c), that matrix the
+/// one 0x80020ee0 makes of them.
+pub(super) fn angles_of(trig: &Trig, rot: Mat3) -> [i16; 3] {
+    trig.matrix_angles([0, 1, 2].map(|r| [0, 1, 2].map(|c| (rot.col(r)[c] * 4096.0).round() as i32)))
+}
+
+/// A position as the original's integers.
+pub(super) fn ipos(v: Vec3) -> [i32; 3] {
+    [v.x.round() as i32, v.y.round() as i32, v.z.round() as i32]
+}
+
+/// This frame's solids, one an object, from the boxes marked with theirs
+/// (each object's boxes together, in order), each box linked to its solid.
+pub(super) fn solids(boxes: &mut [Box3], set: &Set) -> Vec<Exact> {
+    let mut out: Vec<Exact> = Vec::new();
+    let mut at: Option<Obj> = None;
+    for b in boxes.iter_mut() {
+        let Some(o) = b.obj else { continue };
+        let same = at.is_some_and(|a| a.pos == o.pos && a.angles == o.angles && a.shape == o.shape && o.index > a.index);
+        if !same {
+            let Some(m) = set.models.get(o.shape) else { continue };
+            let r = m.radius as i32;
+            let shape = Shape::Model(m.boxes.iter().map(|(lo, hi)| (lo.map(|v| v as i32), hi.map(|v| v as i32))).collect());
+            out.push(Exact { solid: Solid { pos: o.pos, angles: o.angles, bound: r, size: r, shape }, climb: b.climb, template: b.template });
+        }
+        at = Some(o);
+        b.solid = Some(((out.len() - 1) as u16, o.index));
     }
     out
 }
@@ -109,6 +156,8 @@ pub(super) fn world_boxes(m: &Model, rot: Mat3, pos: Vec3) -> Vec<Box3> {
             character: false,
             template: 0,
             outline: Outline::of(lo, hi, rot, pos),
+            obj: None,
+            solid: None,
         });
     }
     out

@@ -290,3 +290,13 @@ impl Solid {
         }
     }
 }
+
+/// An object as the player's probes meet it this frame: its solid, and
+/// what the player does on meeting it: whether it can be climbed (its
+/// type's flag 64, 0x80058da4) and its template (the bump's damage).
+#[derive(Clone, Debug)]
+pub struct Exact {
+    pub solid: Solid,
+    pub climb: bool,
+    pub template: u16,
+}

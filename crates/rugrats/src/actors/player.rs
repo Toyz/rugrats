@@ -18,6 +18,7 @@ use rugrats_render::models::{self, posed_triangles};
 use crate::actors::animator::Animator;
 use crate::disc::GameDisc;
 use crate::gte::Trig;
+use crate::world::boxhit::Exact;
 use crate::input::{self, Pads};
 use crate::actors::ground;
 use crate::world::collide;
@@ -180,6 +181,15 @@ pub struct Player {
     /// The box the feet stand on this frame (player +0xf8), an index into
     /// the boxes `frame` was given.
     pub support: Option<usize>,
+    /// The probes' record kept between frames (+0xf4 .. +0x11c), and the
+    /// thing stood on as its object (+0xf8, +0xfd), found again in each
+    /// frame's solids.
+    probes: ground::Probes,
+    below: Option<Obj>,
+    /// The heading before this frame's turn (the way's, +0x178), and the
+    /// frame before's (the launch's).
+    way_heading: i32,
+    launch_heading: i32,
     /// The landing began this frame (state 10's entry, 0x8005b624).
     pub landed: bool,
     /// A climb under way: how far it rises. The port puts the body at the
@@ -273,6 +283,10 @@ impl Player {
             slip_sound: 56,
             falls_hurt: true,
             support: None,
+            probes: ground::Probes::default(),
+            below: None,
+            way_heading: 0,
+            launch_heading: 0,
             landed: false,
             climb: None,
             pending_jump: None,
@@ -300,7 +314,8 @@ impl Player {
     }
 
     /// One frame of play. `camera_heading` is the camera's (4096 a turn).
-    pub fn frame(&mut self, pads: &Pads, camera_heading: i32, col: &Col, boxes: &[Box3], anims: &Anims, trig: &Trig) {
+    #[allow(clippy::too_many_arguments)]
+    pub fn frame(&mut self, pads: &Pads, camera_heading: i32, col: &Col, boxes: &[Box3], solids: &[Exact], anims: &Anims, trig: &Trig) {
         if self.float.is_some() {
             self.float_frame(pads, camera_heading, col, anims, trig);
             return;
@@ -403,6 +418,12 @@ impl Player {
         // added (0x8005cb48), so this frame's turn moves the next frame's
         // step (`hub_start_run_and_jump_as_the_original`).
         let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
+        // The way (+0x178): the body's matrix (0x80020d10 of the heading,
+        // MatrixNormal'd) applied to (0, 0, 4096), a little off unit
+        // (0x8005c8d8).
+        let way = trig.turn(self.heading, [0, 0, 4096]);
+        self.launch_heading = self.way_heading;
+        self.way_heading = self.heading;
         let step = (self.turn_rate * DT) >> 6;
         let d = wrap(self.target - self.heading);
         self.heading = (self.heading + d.clamp(-step, step)).rem_euclid(4096);
@@ -422,7 +443,17 @@ impl Player {
             // The ground move along the facing (0x8005caac); none while
             // landing.
             if !self.frozen && self.state != State::Land {
-                let ((dx, dz), held) = self.ground_move(col, trig, [s, 0, c], self.speed * DT);
+                // The thing stood on, found again among this frame's
+                // solids; on a slippery floor walls turn the way off them
+                // (+0x188 0x100000, 0x8005bd9c).
+                self.probes.below = self
+                    .below
+                    .and_then(|o| boxes.iter().find(|b| b.obj == Some(o)))
+                    .and_then(|b| b.solid)
+                    .map(|(k, j)| (k as usize, j));
+                let here = collide::query(col, [self.pos[0], self.pos[1] - self.feet - 1, self.pos[2]]);
+                let reflect = collide::floor_flags(col, &here) & SLIPPERY != 0;
+                let ((dx, dz), held) = self.ground_move(col, trig, way, self.speed * DT, solids, reflect);
                 wall_met = held.is_some();
                 ground_held = held;
                 if first_step {
@@ -521,15 +552,21 @@ impl Player {
         // ledge up to the body's reach is climbed (0x80056e44 from the
         // record's floor delta, +0x144); a step of 1025 to 3071 is too
         // tall (message 16); no floor (a narrow way) is neither.
+        // An object met there (+0xf4) is climbed only if its type says so
+        // (flag 64; message 29 if not), and is the bump's (its damage).
+        let met_thing = ground_held.and_then(|r| r.hit).and_then(|(k, _)| solids.get(k));
         if let Some(r) = ground_held
             && walking
             && r.delta != ground::VOID
         {
             let rise = -r.delta;
             let top = probe_floor + r.delta;
-            if rise > 0 && rise <= reach {
+            let climbable = met_thing.is_none_or(|e| e.climb);
+            if rise > 0 && rise <= reach && climbable {
                 climb_to = Some(climb_to.map_or(top, |c: i32| c.min(top)));
-            } else if rise > CLIMB && rise <= TOO_TALL {
+            } else if rise > 0 && rise <= reach {
+                self.hints.push(29);
+            } else if rise > CLIMB && rise <= TOO_TALL && climbable {
                 self.hints.push(16);
             }
         }
@@ -550,7 +587,7 @@ impl Player {
         let ground = on_ground && matches!(self.state, State::Stand | State::Walk | State::Run);
         let probes = if len < 1.0 || !ground { Vec::new() } else { self.probes([dx / len, dz / len], len) };
         let mut blocked = false;
-        let mut ran_into: Option<u16> = None;
+        let mut ran_into: Option<u16> = met_thing.map(|e| e.template);
         // The face the probes met a thing by (+0x114), for the slide.
         let mut face: Option<[i32; 3]> = None;
         self.support = None;
@@ -577,6 +614,10 @@ impl Player {
                 && b.max_y > head
                 && if b.character || !ground {
                     near && (b.depth(self.pos, RADIUS) > b.depth(start, RADIUS) || b.crosses(start, self.pos))
+                } else if b.solid.is_some() {
+                    // On the ground the probes met it, if at all
+                    // (`ground_move`).
+                    false
                 } else {
                     let n = probe_hit(b, &probes, feet_y, self.pos[1]);
                     face = face.or(n);
@@ -607,6 +648,8 @@ impl Player {
                 }
             }
         }
+        // The thing stood on, for the next frame's probes (+0xf8).
+        self.below = self.support.and_then(|k| boxes.get(k)).and_then(|b| b.obj);
         // Met at a slant (0x8005d11c / 0x8005e1f4, +0x130: the angle
         // between the step turned back and the face's normal): from a
         // head-on 384 (220 as Spike) to a right angle the whole step goes
@@ -905,29 +948,45 @@ impl Player {
     /// at a slant from `head_on` to a right angle and the way along it is
     /// clear or meets a wall there at 512 or more (0x80065120); else held,
     /// with the record that held it (for the climb or the bump).
-    fn ground_move(&self, col: &Col, trig: &Trig, way: [i32; 3], len: i32) -> ((i32, i32), Option<ground::Record>) {
+    fn ground_move(&mut self, col: &Col, trig: &Trig, way: [i32; 3], len: i32, solids: &[Exact], reflect: bool) -> ((i32, i32), Option<ground::Record>) {
         let (lo, hi) = self.body_box();
-        let body = ground::Body { lo, hi };
-        let probe = |w: [i32; 3]| ground::probe(col, trig, self.pos, self.floor, w, len, body, self.step_limit);
-        match probe(way) {
+        let near: Vec<ground::Near> = solids.iter().map(|e| ground::Near { solid: &e.solid, skip: false }).collect();
+        let g = ground::Ground {
+            col,
+            trig,
+            near: &near,
+            body: ground::Body { lo, hi },
+            limit: self.step_limit,
+            angles: [self.heading as i16, 0, 0],
+            reflect,
+        };
+        let mut st = self.probes;
+        let (pos, floor) = (self.pos, self.floor);
+        let mut probe = |w: [i32; 3]| g.probe(pos, floor, w, len, &mut st);
+        let out = match probe(way) {
             ground::Probed::Clear(_) => (along(way, len, trig), None),
             p @ ground::Probed::Held { record, slide } => {
                 let a = p.slant().abs();
-                if let Some((t, _)) = slide
-                    && a >= self.head_on
-                    && a < 1024
-                {
-                    // The way turned along the tangent, its length kept,
-                    // made a unit again (0x80076a74, 0x8009f278).
-                    let w = trig.normal(ground::set_length(t, 4096, trig));
-                    let again = probe(w);
-                    if !again.held() || (512..1025).contains(&again.slant().abs()) {
-                        return (along(w, len, trig), None);
+                match slide {
+                    Some((t, _)) if a >= self.head_on && a < 1024 => {
+                        // The way turned along the tangent, the old way's
+                        // length kept (its floor square root, 0x8001f4ec),
+                        // made a unit again (0x80076a74, 0x8009f278).
+                        let old = ((way[0] * way[0] + way[2] * way[2]) as u32).isqrt() as i16 as i32;
+                        let w = trig.normal(ground::set_length(t, old, trig));
+                        let again = probe(w);
+                        if !again.held() || (512..1025).contains(&again.slant().abs()) {
+                            (along(w, len, trig), None)
+                        } else {
+                            ((0, 0), Some(record))
+                        }
                     }
+                    _ => ((0, 0), Some(record)),
                 }
-                ((0, 0), Some(record))
             }
-        }
+        };
+        self.probes = st;
+        out
     }
 
     /// The ground step (dx, dz) as the wall test lets it (0x80066014): three
@@ -1099,9 +1158,11 @@ impl Player {
                 // The launch along the heading as it leaves the floor, in
                 // the body's frame (the original's +0x170 (-1, -1000, 679)
                 // for a run at 17 facing 1246).
-                let (sh, ch) = (trig.sin(self.heading), trig.cos(self.heading));
-                let w = [(sh * v[2]) >> 12, v[1], (ch * v[2]) >> 12];
-                self.v = to_body(w, self.heading, trig);
+                // (Along the way, and in the body, as they were at the start
+                // of the frame before: the original sets the launch at the
+                // animation's event a frame before its first air step.)
+                let h = self.launch_heading;
+                self.v = launch_v(trig.turn(h, [0, 0, 4096]), v[1], v[2], h, trig);
                 let before = self.pos;
                 self.air_step(0, trig);
                 // The step across meets walls as any air step does
@@ -1144,8 +1205,7 @@ impl Player {
         self.target = heading;
         self.speed = 0;
         self.action = None;
-        let w = [(trig.sin(heading) * speed) >> 12, up, (trig.cos(heading) * speed) >> 12];
-        self.v = to_body(w, heading, trig);
+        self.v = launch_v(trig.turn(heading, [0, 0, 4096]), up, speed, heading, trig);
         self.state = State::Jump;
     }
 
@@ -1187,10 +1247,11 @@ impl Player {
             (vy + a[1] * DT).min(4096),
             (vz + a[2] * DT) as i16 as i32,
         ];
-        let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
-        self.pos[0] += (c * d[0] + s * d[2]) >> 12;
-        self.pos[1] += d[1];
-        self.pos[2] += (-s * d[0] + c * d[2]) >> 12;
+        // Back into the world (0x80075ee8).
+        let w = trig.turn(self.heading, d);
+        for k in 0..3 {
+            self.pos[k] += w[k];
+        }
     }
 
     /// The heading as a rotation (0x80020d10's matrix).
@@ -1310,10 +1371,18 @@ fn along(way: [i32; 3], len: i32, trig: &Trig) -> (i32, i32) {
 }
 
 /// A world vector in the body's own frame, facing `heading`
-/// (0x80075f20: the heading's rotation transposed).
+/// (0x80075f20: 0x80020ee0's matrix of (heading, 0, 0), MatrixNormal'd,
+/// ApplyMatrixLV).
 fn to_body(w: [i32; 3], heading: i32, trig: &Trig) -> [i32; 3] {
-    let (s, c) = (trig.sin(heading), trig.cos(heading));
-    [(c * w[0] - s * w[2]) >> 12, w[1], (s * w[0] + c * w[2]) >> 12]
+    trig.unturn_by([heading as i16, 0, 0], w)
+}
+
+/// The launch along `way` (+0x178) `along` long (its VectorNormal scaled,
+/// 0x80076944) in the body's frame, with `up` (0x80060f1c).
+fn launch_v(way: [i32; 3], up: i32, along: i32, heading: i32, trig: &Trig) -> [i32; 3] {
+    let w = ground::set_length(way, along, trig);
+    let b = to_body(w, heading, trig);
+    [b[0] as i16 as i32, (up + b[1]) as i16 as i32, b[2] as i16 as i32]
 }
 
 /// The stick's push in the air (0x80061330), in the body's frame: each
@@ -1364,6 +1433,21 @@ pub struct Box3 {
     pub template: u16,
     /// Seen from above, when it is turned other than about y.
     pub outline: Outline,
+    /// The object it is a box of, in the original's integers (none for a
+    /// character's), and its solid in this frame's list with the box's
+    /// index ([`crate::world::boxhit::Exact`]).
+    pub obj: Option<Obj>,
+    pub solid: Option<(u16, u8)>,
+}
+
+/// An object as the original holds it for the collision tests: position
+/// (+0x18), angles (+0x24), model and which of its boxes this is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Obj {
+    pub pos: [i32; 3],
+    pub angles: [i16; 3],
+    pub shape: u32,
+    pub index: u8,
 }
 
 /// A box's outline seen from above when it is turned other than about y

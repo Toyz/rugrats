@@ -872,7 +872,7 @@ impl Game {
             npcs.push(n);
         }
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
-        let boxes = object_boxes(&set, |k| apart[k]);
+        let boxes = object_boxes(&set, &trig, |k| apart[k]);
         let posts = npc::posts(&set.placements);
         let mut g = Game {
             level,
@@ -1011,7 +1011,7 @@ impl Game {
                 self.apart[j] || self.hidden.contains(&self.set.placements[j].id) || self.hidden_places.contains(&j)
             };
             self.scenery = self.set.objects_except(&Frame::default(), skip);
-            self.boxes = object_boxes(&self.set, skip);
+            self.boxes = object_boxes(&self.set, &self.trig, skip);
         }
     }
 
@@ -1026,7 +1026,7 @@ impl Game {
             self.apart[j] || self.hidden.contains(&self.set.placements[j].id) || self.hidden_places.contains(&j)
         };
         self.scenery = self.set.objects_except(&Frame::default(), skip);
-        self.boxes = object_boxes(&self.set, skip);
+        self.boxes = object_boxes(&self.set, &self.trig, skip);
     }
 
     /// Runs `f` on the level's script, if any.
@@ -1080,7 +1080,7 @@ impl Game {
                 self.apart[k] || self.hidden.contains(&self.set.placements[k].id) || self.hidden_places.contains(&k)
             };
             self.scenery = self.set.objects_except(&Frame::default(), skip);
-            self.boxes = object_boxes(&self.set, skip);
+            self.boxes = object_boxes(&self.set, &self.trig, skip);
             // This frame's lists lose a hidden object's boxes now (the next
             // frame makes them again from `boxes`).
             if hidden {
@@ -1210,7 +1210,8 @@ impl Game {
             let flag8 = self.set.templates.get(template).is_some_and(|t| t.flags & 8 != 0);
             let shape = if b.broken { b.shape + 1 } else { b.shape };
             if !flag8 && let Some(model) = self.set.models.get(shape) {
-                boxes.extend(world_boxes(model, b.rot, b.pos).into_iter().map(|mut x| {
+                let at = boxes::exact(world_boxes(model, b.rot, b.pos), boxes::ipos(b.pos), boxes::angles_of(&self.trig, b.rot), shape);
+                boxes.extend(at.into_iter().map(|mut x| {
                     x.template = template as u16;
                     x
                 }));
@@ -1218,7 +1219,8 @@ impl Game {
         }
         for m in &self.movers {
             if let Some(model) = self.set.models.get(m.shape) {
-                boxes.extend(world_boxes(model, m.rot, m.world()).into_iter().map(|mut b| {
+                let at = boxes::exact(world_boxes(model, m.rot, m.world()), m.pos, boxes::angles_of(&self.trig, m.rot), m.shape);
+                boxes.extend(at.into_iter().map(|mut b| {
                     b.template = m.template;
                     b
                 }));
@@ -1232,7 +1234,10 @@ impl Game {
             let template = self.set.placements[s.placement].template;
             let skipped = self.set.templates.get(template as usize).is_some_and(|t| t.flags & 8 != 0);
             if let (false, Some(model)) = (skipped, self.set.models.get(s.shape)) {
-                boxes.extend(world_boxes(model, s.rot(&self.trig), s.pos).into_iter().map(|mut b| {
+                let placed = self.trig.placed_angles(self.set.placements[s.placement].rotation);
+                let angles = [0, 1, 2].map(|i| (placed[i] as i32 + s.angle[i]) as i16);
+                let at = boxes::exact(world_boxes(model, s.rot(&self.trig), s.pos), boxes::ipos(s.pos), angles, s.shape);
+                boxes.extend(at.into_iter().map(|mut b| {
                     b.template = template as u16;
                     b
                 }));
@@ -1240,7 +1245,7 @@ impl Game {
         }
         for w in &self.walkers {
             if let Some(model) = self.set.models.get(w.shape) {
-                boxes.extend(world_boxes(model, w.rot(&self.trig), w.world()));
+                boxes.extend(boxes::exact(world_boxes(model, w.rot(&self.trig), w.world()), w.pos, [w.heading as i16, 0, 0], w.shape));
             }
         }
         // Doors are solid where they are drawn (0x80069c40).
@@ -1248,14 +1253,21 @@ impl Game {
         for d in &self.doors {
             if let Some(model) = self.set.models.get(d.shape) {
                 let (rot, pos) = d.pose(d.offset, &self.trig);
-                boxes.extend(world_boxes(model, rot, pos));
+                // Swung, its angles are the placed ones and the swing
+                // about y; slid, the placed ones.
+                let mut angles = self.trig.placed_angles(self.set.placements[d.placement].rotation);
+                if d.hinged {
+                    angles[0] = (angles[0] as i32 + d.offset[0]) as i16;
+                }
+                boxes.extend(boxes::exact(world_boxes(model, rot, pos), boxes::ipos(pos), angles, d.shape));
             }
         }
         self.solid = boxes.clone();
         for t in self.things.iter().filter(|t| t.state == ThingState::Rest && !t.hidden) {
             if let Some(m) = self.set.models.get(t.shape) {
                 let climb = self.set.templates.get(t.template as usize).is_some_and(|tp| tp.flags & 64 != 0);
-                boxes.extend(world_boxes(m, t.rot, t.pos).into_iter().map(|mut b| {
+                let at = boxes::exact(world_boxes(m, t.rot, t.pos), boxes::ipos(t.pos), boxes::angles_of(&self.trig, t.rot), t.shape);
+                boxes.extend(at.into_iter().map(|mut b| {
                     b.climb = climb;
                     b.template = t.template;
                     b
@@ -1278,6 +1290,8 @@ impl Game {
                 character: true,
                 template: 0,
                 outline: Default::default(),
+                obj: None,
+                solid: None,
             });
         }
         // Climbs refused (0x80058da4): room 4 in levels 1 and 12 (0x80058e04),
@@ -1291,7 +1305,8 @@ impl Game {
             self.level != Level::REPTAR_2010 && !(self.level == Level::CIRCUS && self.character == 6);
         self.player.head_on = if self.character == 6 { 220 } else { 384 };
         self.player.set_character(self.character as u16);
-        self.player.frame(pads, self.camera_heading(), &self.col, &boxes, &self.anims, &self.trig);
+        let solids = boxes::solids(&mut boxes, &self.set);
+        self.player.frame(pads, self.camera_heading(), &self.col, &boxes, &solids, &self.anims, &self.trig);
         // A thing run into with a +0x6d hurts by it (Damage, 0x800780ac).
         if let Some(t) = self.player.bumped.take() {
             let damage = self.set.templates.get(t as usize).map_or(0, |tp| tp.raw[0x32] as i32);

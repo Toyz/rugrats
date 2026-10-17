@@ -146,7 +146,7 @@ fn hub_run_as_the_original() {
     let hold: usize = std::env::var("HOLD").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
     let (port, orig) = b.script(&[(bits(&[UP]), hold), (0, 10)]);
     let worst = report("run", &port, &orig);
-    assert!(worst <= 16, "{worst}");
+    assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
 /// Level 1 from its start, nothing put: Up and Left held (the run across
@@ -161,8 +161,9 @@ fn hub_start_run_and_jump_as_the_original() {
     assert!(worst <= 16, "{worst}");
 }
 
-/// Level 18: a run at the wall at a slant slides along it, into the corner
-/// past it, and bumps once against the last wall.
+/// Level 18: a run at the wall at a slant slides along it (door 213), into
+/// the corner past it, and bumps once against the last wall: the same as
+/// the original's on every frame.
 #[test]
 #[ignore]
 fn egg_hunt_slide_and_bump_as_the_original() {
@@ -172,7 +173,7 @@ fn egg_hunt_slide_and_bump_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 2)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 70)]);
     let worst = report("slide", &port, &orig);
-    assert!(worst <= 16, "{worst}");
+    assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
 /// Level 11 as Spike: a run at the wall past the first hurdle.
@@ -185,5 +186,5 @@ fn spike_run_at_a_wall_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 4)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 12)]);
     let worst = report("spike", &port, &orig);
-    assert!(worst <= 16, "{worst}");
+    assert_eq!(worst, 0, "the same as the original's, every frame");
 }

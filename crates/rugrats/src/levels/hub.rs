@@ -254,6 +254,7 @@ impl Hub {
         toy.pos = Vec3::new(at[0] as f32, y as f32, at[2] as f32);
         toy.hidden = false;
         toy.state = ThingState::Rest;
+        toy.flown = None;
         mouth(g, k, MOUTH);
         g.speech.push(PUT_DOWN);
         self.give_up(g, k);

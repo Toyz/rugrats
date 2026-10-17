@@ -611,6 +611,7 @@ impl Game {
                     state: ThingState::Rest,
                     last_hit: None,
                     bounced: false,
+                    flown: None,
                     slides: false,
                 }
             })
@@ -1341,9 +1342,10 @@ impl Game {
         // their hierarchy's one box, turned by their heading, screened by
         // a cube of 1773 (+0x78), size 8192 (+0x86), each its float box
         // linked.
-        let mut npcs = self.npcs.iter().filter(|n| !n.hidden && !matches!(n.mode, Mode::Ride { .. }));
+        let mut npc_of: Vec<Option<usize>> = vec![None; solids.len()];
+        let mut npcs = self.npcs.iter().enumerate().filter(|(_, n)| !n.hidden && !matches!(n.mode, Mode::Ride { .. }));
         for b in boxes.iter_mut().filter(|b| b.character) {
-            let Some(n) = npcs.next() else { break };
+            let Some((i, n)) = npcs.next() else { break };
             let h = |at: usize| n.hierarchy.header.get(at..at + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
             let shape = if n.posed {
                 // Its parts as posed (0x8006a318): each part's matrix (the
@@ -1373,6 +1375,7 @@ impl Game {
             };
             let solid = crate::world::boxhit::Solid { pos: n.pos, angles: [n.heading as i16, 0, 0], bound: 1773, size: 8192, shape };
             solids.push(crate::world::boxhit::Exact { solid, climb: false, template: 0 });
+            npc_of.push(Some(i));
             b.solid = Some(((solids.len() - 1) as u16, 0));
         }
         self.player.frame(pads, self.camera_heading(), &self.col, &boxes, &solids, &self.anims, &self.trig);
@@ -1399,7 +1402,7 @@ impl Game {
             self.land_sounds(on);
         }
         self.carry(pads);
-        self.fly();
+        self.fly(&solids, &npc_of);
         self.touch();
         self.effects.extend(closed.into_iter().map(Effect::new));
         // The player's sounds are in the world (0x800562bc's 0x8006f644).

@@ -329,12 +329,16 @@ impl Script for BoxToss {
             self.catcher = Some(k);
             g.npcs[k].mode = Mode::Idle;
         }
-        // The catch (0x80057518): the box within 1400 of the catcher.
+        // The catch (0x80057518): the box in flight (+0x90) within 1400
+        // of the catcher by 0x8001f57c's distance (dx + dz less half the
+        // smaller).
         if let Some(k) = self.catcher
             && let Some(b) = g.things.iter().find(|t| t.template == item)
         {
             let q = g.npcs[k].pos;
-            if (b.pos.x as i32 - q[0]).abs() < CATCH && (b.pos.z as i32 - q[2]).abs() < CATCH {
+            let (dx, dz) = ((q[0] - b.pos.x as i32).abs(), (q[2] - b.pos.z as i32).abs());
+            let near = (dx + dz - dx.min(dz) / 2) < CATCH + 1;
+            if matches!(b.state, ThingState::Flying(_)) && near {
                 self.catcher = None;
                 self.swap(g, k);
             } else if b.state == ThingState::Rest {

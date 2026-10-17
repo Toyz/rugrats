@@ -97,6 +97,12 @@ fn main() -> Result<(), String> {
                 let fpos = if fl != 0 { Some([0, 4, 8].map(|k| p.read_i32(fl + 0x10 + k))) } else { None };
                 let fv = if fl != 0 { Some([0, 4, 8].map(|k| p.read_i32(fl + 0x3c + k))) } else { None };
                 println!("     bound {bound:?} angles {angles:?} flight pos {fpos:?} v {fv:?} radius {} flags {:#x}", if fl != 0 { p.read_i32(fl + 0x1c) } else { 0 }, if fl != 0 { p.read_u32(fl + 8) } else { 0 });
+                if fl != 0 {
+                    let hit = p.read_u32(fl + 0x98);
+                    if hit != 0 {
+                        println!("     last hit {hit:#x} template {} at {:?} class {}", p.read_i16(hit + 0x96), [0, 4, 8].map(|k| p.read_i32(hit + 0x18 + k)), p.read_u8(hit + 0xa6));
+                    }
+                }
             }
             if std::env::var_os("QUATS").is_some() {
                 let h = p.read_u32(PLAYER + 0x154);

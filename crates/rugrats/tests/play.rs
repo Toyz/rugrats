@@ -956,6 +956,10 @@ fn win_box_toss(g: &mut Game, won: usize, lob: i64) {
             if d2(angelica, me) > lob * lob {
                 return if f % 2 == 0 { vec![input::CIRCLE] } else { vec![] };
             }
+            // A throw under way: the stick left alone until it is gone.
+            if g.player.action.is_some() {
+                return vec![];
+            }
             // Turn to the baby farthest from her with the stick and lob.
             let babies = [1776u16, 609, 608, 1492];
             let far = g.npcs.iter().filter(|n| babies.contains(&n.id) && !n.hidden).max_by_key(|n| d2(n.pos, angelica));
@@ -1070,9 +1074,10 @@ fn level_9_mr_friend_waits_after_his_return() {
     assert_ne!(home(&g), at, "46 chases");
 }
 
-/// Level 9: a can (template 716, bounce 3200) thrown at Mr. Friend hurts
-/// him 30, bounces off him and comes back into Tommy, hurting him 30
-/// (0x80087594; the oracle's 100 -> 70 and 255 -> 225).
+/// Level 9: a can (template 716, bounce 3200) thrown at Mr. Friend, who
+/// faces Tommy, hurts him 30, bounces back off his body box's face and
+/// comes back into Tommy, hurting him 30 (0x80087594 hurts any class 1
+/// object; the oracle's 100 -> 70 and 255 -> 225).
 #[test]
 fn level_9_a_can_bounces_back() {
     let Some(disc) = disc() else { return };
@@ -1081,14 +1086,24 @@ fn level_9_a_can_bounces_back() {
     let k = g.npcs.iter().position(|n| n.id == 46).unwrap();
     let p = g.npcs[k].pos;
     put(&mut g, [p[0], p[1], p[2] - 1500], 0);
-    g.npcs[k].mode = rugrats::actors::npc::Mode::Idle;
-    g.give(can);
-    let (his, mine) = (g.npcs[k].health, g.player.health);
-    run(&mut g, &[(&[], 5), (&[input::TRIANGLE], 1), (&[], 60)], |g, _| {
+    let idle = |g: &mut Game| {
         let n = g.npcs.iter().position(|n| n.id == 46).unwrap();
         g.npcs[n].mode = rugrats::actors::npc::Mode::Idle;
-    });
-    assert_eq!(g.npcs[k].health, his - 30, "Mr. Friend hit");
+        g.npcs[n].heading = 2048;
+    };
+    idle(&mut g);
+    g.give(can);
+    let (his, mine) = (g.npcs[k].health, g.player.health);
+    run(&mut g, &[(&[], 5), (&[input::TRIANGLE], 1)], |g, _| idle(g));
+    let mut his_then = None;
+    for _ in 0..60 {
+        run(&mut g, &[(&[], 1)], |g, _| idle(g));
+        if g.player.health != mine {
+            his_then = Some(g.npcs[k].health);
+            break;
+        }
+    }
+    assert_eq!(his_then, Some(his - 30), "Mr. Friend hit first");
     assert_eq!(g.player.health, mine - 30, "the can came back");
 }
 

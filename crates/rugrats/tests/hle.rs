@@ -297,9 +297,9 @@ fn hub_run_across_the_playpen_as_the_original() {
 /// has blended out of what the boot left (the oracle stands mid-fidget);
 /// the carried toy is on the original's place across (x, z) on every
 /// frame, and within 1 in height (the root curve, kept apart in the port);
-/// thrown, its flight is the original's from the release on (its start
-/// where the hand as last drawn let go, its launch and fall in integers)
-/// until it meets a thing (0x80086340, not yet the port's).
+/// thrown, its flight is the original's on every frame: its start where
+/// the hand as last drawn let go, its launch and fall in integers, and
+/// its bounces off toys 431 and 430 and the floor (0x80087594).
 #[test]
 #[ignore]
 fn hub_pick_up_as_the_original() {
@@ -310,7 +310,7 @@ fn hub_pick_up_as_the_original() {
     b.put([t.x as i32, 779, t.z as i32 - 700], 0, 6);
     let p = rugrats_hle::play::PLAYER;
     let (mut turns, mut held, mut thrown, mut obj) = (Vec::new(), Vec::new(), Vec::new(), 0u32);
-    b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[TRIANGLE]), 1), (0, 24)], |g, h| {
+    b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[TRIANGLE]), 1), (0, 90)], |g, h| {
         let hier = h.read_u32(p + 0x154);
         let n = h.read_i16(hier) as u32;
         let orig: Vec<[i32; 4]> = (0..n).map(|i| [0, 4, 8, 12].map(|c| h.read_i32(hier + 0x34 + 40 * i + 4 + c))).collect();
@@ -335,14 +335,14 @@ fn hub_pick_up_as_the_original() {
     let carried = &held[1..];
     let across = carried.iter().filter(|(m, t)| m[0] != t[0] || m[2] != t[2]).count();
     let height = carried.iter().map(|(m, t)| (m[1] - t[1]).abs()).max().unwrap_or(0);
-    let flown = thrown.iter().take(10).filter(|(m, t)| m != t).count();
+    let flown = thrown.iter().filter(|(m, t)| m != t).count();
     eprintln!(
         "turns off {off} of {}, carried {} frames: across off {across}, height off at most {height}; flight {flown} of {} off",
         turns.len(),
         carried.len(),
-        thrown.len().min(10)
+        thrown.len()
     );
     assert_eq!((off, across), (0, 0), "the original's turns and place");
     assert!(height <= 1, "height within the root curve's 1");
-    assert!(thrown.len() >= 10 && flown == 0, "the flight the original's: {:?}", &thrown[..thrown.len().min(10)]);
+    assert!(thrown.len() >= 60 && flown == 0, "the flight the original's: {:?}", thrown.iter().find(|(m, t)| m != t));
 }

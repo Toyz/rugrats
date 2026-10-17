@@ -1240,7 +1240,7 @@ fn collide_world(f: &mut Flight, col: &Col, angles: &Angles, before: [i32; 3]) -
 
 /// The reflection of `v` off a surface of normal `n` (0x8007666c): v made
 /// unit, d = n . v; when d < 0, v - 2 d n. Returns acos d and it.
-fn reflect(angles: &Angles, v: [i32; 3], n: [i32; 3]) -> (i32, [i32; 3]) {
+pub(crate) fn reflect(angles: &Angles, v: [i32; 3], n: [i32; 3]) -> (i32, [i32; 3]) {
     let u = collide::unit(v);
     let d = ((n[0] * u[0]) >> 12) + ((n[1] * u[1]) >> 12) + ((n[2] * u[2]) >> 12);
     let r = if d < 0 { [0, 1, 2].map(|k| u[k] - ((d * n[k]) >> 11)) } else { u };

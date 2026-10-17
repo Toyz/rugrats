@@ -1,27 +1,34 @@
-//! Holds `actors::ground::probe` to the original ground probe (0x80064a34),
-//! called on the live player in the oracle with the same position, floor,
-//! way and speed, objects out of it.
+//! Holds `actors::ground::Ground::probe` to the original ground probe
+//! (0x80064a34), called on the live player in the oracle with the same
+//! position, floor, way and speed, and the objects near.
 //!
 //! `ground_check [LEVEL..] [--n N]`
 //!
 //! For each level (default 1 and 18) the original is booted into it
-//! (`rugrats_hle::play`), then for N spots in the open about the player's
-//! start, with a heading and a speed each, the player's +0x18 (position),
-//! +0x148 (floor), +0x178 (way) and +0x184 (speed) are written, +0xf4 and
-//! +0xf8 (the objects met) cleared, and 0x80064a34(player, 1) called. Its
-//! return, +0x144 (the floor delta), +0x114 (the wall's normal), +0x124
-//! (the tangent) and +0x130 (the slant) are compared with the port's.
+//! (`rugrats_hle::play`), then for N spots in the open (half about the
+//! player's start, half beside the port's objects, facing them mostly),
+//! with a heading and a speed each, the player's +0x18 (position), +0x148
+//! (floor), +0x178 (way) and +0x184 (speed) are written, its nearby list
+//! rebuilt (0x80062ed4) and read back as the port's solids, +0xf4 .. +0x11c
+//! and +0xf8 (the objects met) cleared, and 0x80064a34(player, 1) called.
+//! Its return, +0x144 (the floor delta), +0x114 (the wall's normal), +0x124
+//! (the tangent), +0x130 (the slant) and +0xf4, +0xfc (the object met) are
+//! compared with the port's.
 use std::path::Path;
 use std::rc::Rc;
 
 use rrt::emu::BusExt;
-use rugrats::actors::ground::{self, Body, Probed};
+use rugrats::actors::ground::{self, Body, Ground, Near, Probed, Probes};
 use rugrats::disc::GameDisc;
 use rugrats::gte::Trig;
+use rugrats::input::Pads;
 use rugrats::levels::Level;
 use rugrats::save::progress::Progress;
 use rugrats::world::game::Game;
 use rugrats_hle::play::{Boot, PLAYER, Play};
+
+#[path = "common/oracle.rs"]
+mod oracle;
 
 const PROBE: u32 = 0x8006_4a34;
 /// The game's gp.
@@ -58,7 +65,9 @@ fn main() -> Result<(), String> {
     let trig = Trig::load(&disc)?;
     let mut bad_total = 0;
     for level in levels {
-        let game = Game::open_from(&disc, Level(level), None, &Progress::default())?;
+        let mut game = Game::open_from(&disc, Level(level), None, &Progress::default())?;
+        game.frame(&Pads::default());
+        let seeds: Vec<[i32; 3]> = game.bodies.iter().map(|b| [b.pos.x as i32, b.max_y, b.pos.z as i32]).collect();
         let (lo, hi) = game.player.body_box();
         let body = Body { lo, hi };
         let feet = game.player.feet();
@@ -90,14 +99,21 @@ fn main() -> Result<(), String> {
             });
         }
         let mut rng = Rng(0x2545_f491_4f6c_dd1d ^ level as u64);
-        let (mut same, mut bad) = (0, 0);
-        for _ in 0..n {
-            // A spot in the open: its floor under it.
+        let (mut same, mut bad, mut met) = (0, 0, 0);
+        for i in 0..n {
+            // A spot in the open: its floor under it; every other one
+            // beside an object, facing it mostly.
             let mut spot = None;
+            let mut seed = None;
             for _ in 0..60 {
-                let x = start[0] + rng.range(-4000, 4000);
-                let z = start[2] + rng.range(-4000, 4000);
-                let q = rugrats::world::collide::query(&game.col, [x, start[1] - 600, z]);
+                let (x, y, z) = if i % 2 == 1 && !seeds.is_empty() {
+                    let s = seeds[rng.next() as usize % seeds.len()];
+                    seed = Some(s);
+                    (s[0] + rng.range(-500, 500), s[1] - 64, s[2] + rng.range(-500, 500))
+                } else {
+                    (start[0] + rng.range(-4000, 4000), start[1] - 600, start[2] + rng.range(-4000, 4000))
+                };
+                let q = rugrats::world::collide::query(&game.col, [x, y, z]);
                 if q.kind == 0 && q.tile.is_some() {
                     spot = Some([x, q.floor, z]);
                     break;
@@ -105,22 +121,41 @@ fn main() -> Result<(), String> {
             }
             let Some([x, floor, z]) = spot else { continue };
             let pos = [x, floor + feet, z];
-            let heading = rng.range(0, 4095);
+            let heading = match seed {
+                Some(s) if !rng.next().is_multiple_of(4) => {
+                    let toward = (((s[0] - x) as f64).atan2((s[2] - z) as f64) * 4096.0 / std::f64::consts::TAU) as i32;
+                    (toward + rng.range(-300, 300)).rem_euclid(4096)
+                }
+                _ => rng.range(0, 4095),
+            };
             let speed = if rng.next().is_multiple_of(2) { 17 } else { 8 };
             let way = [trig.sin(heading), 0, trig.cos(heading)];
-            let port = ground::probe(&game.col, &trig, pos, floor, way, speed * 10, body, 256);
-            // The original, on the same player.
+            // The original, on the same player, its nearby list rebuilt.
             let b = PLAYER;
             for (k, v) in pos.iter().enumerate() {
                 p.write_u32(b + 0x18 + 4 * k as u32, *v as u32);
             }
             p.write_u32(b + 0x148, floor as u32);
+            oracle::rebuild(&mut p)?;
+            let list = oracle::nearby(&mut p);
+            let near: Vec<Near> = list.iter().map(|(_, s, skip)| Near { solid: s, skip: *skip }).collect();
+            let angles = [p.read_i16(b + 0x24), p.read_i16(b + 0x26), p.read_i16(b + 0x28)];
+            let reflect = p.read_u32(b) & 0x10_0000 != 0;
+            let g = Ground { col: &game.col, trig: &trig, near: &near, body, limit: 256, angles, reflect };
+            // The frame's time (0x800c3f1c: 5 a vertical blank).
+            let dt = p.read_i32(0x800c_3f1c);
+            let port = g.probe(pos, floor, way, speed * dt, &mut Probes::default());
+            // The record cleared (+0xf4, +0xf8, +0x104 .. +0x11c), the
+            // nearby list and its flag (+0xff, +0x100) kept.
+            p.write_u32(b + 0xf4, 0);
+            p.write_u32(b + 0xf8, 0);
+            for k in 0..7u32 {
+                p.write_u32(b + 0x104 + 4 * k, 0);
+            }
             for (k, v) in way.iter().enumerate() {
                 p.write_u32(b + 0x178 + 4 * k as u32, *v as u32);
             }
             p.write_u32(b + 0x184, speed as u32);
-            p.write_u32(b + 0xf4, 0);
-            p.write_u32(b + 0xf8, 0);
             p.write_u32(b + 0x130, 0x7777);
             turns.borrow_mut().clear();
             let gp = std::mem::replace(&mut p.hle.m.cpu.r[28], GP);
@@ -140,12 +175,16 @@ fn main() -> Result<(), String> {
             let normal = [rh(&mut p, b + 0x114), rh(&mut p, b + 0x118), rh(&mut p, b + 0x11c)];
             let tangent = [rh(&mut p, b + 0x124), rh(&mut p, b + 0x128), rh(&mut p, b + 0x12c)];
             let slant = rh(&mut p, b + 0x130);
+            let hit_obj = p.hle.m.bus.read_u32(b + 0xf4).unwrap_or(0);
+            let hit_box = p.hle.m.bus.read_u8(b + 0xfc).unwrap_or(0);
+            let hit = (hit_obj != 0).then(|| (list.iter().position(|(o, ..)| *o == hit_obj).unwrap_or(usize::MAX), hit_box));
+            met += hit.is_some() as u32;
             let ok = match port {
-                Probed::Clear(rec) => r == 0 && rec.delta == delta && rec.normal == normal,
+                Probed::Clear(rec) => r == 0 && rec.delta == delta && rec.normal == normal && rec.hit == hit,
                 Probed::Held { record, slide: Some((t, a)) } => {
-                    r == 1 && record.delta == delta && record.normal == normal && t == tangent && a == slant
+                    r == 1 && record.delta == delta && record.normal == normal && t == tangent && a == slant && record.hit == hit
                 }
-                Probed::Held { record, slide: None } => r == 1 && record.delta == delta && slant == 0,
+                Probed::Held { record, slide: None } => r == 1 && record.delta == delta && slant == 0 && record.hit == hit,
             };
             if ok {
                 same += 1;
@@ -156,7 +195,7 @@ fn main() -> Result<(), String> {
                 {
                     // The original's tangent routine on the port's own way
                     // back and normal.
-                    let reach = body.lo[2].abs().max(body.hi[2].abs()) + speed * 10;
+                    let reach = body.lo[2].abs().max(body.hi[2].abs()) + speed * dt;
                     let ang = trig.ratan2(way[0], way[2]);
                     let off = trig.turn(ang, [0, 0, reach]);
                     let back = [-off[0], 0, -off[2]];
@@ -176,12 +215,13 @@ fn main() -> Result<(), String> {
                 }
                 if bad <= 12 {
                     println!(
-                        "level {level}: at {pos:?} heading {heading} speed {speed}: original {r} delta {delta} normal {normal:?} tangent {tangent:?} slant {slant}; port {port:?}"
+                        "level {level}: at {pos:?} heading {heading} speed {speed} ({} near): original {r} delta {delta} normal {normal:?} tangent {tangent:?} slant {slant} hit {hit:?}; port {port:?}",
+                        list.len()
                     );
                 }
             }
         }
-        println!("level {level}: {same} the same, {bad} different");
+        println!("level {level}: {same} the same ({met} met a thing), {bad} different");
         bad_total += bad;
     }
     if bad_total > 0 {

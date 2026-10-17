@@ -162,24 +162,131 @@ fn matrix(trig: &Trig, a: [i16; 3]) -> [[i32; 3]; 3] {
 /// The segment `from`..`to` against an object at `pos` turned by `angles`
 /// with model boxes `boxes` ((lo, hi), each its own frame, as the model's
 /// halfwords), 0x80069c40: the first box it meets, by index, with the point
-/// and normal in the world. A segment starting inside a box meets it at its
-/// start with the normal the boxes before it left (zero for the first).
-pub fn object(trig: &Trig, from: [i32; 3], to: [i32; 3], pos: [i32; 3], angles: [i16; 3], boxes: &[([i32; 3], [i32; 3])]) -> Option<(usize, Hit)> {
+/// and normal in the world. `normal` is the caller's buffer as the original
+/// uses it: each box's test writes its face's normal there (in the box's
+/// frame, hit or not, [`slab_into`]); a hit's is turned back into the
+/// world, a start inside a box turning back whatever it held.
+pub fn object(
+    trig: &Trig,
+    from: [i32; 3],
+    to: [i32; 3],
+    pos: [i32; 3],
+    angles: [i16; 3],
+    boxes: &[([i32; 3], [i32; 3])],
+    normal: &mut [i32; 3],
+) -> Option<(usize, Hit)> {
     let m = matrix(trig, angles);
     let mt = [0, 1, 2].map(|r| [0, 1, 2].map(|c| m[c][r]));
-    // The normal as the boxes before leave it (a miss writes one too).
-    let mut n = [0; 3];
+    let n = normal;
     for (k, (lo, hi)) in boxes.iter().enumerate() {
         let size = [0, 1, 2].map(|i| hi[i] - lo[i]);
         let local = |p: [i32; 3]| {
             let q = trig.apply(&m, [p[0].wrapping_sub(pos[0]), p[1].wrapping_sub(pos[1]), p[2].wrapping_sub(pos[2])]);
             [q[0].wrapping_sub(lo[0]), q[1].wrapping_sub(lo[1]), q[2].wrapping_sub(lo[2])]
         };
-        if let Some((t, point)) = slab_into(local(from), local(to), size, &mut n) {
+        if let Some((t, point)) = slab_into(local(from), local(to), size, n) {
             let p = trig.apply(&mt, [point[0] + lo[0], point[1] + lo[1], point[2] + lo[2]]);
-            let normal = trig.apply(&mt, n);
-            return Some((k, Hit { t, point: [p[0] + pos[0], p[1] + pos[1], p[2] + pos[2]], normal }));
+            *n = trig.apply(&mt, *n);
+            return Some((k, Hit { t, point: [p[0] + pos[0], p[1] + pos[1], p[2] + pos[2]], normal: *n }));
         }
     }
     None
+}
+
+/// What an object is met by: its model's boxes (an object with a model,
+/// +0x88), its hierarchy's one box (a character, 0x8006a008), or its
+/// hierarchy's parts as posed (type flag 0x2000, 0x8006a318).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Shape {
+    Model(Vec<([i32; 3], [i32; 3])>),
+    Body([i32; 3], [i32; 3]),
+    Parts(Vec<Part>),
+}
+
+/// A hierarchy's part as posed (+0x158, 32 bytes a part): its matrix
+/// (rows, 4096 = 1) and translation, and its model's boxes (none for a
+/// part with no model).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Part {
+    pub rot: [[i32; 3]; 3],
+    pub trans: [i32; 3],
+    pub boxes: Vec<([i32; 3], [i32; 3])>,
+}
+
+/// The segment against posed parts (0x8006a318): each part's matrix
+/// applied to the segment less its translation, each box's slab test; the
+/// nearest hit of all (not the first) kept, by part, its point and normal
+/// turned back by the matrix's transpose. `normal` the caller's buffer
+/// ([`object`]): a hit no nearer leaves the box's own-frame normal there.
+pub fn parts(trig: &Trig, from: [i32; 3], to: [i32; 3], parts: &[Part], normal: &mut [i32; 3]) -> Option<(usize, Hit)> {
+    let mut best = i32::MAX;
+    let mut found = None;
+    for (i, part) in parts.iter().enumerate() {
+        let m = part.rot;
+        let mt = [0, 1, 2].map(|r| [0, 1, 2].map(|c| m[c][r]));
+        let local = |p: [i32; 3]| trig.apply(&m, [0, 1, 2].map(|k| p[k].wrapping_sub(part.trans[k])));
+        let (a, b) = (local(from), local(to));
+        for (lo, hi) in &part.boxes {
+            let size = [0, 1, 2].map(|k| hi[k] - lo[k]);
+            let off = |p: [i32; 3]| [0, 1, 2].map(|k| p[k].wrapping_sub(lo[k]));
+            let Some((t, point)) = slab_into(off(a), off(b), size, normal) else { continue };
+            if t >= best {
+                continue;
+            }
+            best = t;
+            let p = trig.apply(&mt, [0, 1, 2].map(|k| point[k] + lo[k]));
+            *normal = trig.apply(&mt, *normal);
+            found = Some((i, Hit { t, point: [0, 1, 2].map(|k| p[k].wrapping_add(part.trans[k])), normal: *normal }));
+        }
+    }
+    found
+}
+
+/// An object as the collision tests see it: its position (+0x18), angles
+/// (+0x24), the half side of the cube that screens it first (the largest
+/// of its bound's extents, +0x78), its size (+0x86: the floor probe looks
+/// twice that above and below) and its shape.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Solid {
+    pub pos: [i32; 3],
+    pub angles: [i16; 3],
+    pub bound: i32,
+    pub size: i32,
+    pub shape: Shape,
+}
+
+impl Solid {
+    /// Box `b` (0x80067b14): the model's, or the hierarchy's one.
+    pub fn box_of(&self, b: u8) -> ([i32; 3], [i32; 3]) {
+        match &self.shape {
+            Shape::Model(boxes) => boxes.get(b as usize).copied().unwrap_or_default(),
+            Shape::Body(lo, hi) => (*lo, *hi),
+            // The part's model's first box (0x80067b14: its +0x58 model's
+            // boxes).
+            Shape::Parts(ps) => ps.get(b as usize).and_then(|p| p.boxes.first().copied()).unwrap_or_default(),
+        }
+    }
+
+    /// The bound's cube half side (0x800698fc): the largest magnitude of
+    /// the bound box's six extents.
+    pub fn bound_of(lo: [i32; 3], hi: [i32; 3]) -> i32 {
+        (0..3).map(|k| lo[k].abs().max(hi[k].abs())).max().unwrap_or(0)
+    }
+
+    /// The segment against the object (0x8006a714): screened by the
+    /// bound's cube about its position (0x800698fc: any answer but a miss
+    /// passes), then its boxes. The box met, its point and normal; `normal`
+    /// the caller's buffer ([`object`]).
+    pub fn meet(&self, trig: &Trig, from: [i32; 3], to: [i32; 3], normal: &mut [i32; 3]) -> Option<(usize, Hit)> {
+        let r = self.bound;
+        let corner = [0, 1, 2].map(|k| self.pos[k].wrapping_sub(r));
+        let local = |p: [i32; 3]| [0, 1, 2].map(|k| p[k].wrapping_sub(corner[k]));
+        let mut n = [0; 3];
+        slab_into(local(from), local(to), [2 * r; 3], &mut n)?;
+        match &self.shape {
+            Shape::Model(boxes) => object(trig, from, to, self.pos, self.angles, boxes, normal),
+            Shape::Body(lo, hi) => object(trig, from, to, self.pos, self.angles, &[(*lo, *hi)], normal),
+            Shape::Parts(ps) => parts(trig, from, to, ps, normal),
+        }
+    }
 }

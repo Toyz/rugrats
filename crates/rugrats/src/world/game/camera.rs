@@ -273,8 +273,37 @@ impl Game {
 
     /// The last frame's world-to-camera rows, 4096 = 1.
     fn camera_matrix(&self) -> Matrix {
+        if let Some(m) = self.rows {
+            return m;
+        }
         let rows = self.view.1;
         [0, 1, 2].map(|r| rows.row(r).to_array().map(|v| (v * 4096.0).round() as i32))
+    }
+
+    /// The follow camera's rows (0x8001e838): from the eye as drawn toward
+    /// `target` (0x800211e8), then the look aside about the eye, the swing
+    /// (0x80020c30) if there is one, else the tilt (0x80020ca0), put before
+    /// them (MulMatrix0, 0x8009f488).
+    pub(super) fn follow_rows(&self, target: Vec3) -> Matrix {
+        let int = |v: Vec3| [v.x as i32, v.y as i32, v.z as i32];
+        let m = self.trig.look_at(int(self.eye), int(target));
+        let (yaw, pitch) = (self.look.yaw, self.look.pitch);
+        let r = if yaw != 0 {
+            let (s, c) = (self.trig.sin(yaw), self.trig.cos(yaw));
+            [[c, 0, -s], [0, 4096, 0], [s, 0, c]]
+        } else if pitch != 0 {
+            let (s, c) = (self.trig.sin(pitch), self.trig.cos(pitch));
+            [[4096, 0, 0], [0, c, s], [0, -s, c]]
+        } else {
+            return m;
+        };
+        // MVMVA per column, sf 1, saturated to 16 bits.
+        [0, 1, 2].map(|i| {
+            [0, 1, 2].map(|j| {
+                let sum: i64 = (0..3).map(|k| r[i][k] as i64 * m[k][j] as i64).sum();
+                ((sum >> 12) as i32).clamp(-0x8000, 0x7fff)
+            })
+        })
     }
 
     /// The aim above the player (0x800c3f58).

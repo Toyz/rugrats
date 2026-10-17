@@ -910,7 +910,7 @@ impl Player {
         let body = ground::Body { lo, hi };
         let probe = |w: [i32; 3]| ground::probe(col, trig, self.pos, self.floor, w, len, body, self.step_limit);
         match probe(way) {
-            ground::Probed::Clear(_) => (along([way[0], way[2]], len), None),
+            ground::Probed::Clear(_) => (along(way, len, trig), None),
             p @ ground::Probed::Held { record, slide } => {
                 let a = p.slant().abs();
                 if let Some((t, _)) = slide
@@ -922,7 +922,7 @@ impl Player {
                     let w = trig.normal(ground::set_length(t, 4096, trig));
                     let again = probe(w);
                     if !again.held() || (512..1025).contains(&again.slant().abs()) {
-                        return (along([w[0], w[2]], len), None);
+                        return (along(w, len, trig), None);
                     }
                 }
                 ((0, 0), Some(record))
@@ -1301,13 +1301,12 @@ const FALL_DAMAGE: i32 = 5;
 const SLIPPERY: u8 = 2;
 const SLIP_DAMAGE: i32 = 5;
 
-/// The step `len` long along the facing (`sc`, its sine and cosine):
+/// The step `len` long along `way` (the facing's sine and cosine):
 /// 0x8005caac sets the way (+0x178) to that length with 0x80076944, the
 /// way normalized (0x8009f278) and scaled, each axis rounded toward zero.
-fn along(sc: [i32; 2], len: i32) -> (i32, i32) {
-    let u = collide::normalize([sc[0], 0, sc[1]]);
-    let toward_zero = |v: i32| if v < 0 { (v + 4095) >> 12 } else { v >> 12 };
-    (toward_zero(u[0] * len), toward_zero(u[2] * len))
+fn along(way: [i32; 3], len: i32, trig: &Trig) -> (i32, i32) {
+    let v = ground::set_length(way, len, trig);
+    (v[0], v[2])
 }
 
 /// A world vector in the body's own frame, facing `heading`

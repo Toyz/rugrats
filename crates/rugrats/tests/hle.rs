@@ -83,6 +83,15 @@ impl Both {
                 if std::env::var_os("HLEVEL").is_some() {
                     eprintln!("    vel {:?} port {:?} speed {} way {:?} heading {} cam {camera} pad {bits:#06x}", o.velocity, self.game.player.v, o.speed, o.way, o.heading);
                 }
+                if std::env::var_os("CAMLOG").is_some() {
+                    let r = |h: &mut Play, a: u32| [0, 4, 8].map(|k| h.read_i32(a + k));
+                    let (eye, look) = (r(&mut self.hle, 0x800d_e530), r(&mut self.hle, 0x800d_e454));
+                    let m = self.hle.read_u32(rugrats_hle::play::PLAYER + 0x224);
+                    let mat: Vec<i16> = (0..9).map(|k| self.hle.read_i16(m + 2 * k)).collect();
+                    let (cam_eye, smooth) = (r(&mut self.hle, m + 0x14), r(&mut self.hle, 0x800d_e540));
+                    let exact = self.game.trig.look_at(cam_eye, look);
+                    eprintln!("    eye {eye:?} look {look:?} cam {cam_eye:?} at {smooth:?} m {mat:?} exact {exact:?} | port {:?}", self.game.follow_camera());
+                }
                 orig.push(Seen { pos: o.pos, heading: o.heading as i32 & 4095, state: o.state, camera });
             }
         }

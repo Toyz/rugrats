@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-170 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 77, render 28, save 4, test 24, tooling 18, ui 11, video 10.
+171 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 78, render 28, save 4, test 24, tooling 18, ui 11, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -182,3 +182,4 @@ The [reference](docs/README.md) says what is true now.
 | 168 | [Each cinematic's own lens](worklog/0168-each-cinematic-s-own-lens.md) | 2026-10-16 | render |
 | 169 | [The port played against the original](worklog/0169-the-port-played-against-the-original.md) | 2026-10-16 | test |
 | 170 | [The ground probes as the original runs them](worklog/0170-the-ground-probes-as-the-original-runs-them.md) | 2026-10-16 | play |
+| 171 | [The camera's rows and the objects in the probe](worklog/0171-the-camera-s-rows-and-the-objects-in-the-probe.md) | 2026-10-16 | play |

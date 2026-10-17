@@ -15,6 +15,7 @@ use rugrats_hle::Hle;
 
 const SLAB: u32 = 0x8006_8e68;
 const OBJECT: u32 = 0x8006_9c40;
+const MEET: u32 = 0x8006_a714;
 const GP: u32 = 0x800c_3e80;
 /// Scratch RAM for the arguments, and a stack under it.
 const BUF: u32 = 0x801c_0000;
@@ -131,7 +132,7 @@ fn main() -> Result<(), String> {
         let point = [0, 1, 2].map(|k| rd(&mut hle, BUF + 48 + 4 * k));
         let index = rd(&mut hle, BUF + 60);
         let normal = [0, 1, 2].map(|k| rd(&mut hle, BUF + 64 + 4 * k));
-        let port = boxhit::object(&trig, a, b, pos, angles, &boxes);
+        let port = boxhit::object(&trig, a, b, pos, angles, &boxes, &mut [0; 3]);
         let ok = match port {
             None => r < 0,
             Some((k, h)) => r == h.t && point == h.point && index == k as i32 && normal == h.normal,
@@ -147,6 +148,91 @@ fn main() -> Result<(), String> {
     }
     println!("object: {same2} the same, {bad2} different");
     bad += bad2;
+    // The dispatch (0x8006a714): the bound's cube, then the model's boxes
+    // or (no model, the type table's flag 0x2000 clear) the hierarchy's.
+    let w = |hle: &mut Hle, at: u32, v: i32| hle.m.bus.write_u32(at, v as u32).ok();
+    let h = |hle: &mut Hle, at: u32, v: i32| hle.m.bus.write_u16(at, v as u16).ok();
+    let (types, hier) = (BUF + 0x800, BUF + 0x400);
+    for k in 0..64 {
+        w(&mut hle, types + 4 * k, 0);
+    }
+    hle.m.bus.write_u32(0x800c_4300, types).ok();
+    let (mut same3, mut bad3) = (0, 0);
+    for i in 0..n {
+        let pos = [0; 3].map(|_| rng.range(-30000, 30000));
+        let angles = [0; 3].map(|_| if rng.next().is_multiple_of(3) { 0 } else { rng.range(-4096, 4096) as i16 });
+        let body = rng.next().is_multiple_of(2);
+        let count = if body { 1 } else { rng.range(1, 4) as usize };
+        let boxes: Vec<([i32; 3], [i32; 3])> = (0..count)
+            .map(|_| {
+                let lo = [0; 3].map(|_| rng.range(-900, 100));
+                let hi = lo.map(|l| l + rng.range(0, 1200));
+                (lo, hi)
+            })
+            .collect();
+        let (blo, bhi) = ([0; 3].map(|_| rng.range(-1500, 0)), [0; 3].map(|_| rng.range(0, 1500)));
+        let near = |rng: &mut Rng| [0, 1, 2].map(|k| pos[k] + rng.range(-2000, 2000));
+        let (a, b) = (near(&mut rng), near(&mut rng));
+        for k in 0..3u32 {
+            w(&mut hle, obj + 0x18 + 4 * k, pos[k as usize]);
+            h(&mut hle, obj + 0x24 + 2 * k, angles[k as usize] as i32);
+            h(&mut hle, obj + 0x78 + 2 * k, blo[k as usize]);
+            h(&mut hle, obj + 0x80 + 2 * k, bhi[k as usize]);
+            w(&mut hle, BUF + 4 * k, a[k as usize]);
+            w(&mut hle, BUF + 16 + 4 * k, b[k as usize]);
+            w(&mut hle, BUF + 48 + 4 * k, 0x5555);
+            w(&mut hle, BUF + 64 + 4 * k, 0);
+        }
+        h(&mut hle, obj + 0x96, 0);
+        if body {
+            w(&mut hle, obj + 0x88, 0);
+            w(&mut hle, obj + 0x154, hier as i32);
+            for k in 0..3u32 {
+                h(&mut hle, hier + 4 + 2 * k, boxes[0].0[k as usize]);
+                h(&mut hle, hier + 12 + 2 * k, boxes[0].1[k as usize]);
+            }
+        } else {
+            w(&mut hle, obj + 0x88, model as i32);
+            h(&mut hle, model + 10, count as i32);
+            for (j, (lo, hi)) in boxes.iter().enumerate() {
+                for k in 0..3u32 {
+                    h(&mut hle, boxes_at + 16 * j as u32 + 2 * k, lo[k as usize]);
+                    h(&mut hle, boxes_at + 16 * j as u32 + 8 + 2 * k, hi[k as usize]);
+                }
+            }
+        }
+        let sp = hle.m.cpu.r[29];
+        let args_at = (sp.wrapping_sub(0x400) & !7) + 16;
+        w(&mut hle, args_at, 0);
+        w(&mut hle, args_at + 4, 0);
+        let r = hle.call_nested(MEET, &[BUF, obj, BUF + 48, BUF + 64]).map_err(|e| format!("{e:?}"))? as i32;
+        let rd = |hle: &mut Hle, at: u32| hle.m.bus.read_u32(at).unwrap_or(0) as i32;
+        let point = [0, 1, 2].map(|k| rd(&mut hle, BUF + 48 + 4 * k));
+        let index = rd(&mut hle, BUF + 60);
+        let normal = [0, 1, 2].map(|k| rd(&mut hle, BUF + 64 + 4 * k));
+        let solid = boxhit::Solid {
+            pos,
+            angles,
+            bound: boxhit::Solid::bound_of(blo, bhi),
+            size: 0,
+            shape: if body { boxhit::Shape::Body(boxes[0].0, boxes[0].1) } else { boxhit::Shape::Model(boxes.clone()) },
+        };
+        let port = solid.meet(&trig, a, b, &mut [0; 3]);
+        let ok = match port {
+            None => r < 0,
+            Some((k, h)) => r == h.t && point == h.point && index == k as i32 && normal == h.normal,
+        };
+        if ok {
+            same3 += 1;
+        } else {
+            bad3 += 1;
+            if bad3 <= 20 {
+                println!("{i}: body {body} a {a:?} b {b:?} pos {pos:?} angles {angles:?} boxes {boxes:?} bound {blo:?} {bhi:?}: original {r} {point:?} #{index} {normal:?}; port {port:?}");
+            }
+        }
+    }
+    println!("meet: {same3} the same, {bad3} different");
+    bad += bad3;
     if bad > 0 {
         return Err(format!("{bad} different"));
     }

@@ -80,6 +80,21 @@ impl Trig {
         [self.normal(first), self.normal(m[1]), self.normal(third)]
     }
 
+    /// The camera's rows looking from `eye` at `target` (0x800211e8): z
+    /// the way there made a unit, x level across it (z's z, 0, -z's x),
+    /// y the rest (-(zx zy), zx^2 + zz^2, -(zy zz), each >> 12 toward
+    /// zero), then MatrixNormal.
+    pub fn look_at(&self, eye: [i32; 3], target: [i32; 3]) -> [[i32; 3]; 3] {
+        let f = self.normal([0, 1, 2].map(|k| target[k].wrapping_sub(eye[k])));
+        let tz = |v: i32| if v < 0 { (v + 4095) >> 12 } else { v >> 12 };
+        let m = [
+            [f[2], 0, -f[0]],
+            [-tz(f[0] * f[1]), tz(f[0] * f[0] + f[2] * f[2]), -tz(f[1] * f[2])],
+            f,
+        ];
+        self.matrix_normal(m)
+    }
+
     /// m v (ApplyMatrixLV, 0x8009f6f8): each component split at bit 15,
     /// the high parts times m unshifted (then times 8), the low parts times
     /// m >> 12.
@@ -97,6 +112,75 @@ impl Trig {
     /// (a, 0, 0)).
     pub fn turn(&self, a: i32, v: [i32; 3]) -> [i32; 3] {
         self.apply(&self.heading_matrix(a), v)
+    }
+
+    /// The rotation angles give as 0x80020d10 builds it: 0x80020ee0's
+    /// products in the other order (its matrix transposed), then
+    /// MatrixNormal. (a, 0, 0) gives [`Self::heading_matrix`].
+    pub fn rotation(&self, angles: [i16; 3]) -> [[i32; 3]; 3] {
+        let e = self.euler(angles);
+        self.matrix_normal([0, 1, 2].map(|r| [0, 1, 2].map(|c| e[c][r])))
+    }
+
+    /// The angles an object placed with quaternion `q` (x, y, z, w; 4096
+    /// is 1) is given (+0x24, 0x800202b8): `q` inverted (0x8001f684: its
+    /// conjugate over its squared length), its matrix (0x8001f9fc), and
+    /// the angles read off that (0x8002114c).
+    pub fn placed_angles(&self, q: [i32; 4]) -> [i16; 3] {
+        let tz = |v: i32| if v < 0 { (v + 4095) >> 12 } else { v >> 12 };
+        let [x, y, z, w] = q;
+        let inv = if w == 0 && x == 0 && y == 0 && z == 0 {
+            [x, y, z, 0]
+        } else {
+            let n = tz(w.wrapping_mul(w).wrapping_add(x.wrapping_mul(x)).wrapping_add(y.wrapping_mul(y)).wrapping_add(z.wrapping_mul(z)));
+            if n == 4096 {
+                [-x, -y, -z, w]
+            } else {
+                [(-x << 12) / n, (-y << 12) / n, (-z << 12) / n, (w << 12) / n]
+            }
+        };
+        self.matrix_angles(self.matrix_normal(self.quat_matrix(inv)))
+    }
+
+    /// A quaternion's matrix before its MatrixNormal (0x8001f9fc): its
+    /// axes scaled by 2^24 over its squared length, then 1 - 2 (yy + zz),
+    /// 2 (xy - wz) ... in 12-bit products rounded toward zero.
+    pub fn quat_matrix(&self, q: [i32; 4]) -> [[i32; 3]; 3] {
+        let tz = |v: i32| if v < 0 { (v + 4095) >> 12 } else { v >> 12 };
+        let [x, y, z, w] = q;
+        let n = tz(w.wrapping_mul(w).wrapping_add(x.wrapping_mul(x)).wrapping_add(y.wrapping_mul(y)).wrapping_add(z.wrapping_mul(z)));
+        let s = if n > 0 { 0x0100_0000 / n } else { 0 };
+        let (xs, ys, zs) = (tz(x.wrapping_mul(s)), tz(y.wrapping_mul(s)), tz(z.wrapping_mul(s)));
+        let (wx, wy, wz) = (tz(w.wrapping_mul(xs)), tz(w.wrapping_mul(ys)), tz(w.wrapping_mul(zs)));
+        let (xx, xy, xz) = (tz(x.wrapping_mul(xs)), tz(x.wrapping_mul(ys)), tz(x.wrapping_mul(zs)));
+        let (yy, yz, zz) = (tz(y.wrapping_mul(ys)), tz(y.wrapping_mul(zs)), tz(z.wrapping_mul(zs)));
+        let h = |v: i32| (v as i16) as i32;
+        [
+            [h(4096 - 2 * (yy + zz)), h(2 * (xy - wz)), h(2 * (xz + wy))],
+            [h(2 * (xy + wz)), h(4096 - 2 * (xx + zz)), h(2 * (yz - wx))],
+            [h(2 * (xz - wy)), h(2 * (yz + wx)), h(4096 - 2 * (xx + yy))],
+        ]
+    }
+
+    /// The angles of a matrix (0x8002114c): b the arc sine of -m21, a
+    /// ratan2(-m02, m22) and c ratan2(-m10, m11); b at a quarter turn
+    /// (gimbal), a ratan2(m10, m12) and c 0.
+    pub fn matrix_angles(&self, m: [[i32; 3]; 3]) -> [i16; 3] {
+        let b = -self.asin(m[2][1] as i16 as i32);
+        if b as i16 == 1024 || b as i16 == -1024 {
+            return [self.ratan2(m[1][0], m[1][2]) as i16, b as i16, 0];
+        }
+        [self.ratan2(-m[0][2], m[2][2]) as i16, b as i16, self.ratan2(-m[1][0], m[1][1]) as i16]
+    }
+
+    /// `v` turned by `angles` (0x80075ee8), and back (0x80075f20:
+    /// 0x80020ee0's matrix, MatrixNormal'd, which is the other's transpose
+    /// before the normalizing).
+    pub fn turn_by(&self, angles: [i16; 3], v: [i32; 3]) -> [i32; 3] {
+        self.apply(&self.rotation(angles), v)
+    }
+    pub fn unturn_by(&self, angles: [i16; 3], v: [i32; 3]) -> [i32; 3] {
+        self.apply(&self.matrix_normal(self.euler(angles)), v)
     }
 
     /// libgte's VectorNormal (0x8009f278, 0x8009f2d8): `v` (its axes cut

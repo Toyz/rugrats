@@ -355,6 +355,9 @@ pub struct Game {
     pub board: bool,
     /// The last frame's camera: eye and world-to-camera rows; frames run.
     pub view: (Vec3, Mat3),
+    /// The follow camera's rows as the original's integers have them
+    /// (none for a fixed or post camera).
+    rows: Option<crate::world::flights::Matrix>,
     pub frames: u32,
     /// The playable character (state +0x08).
     pub character: usize,
@@ -952,6 +955,7 @@ impl Game {
             record: level,
             board: false,
             view: (Vec3::ZERO, Mat3::IDENTITY),
+            rows: None,
             frames: 0,
             pages: Vec::new(),
             character: who,
@@ -1662,19 +1666,18 @@ impl Game {
         // and the held camera at the player.
         let look = if self.shaft || self.cam_hold { self.target() } else { self.follow_look() };
         let (eye, target) = self.fixed.or(post).unwrap_or((self.eye, look));
-        let f = (target - eye).normalize_or(Vec3::Z);
-        let x = Vec3::Y.cross(f).normalize_or(Vec3::X);
-        let y = f.cross(x);
-        // The look turns the view about the eye (0x8001e838): yaw toward
-        // the right, pitch up (y is down).
         let (x, y, f) = if self.fixed.is_none() && post.is_none() {
-            let a = |v: i32| v as f32 * std::f32::consts::TAU / 4096.0;
-            let (sy, cy) = a(self.look.yaw).sin_cos();
-            let (x, f) = (x * cy - f * sy, f * cy + x * sy);
-            let (sp, cp) = a(self.look.pitch).sin_cos();
-            (x, y * cp + f * sp, f * cp - y * sp)
+            // The follow camera's rows in the original's integers
+            // (`follow_rows`): what the stick reads its heading from.
+            let m = self.follow_rows(target);
+            self.rows = Some(m);
+            let v = |r: usize| Vec3::new(m[r][0] as f32, m[r][1] as f32, m[r][2] as f32) / 4096.0;
+            (v(0), v(1), v(2))
         } else {
-            (x, y, f)
+            self.rows = None;
+            let f = (target - eye).normalize_or(Vec3::Z);
+            let x = Vec3::Y.cross(f).normalize_or(Vec3::X);
+            (x, f.cross(x), f)
         };
         // World to camera: rows x (right), y (down), z (ahead).
         let rows = Mat3::from_cols(x, y, f).transpose();

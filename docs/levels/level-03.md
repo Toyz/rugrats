@@ -587,7 +587,22 @@ levels/grandpas_teeth.rs, actors/npc.rs):
   (0x80067084 eases y), and why cine 15 leaves bit 0x80 set.
 - Template bit 0x2000 (+0x00 of templates 590, 591, 495, 711), +0x688
   bits 0x400 and 0x1000.
-- The pie flight's desc +0x46 (284), +0x66, +0x67, +0x68 (900).
+- The pie flight's desc +0x46 (284), +0x66, +0x67, +0x68 (900): the
+  record's +0x2a, +0x8a, +0x8c, read by 0x8008652c at a hit (a mark of
+  sprite 284, 900 square, 0x8008e72c / 0x8008e76c, and sound 46 at the
+  player); the mark's drawing is not traced.
+- A brother's height at a post (the wait, table 31). Seen, Steve (76)
+  through the pie toss, a frame at a time: +0x1c is -384 (his floor
+  1024 plus feet -1289, less 119) plus +0xda, the y displacement. +0xda
+  goes 141 while the wait blends in from the walk, then 54, 0 (1206 to
+  1207), -8, -18 (to 1208), -9, 0 (to 1209), and 0 through 1213. The
+  wait's lift keys are 525 (1206), 0, -78 (1208), 0 ... 78 (1214). So
+  the displacement follows the frame's own key at about a quarter of it
+  (141 for 525, -18 for -78), eased across the frame, not the keys'
+  running total scaled by +0x4c over -561 (2.3 for an adult) that a
+  runner's height takes. +0xde holds 1325 throughout (the gap at the
+  wait's first frame: 0x80055904 at 0x80055b3c). 0x80055904's y is not
+  read through, and the port poses its waiting brothers about 1100 low.
 - Whether 0x8007dfe0's hierarchy write is per object or shared by every
   char 23 (+0x154 copies).
 - The camera's +0x4a values (the phase 1 cry test).

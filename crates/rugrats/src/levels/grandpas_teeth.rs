@@ -209,6 +209,7 @@ impl GrandpasTeeth {
                 loops: (0, 0),
                 size: 0,
                 posed: false,
+                unsettled: false,
                 rooted: false,
                 bite: Default::default(),
                 goal: [0; 3],

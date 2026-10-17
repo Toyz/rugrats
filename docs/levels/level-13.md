@@ -506,10 +506,12 @@ Level 13 needs, in order:
     room 1 (flag 128); Spike out of every room; the hub return spot
     (22563, -5365, -6729).
 
++0x688 bit 0x1000: when the character's probe (0x80064838) is held
+(kind 5), the character goes by with the floor delta 0 (0x800649c0):
+the race's stairs (worklog 197).
+
 ## Unknown
 
-- What +0x688 bit 0x1000 does exactly (0x80064838 result 5; guess:
-  ledges).
 - How long mode 1 lasts after a bump, and whether a bump or a throw is
   meant as a way to slow her (not seen).
 - What hurts Tommy here, if anything (the generic Damage posters).

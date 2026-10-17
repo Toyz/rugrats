@@ -691,11 +691,15 @@ here (guess: dead, or left from an older menu).
 
 ## Unknown
 
-- What sets +0xe0 bits 2048 and 16 (guess: animation key events) and the
-  hand slots' real names (12, 15).
-- The object collision of a flight (0x80086340, 0x80086ef0, flag
-  0x20000) and 0x8006c7a0's stacking rule (the world part and the bounce
-  are under "Effect flights").
+- The hand slots' real names (12, 15). (+0xe0 bits 2048 and 16 are the
+  animation frames' events: FRM +0x00, or'd in as a frame ends,
+  0x80055d40.)
+- 0x8006c7a0's stacking rule. (A flight's object meet: 0x80086668 with
+  flag 0x20000 runs 0x80086340 over the rooms' lists, 0x8006a824 each
+  object's 0x8006a714 (template flag 8 skipped): the bound's cube, then
+  the posed parts for template flag 0x2000 (0x8006a318) or the boxes
+  (0x8006a008, 0x80069c40), each box grown by the flight's radius with
+  flag 0x40000000, the pies.)
 - What the hit callbacks 0x800b7eb0 (0x80053604 ...) and the kind 5
   touches (8, 13, 15) throw; kinds 1, 2 and 4's drawing.
 - The +0x50 table 0x800b7eb0: its entries (0x80053604, 0x80052ba0,

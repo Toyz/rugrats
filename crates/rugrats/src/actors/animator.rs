@@ -979,7 +979,9 @@ impl RootCurve {
     pub fn step(&mut self, a: &Animator, anims: &Anims, lo: i32) {
         let (state, first, count, cur, left) = a.track();
         let (done, total) = a.root_progress_scaled(anims, Some(lo)).map_or((0, 0), |r| (r.0[1], r.1[1]));
-        if (self.state, self.first) != (state, first) || cur < self.cur {
+        // (A first frame begun again, as a state asked anew each frame is,
+        // takes its gap from where the body is now: 0x80055904's +0xde.)
+        if (self.state, self.first) != (state, first) || cur < self.cur || (a.began() && cur == first) {
             let rest = if self.cur + 1 == self.first + self.count { self.total - self.done } else { 0 };
             self.base = self.y + rest;
         }

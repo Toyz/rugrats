@@ -152,6 +152,10 @@ pub struct Npc {
     /// Its template's flag 0x2000: the collision tests meet its posed
     /// parts (0x8006a318), not its hierarchy's one box (0x8006a008).
     pub posed: bool,
+    /// Its template's flag 0x10000000 (+0x688 bit 0x2000, 0x80081d64):
+    /// put somewhere, it is not settled onto the floor there (0x800452f8:
+    /// level 4's rats, level 15's Spike).
+    pub unsettled: bool,
     /// Left in a state that does not walk (Mr. Friend's 19 after his
     /// return in level 9's phase 2): following, it stays put until the
     /// target is within a bite.
@@ -267,7 +271,9 @@ impl Npc {
 
     pub fn place(&mut self, at: [i32; 3], col: &Col) {
         self.pos = at;
-        self.snap(col);
+        if !self.unsettled {
+            self.snap(col);
+        }
     }
 
     fn snap(&mut self, col: &Col) {

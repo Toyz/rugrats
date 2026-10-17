@@ -574,6 +574,16 @@ levels/grandpas_teeth.rs, actors/npc.rs):
 8. Player state 16 (launched) and the hazard Damage on touch
    (0x8005e1f4).
 
+## Flags settled since
+
+- Template flag 0x2000 (templates 590, 591, 495, 711): the object tests
+  meet the body's posed parts (0x8006a714 at 0x8006a7bc, 0x8006a318),
+  not its hierarchy's one box (0x8006a008).
+- +0x688 bit 0x400: a character never climbs (0x80058da4 at 0x80058dd4).
+- +0x688 bit 0x1000: a character's held probe (0x80064838, kind 5) lets
+  it by with the floor delta 0 (0x800649c0).
+- The brothers' height through a wait is -384 (worklog 203).
+
 ## Unknown
 
 - Which of 75 / 76 is Larry and which is Steve; what ids 13, 74, 79, 81,
@@ -585,8 +595,6 @@ levels/grandpas_teeth.rs, actors/npc.rs):
 - Who sets player +0x188 bit 128 (cleared on level 3 room changes and
   after cine 13); what player +0x00 bit 0x80 with +0x148 / +0x14c does
   (0x80067084 eases y), and why cine 15 leaves bit 0x80 set.
-- Template bit 0x2000 (+0x00 of templates 590, 591, 495, 711), +0x688
-  bits 0x400 and 0x1000.
 - The pie flight's desc +0x46 (284), +0x66, +0x67, +0x68 (900): the
   record's +0x2a, +0x8a, +0x8c, read by 0x8008652c at a hit (a mark of
   sprite 284, 900 square, 0x8008e72c / 0x8008e76c, and sound 46 at the

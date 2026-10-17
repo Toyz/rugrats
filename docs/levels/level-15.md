@@ -500,7 +500,9 @@ needs none of the NPC, carry or rider work. It needs, in order:
 
 - What the invisible copies of templates 223, 248 and 54 are for
   (blockers, stair steps?).
-- What Spike's +0x688 bit 0x2000 does, and what Spike does in the level.
+- What Spike does in the level. (His +0x688 bit 0x2000, from his
+  template's flag 0x10000000 (0x80081d64), keeps him unsettled where he
+  is put: 0x800452f8 skips the room and floor for it.)
 - What the 255 -> 225 health loss in room 45 was (a fall after a
   teleport, guess).
 - What 0x80054894's colour table by room shows (the balloon colour,

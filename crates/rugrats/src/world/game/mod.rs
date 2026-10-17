@@ -911,6 +911,7 @@ impl Game {
                 loops: (p.level as i32, p.level as i32),
                 size: 0,
                 posed: t.flags & 0x2000 != 0,
+                unsettled: t.flags & 0x1000_0000 != 0,
                 rooted: false,
                 bite: Default::default(),
                 goal: [0; 3],

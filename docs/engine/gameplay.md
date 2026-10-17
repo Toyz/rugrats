@@ -758,7 +758,10 @@ A suggested order, each step checkable against the oracle:
 - State names (the table is from animations and sounds only), the handlers
   of states 1, 3, 17-21, and the animation numbers' meaning per character.
 - The object collision path in 0x80066014 (0x80067ba4, 0x80065c5c,
-  0x800658cc), wall sliding (0x80061a64, 0x80061b28), +0x130.
+  0x800658cc). (+0x130 is the slant between the step and the face that
+  held it: under 384 head-on (220 for Spike) the stand handler tries the
+  climb (0x80062cf4), up to 1024 the slide (0x80065120), which an
+  object of flag 0x4000 never takes.)
 - COL +0x24, record bytes +4 and +7, the plane equation's exact form
   (0x80068510).
 - The follow camera's details (0x80027304 is 1885 instructions): its flag

@@ -867,6 +867,8 @@ impl Game {
                 heading,
                 speed: 0,
                 speed_index: (h16(0x1e) as usize).min(5),
+                slow: matches!(level, Level::MR_FRIEND | Level::CHUCKIES_GLASSES)
+                    || matches!(level, Level::NO_MORE_COOKIES | Level::TOUCHDOWN_TOMMY) && h == 3,
                 range: h16(0x1a),
                 wait: h16(0x1c),
                 damage: t.raw[0x32] as i32,
@@ -1532,6 +1534,23 @@ impl Game {
         if pads.pressed(0, input::R1) && following && !self.shaft && !self.cam_hold {
             self.camera_behind();
         }
+        // What the characters' casts meet (0x80090554): the objects and
+        // characters as this frame's solids, and the player.
+        let mut obstacles: Vec<npc::Obstacle> = solids
+            .iter()
+            .zip(&npc_of)
+            .map(|(e, n)| npc::Obstacle {
+                solid: e.solid.clone(),
+                flags: if n.is_some() { 0 } else { self.set.templates.get(e.template as usize).map_or(0, |t| t.flags) },
+                npc: *n,
+            })
+            .collect();
+        {
+            let h = |at: usize| self.player.hierarchy.header.get(at..at + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
+            let shape = crate::world::boxhit::Shape::Body([h(4), h(6), h(8)], [h(0xc), h(0xe), h(0x10)]);
+            let solid = crate::world::boxhit::Solid { pos: self.player.pos, angles: [self.player.heading as i16, 0, 0], bound: 1773, size: 8192, shape };
+            obstacles.push(npc::Obstacle { solid, flags: 0, npc: None });
+        }
         let world = World {
             player: self.player.pos,
             player_heading: self.player.heading,
@@ -1540,6 +1559,8 @@ impl Game {
             trig: &self.trig,
             anims: &self.anims,
             walls: &boxes,
+            obstacles: &obstacles,
+            level: self.level.0,
         };
         self.npc_events = npc::step(&mut self.npcs, &world, &mut self.rand);
         for k in 0..self.npcs.len() {
@@ -1630,6 +1651,8 @@ impl Game {
             self.set_camera_yaw(heading as f32);
         } else if follows && !self.cam_hold {
             self.follow(moved);
+        } else if self.fixed.is_none() && self.post_camera.is_some() && !self.cam_hold {
+            self.post_follow();
         }
         self.following = follows;
         self.draw();
@@ -1772,10 +1795,8 @@ impl Game {
             // The training message, after the HUD (0x80097564).
             self.training.draw(&self.fonts, &mut self.stage.overlay);
         }
-        let post = self
-            .post_camera
-            .and_then(|k| self.posts.get(k.wrapping_sub(1)))
-            .map(|p| (Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32), self.target()));
+        let post_eye = self.post_camera.and_then(|k| self.posts.get(k.wrapping_sub(1))).map(|p| p.pos);
+        let post = post_eye.map(|e| (Vec3::new(e[0] as f32, e[1] as f32, e[2] as f32), self.follow_look()));
         // The follow camera looks at its look-at (0x800de454); the shaft
         // and the held camera at the player.
         let look = if self.shaft || self.cam_hold { self.target() } else { self.follow_look() };
@@ -1784,6 +1805,13 @@ impl Game {
             // The follow camera's rows in the original's integers
             // (`follow_rows`): what the stick reads its heading from.
             let m = self.follow_rows(target);
+            self.rows = Some(m);
+            let v = |r: usize| Vec3::new(m[r][0] as f32, m[r][1] as f32, m[r][2] as f32) / 4096.0;
+            (v(0), v(1), v(2))
+        } else if let (None, Some(e)) = (self.fixed, post_eye) {
+            // A post camera's rows: the game's look-at (0x800211e8) from
+            // the post to the look-at, in integers.
+            let m = self.trig.look_at(e, self.follow_look_int());
             self.rows = Some(m);
             let v = |r: usize| Vec3::new(m[r][0] as f32, m[r][1] as f32, m[r][2] as f32) / 4096.0;
             (v(0), v(1), v(2))

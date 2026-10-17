@@ -280,6 +280,13 @@ impl Game {
         self.flights.angles.ratan2(-m[0][2], m[2][2]).rem_euclid(4096)
     }
 
+    /// The camera as last drawn: its eye and what it looked at (for
+    /// tools).
+    pub fn view_eye_target(&self) -> ([i32; 3], Option<usize>, bool) {
+        let e = self.view.0;
+        ([e.x as i32, e.y as i32, e.z as i32], self.post_camera, self.fixed.is_some())
+    }
+
     /// The last frame's world-to-camera rows, 4096 = 1 (for tools).
     pub fn camera_rows(&self) -> Matrix {
         self.camera_matrix()
@@ -356,6 +363,19 @@ impl Game {
 
     pub(super) fn follow_look(&self) -> Vec3 {
         vec3(self.follow.look)
+    }
+
+    pub(super) fn follow_look_int(&self) -> [i32; 3] {
+        self.follow.look
+    }
+
+    /// Gives a room's post camera this look-at (0x800de454; for tools
+    /// starting the port where the original stands). Nothing with
+    /// another camera.
+    pub fn sync_post_look(&mut self, look: [i32; 3]) {
+        if self.fixed.is_none() && self.post_camera.is_some() {
+            self.follow.look = look;
+        }
     }
 
     /// 0x800c3f60: 256 in level 15, else 0.
@@ -799,6 +819,32 @@ impl Game {
             }
         }
         f.look[1] = f.look[1].clamp(goal - LOOK_BAND, goal + LOOK_BAND);
+    }
+
+    /// A room's post camera (kind 3, 0x800249cc): the look-at (0x800de454)
+    /// halfway to the player across each frame; its height left alone
+    /// within 512 of the body's, else on its way there at 298 dt >> 6 a
+    /// frame (bit 1024) until it reaches it. (Level 11's own lead is not
+    /// ported.)
+    pub(super) fn post_follow(&mut self) {
+        let lower = if self.level == Level::AISLE_SEVEN { self.aim() } else { 0 };
+        let p = &self.player;
+        let half = |d: i32| (d + ((d as u32) >> 31) as i32) >> 1;
+        let f = &mut self.follow;
+        f.look[0] += half(p.pos[0] - f.look[0]);
+        f.look[2] += half(p.pos[2] - f.look[2]);
+        let goal = p.pos[1] + p.root_y - lower;
+        let off = goal - f.look[1];
+        if off.abs() > 512 {
+            f.flags |= bit::LOOK_RISING;
+        }
+        if f.flags & bit::LOOK_RISING != 0 {
+            f.look[1] += ((if off < 0 { -298 } else { 298 }) * STEP) >> 6;
+            if (off >= 0) != (f.look[1] < goal) {
+                f.look[1] = goal;
+                f.flags &= !bit::LOOK_RISING;
+            }
+        }
     }
 
     /// The eye as drawn (0x8002953c): the camera's room found from it

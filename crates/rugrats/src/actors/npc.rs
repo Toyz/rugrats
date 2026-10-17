@@ -23,8 +23,10 @@ use crate::gte::Trig;
 use crate::rand::Rand;
 use crate::world::collide;
 
-/// The speed table (0x800b9698), row 0.
-pub const SPEEDS: [i32; 6] = [0, 4, 8, 12, 17, 25];
+/// The speed table (0x800b9698): row 0, and the slow row 1 (+0x670),
+/// which 0x80081bac gives every character in levels 9 and 10 and
+/// character 3 in levels 20 and 21.
+pub const SPEEDS: [[i32; 6]; 2] = [[0, 4, 8, 12, 17, 25], [0, 2, 3, 6, 11, 13]];
 /// The most an NPC turns a step (0x800c4444).
 const TURN: i32 = 512;
 /// How near a post counts as reached (+0x690, 1024 at init).
@@ -105,6 +107,8 @@ pub struct Npc {
     pub heading: i32,
     pub speed: i32,
     pub speed_index: usize,
+    /// The speed table's row (+0x670): the slow one.
+    pub slow: bool,
     /// Template +0x1a, +0x1c (VSync ticks), +0x32.
     pub range: i32,
     pub wait: i32,
@@ -219,20 +223,52 @@ impl Npc {
         }
     }
 
-    /// Steers toward `goal` (0x800820e0) and moves at `speed`: a quarter
-    /// of it while the turn left is over 1024.
-    fn go(&mut self, goal: [i32; 3], speed: i32, w: &World) {
+    /// Steers toward `goal` and steps at `speed`, as the NPC's stick
+    /// (0x80082264) and the shared body (0x8005a068) have it:
+    /// - the heading wanted (+0x2c) is ratan2 of the way to the goal; the
+    ///   heading turns toward it by at most 512 (0x800820e0, D_800c4444);
+    /// - the way (+0x178) is (0, 0, speed), or a quarter of it while the
+    ///   heading is more than 1024 from the one wanted (the two as 0..4095,
+    ///   not wrapped), turned by the heading and set to the speed's length
+    ///   (0x80076944): small integers, so the step's direction keeps to
+    ///   what they can point;
+    /// - the step is the way set to speed x dt;
+    /// - then the body's turn (0x8005bc80) toward the heading wanted by
+    ///   1025 dt >> 6 (Spike 298, 0x8005bbf4).
+    fn go(&mut self, me: usize, goal: [i32; 3], speed: i32, w: &World) {
         let (col, trig) = (w.col, w.trig);
-        let (dx, dz) = ((goal[0] - self.pos[0]) as f64, (goal[2] - self.pos[2]) as f64);
-        let want = ((dx.atan2(dz) / std::f64::consts::TAU) * 4096.0).round() as i32;
+        let want = trig.ratan2(goal[0] - self.pos[0], goal[2] - self.pos[2]) & 4095;
         let d = wrap(want - self.heading);
-        self.heading = (self.heading + d.clamp(-TURN, TURN)).rem_euclid(4096);
-        let speed = if wrap(want - self.heading).abs() > 1024 { speed / 4 } else { speed };
+        let d = if d.abs() < TURN { d } else { TURN * d.signum() };
+        self.heading = (self.heading + d).rem_euclid(4096);
+        // A way round what blocks the way to the goal (0x800825fc): a
+        // quarter turn's half to the side found open, the way half again
+        // as long.
+        let mut long = speed;
+        if speed != 0 {
+            let side = match self.detour(me, goal, w) {
+                1 | 2 => 512,
+                3 | 4 => -512,
+                _ => 0,
+            };
+            if side != 0 {
+                self.heading = (self.heading + side).rem_euclid(4096);
+                long = speed + ((speed + ((speed as u32) >> 31) as i32) >> 1);
+            }
+        }
+        let near = (self.heading - want).abs() < 1025;
+        let v = if near { long } else if long < 0 { (long + 3) >> 2 } else { long >> 2 };
+        let way = crate::actors::ground::set_length(trig.turn_by([self.heading as i16, 0, 0], [0, 0, v]), long, trig);
+        let step = if speed == 0 { [0; 3] } else { crate::actors::ground::set_length(way, speed * DT, trig) };
+        let rate = if matches!(self.character, 6 | 34 | 45) { 298 } else { 1025 };
+        let turn = (rate * DT) >> 6;
+        let d = wrap(want - self.heading);
+        self.heading = (self.heading + d.clamp(-turn, turn)).rem_euclid(4096);
         self.speed = speed;
         self.bumped = false;
         let start = self.pos;
-        self.pos[0] += (trig.sin(self.heading) * speed * DT) >> 12;
-        self.pos[2] += (trig.cos(self.heading) * speed * DT) >> 12;
+        self.pos[0] += step[0];
+        self.pos[2] += step[2];
         // Asked from a step above the feet, as the player's floor test.
         let q = collide::query(col, [self.pos[0], self.pos[1] - self.feet() - 384, self.pos[2]]);
         if q.kind == 2 || q.tile.is_none() {
@@ -269,10 +305,94 @@ impl Npc {
         })
     }
 
-    fn dist(&self, p: [i32; 3]) -> i32 {
-        let (dx, dz) = ((p[0] - self.pos[0]) as f64, (p[2] - self.pos[2]) as f64);
-        (dx * dx + dz * dz).sqrt() as i32
+    /// The look ahead (0x800825fc): three casts from the body to the goal
+    /// (the goal's place at the body's height), 384 over the floor (less
+    /// the body's height over it): from its left side (its half width,
+    /// 500 to 1000, out), its right, and its middle. With the middle clear
+    /// and a side open: 1 if the left is blocked, 3 if the right is, else
+    /// 0. Otherwise the ways round: the left one (from the left side to
+    /// the goal's left, the half width times 8 (2 in levels 10, 12 and 13)
+    /// out and 5 times the half depth (5000 to 10000) back) open, 4 if the
+    /// right cast was blocked, else 0; else the right one blocked, 5; else
+    /// 2.
+    fn detour(&self, me: usize, goal: [i32; 3], w: &World) -> i32 {
+        let h = |at: usize| self.hierarchy.header.get(at..at + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
+        let wider = |lo: i32, hi: i32| {
+            let a = lo.abs();
+            let pick = if hi < 0 { a < -hi } else { a < hi };
+            (if pick { hi } else { lo }).abs()
+        };
+        let half = wider(h(4), h(0xc)).clamp(500, 1000);
+        let depth = (5 * wider(h(8), h(0x10))).clamp(5000, 10000);
+        let out = if matches!(w.level, 10 | 12 | 13) { 2 } else { 8 };
+        let floor = self.pos[1] - self.feet();
+        let up = 384 - (floor - self.pos[1]);
+        let to = [goal[0], self.pos[1], goal[2]];
+        let angles = [self.heading as i16, 0, 0];
+        let cast = |a: [i32; 3], b: [i32; 3]| {
+            let (oa, ob) = (w.trig.turn_by(angles, a), w.trig.turn_by(angles, b));
+            let from = [0, 1, 2].map(|k| self.pos[k] + oa[k]);
+            let to = [0, 1, 2].map(|k| to[k] + ob[k]);
+            self.blocked(me, from, to, w)
+        };
+        let left = cast([-half, -up, 0], [-half, -up, 0]);
+        let right = cast([half, -up, 0], [half, -up, 0]);
+        let middle = cast([0, -up, 0], [0, -up, 0]);
+        if !(left && right) && !middle {
+            return if left {
+                1
+            } else if right {
+                3
+            } else {
+                0
+            };
+        }
+        if !cast([-half, -up, 0], [-out * half, -up, -depth]) {
+            return if right { 4 } else { 0 };
+        }
+        if cast([half, -up, 0], [out * half, -up, -depth]) { 5 } else { 2 }
     }
+
+    /// Whether a cast from `from` to `to` is blocked (0x80082b60 through
+    /// 0x80090554): the nearest object it meets (not itself, nor of
+    /// template flag 16), then the world's segment, kept over the object
+    /// only when nearer on all three axes. The world blocks; an object of
+    /// template flag 72 or 8 does not.
+    fn blocked(&self, me: usize, from: [i32; 3], to: [i32; 3], w: &World) -> bool {
+        let mut best: Option<(i32, [i32; 3], u32)> = None;
+        for o in w.obstacles {
+            if o.flags & 16 != 0 || o.npc == Some(me) {
+                continue;
+            }
+            let mut n = [0; 3];
+            if let Some((_, hit)) = o.solid.meet(w.trig, from, to, &mut n)
+                && hit.t >= 0
+                && best.is_none_or(|b| hit.t < b.0)
+            {
+                best = Some((hit.t, hit.point, o.flags));
+            }
+        }
+        let mut seg = collide::Segment::default();
+        if collide::segment(w.col, from, to, &mut seg) != 0 {
+            let nearer = |p: [i32; 3]| (0..3).all(|k| (from[k] - seg.point[k]).abs() < (from[k] - p[k]).abs());
+            if best.is_none_or(|b| nearer(b.1)) {
+                return true;
+            }
+        }
+        best.is_some_and(|b| b.2 & 72 == 0)
+    }
+
+    fn dist(&self, p: [i32; 3]) -> i32 {
+        approx_dist(self.pos, p)
+    }
+}
+
+/// The game's distance across (0x8001f57c): |dx| + |dz| less half the
+/// smaller.
+pub fn approx_dist(a: [i32; 3], b: [i32; 3]) -> i32 {
+    let (dx, dz) = ((b[0] - a[0]).abs(), (b[2] - a[2]).abs());
+    let m = dx.min(dz);
+    dx + dz - ((m + ((m as u32) >> 31) as i32) >> 1)
 }
 
 /// The positions and headings of the player and every NPC, for targets.
@@ -285,6 +405,20 @@ pub struct World<'a> {
     pub anims: &'a Anims,
     /// The objects' boxes this frame (doors, crates; not bodies).
     pub walls: &'a [Box3],
+    /// What a character's look ahead meets (0x80090554 over the rooms'
+    /// lists): each object's solid, its template's flags and whose it is.
+    pub obstacles: &'a [Obstacle],
+    /// The level (0x800c5678).
+    pub level: u8,
+}
+
+/// An object as the characters' casts see it.
+pub struct Obstacle {
+    pub solid: crate::world::boxhit::Solid,
+    /// Its template's flags (D_800c4300 + 56 x template).
+    pub flags: u32,
+    /// The NPC it is, if one.
+    pub npc: Option<usize>,
 }
 
 /// A prowler's bite to its next (the oracle's lobster, level 16).
@@ -306,7 +440,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         let scale = n.feet() as f32 / ROOT_SCALE;
         n.root.step(&n.animator, w.anims, scale);
         n.cooldown = (n.cooldown - DT).max(0);
-        let base = n.run_speed.unwrap_or(SPEEDS[n.speed_index.min(5)]);
+        let base = n.run_speed.unwrap_or(SPEEDS[n.slow as usize][n.speed_index.min(5)]);
         let mode = n.mode.clone();
         match mode {
             Mode::Idle => n.speed = 0,
@@ -324,9 +458,9 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     // it waits for the target to come within a bite.
                     n.speed = 0;
                 } else if d > 2 * n.range {
-                    n.go(p, 2 * base, w);
+                    n.go(k, p, 2 * base, w);
                 } else if d >= n.range / 2 {
-                    n.go(p, base, w);
+                    n.go(k, p, base, w);
                 } else {
                     n.speed = 0;
                     // Only with the way to the target clear (0x80084084:
@@ -363,7 +497,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                         Mode::Posts { prev: cur, cur: next }
                     };
                 } else {
-                    n.go(post.pos, base, w);
+                    n.go(k, post.pos, base, w);
                 }
             }
             Mode::Wait { prev, cur, left } => {
@@ -408,11 +542,11 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                             n.cooldown = n.bite_wait;
                         }
                     } else {
-                        n.go(p, base, w);
+                        n.go(k, p, base, w);
                     }
                 } else if n.dist(n.home) > 600 {
                     let home = n.home;
-                    n.go(home, base, w);
+                    n.go(k, home, base, w);
                 } else {
                     n.speed = 0;
                 }
@@ -432,12 +566,12 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     events.push(Event::Bite { by: k, target: Target::Player, amount: n.damage });
                     n.mode = Mode::Hit { left: BITE_EVERY, then: Box::new(Mode::Prowl { prev, cur }) };
                 } else if n.dist(post.pos) <= 2 * n.range && n.dist(p) <= n.range {
-                    n.go(p, base, w);
+                    n.go(k, p, base, w);
                 } else if n.dist(post.pos) <= n.post_reach {
                     let next = n.next_post(&post, prev, rand);
                     n.mode = Mode::Prowl { prev: cur, cur: next };
                 } else {
-                    n.go(post.pos, base, w);
+                    n.go(k, post.pos, base, w);
                 }
             }
             Mode::Block { heading } => {
@@ -456,7 +590,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     if side.abs() > 200 {
                         let dir = if side > 0 { 1 } else { -1 };
                         let goal = [n.pos[0] + dir * c * 1024 / 4096, n.pos[1], n.pos[2] - dir * s * 1024 / 4096];
-                        n.go(goal, base, w);
+                        n.go(k, goal, base, w);
                     } else {
                         n.speed = 0;
                     }

@@ -33,6 +33,12 @@ struct Both {
     /// the original's.
     tracks_off: Vec<usize>,
     frames: usize,
+    /// The original's camera updates (0x8002953c returning into the
+    /// frame, 0x80018db4) so far, and as of the last frame compared: a
+    /// frame the original ran late (its camera still under way after two
+    /// vertical blanks) has no camera to compare.
+    cameras: Rc<std::cell::Cell<u32>>,
+    cameras_seen: u32,
 }
 
 /// The original's input latency, in game frames.
@@ -56,7 +62,24 @@ impl Both {
         let disc = GameDisc::open(&cue).ok()?;
         let game = Game::open_from(&disc, Level(boot.level), None, &Progress::default()).ok()?;
         let hle = Play::boot(Rc::new(rrt::disc::Image::open(&cue).ok()?), boot).ok()?;
-        let mut b = Both { game, hle, held: std::iter::repeat_n(0, LAG).collect(), tracks_off: Vec::new(), frames: 0 };
+        let cameras = Rc::new(std::cell::Cell::new(0));
+        let mut hle = hle;
+        {
+            let c = cameras.clone();
+            hle.hle.m.hook(0x8001_8db4, move |_| {
+                c.set(c.get() + 1);
+                rrt::emu::HookResult::Continue
+            });
+        }
+        let mut b = Both {
+            game,
+            hle,
+            held: std::iter::repeat_n(0, LAG).collect(),
+            tracks_off: Vec::new(),
+            frames: 0,
+            cameras,
+            cameras_seen: 0,
+        };
         b.sync_animation();
         Some(b)
     }
@@ -107,7 +130,12 @@ impl Both {
         p.target = heading;
         p.speed = 0;
         self.game.set_camera_yaw(heading as f32);
-        self.script(&[(0, settle)]);
+        // A room's post camera (taken up in the frame) looks from where the
+        // original's look-at is.
+        self.script(&[(0, 1)]);
+        let look = [0, 4, 8].map(|k| self.hle.read_i32(0x800d_e454 + k));
+        self.game.sync_post_look(look);
+        self.script(&[(0, settle.saturating_sub(1))]);
     }
 
     /// Runs `steps` of (pad bits, game frames) on both; the players after
@@ -146,7 +174,8 @@ impl Both {
                     let mat: Vec<i16> = (0..9).map(|k| self.hle.read_i16(m + 2 * k)).collect();
                     let (cam_eye, smooth) = (r(&mut self.hle, m + 0x14), r(&mut self.hle, 0x800d_e540));
                     let exact = self.game.trig.look_at(cam_eye, look);
-                    eprintln!("    eye {eye:?} look {look:?} cam {cam_eye:?} at {smooth:?} m {mat:?} exact {exact:?} | port {:?} rows {:?}", self.game.follow_camera(), self.game.camera_rows());
+                    let (kind, flags) = (self.hle.read_i16(0x800d_e460 + 0x4a), self.hle.read_u32(0x800c_4a3c));
+                    eprintln!("    eye {eye:?} look {look:?} cam {cam_eye:?} at {smooth:?} m {mat:?} exact {exact:?} kind {kind} flags {flags:#x} | port {:?} rows {:?} view {:?}", self.game.follow_camera(), self.game.camera_rows(), self.game.view_eye_target());
                 }
                 if std::env::var_os("CAMSTATE").is_some() {
                     let r = |h: &mut Play, a: u32| [0, 4, 8].map(|k| h.read_i32(a + k));
@@ -186,6 +215,10 @@ impl Both {
                     let p = &self.game.player;
                     eprintln!("    y orig {} port {} + root {} = {} | {}", o.pos[1], p.pos[1], p.root_y, p.pos[1] + p.root_y, o.pos[1] - (p.pos[1] + p.root_y));
                 }
+                // (A frame the original ran late: its camera not yet done.)
+                let done = self.cameras.get() != self.cameras_seen;
+                self.cameras_seen = self.cameras.get();
+                let camera = if done { camera } else { LATE };
                 orig.push(Seen { pos: o.pos, y: o.pos[1], heading: o.heading as i32 & 4095, state: o.state, camera });
                 each(&self.game, &mut self.hle);
             }
@@ -217,8 +250,12 @@ fn bits(buttons: &[usize]) -> u16 {
 /// The frames whose camera heading (as the stick reads it, 0x800a0328 on
 /// +0x224) is not the original's.
 fn camera_off(port: &[Seen], orig: &[Seen]) -> usize {
-    port.iter().zip(orig).filter(|(p, o)| p.camera != o.camera).count()
+    port.iter().zip(orig).filter(|(p, o)| o.camera != LATE && p.camera != o.camera).count()
 }
+
+/// The camera of a frame the original ran late (its update still under
+/// way when the frame was read).
+const LATE: i32 = i32::MIN;
 
 /// The largest difference in height (with the root) over the frames.
 fn height_off(port: &[Seen], orig: &[Seen]) -> i32 {
@@ -337,6 +374,7 @@ fn hub_run_at_the_seat_as_the_original() {
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
+    assert_eq!(camera_off(&port, &orig), 0, "the follow camera's heading");
 }
 
 /// Level 1 from its start: a standing jump with Cross held (the lift's
@@ -406,9 +444,12 @@ fn hub_pick_up_as_the_original() {
     let k = b.game.things.iter().position(|t| t.template == 896).expect("toy 896");
     let t = b.game.things[k].pos;
     b.put([t.x as i32, 779, t.z as i32 - 700], 0, 6);
+    // The camera behind on both (R1, 0x80026ddc): the put leaves the
+    // original's where it was.
+    b.script(&[(bits(&[rugrats::input::R1]), 1), (0, 4)]);
     let p = rugrats_hle::play::PLAYER;
     let (mut turns, mut held, mut thrown, mut obj) = (Vec::new(), Vec::new(), Vec::new(), 0u32);
-    b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[TRIANGLE]), 1), (0, 90)], |g, h| {
+    let (port, orig) = b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[TRIANGLE]), 1), (0, 90)], |g, h| {
         let hier = h.read_u32(p + 0x154);
         let n = h.read_i16(hier) as u32;
         let orig: Vec<[i32; 4]> = (0..n).map(|i| [0, 4, 8, 12].map(|c| h.read_i32(hier + 0x34 + 40 * i + 4 + c))).collect();
@@ -444,6 +485,7 @@ fn hub_pick_up_as_the_original() {
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height, 0, "the original's height");
     assert!(thrown.len() >= 60 && flown == 0, "the flight the original's: {:?}", thrown.iter().find(|(m, t)| m != t));
+    assert_eq!(camera_off(&port, &orig), 0, "the follow camera's heading");
 }
 
 /// Level 6 as Chuckie (character 2): box 1016 picked up off its shelf,
@@ -501,9 +543,10 @@ fn level_9_ball_rolls_as_the_original() {
         .position(|t| t.template == 777 && (t.pos.x as i32, t.pos.z as i32) == (30003, -3772))
         .expect("ball 3");
     b.put([30003, 7947, -4472], 0, 6);
+    b.script(&[(bits(&[rugrats::input::R1]), 1), (0, 4)]);
     let p = rugrats_hle::play::PLAYER;
     let (mut rolled, mut obj) = (Vec::new(), 0u32);
-    b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[TRIANGLE]), 1), (0, 120)], |g, h| {
+    let (port, orig) = b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[TRIANGLE]), 1), (0, 120)], |g, h| {
         let o = h.read_u32(p + 0x1f0);
         if o != 0 {
             obj = o;
@@ -518,4 +561,66 @@ fn level_9_ball_rolls_as_the_original() {
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert!(rolled.len() >= 60 && off == 0, "the ball's places: {:?}", rolled.iter().find(|(m, t)| m != t));
     assert_eq!(b.game.things[k].state, rugrats::world::game::ThingState::Rest, "at rest");
+    assert_eq!(camera_off(&port, &orig), 0, "the follow camera's heading");
+}
+
+/// The original's objects in the rooms' lists (0x800c4a8c).
+fn objects(p: &mut Play) -> Vec<u32> {
+    let rooms = p.read_u32(0x800c_4a8c);
+    let count = p.read_i32(0x800c_4a9c);
+    let mut out = Vec::new();
+    for r in 0..count.max(0) as u32 {
+        for list in [0x48u32, 0x4c] {
+            let mut node = p.read_u32(rooms + 112 * r + list);
+            while node != 0 {
+                out.push(p.read_u32(node + 8));
+                node = p.read_u32(node + 4);
+            }
+        }
+    }
+    out
+}
+
+/// Level 9 past cine 17: Tommy put far off, Mr. Friend (46) chases him.
+/// Once his first wait is over (he is given the original's place then),
+/// each frame his stick (0x80082264) turns him toward Tommy by at most
+/// 512 (0x800820e0), looks ahead (0x800825fc: three casts to Tommy, the
+/// ways round when blocked; a side open turns him a further 512), sets
+/// the way to his speed (row 1 of the table in level 9, 2 doubled past
+/// twice his range, by the game's distance 0x8001f57c) and steps along
+/// it; then the body turns him by 160. On the original's place and
+/// heading every frame.
+#[test]
+#[ignore]
+fn level_9_friend_chases_as_the_original() {
+    let Some(mut b) = Both::open(Boot { level: 9, cinematics: true, ..Default::default() }) else { return };
+    for _ in 0..900 {
+        b.hle.frame(0).unwrap();
+    }
+    let k = b.game.npcs.iter().position(|n| n.id == 46).expect("Mr. Friend");
+    let at = b.game.npcs[k].pos;
+    let mut bodies = Vec::new();
+    for o in objects(&mut b.hle) {
+        if b.hle.read_u32(o + 0x154) != 0 {
+            let d: i32 = (0..3).map(|i| (b.hle.read_i32(o + 0x18 + 4 * i as u32) - at[i]).abs()).sum();
+            bodies.push((d, o));
+        }
+    }
+    let o = bodies.into_iter().min().expect("his object").1;
+    b.put([30003, 7947, -4472], 0, 6);
+    b.script(&[(bits(&[rugrats::input::R1]), 1), (0, 4)]);
+    let n = &mut b.game.npcs[k];
+    n.pos = [0, 4, 8].map(|i| b.hle.read_i32(o + 0x18 + i));
+    n.heading = b.hle.read_i16(o + 0x24) as i32 & 4095;
+    let mut seen = Vec::new();
+    let (port, orig) = b.script_with(&[(0, 280)], |g, h| {
+        let n = &g.npcs[k];
+        let theirs = ([0, 8].map(|i| h.read_i32(o + 0x18 + i)), h.read_i16(o + 0x24) as i32 & 4095);
+        seen.push((([n.pos[0], n.pos[2]], n.heading), theirs));
+    });
+    let off = seen.iter().filter(|(m, t)| m != t).count();
+    report("friend", &port, &orig);
+    eprintln!("Mr. Friend chased {} frames, {off} off", seen.len());
+    assert_eq!(off, 0, "his place and heading: {:?}", seen.iter().position(|(m, t)| m != t).map(|f| (f, seen[f])));
+    assert_eq!(camera_off(&port, &orig), 0, "the follow camera's heading");
 }

@@ -461,6 +461,8 @@ impl Player {
         let mut wall_met = false;
         // The probe's record that held the step head-on (`ground_move`).
         let mut ground_held: Option<ground::Record> = None;
+        // The stand handler's probe held (see `ground_move`).
+        let mut stand_held = false;
         let first_step = self.state == State::Stand && self.speed > 0 && !acting && self.pending_jump.is_none();
         // In the air the original's own air move tests and has the step
         // (`air_move`), landing included.
@@ -484,8 +486,12 @@ impl Player {
                     .map(|(k, j)| (k as usize, j));
                 let here = collide::query(col, [self.pos[0], self.pos[1] - self.feet - 1, self.pos[2]]);
                 let reflect = collide::floor_flags(col, &here) & SLIPPERY != 0;
-                let ((dx, dz), held) = self.ground_move(col, trig, way, self.speed * DT, solids, reflect);
+                let ((dx, dz), held, probe_held) = self.ground_move(col, trig, way, self.speed * DT, solids, reflect);
                 wall_met = held.is_some();
+                // Standing, the stick pushed: a probe that held (1) puts
+                // the speed by at the stand handler's end (0x8005d11c),
+                // even when the way along the face then starts the run.
+                stand_held = first_step && probe_held;
                 ground_held = held;
                 if first_step {
                     // Standing, the stick pushed (0x8005d11c): the probes
@@ -852,8 +858,8 @@ impl Player {
                 _ => State::Run,
             };
             // Held standing, its speed is put by (+0x184 into +0x176) and
-            // is 0 (0x8005d11c).
-            if stopped && self.state == State::Stand {
+            // is 0 (0x8005d11c), the run along the face started or not.
+            if stopped && self.state == State::Stand || stand_held {
                 self.speed = 0;
             }
         }
@@ -1009,7 +1015,7 @@ impl Player {
     /// at a slant from `head_on` to a right angle and the way along it is
     /// clear or meets a wall there at 512 or more (0x80065120); else held,
     /// with the record that held it (for the climb or the bump).
-    fn ground_move(&mut self, col: &Col, trig: &Trig, way: [i32; 3], len: i32, solids: &[Exact], reflect: bool) -> ((i32, i32), Option<ground::Record>) {
+    fn ground_move(&mut self, col: &Col, trig: &Trig, way: [i32; 3], len: i32, solids: &[Exact], reflect: bool) -> ((i32, i32), Option<ground::Record>, bool) {
         let (lo, hi) = self.body_box();
         let near: Vec<ground::Near> = solids.iter().map(|e| ground::Near { solid: &e.solid, skip: false }).collect();
         let g = ground::Ground {
@@ -1026,7 +1032,7 @@ impl Player {
         let (pos, floor) = (self.pos, self.floor);
         let mut probe = |w: [i32; 3]| g.probe(pos, floor, w, len, &mut st);
         let out = match probe(way) {
-            ground::Probed::Clear(_) => (along(way, len, trig), None),
+            ground::Probed::Clear(_) => (along(way, len, trig), None, false),
             p @ ground::Probed::Held { record, slide } => {
                 let a = p.slant().abs();
                 match slide {
@@ -1038,12 +1044,12 @@ impl Player {
                         let w = trig.normal(ground::set_length(t, old, trig));
                         let again = probe(w);
                         if !again.held() || (512..1025).contains(&again.slant().abs()) {
-                            (along(w, len, trig), None)
+                            (along(w, len, trig), None, true)
                         } else {
-                            ((0, 0), Some(record))
+                            ((0, 0), Some(record), true)
                         }
                     }
-                    _ => ((0, 0), Some(record)),
+                    _ => ((0, 0), Some(record), true),
                 }
             }
         };

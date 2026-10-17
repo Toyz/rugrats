@@ -192,6 +192,7 @@ impl GrandpasTeeth {
                 heading: g.player.heading,
                 speed: 0,
                 speed_index: 0,
+                slow: false,
                 range: 0,
                 wait: 0,
                 damage: 0,

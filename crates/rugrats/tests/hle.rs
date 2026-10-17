@@ -38,6 +38,9 @@ const LAG: usize = 1;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Seen {
     pos: [i32; 3],
+    /// The height with the animation's root, as the original's body has
+    /// it (the port's position plus the root the step before left).
+    y: i32,
     heading: i32,
     state: u8,
     camera: i32,
@@ -81,7 +84,7 @@ impl Both {
                 pads.push_bits(0, self.held.pop_front().unwrap_or(0));
                 self.game.frame(&pads);
                 let p = &self.game.player;
-                port.push(Seen { pos: p.pos, heading: p.heading, state: port_state(&self.game), camera: self.game.camera_heading() & 4095 });
+                port.push(Seen { pos: p.pos, y: p.pos[1] + p.root_y, heading: p.heading, state: port_state(&self.game), camera: self.game.camera_heading() & 4095 });
                 self.hle.frame(bits).unwrap();
                 let o = self.hle.player();
                 let camera = self.hle.camera_heading();
@@ -126,7 +129,11 @@ impl Both {
                     let pt = self.game.focus().map(|k| self.game.set.placements[k].template);
                     eprintln!("    focus {} orig {ot:?} port {pt:?}", if ot == pt { "same" } else { "DIFF" });
                 }
-                orig.push(Seen { pos: o.pos, heading: o.heading as i32 & 4095, state: o.state, camera });
+                if std::env::var_os("YDIFF").is_some() {
+                    let p = &self.game.player;
+                    eprintln!("    y orig {} port {} + root {} = {} | {}", o.pos[1], p.pos[1], p.root_y, p.pos[1] + p.root_y, o.pos[1] - (p.pos[1] + p.root_y));
+                }
+                orig.push(Seen { pos: o.pos, y: o.pos[1], heading: o.heading as i32 & 4095, state: o.state, camera });
                 each(&self.game, &mut self.hle);
             }
         }
@@ -152,6 +159,11 @@ fn port_state(g: &Game) -> u8 {
 
 fn bits(buttons: &[usize]) -> u16 {
     buttons.iter().fold(0, |a, &b| a | 1 << b)
+}
+
+/// The largest difference in height (with the root) over the frames.
+fn height_off(port: &[Seen], orig: &[Seen]) -> i32 {
+    port.iter().zip(orig).map(|(p, o)| (p.y - o.y).abs()).max().unwrap_or(0)
 }
 
 /// Prints the two traces side by side, with the largest distance apart.
@@ -181,6 +193,7 @@ fn hub_run_as_the_original() {
     let hold: usize = std::env::var("HOLD").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
     let (port, orig) = b.script(&[(bits(&[UP]), hold), (0, 10)]);
     let worst = report("run", &port, &orig);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
@@ -194,6 +207,7 @@ fn hub_start_run_and_jump_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[UP, LEFT]), 12), (bits(&[UP, LEFT, CROSS]), 1), (bits(&[UP, LEFT]), 24)]);
     let worst = report("start", &port, &orig);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
@@ -209,6 +223,7 @@ fn egg_hunt_slide_and_bump_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 2)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 70)]);
     let worst = report("slide", &port, &orig);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
@@ -222,6 +237,7 @@ fn spike_run_at_a_wall_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 4)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 12)]);
     let worst = report("spike", &port, &orig);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
@@ -234,6 +250,7 @@ fn hub_standing_jump_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[CROSS]), 1), (0, 40)]);
     let worst = report("stand", &port, &orig);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
@@ -248,6 +265,7 @@ fn hub_run_at_the_seat_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 4)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 40)]);
     let worst = report("seat", &port, &orig);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
@@ -260,6 +278,7 @@ fn hub_held_jump_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[CROSS]), 20), (0, 20)]);
     let worst = report("held", &port, &orig);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
@@ -273,6 +292,7 @@ fn hub_tap_turn_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[UP, LEFT]), 1), (0, 12)]);
     let worst = report("tap", &port, &orig);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     let turned = port.iter().zip(&orig).filter(|(p, o)| p.heading != o.heading).count();
     assert_eq!((worst, turned), (0, 0), "the same as the original's, every frame");
 }
@@ -288,6 +308,7 @@ fn hub_run_across_the_playpen_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 4)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 30)]);
     let worst = report("pen", &port, &orig);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
@@ -296,7 +317,8 @@ fn hub_run_across_the_playpen_as_the_original() {
 /// samplers leave them) is the original's on every frame once the pick-up
 /// has blended out of what the boot left (the oracle stands mid-fidget);
 /// the carried toy is on the original's place across (x, z) on every
-/// frame, and within 1 in height (the root curve, kept apart in the port);
+/// frame, its height too (the hand as last drawn, the body's height with
+/// its animation's root);
 /// thrown, its flight is the original's on every frame: its start where
 /// the hand as last drawn let go, its launch and fall in integers, and
 /// its bounces off toys 431 and 430 and the floor (0x80087594).
@@ -343,6 +365,6 @@ fn hub_pick_up_as_the_original() {
         thrown.len()
     );
     assert_eq!((off, across), (0, 0), "the original's turns and place");
-    assert!(height <= 1, "height within the root curve's 1");
+    assert_eq!(height, 0, "the original's height");
     assert!(thrown.len() >= 60 && flown == 0, "the flight the original's: {:?}", thrown.iter().find(|(m, t)| m != t));
 }

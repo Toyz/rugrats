@@ -1934,6 +1934,9 @@ fn a_climb_moves_as_the_original() {
             seen.push((root.y as i32, root.z as i32));
         }
     });
+    // (The frame the climb is asked on is still before it: the animation
+    // begins the step after, 0x8005a068.)
+    let seen = &seen[1..];
     assert_eq!(seen.len(), oracle_y.len(), "climb frames {seen:?}");
     let z0 = seen[0].1;
     for (k, &(y, z)) in seen.iter().enumerate() {
@@ -1956,13 +1959,9 @@ fn a_jump_moves_as_the_original() {
         [783, 794, 810, 827, 843, 859, 868, 868, 814, 668, 544, 442, 362, 304, 268, 253, 260, 289, 340, 413, 508];
     let mut seen = Vec::new();
     run(&mut g, &[(&[input::CROSS], 1), (&[], 21)], |g, _| seen.push(g.player.parts(&g.anims, &g.trig)[0].1.y as i32));
-    // The port draws the crouch's root a frame before the original's
-    // height has it (+0xda, had the frame after), and leaves the floor on
-    // the original's own frame (`tests/hle.rs`): the crouch's last height
-    // shows twice.
-    let (crouch, air) = (&seen[..9], &seen[10..]);
-    assert_eq!(seen[8], seen[9], "{seen:?}");
-    for (k, (&y, &o)) in crouch.iter().chain(air).zip(&oracle).enumerate() {
+    // (The press's own frame is still before it: the crouch begins the
+    // step after, 0x8005a068.)
+    for (k, (&y, &o)) in seen[1..].iter().zip(&oracle).enumerate() {
         assert!((y - o).abs() <= 2, "frame {k}: {y} against {o} ({seen:?})");
     }
 }
@@ -1976,8 +1975,9 @@ fn running_bobs_as_the_original() {
     run(&mut g, &[(&[], 3)], |_, _| {});
     let oracle = [746, 739, 756, 761, 769, 780, 751, 731, 720, 753, 773, 778, 747, 739, 756, 761, 769, 780];
     let mut seen = Vec::new();
-    run(&mut g, &[(&[input::UP, input::LEFT], 18)], |g, _| seen.push(g.player.parts(&g.anims, &g.trig)[0].1.y as i32));
-    for (k, (&y, &o)) in seen.iter().zip(&oracle).enumerate() {
+    run(&mut g, &[(&[input::UP, input::LEFT], 19)], |g, _| seen.push(g.player.parts(&g.anims, &g.trig)[0].1.y as i32));
+    // (The press's own frame is still before the run's animation.)
+    for (k, (&y, &o)) in seen[1..].iter().zip(&oracle).enumerate() {
         assert!((y - o).abs() <= 2, "frame {k}: {y} against {o} ({seen:?})");
     }
 }
@@ -2023,6 +2023,8 @@ fn chuckies_climb_moves_as_the_original() {
             seen.push(g.player.parts(&g.anims, &g.trig)[0].1.y as i32);
         }
     });
+    // (The frame the climb is asked on is still before it.)
+    let seen = &seen[1..];
     assert!(seen.len() >= oracle.len(), "{seen:?}");
     for (k, (&y, &o)) in seen.iter().zip(&oracle).enumerate() {
         assert!((y - o).abs() <= 2, "frame {k}: {y} against {o} ({seen:?})");

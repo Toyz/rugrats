@@ -159,6 +159,9 @@ pub struct Animator {
     /// The logical animation last asked for, and the climb's rise for
     /// the next climb (logical 5).
     asked: i16,
+    /// The logical animation last asked for on the base track and on track
+    /// 1 (an upper state's ask leaves the base's as it was).
+    asked_on: [i16; 2],
     pub climb: i32,
     /// The table states entered on the base track since last taken (for
     /// their sounds, 0x800562bc).
@@ -192,6 +195,9 @@ pub struct Animator {
     pub character: u16,
     /// Each track's column's frames (first, count) as of the last step.
     spans: [Option<(i16, i16)>; 4],
+    /// Whether the base track began a state in the last step (asked, or
+    /// gone on to its next).
+    began: bool,
 }
 
 impl Animator {
@@ -216,6 +222,7 @@ impl Animator {
             remap,
             entries,
             asked: 0,
+            asked_on: [-1; 2],
             climb: 0,
             entered: Vec::new(),
             fidget: (FIDGETS.0, FIDGET_AFTER),
@@ -227,6 +234,7 @@ impl Animator {
             written_speed: 4096,
             character,
             spans: [None; 4],
+            began: false,
         })
     }
 
@@ -284,6 +292,12 @@ impl Animator {
         ENDS.get(self.tracks[0].state as usize).is_some_and(|e| e & 32 != 0)
     }
 
+    /// Whether the base track began a state in the last step: asked for
+    /// (again, it starts again) or gone on to its next.
+    pub fn began(&self) -> bool {
+        self.began
+    }
+
     /// The logical animation last asked for.
     pub fn asked(&self) -> i16 {
         self.asked
@@ -299,8 +313,9 @@ impl Animator {
     /// last, on its track, not held on its last frame.
     pub fn playing(&self, a: i16) -> bool {
         let Some(s) = table_state(a, self.climb, self.tracks[0].state) else { return false };
-        let t = &self.tracks[self.track_of(s)];
-        self.asked == a && t.state == s && t.phase != 3
+        let k = self.track_of(s);
+        let t = &self.tracks[k];
+        self.asked_on[k] == a && t.state == s && t.phase != 3
     }
 
     /// The ANM animation of logical animation `a` on the base track
@@ -323,23 +338,26 @@ impl Animator {
     }
 
     /// Asks for logical animation `a` (0x800572a8), unless it is the one
-    /// last asked for or its track shows it already: the game asks on
-    /// entering a state, and what it asked for then runs on through its
-    /// states.
+    /// last asked for: the game asks on entering a state, and what it asked
+    /// for then runs on through its states.
     pub fn set(&mut self, a: i16, anims: &Anims) {
         if self.tracks[0].state == -1 {
             self.start(a, anims);
             return;
         }
-        if self.asked == a {
+        let Some(s) = table_state(a, self.climb, self.tracks[0].state) else { return };
+        let k = self.track_of(s);
+        if self.asked_on[k] == a {
             return;
         }
-        if let Some(s) = table_state(a, self.climb, self.tracks[0].state) {
-            let t = &self.tracks[self.track_of(s)];
-            if t.state == s && t.phase == 1 {
-                self.asked = a;
-                return;
-            }
+        // An upper state its track has gone on to by itself (+0xe7's,
+        // 0x8005678c) is not asked again; a base state new to the base
+        // track always is (a state's entry asks, 0x8005b2d8, and its first
+        // frame begins anew).
+        if k == 1 && self.tracks[1].state == s && self.tracks[1].phase == 1 {
+            self.asked = a;
+            self.asked_on[1] = a;
+            return;
         }
         self.start(a, anims);
     }
@@ -368,6 +386,7 @@ impl Animator {
         }
         self.asked = a;
         let k = self.track_of(s);
+        self.asked_on[k] = a;
         let t = &mut self.tracks[k];
         t.state = s;
         t.phase = 0;
@@ -420,6 +439,7 @@ impl Animator {
 
     /// The base track's start (0x800562bc): playing, its state entered.
     fn begin_base(&mut self, anims: &Anims) {
+        self.began = true;
         self.tracks[0].phase = 1;
         if self.entered.len() < 8 {
             self.entered.push(self.tracks[0].state);
@@ -626,6 +646,7 @@ impl Animator {
     /// pose.
     pub fn step(&mut self, anims: &Anims, trig: &Trig) {
         self.events = 0;
+        self.began = false;
         let speed = self.speed;
         let time = |t: &Track| if t.state == -1 { 0 } else { (DT * speed / 4096) as i16 };
         let mut times = self.tracks.map(|t| time(&t));

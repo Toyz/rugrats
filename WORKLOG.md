@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-183 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 88, render 28, save 4, test 24, tooling 18, ui 13, video 10.
+184 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 89, render 28, save 4, test 24, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -195,3 +195,4 @@ The [reference](docs/README.md) says what is true now.
 | 181 | [The parts' matrices are the original's integers](worklog/0181-the-parts-matrices-are-the-original-s-integers.md) | 2026-10-17 | play |
 | 182 | [The carry and the throw's start in the original's integers](worklog/0182-the-carry-and-the-throw-s-start-in-the-original-s-integers.md) | 2026-10-17 | play |
 | 183 | [Throws fly as the original's flights](worklog/0183-throws-fly-as-the-original-s-flights.md) | 2026-10-17 | play |
+| 184 | [The body's height is the original's, frame by frame](worklog/0184-the-body-s-height-is-the-original-s-frame-by-frame.md) | 2026-10-17 | play |

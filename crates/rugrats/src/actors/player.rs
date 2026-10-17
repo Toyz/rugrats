@@ -216,13 +216,16 @@ pub struct Player {
     /// Standing, walking or running, the floor takes back 23 a frame of
     /// it below the floor (the oracle: 868, 845, 822, 799, 779 after a
     /// landing).
-    root_y: i32,
+    pub root_y: i32,
     /// The base track's root y so far, which animation it was of, and the
     /// frame it was at (a loop starts again under it).
     root_seen: RootSeen,
     /// Where the body was over the floor as the base track's animation
     /// began: its first frame blends it away.
     root_base: i32,
+    /// What the animation before still had when it ran out in the step
+    /// this one began: on top of this one's curve until the next begins.
+    root_rest: i32,
 }
 
 impl Player {
@@ -307,6 +310,7 @@ impl Player {
             root_y: 0,
             root_seen: RootSeen::default(),
             root_base: 0,
+            root_rest: 0,
         };
         let q = collide::query(col, start);
         if q.tile.is_some() {
@@ -336,6 +340,11 @@ impl Player {
         }
         self.effects.clear();
         self.hints.clear();
+        // The animation steps first and its root with it (0x8005a068:
+        // 0x80056834, then the state's handler, which asks for what plays
+        // from the next step).
+        self.animator.step(anims, trig);
+        self.root_step(anims, col, trig);
         let held = |b: usize| pads.held(0, b);
         let pressed = |b: usize| pads.pressed(0, b);
         self.lifting = held(input::CROSS);
@@ -777,7 +786,15 @@ impl Player {
                 self.lift_time = 0;
                 self.air = 0;
             } else {
+                // Just landed, the body stays where the air left it this
+                // frame (the original's y): the landing's animation takes it
+                // from there, its first frame blending from that height
+                // (+0xde, 0x80055904).
+                let was = self.pos[1];
                 self.pos[1] = self.floor + self.feet;
+                if air_landed {
+                    self.root_y += was - self.pos[1];
+                }
             }
         } else if self.pending_jump.is_some() {
             // The crouch keeps the feet on the floor; its step carried past
@@ -853,13 +870,12 @@ impl Player {
             State::Fall => anim::FALL,
             State::Land => anim::LAND,
         };
-        self.animator.set(a, anims);
-        // The animation steps before the state's handler (0x8005a068), so
-        // a landing's animation starts the frame after it lands.
-        if !self.landed {
-            self.animator.step(anims, trig);
+        // Standing with a thing, the stand's entry asks for the idle on the
+        // base track as well as the carry's arms over it.
+        if a == anim::CARRY_IDLE {
+            self.animator.set(anim::IDLE, anims);
         }
-        self.root_step(anims, col, trig, solids);
+        self.animator.set(a, anims);
         if air_landed {
             self.landed = true;
             // A long fall (state 10, 0x8005b2d8): Damage 5, message 31.
@@ -1144,7 +1160,7 @@ impl Player {
 
     /// The base track's root y this step (0x80055904 into +0xda), and the
     /// jump's take-off when its airborne state comes.
-    fn root_step(&mut self, anims: &Anims, col: &Col, trig: &Trig, solids: &[Exact]) {
+    fn root_step(&mut self, anims: &Anims, col: &Col, trig: &Trig) {
         // The bump moves the body by its root keys across (state 32's
         // word has 32): Spike's throws him back.
         if self.action == Some(anim::BUMP)
@@ -1183,7 +1199,11 @@ impl Player {
             // and the first step in the air is the frame after (the oracle:
             // 868, 868, 814 as the crouch's last part is had, then 664; the
             // run's 778, then 632). Its keys are not had.
-            let off = state != 5 && state == was.state && was.state != 0;
+            // Off the step the crouch gives way to the state after it (6);
+            // a moving jump (41) has no crouch: launched as its state is
+            // entered (0x8005b2d8 -> 0x80060f1c), it is in the air the step
+            // its animation begins.
+            let off = (state != 5 && state != 0 && was.state == 5) || (state == 41 && was.state != 41);
             // (A moving jump's own state adds none of its keys: the
             // original leaves from the run's height that frame, 778 then
             // 632 from the hub's start.)
@@ -1206,7 +1226,9 @@ impl Player {
                 // (Along the way, and in the body, as they were at the start
                 // of the frame before: the original sets the launch at the
                 // animation's event a frame before its first air step.)
-                let h = self.launch_heading;
+                // (Before this frame's handler: the heading its handler
+                // would keep as the way's, +0x178's, the frame before's.)
+                let h = self.way_heading;
                 self.v = launch_v(trig.turn(h, [0, 0, 4096]), v[1], v[2], h, trig);
                 self.launch_at = self.pos;
                 self.air_hit = false;
@@ -1214,7 +1236,6 @@ impl Player {
                 // (0x80060f1c).
                 self.lift_time = 1024;
                 self.air = 0;
-                self.air_move(self.lifting, col, trig, solids, anims, false);
             }
             return;
         }
@@ -1228,18 +1249,43 @@ impl Player {
         // over the floor, then -41, -45, -40, -23, -18, -10, +1, the run's
         // own curve from its second frame; after a landing, 89 under it
         // and 23 less a frame through the idle's first frame.
-        if (was.state, was.first) != (state, first) || cur < was.cur {
-            // From where the last one left the body, its end had.
-            self.root_base = self.root_y + rest;
-        }
+        // Its first frame takes the body from where it was to the key
+        // (+0xde, 0x80055904), by tz(D frac) of its time gone. The start is
+        // taken at the first step that spends time in that frame: begun in
+        // the step the animation before ran out in, what that one still had
+        // (its rest) comes on top of the height the start is taken from; a
+        // start that had no time that step is taken the next, the rest in
+        // it. The rest stays until the next start (a loop's next round, or
+        // a state asked for again, starts again).
+        let switched = (was.state, was.first) != (state, first) || cur < was.cur || self.animator.began();
         let (.., left) = self.animator.track();
-        let blend = if cur > first {
-            1.0
+        let frame = anims.frames.get(first);
+        let dur = frame.map_or(1, |f| f.duration.max(1) as i32);
+        let frac = ((dur - left).clamp(0, dur) << 12) / dur;
+        if switched {
+            if cur == first && frac == 0 {
+                self.root_base = self.root_y + rest;
+                self.root_rest = 0;
+            } else {
+                self.root_base = self.root_y;
+                self.root_rest = rest;
+            }
+        }
+        self.root_y = if cur > first {
+            self.root_rest + done
         } else {
-            let dur = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
-            ((dur - left) as f32 / dur as f32).clamp(0.0, 1.0)
+            // (A frame without a root key has its key 0, 0x800557ec.)
+            let key = frame
+                .and_then(|f| {
+                    anims.keys_of(f).iter().find_map(|k| match *k {
+                        rugrats_data::anim::Key::Lift { dy, .. } => Some(dy as i32),
+                        _ => None,
+                    })
+                })
+                .unwrap_or(0);
+            let d = (key - self.root_base).wrapping_mul(frac);
+            self.root_base + self.root_rest + if d < 0 { (d + 4095) >> 12 } else { d >> 12 }
         };
-        self.root_y = done + (self.root_base as f32 * (1.0 - blend)) as i32;
     }
 
     pub fn launch(&mut self, heading: i32, up: i32, speed: i32, trig: &Trig) {

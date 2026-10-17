@@ -13,6 +13,8 @@ use crate::input::{self, Pads};
 use crate::levels::Level;
 use crate::world::game::{self, Exit, Game, Script};
 
+/// The hiders' animation while hidden (logical 46).
+const HIDING: i16 = 46;
 /// The hiders: Phil, Lil, Tommy; their catch and win cines.
 const BABIES: [(u16, usize, usize); 3] = [(608, 76, 42), (609, 75, 41), (1492, 77, 43)];
 /// Hidden by cine 44's end.
@@ -51,6 +53,15 @@ fn running_lines(id: u16) -> &'static [u16] {
     }
 }
 
+/// Hidden (0x800838b4's mode 1, its back mode 1), the tag its use.
+fn hiding(m: &Mode) -> bool {
+    match m {
+        Mode::Act(None) => true,
+        Mode::Resume(back) => matches!(**back, Mode::Act(None)),
+        _ => false,
+    }
+}
+
 fn find(g: &Game, id: u16) -> Option<usize> {
     g.npcs.iter().position(|n| n.id == id)
 }
@@ -83,7 +94,10 @@ impl ChuckiesGlasses {
         self.babies[i].spot = spot;
         let n = &mut g.npcs[k];
         n.hidden = false;
-        n.mode = Mode::Idle;
+        // 0x800838b4(baby, 46, 2048): mode 1, back mode 1, the hiding
+        // animation at half speed.
+        n.mode = Mode::Act(None);
+        n.animator.start_at(HIDING, 2048, &g.anims);
         // (Scheduled, 0x8007ee54 / 0x8007f004.)
         n.scheduled = true;
         n.run_speed = Some(RUN);
@@ -140,7 +154,7 @@ impl Script for ChuckiesGlasses {
                     && find(g, b.id).is_some_and(|k| {
                         let n = &g.npcs[k];
                         let (dx, dz) = ((n.pos[0] - p[0]) as i64, (n.pos[2] - p[2]) as i64);
-                        n.mode == Mode::Idle && dx * dx + dz * dz < TAG_REACH * TAG_REACH
+                        hiding(&n.mode) && dx * dx + dz * dz < TAG_REACH * TAG_REACH
                     })
             });
             if let Some(i) = near

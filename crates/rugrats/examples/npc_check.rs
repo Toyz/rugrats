@@ -89,8 +89,10 @@ fn main() -> Result<(), String> {
     // Each NPC's object: the one of its template at its place, or nearest.
     let mut pairs = Vec::new();
     let mut bodies: Vec<(u32, [i32; 3])> = Vec::new();
+    // (The player's own body, 0x800e2b48, is no character: it has the
+    // id 1492 as Tommy has.)
     for &o in &objs {
-        if p.read_u32(o + 0x154) != 0 {
+        if p.read_u32(o + 0x154) != 0 && o != 0x800e_2b48 {
             let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
             bodies.push((o, at));
         }
@@ -167,10 +169,15 @@ fn main() -> Result<(), String> {
         && let Some(m) = moves
         && let Some(&(_, o)) = pairs.iter().find(|(k, _)| *k == m)
     {
-        for a in [0x8008_4084u32, 0x8005_a068, 0x8005_6834] {
+        for a in [0x8008_4084u32, 0x8005_a068, 0x8005_6834, 0x8005_7214, 0x8005_72a8] {
             p.hle.m.hook(a, move |c| {
                 if c.arg32(0) == o {
-                    println!("     CALL {a:#x}");
+                    println!(
+                        "     CALL {a:#x} a1 {} a2 {} ra {:#x}",
+                        c.cpu.reg(5) as i32,
+                        c.cpu.reg(6) as i32,
+                        c.cpu.reg(31) as u32
+                    );
                 }
                 rrt::emu::HookResult::Continue
             });
@@ -185,8 +192,14 @@ fn main() -> Result<(), String> {
     let mut each: Vec<(usize, bool, bool)> = vec![(0, false, false); pairs.len()];
     let start_orig: Vec<[[i16; 6]; 4]> = pairs.iter().map(|&(_, o)| tracks(&mut p, o)).collect();
     let start_port: Vec<[[i16; 6]; 4]> = pairs.iter().map(|&(k, _)| g.npcs[k].animator.record()).collect();
+    // (A frame the original took three VSyncs over, dt 15 (0x800c3f1c),
+    // the port, at dt 10, cannot follow: its time (0x800c3e98) stands
+    // still one frame and goes 15 the next. Those frames are not counted,
+    // and each pair is given the original's state again after them.)
+    let mut lagged = false;
+    let mut clock = p.read_i32(0x800c_3e98);
     for f in 0..frames {
-        if sync_at == Some(f) {
+        if sync_at.is_some_and(|s| s == f || s < f && lagged) {
             for &(k, o) in &pairs {
                 let t = tracks(&mut p, o);
                 let speed = p.read_i16(o + 0xe4) as i32;
@@ -196,10 +209,9 @@ fn main() -> Result<(), String> {
                 let n = &mut g.npcs[k];
                 n.pos = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
                 n.heading = p.read_i16(o + 0x24) as i32 & 4095;
-                let pose = n.animator.record();
-                let _ = pose;
                 n.animator.load_record(t, speed, after, fidget, vec![None; 32], &g.anims);
-                if let Some(a) = (0..54).find(|&a| rugrats::actors::animator::table_state(a, 0, t[0][0], false) == Some(t[0][0])) {
+                // (Its after state, +0xe6, playing is standing: the idle asked.)
+                if let Some(a) = rugrats::actors::animator::logical_of(t[0][0]).filter(|&a| a != after.0 as i16) {
                     n.animator.mark_asked(a);
                 }
                 n.sync_body(p.read_u8(o + 0x18c), p.read_i32(o + 0x184));
@@ -210,6 +222,13 @@ fn main() -> Result<(), String> {
         }
         g.frame(&pads);
         p.frame(0)?;
+        let dt = p.read_i32(0x800c_3e98) - clock;
+        clock += dt;
+        lagged = dt != 10;
+        if lagged {
+            println!("{f:3} LAG dt {dt}");
+            continue;
+        }
         if let Some(m) = moves
             && let Some(&(k, o)) = pairs.iter().find(|(k, _)| *k == m)
         {
@@ -217,7 +236,7 @@ fn main() -> Result<(), String> {
             let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
             let way = [0, 4, 8].map(|i| p.read_i32(o + 0x178 + i));
             println!(
-                "{f:3} MOVE orig {at:?} h {} to {} mode {} wait {} ev {:#x} track0 {:?} speed {} way {way:?} v {:?} state {} posts {}<{} | port {:?} h {} speed {} {:?} {:?} {:?}",
+                "{f:3} MOVE orig {at:?} h {} to {} mode {} wait {} ev {:#x} track0 {:?} speed {} way {way:?} v {:?} state {} flags {:#x} held {} posts {}<{} | port {:?} h {} speed {} {:?} {:?} {:?}",
                 p.read_i16(o + 0x24),
                 p.read_i16(o + 0x2c),
                 p.read_u8(o + 0x699),
@@ -227,6 +246,8 @@ fn main() -> Result<(), String> {
                 p.read_i32(o + 0x184),
                 [0, 2, 4].map(|i| p.read_i16(o + 0x170 + i)),
                 p.read_u8(o + 0x18c),
+                p.read_u32(o + 0x188),
+                p.read_i16(o + 0x1b0),
                 p.read_u8(o + 0x695),
                 p.read_u8(o + 0x694),
                 n.pos,

@@ -79,11 +79,14 @@ impl Play {
                 HookResult::Continue
             });
         }
+        // The character, at each level load (0x800454dc) of the boot: with
+        // the cinematics the loader runs before play mode's activation sets
+        // the character from the hub's level (0x80018784), and again after.
+        let booting = Rc::new(Cell::new(true));
         if let Some(ch) = boot.character {
-            let done = Rc::new(Cell::new(false));
+            let booting = booting.clone();
             hle.m.hook(0x8004_54dc, move |c| {
-                if !done.get() {
-                    done.set(true);
+                if booting.get() {
                     c.bus.load_ram(CHARACTER, &ch.to_le_bytes());
                 }
                 HookResult::Continue
@@ -112,6 +115,7 @@ impl Play {
             let pad = presses.iter().filter(|(at, _)| (*at..at + 4).contains(&f)).fold(0, |a, p| a | p.1);
             play.vblank(pad)?;
         }
+        booting.set(false);
         Ok(play)
     }
 

@@ -648,8 +648,10 @@ fn level_9_friend_bites_as_the_original() {
     let k = b.game.npcs.iter().position(|n| n.id == 46).expect("Mr. Friend");
     let at = b.game.npcs[k].pos;
     let mut bodies = Vec::new();
+    // (The player's own body, 0x800e2b48, is no character: it has the
+    // id 1492 as Tommy has.)
     for o in objects(&mut b.hle) {
-        if b.hle.read_u32(o + 0x154) != 0 {
+        if b.hle.read_u32(o + 0x154) != 0 && o != 0x800e_2b48 {
             let d: i32 = (0..3).map(|i| (b.hle.read_i32(o + 0x18 + 4 * i as u32) - at[i]).abs()).sum();
             bodies.push((d, o));
         }
@@ -729,8 +731,10 @@ fn sync_npc(b: &mut Both, id: u16) -> (usize, u32) {
     let at = b.game.npcs[k].pos;
     // Its own id (+0x38) first, else the body nearest.
     let mut bodies = Vec::new();
+    // (The player's own body, 0x800e2b48, is no character: it has the
+    // id 1492 as Tommy has.)
     for o in objects(&mut b.hle) {
-        if b.hle.read_u32(o + 0x154) != 0 {
+        if b.hle.read_u32(o + 0x154) != 0 && o != 0x800e_2b48 {
             let d: i32 = (0..3).map(|i| (b.hle.read_i32(o + 0x18 + 4 * i as u32) - at[i]).abs()).sum();
             let other = (b.hle.read_i16(o + 0x38) as u16 != id) as i32;
             bodies.push(((other, d), o));
@@ -759,7 +763,8 @@ fn sync_npc(b: &mut Both, id: u16) -> (usize, u32) {
     let n = &mut g.npcs[k];
     n.animator.load_record(t, speed, after, fidget, pose, &g.anims);
     // What its base state was asked as (the logical animation).
-    if let Some(a) = (0..54).find(|&a| rugrats::actors::animator::table_state(a, 0, t[0][0], false) == Some(t[0][0])) {
+    // (Its after state, +0xe6, playing is standing: the idle asked.)
+    if let Some(a) = rugrats::actors::animator::logical_of(t[0][0]).filter(|&a| a != after.0 as i16) {
         n.animator.mark_asked(a);
     }
     n.pos = [0, 4, 8].map(|i| b.hle.read_i32(o + 0x18 + i));

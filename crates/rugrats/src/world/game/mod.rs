@@ -69,6 +69,8 @@ const ROT: usize = 338;
 /// Level starts (0x80017c0c): s32 x, y, z at 0x800b2940 + 16 level, u16
 /// angles at 0x800b2b40 + 8 level, the first the heading.
 const STARTS: u32 = 0x800b_2940;
+/// The babies' idle in levels 20 and 21 (0x80082478).
+const BOX_TOSS_IDLE: u8 = 35;
 
 const START_ANGLES: u32 = 0x800b_2b40;
 
@@ -549,9 +551,10 @@ impl Game {
         let heading = u16::from_le_bytes([angles[0], angles[1]]) as i32 & 4095;
         // The placements loader (0x800454dc) moves the player onto the LP
         // record whose template is the character's hierarchy, turned by
-        // its quaternion (0x8001f684, 0x80059a88).
+        // its quaternion (0x8001f684, 0x80059a88). (Level 12's Tommy is
+        // taken by his own, 1, before his body becomes 44.)
         let mine = |p: &&Placement| {
-            p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy() == Some(body))
+            p.kind == 1 && set.templates.get(p.template as usize).is_some_and(|t| t.hierarchy() == Some(who))
         };
         let player_id = set.placements.iter().find(mine).map(|p| p.id as i16);
         let (start, heading) = match set.placements.iter().find(mine) {
@@ -855,6 +858,12 @@ impl Game {
             let Some(Some(hierarchy)) = set.hierarchies.get(h).cloned() else { continue };
             let mut animator = Animator::load(disc, h as u16)?;
             animator.set(IDLE, &anims);
+            // 0x80082478: in the box toss levels a character stands in the
+            // babies' idle, logical 35 after the base (table state 47).
+            if level.is_box_toss() {
+                animator.set_after(BOX_TOSS_IDLE, true);
+                animator.set_up(animator::table_state(BOX_TOSS_IDLE as i16, 0, 0, false).unwrap_or(0), &anims);
+            }
             // Template +0x18 health, +0x1a range, +0x1c wait, +0x1e speed
             // index, +0x32 damage (0x80081bac).
             let t = &set.templates[p.template as usize];

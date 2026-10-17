@@ -67,6 +67,18 @@ pub fn table_state(a: i16, climb: i32, current: i16, running: bool) -> Option<i1
     }
 }
 
+/// The logical animation table state `s` plays for (for tools giving a
+/// body another's state): a second half (2, 4, 6, 18, 35, 46) as its
+/// first, a fidget (23, 24) as standing.
+pub fn logical_of(s: i16) -> Option<i16> {
+    let first = match s {
+        23 | 24 => return Some(0),
+        2 | 4 | 6 | 18 | 35 | 46 => s - 1,
+        _ => s,
+    };
+    (0..54).find(|&a| !matches!(a, 5 | 6 | 17) && table_state(a, 0, first, false) == Some(first))
+}
+
 /// Frame `k`'s root key, scaled by `lo` (4096 = 1, toward zero) if given.
 fn root_key(anims: &Anims, k: usize, lo: Option<i32>) -> Option<[i32; 3]> {
     let r = anims.frames.get(k).and_then(|f| {
@@ -418,6 +430,15 @@ impl Animator {
         self.start(a, anims);
     }
 
+    /// Standing, not turning (0x8005d11c): a base on any state but the
+    /// idle, a fidget (23, 24) or 60 asks the state after the base (+0xe6)
+    /// again from its first frame (0x80057274), each frame.
+    pub fn stand(&mut self, anims: &Anims) {
+        if !matches!(self.tracks[0].state, 0 | 23 | 24 | 60) {
+            self.ask(self.after_base as i16, 4096, anims);
+        }
+    }
+
     /// Starts logical animation `a` from its first frame at speed
     /// `speed` (0x800572a8's third argument, 4096 as written).
     pub fn start_at(&mut self, a: i16, speed: i32, anims: &Anims) {
@@ -447,6 +468,12 @@ impl Animator {
         t.state = s;
         t.phase = 0;
         t.back = 0;
+    }
+
+    /// Its tracks set up on table state `s` without asking (0x80055f7c):
+    /// what was asked last stays asked.
+    pub fn set_up(&mut self, s: i16, anims: &Anims) {
+        self.init(s, anims);
     }
 
     /// The tracks set up on state `s` (0x80055f7c, 0x80055ed8): each

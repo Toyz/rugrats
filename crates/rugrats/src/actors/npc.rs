@@ -89,6 +89,10 @@ pub enum Mode {
     Guard,
     /// Mode 1: hit, recovering for `left` dt.
     Hit { left: i32, then: Box<Mode> },
+    /// Mode 1 as 0x800838b4 sets it (the hiders of level 10): an animation
+    /// asked, played out where it stands; at its end mode 0 for a frame,
+    /// then the back mode (+0x69b): this one, or mode 1 again.
+    Act(Option<Box<Mode>>),
     /// Riding another (0x80083634): its position less `up`, its heading
     /// plus `turn`.
     Ride { on: Target, up: i32, turn: i32 },
@@ -544,8 +548,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         // 0x80082230).
         // Mode 1 at its animation's event 0x2000 (not for 1776): a wait of
         // 300 + (rand & 3) x 300 dt (+0x69c), with no body update.
-        if matches!(n.mode, Mode::Follow(_))
-            && n.bite == Bite::Recover
+        if (matches!(n.mode, Mode::Follow(_)) && n.bite == Bite::Recover || matches!(n.mode, Mode::Act(_)))
             && n.animator.events & 0x2000 != 0
             && n.id != 1776
         {
@@ -804,6 +807,19 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 n.speed = 0;
                 n.mode = if left <= 0 { *then } else { Mode::Hit { left: left - DT, then } };
             }
+            // Mode 1 (0x800841cc): state 19, its body updated with no step.
+            // (Its stick turns it to +0x67c, which nothing set for the
+            // hiders: a heading it has long come to.)
+            Mode::Act(then) => {
+                n.speed = 0;
+                n.pos[0] += across[0];
+                n.pos[2] += across[1];
+                if n.animator.events & 0x800_0000 != 0 {
+                    let back = then.map_or(Mode::Act(None), |m| *m);
+                    n.mode = Mode::Resume(Box::new(back));
+                }
+                continue;
+            }
         }
         n.pos[0] += across[0];
         n.pos[2] += across[1];
@@ -832,6 +848,8 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
             // Back from the bite's state 19 (mode 1 left state 0 for the
             // body's next update): the state's entry asks anew (0x8005b2d8).
             n.animator.start(a, w.anims);
+        } else if n.hold.is_none() && n.speed <= 0 {
+            n.animator.stand(w.anims);
         } else {
             n.animator.set(a, w.anims);
         }

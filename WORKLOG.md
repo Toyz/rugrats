@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-168 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 76, render 28, save 4, test 23, tooling 18, ui 11, video 10.
+169 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 76, render 28, save 4, test 24, tooling 18, ui 11, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -180,3 +180,4 @@ The [reference](docs/README.md) says what is true now.
 | 166 | [The Load Game pages' button cubes](worklog/0166-the-load-game-pages-button-cubes.md) | 2026-10-16 | ui |
 | 167 | [The pause is a screen of its own](worklog/0167-the-pause-is-a-screen-of-its-own.md) | 2026-10-16 | ui |
 | 168 | [Each cinematic's own lens](worklog/0168-each-cinematic-s-own-lens.md) | 2026-10-16 | render |
+| 169 | [The port played against the original](worklog/0169-the-port-played-against-the-original.md) | 2026-10-16 | test |

@@ -40,8 +40,9 @@ const TOMMY: u16 = 1;
 /// Gravity (0x80061330): vy += 14 * dt, less 5 while jump is held.
 const GRAVITY: i32 = 14;
 const LIFT: i32 = -5;
-/// The stick's push across in the air at full, a unit of time (measured).
-pub const AIR_PUSH: f32 = 12.55;
+/// The stick's push in the air at full, straight on (`air_push`: 12 an
+/// axis, the original's stack).
+pub const AIR_PUSH: i32 = 12;
 
 /// Logical animations (0x800572a8's argument) the port uses; the
 /// animator turns them into the character table's states (0x80056fe4).
@@ -119,8 +120,9 @@ pub struct Player {
     /// The slant under which a thing is met head-on, climbed or bumped
     /// rather than slid along (0x8005e1f4: 384, 220 as Spike, +0x15c 6).
     pub head_on: i32,
-    /// The stick's push across in the air this frame (world x, z).
-    push: [f32; 2],
+    /// The stick's push in the air this frame (the body's frame: across,
+    /// along).
+    push: [i32; 2],
     pub animator: Animator,
     /// Sound effects asked for this frame (0x8006f644's numbers).
     pub effects: Vec<u8>,
@@ -243,7 +245,7 @@ impl Player {
             script_aims: false,
             turn_rate: TURN,
             head_on: 384,
-            push: [0.0; 2],
+            push: [0; 2],
             animator,
             effects: Vec::new(),
             action: None,
@@ -333,6 +335,12 @@ impl Player {
                 magnitude = 0;
             } else {
                 self.action = None;
+                // The bump's state (9) reads no stick; it gives way to
+                // standing after this frame's stick (the original turns a
+                // frame after the bump ends, `hub_run_as_the_original`).
+                if a == anim::BUMP {
+                    magnitude = 0;
+                }
                 self.finish_climb(col, boxes, false);
                 // The slip's fall ends (state 18): Damage 5, message 30.
                 if self.slipping {
@@ -348,14 +356,23 @@ impl Player {
             let want = (dir + camera_heading).rem_euclid(4096);
             let factor = if held(input::SQUARE) { self.gait.1 } else { self.gait.0 };
             let turn = wrap(want - self.heading);
-            if self.frozen {
+            if matches!(self.state, State::Jump | State::Fall | State::Land) {
+                // In the air and through the landing the stick does not
+                // steer: the heading holds (the original's 1246 from the
+                // takeoff to standing again,
+                // `hub_start_run_and_jump_as_the_original`); the air's push
+                // takes the stick instead.
+                if self.state == State::Land {
+                    self.speed = 0;
+                }
+            } else if self.frozen {
                 // Held in place (+0x188 bit 1): only the turn runs, so the
                 // stick aims.
                 if !self.script_aims {
                     self.target = want;
                 }
                 self.speed = 0;
-            } else if turn.abs() <= SNAP_TURN || self.speed >= MOVING || !on_ground {
+            } else if turn.abs() <= SNAP_TURN || self.speed >= MOVING {
                 // The target at once; the heading turns to it at the turn
                 // rate below, the move along it (the oracle, the hub's
                 // start: 2048 to 1888, 1728, 1568 a frame for 1536, the
@@ -377,36 +394,39 @@ impl Player {
                 self.target = self.heading;
             }
         }
-        // Turn toward the wanted heading (0x8005bbf4).
+        // The state's handler steps along the heading as it is; the turn
+        // toward the wanted heading (0x8005bc80) comes after the step is
+        // added (0x8005cb48), so this frame's turn moves the next frame's
+        // step (`hub_start_run_and_jump_as_the_original`).
+        let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
         let step = (self.turn_rate * DT) >> 6;
         let d = wrap(self.target - self.heading);
         self.heading = (self.heading + d.clamp(-step, step)).rem_euclid(4096);
-        let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
-        // The stick's push in the air (0x80061330), had there.
-        self.push = if magnitude >= DEAD && !self.frozen {
-            let tau = std::f32::consts::TAU / 4096.0;
-            let (cs, cc) = ((camera_heading as f32 * tau).sin(), (camera_heading as f32 * tau).cos());
-            // The stick in the world (x right, z up turned by the
-            // camera's heading), then along and across the facing.
-            let (wx, wz) = (sx as f32 * cc + sz as f32 * cs, sz as f32 * cc - sx as f32 * cs);
-            let (hs, hc) = (s as f32 / 4096.0, c as f32 / 4096.0);
-            let along = wx * hs + wz * hc;
-            let across = (wx * hc - wz * hs) / 2.0;
-            let k = AIR_PUSH / 4096.0;
-            [(along * hs + across * hc) * k, (along * hc - across * hs) * k]
-        } else {
-            [0.0; 2]
-        };
+        // The stick's push in the air (0x80061330), had there: the axes
+        // as the pad gives them (4096 a full one, 8 times that raw).
+        self.push = if self.frozen { [0; 2] } else { air_push([sx, sz], camera_heading, self.heading, trig) };
         // A wall met head-on (or no way along it) by the ground move.
         let mut wall_met = false;
+        let first_step = self.state == State::Stand && self.speed > 0 && !acting && self.pending_jump.is_none();
+        let mut probe_step: Option<(i32, i32)> = None;
         if on_ground {
             // The ground move along the facing (0x8005caac); none while
             // landing.
             if !self.frozen && self.state != State::Land {
-                let ((dx, dz), wall) = self.ground_step_wall(col, (s * self.speed * DT) >> 12, (c * self.speed * DT) >> 12);
+                let (dx, dz) = along([s, c], self.speed * DT);
+                let ((dx, dz), wall) = self.ground_step_wall(col, dx, dz);
                 wall_met = wall;
-                self.pos[0] += dx;
-                self.pos[2] += dz;
+                if first_step {
+                    // Standing, the stick pushed (0x8005d11c): the probes
+                    // run along the step, a slide or a climb may start and
+                    // the state changes, but the step is the walk's or the
+                    // run's, from the next frame (the original stands its
+                    // first frame, `hub_run_as_the_original`).
+                    probe_step = Some((dx, dz));
+                } else {
+                    self.pos[0] += dx;
+                    self.pos[2] += dz;
+                }
             }
             if pressed(input::CROSS) && !acting && self.jump_lock == 0 && !self.no_jump && !self.frozen {
                 // The launch (0x80060f1c): up 1000, and along the facing
@@ -414,7 +434,8 @@ impl Player {
                 self.standing_jump = self.speed <= WALK;
                 let (up, factor) = if self.standing_jump { (-1000, 12) } else { self.moving_jump };
                 let along = factor * self.speed;
-                self.pending_jump = Some([(s * along) >> 12, up, (c * along) >> 12]);
+                // (Along the heading at the takeoff, `root_step`.)
+                self.pending_jump = Some([0, up, along]);
                 self.v = [0; 3];
                 self.state = State::Jump;
             }
@@ -422,17 +443,10 @@ impl Player {
             // Crouching for the jump: still on the floor.
         } else {
             // The air (0x80061330): gravity 14, less 5 while jump is held
-            // on the way up. Across, the stick pushes (turned by the
-            // camera into the body's own frame, its sideways part halved)
-            // against a drag of 32/4096 of the speed, both a unit of time;
-            // the step is v dt + a dt^2 / 2. The push at full is 12.55 (the
-            // oracle's flight off level 6's shelf, Up held: 111 a frame
-            // rising to 226).
+            // on the way up; across, the stick's push against the drag
+            // (`air_step`).
             let lift = if held(input::CROSS) && self.v[1] < 0 { LIFT } else { 0 };
-            let a = GRAVITY + lift;
-            self.air_across();
-            self.pos[1] += (self.v[1] * DT + a * DT * DT / 2) >> 6;
-            self.v[1] = (self.v[1] + a * DT).min(4096);
+            self.air_step(lift, trig);
         }
         // The floor (0x800627a0): the feet on it, or back where the frame
         // began when the point is not in the open.
@@ -503,7 +517,8 @@ impl Player {
         // is met where it stands.
         let start_feet = start[1] - self.feet;
         let feet_y = self.pos[1] - self.feet;
-        let (dx, dz) = ((self.pos[0] - start[0]) as f32, (self.pos[2] - start[2]) as f32);
+        let (dx, dz) = probe_step
+            .map_or(((self.pos[0] - start[0]) as f32, (self.pos[2] - start[2]) as f32), |(x, z)| (x as f32, z as f32));
         let len = dx.hypot(dz);
         // The probes are the ground move's (0x80064a34); in the air the body
         // is met where it is.
@@ -605,7 +620,9 @@ impl Player {
                 };
                 match again {
                     None if sl >= 1.0 => {
-                        self.pos = along;
+                        if !first_step {
+                            self.pos = along;
+                        }
                         blocked = false;
                         ran_into = None;
                         climb_to = None;
@@ -656,7 +673,9 @@ impl Player {
         if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
             if self.floor - feet_y > STEP_DOWN {
                 self.state = State::Fall;
-                self.v = [(s * self.speed) >> 6, 0, (c * self.speed) >> 6];
+                // Off along the facing at the step's speed (the body's own
+                // frame, +0x170).
+                self.v = [0, 0, self.speed << 6];
             } else {
                 self.pos[1] = self.floor + self.feet;
             }
@@ -1010,11 +1029,14 @@ impl Player {
                 self.root_y = 0;
                 // Off this frame: the air's first step with it (the
                 // animation steps before the state's handler, 0x8005a068).
-                self.v = v;
+                // The launch along the heading as it leaves the floor, in
+                // the body's frame (the original's +0x170 (-1, -1000, 679)
+                // for a run at 17 facing 1246).
+                let (sh, ch) = (trig.sin(self.heading), trig.cos(self.heading));
+                let w = [(sh * v[2]) >> 12, v[1], (ch * v[2]) >> 12];
+                self.v = to_body(w, self.heading, trig);
                 let before = self.pos;
-                self.air_across();
-                self.pos[1] += (self.v[1] * DT + GRAVITY * DT * DT / 2) >> 6;
-                self.v[1] += GRAVITY * DT;
+                self.air_step(0, trig);
                 // The step across meets walls as any air step does
                 // (0x8005ee78): into one, it is not had.
                 let q = collide::query(col, [self.pos[0], self.pos[1] - self.feet - 1, self.pos[2]]);
@@ -1055,7 +1077,8 @@ impl Player {
         self.target = heading;
         self.speed = 0;
         self.action = None;
-        self.v = [(trig.sin(heading) * speed) >> 12, up, (trig.cos(heading) * speed) >> 12];
+        let w = [(trig.sin(heading) * speed) >> 12, up, (trig.cos(heading) * speed) >> 12];
+        self.v = to_body(w, heading, trig);
         self.state = State::Jump;
     }
 
@@ -1072,15 +1095,35 @@ impl Player {
         self.animator.start_at(a, speed, anims);
     }
 
-    /// The air's step across (0x80061330): the stick's push this frame
-    /// against a drag of 32/4096 of the speed, both a unit of time; the
-    /// step v dt + a dt^2 / 2.
-    fn air_across(&mut self) {
-        for (k, p) in [(0, self.push[0]), (2, self.push[1])] {
-            let acc = p - self.v[k] as f32 * 32.0 / 4096.0;
-            self.pos[k] += ((self.v[k] as f32 * DT as f32 + acc * (DT * DT) as f32 / 2.0) / 64.0) as i32;
-            self.v[k] += (acc * DT as f32) as i32;
-        }
+    /// One frame in the air (0x80061330), in the original's integers: in
+    /// the body's own frame (`v`, +0x170), the stick's `push` against a
+    /// drag of 32/4096 of the speed across (its length 0x80076784, its way
+    /// 0x8009f278), gravity 14 and `lift` down; the step v dt + a dt^2 / 2
+    /// (over 64), turned from the body's frame into the world's
+    /// (0x80075ee8). Proved against the original's +0x170 frame by frame
+    /// (`hub_start_run_and_jump_as_the_original`).
+    fn air_step(&mut self, lift: i32, trig: &Trig) {
+        let [vx, vy, vz] = self.v;
+        let len = if (vx.unsigned_abs() | vz.unsigned_abs()) >> 16 != 0 {
+            0
+        } else {
+            ((vx * vx + vz * vz) as u32).isqrt() as i32
+        };
+        let toward_zero = |v: i32| if v < 0 { (v + 4095) >> 12 } else { v >> 12 };
+        let l = toward_zero(-(len << 5));
+        let u = collide::normalize([vx, 0, vz]);
+        let a = [self.push[0] + toward_zero(u[0] * l), lift + GRAVITY, self.push[1] + toward_zero(u[2] * l)];
+        let half = |v: i32| (v + (v < 0) as i32) >> 1;
+        let d = [0, 1, 2].map(|k| (half(a[k] * DT * DT) + self.v[k] * DT) >> 6);
+        self.v = [
+            (vx + a[0] * DT) as i16 as i32,
+            (vy + a[1] * DT).min(4096),
+            (vz + a[2] * DT) as i16 as i32,
+        ];
+        let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
+        self.pos[0] += (c * d[0] + s * d[2]) >> 12;
+        self.pos[1] += d[1];
+        self.pos[2] += (-s * d[0] + c * d[2]) >> 12;
     }
 
     /// The heading as a rotation (0x80020d10's matrix).
@@ -1190,6 +1233,45 @@ const FALL_DAMAGE: i32 = 5;
 /// Floor flag 2 (slippery) and the slip's fall's damage.
 const SLIPPERY: u8 = 2;
 const SLIP_DAMAGE: i32 = 5;
+
+/// The step `len` long along the facing (`sc`, its sine and cosine):
+/// 0x8005caac sets the way (+0x178) to that length with 0x80076944, the
+/// way normalized (0x8009f278) and scaled, each axis rounded toward zero.
+fn along(sc: [i32; 2], len: i32) -> (i32, i32) {
+    let u = collide::normalize([sc[0], 0, sc[1]]);
+    let toward_zero = |v: i32| if v < 0 { (v + 4095) >> 12 } else { v >> 12 };
+    (toward_zero(u[0] * len), toward_zero(u[2] * len))
+}
+
+/// A world vector in the body's own frame, facing `heading`
+/// (0x80075f20: the heading's rotation transposed).
+fn to_body(w: [i32; 3], heading: i32, trig: &Trig) -> [i32; 3] {
+    let (s, c) = (trig.sin(heading), trig.cos(heading));
+    [(c * w[0] - s * w[2]) >> 12, w[1], (s * w[0] + c * w[2]) >> 12]
+}
+
+/// The stick's push in the air (0x80061330), in the body's frame: each
+/// axis (raw, 8 times the 4096 scale; up negative) times 340 >> 15, times
+/// 0x4a90be59 >> 51 (12 at full), turned by the camera's heading into the
+/// world (0x80020bc0, 0x8009f6f8), then into the body's (`to_body`), its
+/// sideways part halved. The original's stack, read at 0x800616ac and
+/// 0x800616d4 through a jump with Up and Left held: (-12, 0, 12) before,
+/// (-1, 0, 16) after, as this gives.
+pub fn air_push(stick: [i32; 2], camera: i32, heading: i32, trig: &Trig) -> [i32; 2] {
+    let (xr, zr) = (stick[0] * 8, -stick[1] * 8);
+    let floor15 = |p: i32| (if p < 0 { p + 0x7fff } else { p }) >> 15;
+    let (lx, lz) = (floor15(xr * 340), floor15(-(zr * 340)));
+    let scale = |l: i32| {
+        let v = (l as i64) << 16;
+        (((v * 0x4a90_be59) >> 32) as i32 >> 19) - (v >> 31) as i32
+    };
+    let (lx, lz) = (scale(lx), scale(lz));
+    let a = camera.rem_euclid(4096);
+    let (s, c) = (trig.sin(a), trig.cos(a));
+    let w = [(c * lx + s * lz) >> 12, 0, (-s * lx + c * lz) >> 12];
+    let b = to_body(w, heading, trig);
+    [(b[0] + (b[0] < 0) as i32) >> 1, b[2]]
+}
 
 /// [`Player::probe_height`] for a body box `lo`..`hi`.
 fn probe_height(b: &Box3, at: [i32; 3], lo: [i32; 3], hi: [i32; 3]) -> i32 {

@@ -24,6 +24,7 @@ pub mod cdrom;
 pub mod gpu;
 pub mod hw;
 pub mod mdec;
+pub mod play;
 pub mod printf;
 pub mod sio;
 pub mod state;

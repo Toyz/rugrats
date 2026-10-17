@@ -197,6 +197,40 @@ impl Game {
             self.things[k].state = ThingState::Flying(v);
             self.carried = None;
             self.player.carrying = false;
+            // The arms as they were after (0x80060910, 0x80060b44:
+            // 0x80057244(player, 17, 0)).
+            self.player.animator.set_after(17, false);
+        }
+    }
+
+    /// Forgets the player's pose as last drawn: another body has become
+    /// the player (each body's matrices are its own), or one is handed a
+    /// thing without its animation.
+    pub fn forget_pose(&mut self) {
+        self.pose_before = None;
+    }
+
+    /// The player's parts and rotation as the grip reads them: as last
+    /// drawn (the original draws before it updates), else as now.
+    pub(super) fn drawn_pose(&self) -> (Vec<(Mat3, Vec3)>, Mat3) {
+        self.pose_before
+            .clone()
+            .unwrap_or_else(|| (self.player.parts(&self.anims, &self.trig), self.player.rotation(&self.trig)))
+    }
+
+    /// The grip (0x8005ff88 mode 0): the hands' midpoint (halved toward
+    /// zero) less hand 15, into the player's frame, its z on by half the
+    /// object's deepest box (0x8005fd58), as last drawn.
+    fn grip_of(&self, depth: i32) -> Vec3 {
+        let (parts, rot) = self.drawn_pose();
+        let at = |slot| self.player.slot_part(slot).and_then(|i| parts.get(i)).map(|p| p.1.round().as_ivec3());
+        match (at(HAND), at(OTHER_HAND)) {
+            (Some(a), Some(b)) => {
+                let mid = (a + b) / 2;
+                let g = (rot.transpose() * (mid - a).as_vec3()).trunc();
+                g + Vec3::new(0.0, 0.0, (depth >> 1) as f32)
+            }
+            _ => Vec3::new(0.0, -300.0, (depth >> 1) as f32 + 200.0),
         }
     }
 
@@ -206,13 +240,8 @@ impl Game {
         if k >= self.things.len() {
             return;
         }
-        let parts = self.player.parts(&self.anims, &self.trig);
-        let rot = self.player.rotation(&self.trig);
-        let at = |slot| self.player.slot_part(slot).and_then(|i| parts.get(i)).map(|p| p.1);
-        self.grip = match (at(HAND), at(OTHER_HAND)) {
-            (Some(a), Some(b)) => rot.transpose() * ((a + b) / 2.0 - a),
-            _ => Vec3::new(0.0, -300.0, 200.0),
-        };
+        self.forget_pose();
+        self.grip = self.grip_of(0);
         self.things[k].state = ThingState::Carried;
         self.carried = Some(k);
         self.player.carrying = true;
@@ -227,6 +256,7 @@ impl Game {
             self.things[k].pos = Vec3::new(p[0] as f32, (p[1] - self.player.feet()) as f32 - 100.0, p[2] as f32);
             self.things[k].state = ThingState::Rest;
             self.player.carrying = false;
+            self.player.animator.set_after(17, false);
         }
     }
 
@@ -552,24 +582,20 @@ impl Game {
     /// The grab (0x800601e4 at +0xe0 bit 2048): the object in hand, held
     /// where the hands are now.
     fn grab(&mut self, k: usize) {
-        let rot = self.player.rotation(&self.trig);
-        // The grip (0x8005ff88 mode 0): the hands' midpoint less hand 15,
-        // in the player's frame, pushed forward by half the object's depth.
-        let parts = self.player.parts(&self.anims, &self.trig);
-        let at = |slot| self.player.slot_part(slot).and_then(|i| parts.get(i)).map(|p| p.1);
-        let depth = self
-            .set
-            .models
-            .get(self.things[k].shape)
-            .map_or(0.0, |m| m.boxes.iter().map(|b| (b.1[2] - b.0[2]) as f32).fold(0.0, f32::max));
-        self.grip = match (at(HAND), at(OTHER_HAND)) {
-            (Some(a), Some(b)) => rot.transpose() * ((a + b) / 2.0 - a) + Vec3::new(0.0, 0.0, depth / 2.0),
-            _ => Vec3::new(0.0, -300.0, depth / 2.0 + 200.0),
-        };
+        let depth =
+            self.set.models.get(self.things[k].shape).map_or(0, |m| m.boxes.iter().map(|b| b.1[2] as i32 - b.0[2] as i32).fold(0, i32::max));
+        self.grip = self.grip_of(depth);
         self.things[k].state = ThingState::Carried;
         self.carried = Some(k);
         self.player.carrying = true;
         self.player.carry_climbs = !self.things[k].keep;
+        // The arms go on to the carry when the pick-up is done (0x800601e4:
+        // 0x80057244(player, 20, 0)), but for template 933, level 20 and
+        // 21's 886 and Spike.
+        let template = self.things[k].template;
+        if template != 933 && !(matches!(self.level.0, 20 | 21) && template == 886) && self.character != 6 {
+            self.player.animator.set_after(20, false);
+        }
         // The grab (0x800601e4): message 5.
         self.training.show(5);
     }

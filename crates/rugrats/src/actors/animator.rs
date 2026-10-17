@@ -13,6 +13,7 @@ use rugrats_data::hierarchy::Hierarchy;
 use rugrats_render::models::quat_matrix;
 
 use crate::disc::GameDisc;
+use crate::gte::Trig;
 
 /// dt a frame at 30 fps.
 const DT: i32 = 10;
@@ -122,18 +123,34 @@ pub fn entry_sound(state: i16, character: usize, level: u8) -> Option<u8> {
 const FIDGETS: (i16, i16) = (23, 24);
 const FIDGET_AFTER: i32 = 1200;
 
-/// One track playing: state, its animation's frames, the frame before,
-/// the frame showing, and time left in it.
-#[derive(Clone, Copy, Debug, Default)]
+/// The upper states track 1 keeps over the base (0x80056708: the carry's
+/// arms 19, the throw 26, and 50, 51, 53); any other there follows the
+/// base.
+const UPPERS: [i16; 5] = [19, 26, 50, 51, 53];
+
+/// The logical "as you were" (0x8005678c): the upper track, done, goes
+/// back to following the base.
+const AS_YOU_WERE: u8 = 17;
+
+/// One track as the original keeps it (12 bytes from +0xa8): its table
+/// state (-1 none), the frame before and the frame showing (indices into
+/// the frames, -1 none), the time left in the frame showing, its phase
+/// (+0xa: 0 to start, 1 playing, 2 done, 3 held on its last frame) and
+/// whether a ping-pong runs back (+0xb).
+#[derive(Clone, Copy, Debug)]
 struct Track {
-    anim: i16,
-    first: usize,
-    count: usize,
-    prev: usize,
-    cur: usize,
-    left: i32,
-    /// Running backward (a ping-pong's way back, +0xb).
-    back: bool,
+    state: i16,
+    prev: i16,
+    cur: i16,
+    left: i16,
+    phase: u8,
+    back: u8,
+}
+
+impl Default for Track {
+    fn default() -> Track {
+        Track { state: -1, prev: -1, cur: -1, left: 0, phase: 0, back: 0 }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -145,18 +162,25 @@ pub struct Animator {
     /// the next climb (logical 5).
     asked: i16,
     pub climb: i32,
-    /// The table states entered since last taken (for their sounds).
+    /// The table states entered on the base track since last taken (for
+    /// their sounds, 0x800562bc).
     entered: Vec<i16>,
     /// The idle's fidget to come and the time standing still before it
     /// (+0xf0, +0xf2).
     fidget: (i16, i32),
-    /// A state without a base column (the throw), played over the base
-    /// on track 1 and, where it has them, tracks 2 and 3 (0x800571d8,
-    /// 0x800561b0): the legs go on with the base state.
-    upper: Option<i16>,
-    /// The event bits of the frames that ended this step (FRM +0x00 into
-    /// +0xe0, 0x80055d40): 16 a throw's release, 2048 a grab, 0x2000 a
-    /// hurt state's wait, 1 an animation's last frame.
+    /// The logical states asked for after the base completes (+0xe6) and
+    /// after an upper state completes (+0xe7, 17 "as you were": back to
+    /// the base), 0x80057244.
+    after_base: u8,
+    after_upper: u8,
+    /// The parts' rotations as the samplers leave them (each part's +0x38
+    /// in the original), by channel: kept from frame to frame, a part a
+    /// frame does not key keeping its last.
+    pose: Vec<Option<[i32; 4]>>,
+    /// The flags of this step (+0xe0, cleared each step): the event bits
+    /// of the frames that ended (FRM +0x00, 0x80055d40: 16 a throw's
+    /// release, 2048 a grab, 0x2000 a hurt state's wait, 1 an animation's
+    /// last frame), 0x8000000 the base completed, 0x10000000 an upper.
     pub events: u32,
     /// The speed its tracks run at (+0xe4, 4096 as written): each
     /// 0x800572a8 call sets it from its third argument, clamped to 2048 ..
@@ -168,6 +192,8 @@ pub struct Animator {
     pub written_speed: i32,
     /// The character whose tables these are (the body's +0x15c).
     pub character: u16,
+    /// Each track's column's frames (first, count) as of the last step.
+    spans: [Option<(i16, i16)>; 4],
 }
 
 impl Animator {
@@ -195,11 +221,14 @@ impl Animator {
             climb: 0,
             entered: Vec::new(),
             fidget: (FIDGETS.0, FIDGET_AFTER),
-            upper: None,
+            after_base: 0,
+            after_upper: AS_YOU_WERE,
+            pose: vec![None; 32],
             events: 0,
             speed: 4096,
             written_speed: 4096,
             character,
+            spans: [None; 4],
         })
     }
 
@@ -211,11 +240,50 @@ impl Animator {
         }
     }
 
+    /// The ANM animation of table state `s`'s column `k` (-1 none).
+    fn column(&self, s: i16, k: usize) -> Option<usize> {
+        let e = *self.remap.get(usize::try_from(s).ok()?)?;
+        let id = self.entries.get(usize::try_from(e).ok()?)?[k];
+        (id >= 0).then_some(id as usize)
+    }
+
+    /// The frames of table state `s`'s column `k`: first and count
+    /// (D_800c4594).
+    fn span(&self, s: i16, k: usize, anims: &Anims) -> Option<(i16, i16)> {
+        let (first, count) = anims.index.get(self.column(s, k)?).copied().flatten()?;
+        Some((first as i16, count as i16))
+    }
+
     /// The base track: (state, first frame, frames, frame showing, time
     /// left).
     pub fn track(&self) -> (i16, usize, usize, usize, i32) {
-        let t = &self.tracks[0];
-        (t.anim, t.first, t.count, t.cur, t.left)
+        self.track_parts(0)
+    }
+
+    fn track_parts(&self, k: usize) -> (i16, usize, usize, usize, i32) {
+        let t = &self.tracks[k];
+        let (first, count) = self.spans.get(k).copied().flatten().unwrap_or((0, 0));
+        (t.state, first as usize, count as usize, t.cur.max(0) as usize, t.left as i32)
+    }
+
+    /// The tracks as the original lays them out (+0xa8, 12 bytes each):
+    /// state, frame before, frame showing, time left, 0, and the phase in
+    /// the low byte and the way back in the high.
+    pub fn record(&self) -> [[i16; 6]; 4] {
+        self.tracks.map(|t| [t.state, t.prev, t.cur, t.left, 0, (t.phase as u16 | (t.back as u16) << 8) as i16])
+    }
+
+    /// The tracks in words, for tools.
+    pub fn describe(&self) -> String {
+        let t: Vec<String> =
+            self.tracks.iter().map(|t| format!("{}:{}<{} {} p{}{}", t.state, t.cur, t.prev, t.left, t.phase, if t.back != 0 { " back" } else { "" })).collect();
+        format!("[{}]", t.join(" | "))
+    }
+
+    /// Whether the base state's root keys move the body across (its word
+    /// has 32: 0x80056834 adds x and z into +0xd8 and +0xdc only then).
+    pub fn moves_across(&self) -> bool {
+        ENDS.get(self.tracks[0].state as usize).is_some_and(|e| e & 32 != 0)
     }
 
     /// The logical animation last asked for.
@@ -223,59 +291,57 @@ impl Animator {
         self.asked
     }
 
-    /// Whether logical animation `a` plays on the base track and has
-    /// frames to go.
+    /// The track logical animation `a` plays on (0x800571d8): the base
+    /// when its state has a base column, else track 1 over it.
+    fn track_of(&self, s: i16) -> usize {
+        if self.column(s, 0).is_some() { 0 } else { 1 }
+    }
+
+    /// Whether logical animation `a` plays and has not finished: asked
+    /// last, on its track, not held on its last frame.
     pub fn playing(&self, a: i16) -> bool {
-        let Some(s) = table_state(a, self.climb, self.tracks[0].anim) else { return false };
-        if self.upper == Some(s) {
-            // Over the base, until track 1 completes.
-            let t = &self.tracks[1];
-            return self.asked == a && t.anim == s && t.count > 0;
-        }
-        let t = &self.tracks[0];
-        self.asked == a && t.anim == s && (t.cur + 1 < t.first + t.count || t.left > 0) && t.left != i32::MAX
-    }
-
-    /// Whether table state `a` has no base column: it plays over the base.
-    fn over_base(&self, a: i16) -> bool {
-        self.remap
-            .get(a as usize)
-            .and_then(|&e| self.entries.get(e as usize))
-            .is_some_and(|e| e[0] < 0 && e[1..].iter().any(|&c| c >= 0))
-    }
-
-    /// Track `k` from the first frame of state `a`'s column `k` (none:
-    /// empty), blending from the frame it showed.
-    fn set_track(&mut self, k: usize, a: i16, anims: &Anims) {
-        let old = self.tracks[k];
-        let Some((first, count)) = self.anm_on(a, k).and_then(|id| anims.index.get(id).copied().flatten()) else {
-            self.tracks[k] = Track { anim: a, ..Track::default() };
-            return;
-        };
-        let (first, count) = (first as usize, count as usize);
-        let prev = if old.count > 0 { old.cur } else { first };
-        let left = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
-        self.tracks[k] = Track { anim: a, first, count, prev, cur: first, left, back: false };
+        let Some(s) = table_state(a, self.climb, self.tracks[0].state) else { return false };
+        let t = &self.tracks[self.track_of(s)];
+        self.asked == a && t.state == s && t.phase != 3
     }
 
     /// The ANM animation of logical animation `a` on the base track
     /// (0x80055f7c: -1 none).
     pub fn anm(&self, a: i16) -> Option<usize> {
-        self.anm_on(table_state(a, self.climb, self.tracks[0].anim)?, 0)
+        self.column(table_state(a, self.climb, self.tracks[0].state)?, 0)
     }
 
-    fn anm_on(&self, a: i16, k: usize) -> Option<usize> {
-        let e = *self.remap.get(a as usize)?;
-        let id = self.entries.get(e as usize)?[k];
-        (id >= 0).then_some(id as usize)
+    /// The logical state asked for after the base (`base`) or an upper
+    /// state completes (0x80057244); asking for 0 resets the fidget.
+    pub fn set_after(&mut self, logical: u8, base: bool) {
+        if base {
+            self.after_base = logical;
+        } else {
+            self.after_upper = logical;
+        }
+        if logical == 0 {
+            self.fidget = (FIDGETS.0, FIDGET_AFTER);
+        }
     }
 
     /// Asks for logical animation `a` (0x800572a8), unless it is the one
-    /// last asked for: the game asks on entering a state, and what it
-    /// asked for then runs on through its states.
+    /// last asked for or its track shows it already: the game asks on
+    /// entering a state, and what it asked for then runs on through its
+    /// states.
     pub fn set(&mut self, a: i16, anims: &Anims) {
-        if self.asked == a && self.tracks[0].count > 0 {
+        if self.tracks[0].state == -1 {
+            self.start(a, anims);
             return;
+        }
+        if self.asked == a {
+            return;
+        }
+        if let Some(s) = table_state(a, self.climb, self.tracks[0].state) {
+            let t = &self.tracks[self.track_of(s)];
+            if t.state == s && t.phase == 1 {
+                self.asked = a;
+                return;
+            }
         }
         self.start(a, anims);
     }
@@ -283,22 +349,56 @@ impl Animator {
     /// Starts logical animation `a` from its first frame at speed
     /// `speed` (0x800572a8's third argument, 4096 as written).
     pub fn start_at(&mut self, a: i16, speed: i32, anims: &Anims) {
-        self.start(a, anims);
-        self.speed = speed.clamp(2048, 0x4000);
+        self.ask(a, speed, anims);
     }
 
     /// Starts logical animation `a` from its first frame, even if it is
     /// playing, at the written speed.
     pub fn start(&mut self, a: i16, anims: &Anims) {
-        self.speed = if self.written_speed > 0 { self.written_speed } else { 4096 };
-        let Some(s) = table_state(a, self.climb, self.tracks[0].anim) else { return };
-        self.asked = a;
-        if self.over_base(s) {
-            self.upper = None;
-        } else {
-            self.tracks[0].count = 0;
+        let speed = if self.written_speed > 0 { self.written_speed } else { 4096 };
+        self.ask(a, speed, anims);
+    }
+
+    /// 0x800572a8: the state's track takes the state, to start at the
+    /// next step; the speed is set. A body never asked before has its
+    /// tracks set up first (0x80055f7c).
+    fn ask(&mut self, a: i16, speed: i32, anims: &Anims) {
+        self.speed = speed.clamp(2048, 0x4000);
+        let Some(s) = table_state(a, self.climb, self.tracks[0].state) else { return };
+        if self.tracks[0].state == -1 {
+            self.init(s, anims);
         }
-        self.play(s, anims);
+        self.asked = a;
+        let k = self.track_of(s);
+        let t = &mut self.tracks[k];
+        t.state = s;
+        t.phase = 0;
+        t.back = 0;
+    }
+
+    /// The tracks set up on state `s` (0x80055f7c, 0x80055ed8): each
+    /// column's track at the second frame from the first, the first's
+    /// rotations taken as they are (0x80055170); a column without an
+    /// animation leaves its track empty.
+    fn init(&mut self, s: i16, anims: &Anims) {
+        for k in 0..4 {
+            let Some((first, _)) = self.span(s, k, anims) else {
+                self.tracks[k].state = -1;
+                continue;
+            };
+            let cur = first + 1;
+            self.tracks[k] = Track { state: s, prev: first, cur, left: duration(anims, cur), phase: 1, back: 0 };
+            if let Some(f) = anims.frames.get(first as usize) {
+                for key in anims.keys_of(f) {
+                    if let Key::Rotation { channel, q } = *key
+                        && let Some(slot) = self.pose.get_mut(channel as usize)
+                    {
+                        *slot = Some(q.map(|v| v as i32));
+                    }
+                }
+            }
+        }
+        self.spans = std::array::from_fn(|k| self.span(self.tracks[k].state, k, anims));
     }
 
     /// The table states entered since the last call.
@@ -306,139 +406,329 @@ impl Animator {
         std::mem::take(&mut self.entered)
     }
 
-    /// Plays table state `a`, unless it is playing: over the base when
-    /// it has no base column, else as the base, with tracks 1-3 not
-    /// taken by a state over it.
-    fn play(&mut self, a: i16, anims: &Anims) {
-        if self.over_base(a) {
-            if self.upper == Some(a) && self.tracks[1].count > 0 {
-                return;
-            }
-            self.upper = Some(a);
-            if self.entered.len() < 8 {
-                self.entered.push(a);
-            }
-            for k in 1..4 {
-                if self.anm_on(a, k).is_some() {
-                    self.set_track(k, a, anims);
-                }
-            }
-            return;
+    /// A track starts its state (0x80055560): a state past 64 is 0; the
+    /// frame showing is the column's first (its last running back), the
+    /// frame before kept, so the first blends from what showed.
+    fn begin(&mut self, k: usize, anims: &Anims) {
+        if self.tracks[k].state as u16 >= 65 {
+            self.tracks[k].state = 0;
         }
-        if self.tracks[0].anim == a && self.tracks[0].count > 0 {
-            return;
-        }
+        let t = self.tracks[k];
+        let Some((first, count)) = self.span(t.state, k, anims) else { return };
+        let cur = if t.back == 0 { first } else { first + count - 1 };
+        self.tracks[k].cur = cur;
+        self.tracks[k].left = duration(anims, cur);
+    }
+
+    /// The base track's start (0x800562bc): playing, its state entered.
+    fn begin_base(&mut self, anims: &Anims) {
+        self.tracks[0].phase = 1;
         if self.entered.len() < 8 {
-            self.entered.push(a);
+            self.entered.push(self.tracks[0].state);
         }
-        self.set_track(0, a, anims);
-        for k in 1..4 {
-            if self.upper.is_some_and(|u| self.tracks[k].anim == u) {
-                continue;
-            }
-            self.set_track(k, a, anims);
+        self.begin(0, anims);
+    }
+
+    fn begin_upper(&mut self, anims: &Anims) {
+        self.tracks[1].phase = 1;
+        self.begin(1, anims);
+    }
+
+    /// Track `k` spends `time` (0x80055d40): held, it spends it all and
+    /// gives the frame before's events; the first frame of its animation
+    /// after a shorter one first loses the ratio of their lengths; the
+    /// time left in the frame runs down, and a frame run out gives its
+    /// events.
+    fn consume(&mut self, k: usize, time: &mut i16, anims: &Anims) {
+        let t = self.tracks[k];
+        let frame = |i: i16| anims.frames.get(i as usize);
+        if t.phase == 3 {
+            *time = 0;
+            self.events |= frame(t.prev).map_or(0, |f| f.unknown_0 as u32);
+            return;
+        }
+        let first = self.span(t.state, k, anims).map_or(0, |s| s.0);
+        let cur_dur = frame(t.cur).map_or(0, |f| f.duration as i16).max(1);
+        let prev_dur = frame(t.prev).map_or(0, |f| f.duration as i16);
+        let mut left = t.left;
+        if prev_dur != 0 && t.cur == first && prev_dur < cur_dur {
+            left = (left - cur_dur / prev_dur).max(0);
+        }
+        if left < *time {
+            *time = (*time - left).max(0);
+            left = 0;
+        } else {
+            left = (left - *time).max(0);
+            *time = 0;
+        }
+        self.tracks[k].left = left;
+        if left == 0 {
+            self.events |= frame(t.cur).map_or(0, |f| f.unknown_0 as u32);
         }
     }
 
-    /// One frame (dt) of every track. The base track ends as its state
-    /// says (0x8005562c); the others loop. Standing still long enough
-    /// fidgets (0x800563bc).
-    pub fn step(&mut self, anims: &Anims) {
-        // A base state of flag 64 (the put-down, 16) takes the tracks over
-        // a state on them (0x80056708 -> 0x800561b0): the carry's arms give
-        // way to its own, whose frame 755 lets go (2048).
-        if let Some(u) = self.upper
-            && self.tracks[0].count > 0
-            && ENDS.get(self.tracks[0].anim as usize).is_some_and(|e| e & 64 != 0)
-            && self.tracks[1].anim == u
-        {
-            self.upper = None;
-            let base = self.tracks[0].anim;
-            for k in 1..4 {
-                self.set_track(k, base, anims);
+    /// Track `k` goes on to its next frame (0x8005562c): the frame showing
+    /// becomes the one before; at the column's end its state's word says
+    /// what follows: 4 turns back (ping-pong), 2 loops, 1 completes (the
+    /// phase 2, the frame none), 8 holds (phase 3).
+    fn advance(&mut self, k: usize, anims: &Anims) {
+        let t = self.tracks[k];
+        let Some((first, count)) = self.span(t.state, k, anims) else { return };
+        let last = first + count - 1;
+        let ends = ENDS.get(t.state as usize).copied().unwrap_or(1);
+        let mut n = self.tracks[k];
+        n.prev = t.cur;
+        if t.back == 0 {
+            if t.cur < last {
+                n.cur = t.cur + 1;
+            } else if ends & 4 != 0 {
+                n.back = 1;
+                n.cur = if count == 1 { first } else { first + count - 2 };
+            } else if ends & 2 != 0 {
+                n.cur = first;
+            } else if ends & 1 != 0 {
+                n.phase = 2;
+                n.cur = -1;
+            } else if ends & 8 != 0 {
+                n.phase = 3;
             }
+        } else if first < t.cur {
+            n.cur = t.cur - 1;
+        } else if ends & 4 != 0 {
+            n.back = 0;
+            n.cur = if count == 1 { first } else { first + 1 };
+        } else if ends & 2 != 0 {
+            n.cur = last;
+        } else if ends & 1 != 0 {
+            n.phase = 2;
+            n.cur = -1;
+        } else if ends & 8 != 0 {
+            n.phase = 3;
         }
-        if self.tracks[0].anim == 0 && self.tracks[0].count > 0 {
-            self.fidget.1 -= DT;
-            if self.fidget.1 <= 0 {
-                self.fidget.1 = 0;
-                let s = self.fidget.0;
-                self.fidget.0 = if s == FIDGETS.0 { FIDGETS.1 } else { FIDGETS.0 };
-                // A body without the fidget keeps standing (the port's
-                // guard: the original would play nothing).
-                if self.anm_on(s, 0).is_some_and(|id| anims.index.get(id).copied().flatten().is_some()) {
-                    self.tracks[0].count = 0;
-                    self.play(s, anims);
-                }
-            }
-        } else {
+        n.left = duration(anims, n.cur);
+        self.tracks[k] = n;
+    }
+
+    /// The base completes (0x80056484): the walk's and run's halves, the
+    /// idle's and others go on in turn, the jump's rise into its fall;
+    /// the rest go to the state asked for after (+0xe6). A held state
+    /// (8) does not complete.
+    fn complete(&mut self) {
+        self.events |= 0x800_0000;
+        let s = self.tracks[0].state;
+        let ends = ENDS.get(s as usize).copied().unwrap_or(1);
+        if ends & 6 == 0 && ends & 8 != 0 {
+            return;
+        }
+        let to = match next(s) {
+            Some(n) => n,
+            None => match table_state(self.after_base as i16, self.climb, s) {
+                Some(n) => n,
+                None => return,
+            },
+        };
+        let t = &mut self.tracks[0];
+        t.state = to;
+        t.phase = 0;
+        t.back = 0;
+    }
+
+    /// An upper state completes (0x8005678c): track 1 takes the state
+    /// asked for after (+0xe7), or, as you were, follows the base again
+    /// (true).
+    fn complete_upper(&mut self) -> bool {
+        self.events |= 0x1000_0000;
+        if self.after_upper == AS_YOU_WERE {
+            return true;
+        }
+        if let Some(s) = table_state(self.after_upper as i16, self.climb, self.tracks[0].state) {
+            let t = &mut self.tracks[1];
+            t.state = s;
+            t.phase = 0;
+            t.back = 0;
+        }
+        false
+    }
+
+    /// Whether track 1 follows the base (0x80056708): always under a base
+    /// state of flag 64, else unless it holds an upper state (which keeps
+    /// the fidget away).
+    fn follows(&mut self) -> bool {
+        if ENDS.get(self.tracks[0].state as usize).is_some_and(|e| e & 64 != 0) {
+            return true;
+        }
+        if UPPERS.contains(&self.tracks[1].state) {
             self.fidget.1 = FIDGET_AFTER;
+            return false;
         }
-        let mut done = None;
-        let mut upper_done = false;
-        let upper = self.upper;
-        let self_speed = self.speed;
-        let mut events = 0u32;
-        for (k, t) in self.tracks.iter_mut().enumerate() {
-            if t.count == 0 {
-                continue;
+        true
+    }
+
+    /// Track `k` (1-3) takes up the place of the track it follows
+    /// (0x800561b0, 0x80056088): track 1 the base; 2 and 3 track 1 where
+    /// its state has their column, else the base. It takes that track's
+    /// state, the same frame of its own column, its time and phase (a
+    /// held one's last frame, playing).
+    fn sync(&mut self, k: usize, anims: &Anims) {
+        if self.column(self.tracks[k].state, k).is_none() {
+            return;
+        }
+        let from = if k >= 2 && self.column(self.tracks[1].state, k).is_some() { 1 } else { 0 };
+        let src = self.tracks[from];
+        self.tracks[k].state = src.state;
+        let Some((src_first, src_count)) = self.span(src.state, from, anims) else { return };
+        let at = if src.phase == 3 { src_count - 1 } else { src.cur - src_first };
+        self.tracks[k].back = src.back;
+        let first = self.span(src.state, k, anims).map_or(0, |s| s.0);
+        let cur = first + at;
+        self.tracks[k].cur = cur;
+        if src.phase == 3 {
+            self.tracks[k].left = duration(anims, cur);
+            self.tracks[k].phase = 1;
+        } else {
+            self.tracks[k].left = src.left;
+            self.tracks[k].phase = src.phase;
+        }
+    }
+
+    /// Standing still (state 0) runs down to a fidget, 23 and 24 in turn
+    /// (0x800563bc); any other state puts it off again.
+    fn fidget(&mut self, anims: &Anims) {
+        let s = self.tracks[0].state;
+        if s != 0 {
+            if (23..25).contains(&s) {
+                self.events |= 0x2000_0000;
             }
-            t.left -= (DT * self_speed) >> 12;
-            while t.left <= 0 {
-                let last = t.first + t.count - 1;
-                // The base and a state over it on track 1 end as their
-                // word says (0x8005562c, 0x8005678c); the rest loop.
-                let ends = if k == 0 || (k == 1 && upper == Some(t.anim)) {
-                    ENDS.get(t.anim as usize).copied().unwrap_or(1)
-                } else {
-                    2
-                };
-                // The frame that ended gives its events (0x80055d40).
-                events |= anims.frames.get(t.cur).map_or(0, |f| f.unknown_0 as u32);
-                t.prev = t.cur;
-                if t.back {
-                    if t.cur > t.first {
-                        t.cur -= 1;
-                    } else {
-                        t.back = false;
-                        t.cur = (t.first + 1).min(last);
+            self.fidget.1 = FIDGET_AFTER;
+            return;
+        }
+        self.events |= 0x2000_0000;
+        self.fidget.1 -= DT;
+        if self.fidget.1 > 0 {
+            return;
+        }
+        self.fidget.1 = 0;
+        let f = self.fidget.0;
+        if f == FIDGETS.0 || f == FIDGETS.1 {
+            self.fidget.0 = if f == FIDGETS.0 { FIDGETS.1 } else { FIDGETS.0 };
+            // A body without the fidget keeps standing (the port's guard:
+            // the original would play nothing).
+            if self.span(f, 0, anims).is_some() {
+                let t = &mut self.tracks[0];
+                t.state = f;
+                t.phase = 0;
+                t.back = 0;
+            }
+        }
+    }
+
+    /// One frame (dt) of the tracks (0x80056834): each runs down its time
+    /// (dt times the speed), going on frame by frame as the base, track 1
+    /// and those following them say, then each samples its frame into the
+    /// pose.
+    pub fn step(&mut self, anims: &Anims, trig: &Trig) {
+        self.events = 0;
+        let speed = self.speed;
+        let time = |t: &Track| if t.state == -1 { 0 } else { (DT * speed / 4096) as i16 };
+        let mut times = self.tracks.map(|t| time(&t));
+        // (A guard the original does without: a track whose column is
+        // missing would never spend its time.)
+        let mut guard = 0;
+        while times.iter().any(|&t| t != 0) {
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+            // The base.
+            if self.tracks[0].phase == 0 {
+                self.begin_base(anims);
+            }
+            if times[0] != 0 {
+                self.consume(0, &mut times[0], anims);
+                if self.tracks[0].phase == 1 && self.tracks[0].left == 0 {
+                    self.advance(0, anims);
+                    if self.tracks[0].phase == 2 {
+                        self.complete();
+                        if self.tracks[0].phase == 0 {
+                            self.begin_base(anims);
+                        }
                     }
-                } else if t.cur < last {
-                    t.cur += 1;
-                } else if ends & 4 != 0 {
-                    t.back = t.count > 1;
-                    t.cur = if t.count > 1 { last - 1 } else { t.first };
-                } else if ends & 2 != 0 {
-                    t.cur = t.first;
-                } else if k == 1 && upper == Some(t.anim) {
-                    // The state over the base completes: tracks 1-3 go
-                    // back to the base (0x8005678c, 0x800561b0).
-                    upper_done = true;
-                    break;
-                } else if ends & 1 != 0 {
-                    done = Some(t.anim);
-                    break;
-                } else {
-                    // Held on the last frame.
-                    t.left = i32::MAX;
-                    break;
                 }
-                let d = anims.frames.get(t.cur).map_or(1, |f| f.duration.max(1) as i32);
-                t.left += d;
+                self.fidget(anims);
+                if self.tracks[0].phase == 0 {
+                    self.begin_base(anims);
+                }
+            }
+            // Track 1: its own upper state, or the base's.
+            if self.tracks[1].phase == 0 {
+                self.begin_upper(anims);
+            }
+            if times[1] != 0 {
+                self.consume(1, &mut times[1], anims);
+                if self.tracks[1].phase == 1 && self.tracks[1].left == 0 {
+                    self.advance(1, anims);
+                    if self.tracks[1].phase == 2 {
+                        if self.complete_upper() {
+                            if self.tracks[1].state == self.tracks[0].state && self.tracks[0].phase == 3 {
+                                self.tracks[1].phase = 3;
+                            }
+                            self.sync(1, anims);
+                        }
+                        if self.tracks[1].phase == 0 {
+                            self.begin_upper(anims);
+                        }
+                    }
+                }
+                if self.follows() && self.tracks[1].state != self.tracks[0].state {
+                    self.sync(1, anims);
+                }
+                if self.tracks[1].phase == 0 {
+                    self.begin_upper(anims);
+                }
+            }
+            // Tracks 2 and 3 follow.
+            for k in 2..4 {
+                if times[k] != 0 {
+                    self.consume(k, &mut times[k], anims);
+                    if self.tracks[k].phase == 1 && self.tracks[k].left == 0 {
+                        self.tracks[k].prev = self.tracks[k].cur;
+                    }
+                    self.sync(k, anims);
+                }
             }
         }
-        self.events = events;
-        if upper_done {
-            self.upper = None;
-            let base = self.tracks[0].anim;
-            for k in 1..4 {
-                self.set_track(k, base, anims);
+        for k in 0..4 {
+            if self.tracks[k].state != -1 {
+                self.sample(k, anims, trig);
             }
         }
-        if let Some(s) = done {
-            let to = next(s).unwrap_or(0);
-            self.tracks[0].count = 0;
-            self.play(to, anims);
+        self.spans = std::array::from_fn(|k| self.span(self.tracks[k].state, k, anims));
+    }
+
+    /// Track `k`'s frame into the pose (0x800552bc): each part the frame
+    /// showing turns, from its turn in the frame before (a part the frame
+    /// before does not key is left as it was), by the time gone in the
+    /// frame (0x800202ec).
+    fn sample(&mut self, k: usize, anims: &Anims, trig: &Trig) {
+        let t = self.tracks[k];
+        if t.phase == 3 || t.cur == -1 {
+            return;
+        }
+        let (Some(cur), Some(prev)) = (anims.frames.get(t.cur as usize), anims.frames.get(t.prev as usize)) else { return };
+        let dur = cur.duration as i32;
+        if dur == 0 {
+            return;
+        }
+        let along = ((dur - t.left as i32) << 12) / dur;
+        for key in anims.keys_of(cur) {
+            let Key::Rotation { channel, q } = *key else { continue };
+            let from = anims.keys_of(prev).iter().find_map(|k| match *k {
+                Key::Rotation { channel: c, q } if c == channel => Some(q),
+                _ => None,
+            });
+            if let (Some(p), Some(slot)) = (from, self.pose.get_mut(channel as usize)) {
+                *slot = Some(slerp(trig, p.map(|v| v as i32), q.map(|v| v as i32), along));
+            }
         }
     }
 
@@ -448,7 +738,11 @@ impl Animator {
     /// keys.
     pub fn root_progress(&self, anims: &Anims) -> Option<([i32; 3], [i32; 3])> {
         let t = &self.tracks[0];
-        if t.count == 0 {
+        let (first, count) = self.span(t.state, 0, anims)?;
+        // Asked and not yet begun: at its start.
+        let (cur, left) = if t.phase == 0 { (first, duration(anims, first)) } else { (t.cur, t.left) };
+        let (first, count, cur, left) = (first as usize, count as usize, cur.max(0) as usize, left as i32);
+        if count == 0 {
             return None;
         }
         let root = |k: usize| {
@@ -460,14 +754,14 @@ impl Animator {
             })
         };
         let (mut done, mut total, mut any) = ([0; 3], [0; 3], false);
-        for k in t.first..t.first + t.count {
+        for k in first..first + count {
             let Some(r) = root(k) else { continue };
             any = true;
-            let part = if k < t.cur {
+            let part = if k < cur {
                 4096
-            } else if k == t.cur {
+            } else if k == cur {
                 let dur = anims.frames.get(k).map_or(1, |f| f.duration.max(1) as i32);
-                ((dur - t.left).clamp(0, dur) << 12) / dur
+                ((dur - left).clamp(0, dur) << 12) / dur
             } else {
                 0
             };
@@ -481,36 +775,45 @@ impl Animator {
         any.then_some((done, total))
     }
 
-    /// The parts' rotations, each track blended from the frame before
-    /// into the frame showing (0x800552bc, 0x800202ec).
-    pub fn locals(&self, hierarchy: &Hierarchy, anims: &Anims) -> Vec<Option<Mat3>> {
+    /// The parts' rotations as the samplers left them (None: never
+    /// turned).
+    pub fn locals(&self, hierarchy: &Hierarchy, _anims: &Anims) -> Vec<Option<Mat3>> {
         let mut out = vec![None; hierarchy.parts.len()];
-        let quat =
-            |q: [i16; 4]| rrt::glam::Quat::from_xyzw(q[0] as f32, q[1] as f32, q[2] as f32, q[3] as f32).normalize();
-        for t in self.tracks.iter().filter(|t| t.count > 0) {
-            let (Some(cur), Some(prev)) = (anims.frames.get(t.cur), anims.frames.get(t.prev)) else { continue };
-            let dur = cur.duration.max(1) as f32;
-            let f = ((dur - t.left as f32) / dur).clamp(0.0, 1.0);
-            for key in anims.keys_of(cur) {
-                let Key::Rotation { channel, q } = *key else { continue };
-                let part = hierarchy.header.get(0x14 + channel as usize).copied().unwrap_or(0xff);
-                let Some(slot) = out.get_mut(part as usize) else { continue };
-                let from = anims.keys_of(prev).iter().find_map(|k| match *k {
-                    Key::Rotation { channel: c, q } if c == channel => Some(q),
-                    _ => None,
-                });
-                let q = match from {
-                    Some(p) => {
-                        let s = quat(p).slerp(quat(q), f);
-                        [(s.x * 4096.0) as i16, (s.y * 4096.0) as i16, (s.z * 4096.0) as i16, (s.w * 4096.0) as i16]
-                    }
-                    None => q,
-                };
-                *slot = Some(quat_matrix(q));
+        for (channel, q) in self.pose.iter().enumerate() {
+            let Some(q) = q else { continue };
+            let part = hierarchy.header.get(0x14 + channel).copied().unwrap_or(0xff);
+            if let Some(slot) = out.get_mut(part as usize) {
+                *slot = Some(quat_matrix(q.map(|v| v as i16)));
             }
         }
         out
     }
+}
+
+/// A frame's length (its +2, at least 1), as a track's time left starts.
+fn duration(anims: &Anims, frame: i16) -> i16 {
+    anims.frames.get(frame as usize).map_or(0, |f| f.duration as i16).max(1)
+}
+
+/// The turn `t` (4096 = all) of the way from quaternion `a` to `b`
+/// (0x800202ec): by the arc between them (acos, 0x80021500; rsin) unless
+/// nearly the same (cos at least 3841), then straight; the shorter way.
+fn slerp(trig: &Trig, a: [i32; 4], b: [i32; 4], t: i32) -> [i32; 4] {
+    let toward = |v: i32| if v < 0 { (v + 4095) >> 12 } else { v >> 12 };
+    let dot = toward((0..4).map(|k| a[k].wrapping_mul(b[k])).fold(0i32, i32::wrapping_add));
+    let (dot, flip) = if dot < 0 { (-dot, true) } else { (dot, false) };
+    let (mut wa, mut wb) = (4096 - t, t);
+    if 4096 - dot >= 256 {
+        let omega = trig.acos(dot as i16 as i32) as i16 as i32;
+        let sin = trig.sin(omega);
+        let part = toward(t * omega);
+        wa = (trig.sin(omega - part) << 12) / sin;
+        wb = (trig.sin(part) << 12) / sin;
+    }
+    if flip {
+        wb = -wb;
+    }
+    [0, 1, 2, 3].map(|k| toward(wa * a[k] + wb * b[k]))
 }
 
 /// The height over the floor an animation puts a body at on the ground

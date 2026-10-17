@@ -285,6 +285,10 @@ pub struct Game {
     pub loaded: Option<Box<[u8; STATE_SIZE]>>,
     carried: Option<usize>,
     grip: Vec3,
+    /// The player's parts and rotation as last drawn (+0x158 and +4, the
+    /// matrices the grip reads: the original draws before it updates, so
+    /// the hands it holds by are the frame before's).
+    pose_before: Option<(Vec<(Mat3, Vec3)>, Mat3)>,
     /// Objects hidden by id (0x80078bc4) and the placements always drawn
     /// apart (characters, pickables, collectibles).
     hidden: std::collections::HashSet<u16>,
@@ -939,6 +943,7 @@ impl Game {
             loaded: None,
             carried: None,
             grip: Vec3::ZERO,
+            pose_before: None,
             hidden: Default::default(),
             apart,
             unusable: Default::default(),
@@ -1189,7 +1194,7 @@ impl Game {
         if self.crying > 0 {
             // The cry runs on its own (0x8007f920's loop): the world waits.
             self.crying -= DT;
-            self.player.animator.step(&self.anims);
+            self.player.animator.step(&self.anims, &self.trig);
             if self.crying <= 0 || !self.player.animator.playing(CRY) {
                 self.crying = 0;
                 self.cried();
@@ -1611,15 +1616,16 @@ impl Game {
     fn draw(&mut self) {
         let mut moving = self.scenery.clone();
         self.player.triangles(&self.set.models, &self.anims, &self.trig, &mut moving);
-        // The carried object rides hand 15 (0x8005ff88 mode 1).
-        if let Some(k) = self.carried {
-            let parts = self.player.parts(&self.anims, &self.trig);
-            let rot = self.player.rotation(&self.trig);
-            if let Some(hand) = self.player.slot_part(HAND).and_then(|i| parts.get(i)) {
-                self.things[k].pos = hand.1 + rot * self.grip;
-                self.things[k].rot = rot;
-            }
+        // The carried object rides hand 15 (0x8005ff88 mode 1), as the
+        // frame before drew it.
+        let (parts, rot) = self.drawn_pose();
+        if let Some(k) = self.carried
+            && let Some(hand) = self.player.slot_part(HAND).and_then(|i| parts.get(i))
+        {
+            self.things[k].pos = hand.1 + rot * self.grip;
+            self.things[k].rot = rot;
         }
+        self.pose_before = Some((self.player.parts(&self.anims, &self.trig), self.player.rotation(&self.trig)));
         for t in self.things.iter().filter(|t| !t.hidden) {
             if let Some(m) = self.set.models.get(t.shape) {
                 models::model_triangles(m, t.rot, t.pos, &mut moving);

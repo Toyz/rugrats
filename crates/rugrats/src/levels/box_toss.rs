@@ -242,6 +242,7 @@ impl BoxToss {
         n.id = old_id;
         g.player.pos = there;
         g.player.v = [0; 3];
+        g.forget_pose();
         let item = self.rules.item;
         if let Some(b) = g.things.iter().position(|t| t.template == item) {
             g.give(b);

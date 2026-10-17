@@ -454,7 +454,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         }
         let a = n.hold.unwrap_or(if n.speed > 0 { RUN } else { IDLE });
         n.animator.set(a, w.anims);
-        n.animator.step(w.anims);
+        n.animator.step(w.anims, w.trig);
         let scale = n.feet() as f32 / ROOT_SCALE;
         n.root.step(&n.animator, w.anims, scale);
     }

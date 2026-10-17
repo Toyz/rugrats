@@ -98,6 +98,7 @@ impl GoldRush {
         n.hidden = true;
         g.player.pos = there;
         g.player.v = [0; 3];
+        g.forget_pose();
         self.lil = !self.lil;
     }
 }

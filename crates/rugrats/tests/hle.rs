@@ -109,6 +109,12 @@ impl Both {
                     let same = o == p;
                     eprintln!("    cam {} orig {o:?}\n        port {p:?}", if same { "same" } else { "DIFF" });
                 }
+                if std::env::var_os("TRACKS").is_some() {
+                    let orig: Vec<[i16; 6]> = (0..4u32).map(|k| std::array::from_fn(|i| self.hle.read_i16(rugrats_hle::play::PLAYER + 0xa8 + 12 * k + 2 * i as u32))).collect();
+                    let port = self.game.player.animator.record();
+                    let same = orig.iter().zip(&port).all(|(o, p)| o[..4] == p[..4] && (o[5] & 0xff) == (p[5] & 0xff));
+                    eprintln!("    tracks {} port {:?}\n                orig {:?}", if same { "same" } else { "DIFF" }, port, orig);
+                }
                 if std::env::var_os("FOCUS").is_some() {
                     let f = self.hle.read_u32(rugrats_hle::play::PLAYER + 0x1e8);
                     let ot = if f == 0 { None } else { Some(self.hle.read_i16(f + 0x96) as u16 as u32) };

@@ -856,7 +856,7 @@ impl Player {
         // The animation steps before the state's handler (0x8005a068), so
         // a landing's animation starts the frame after it lands.
         if !self.landed {
-            self.animator.step(anims);
+            self.animator.step(anims, trig);
         }
         self.root_step(anims, col, trig, solids);
         if air_landed {
@@ -934,7 +934,7 @@ impl Player {
         self.state = State::Stand;
         let a = if self.speed > 0 { anim::RUN } else { anim::STAND };
         self.animator.set(a, anims);
-        self.animator.step(anims);
+        self.animator.step(anims, trig);
     }
 
     /// Runs as another body (0x80059328 swaps +0x154 and +0x15c): its
@@ -1147,6 +1147,7 @@ impl Player {
         // The bump moves the body by its root keys across (state 32's
         // word has 32): Spike's throws him back.
         if self.action == Some(anim::BUMP)
+            && self.animator.moves_across()
             && let Some((done, _)) = self.animator.root_progress(anims)
         {
             let d = [done[0] - self.bump_root[0], done[2] - self.bump_root[1]];

@@ -1199,7 +1199,7 @@ fn a_throw_runs_at_its_speed() {
     g.player.act_at(THROW, rugrats::world::game::THROW_ANIM_SPEED, &g.anims);
     let (mut released, mut frames) = (None, 0);
     for f in 0..200 {
-        g.player.animator.step(&g.anims);
+        g.player.animator.step(&g.anims, &g.trig);
         if released.is_none() && g.player.animator.events & 16 != 0 {
             released = Some(f);
         }
@@ -1209,9 +1209,11 @@ fn a_throw_runs_at_its_speed() {
         }
     }
     // Raw durations 30, 10, 10, 10, 10, 10 (x 5 in the port's units) at
-    // 20 a frame: the release after 25 of 400, the end at 400.
-    assert_eq!(released, Some(12));
-    assert_eq!(frames, 19);
+    // 20 a frame, the first frame after the stand's 50 losing 150 / 50
+    // more each frame (0x80055d40): the release and the end a frame
+    // sooner.
+    assert_eq!(released, Some(11));
+    assert_eq!(frames, 18);
 }
 
 /// Turns the player to face `to` with the stick (`turn_to`).

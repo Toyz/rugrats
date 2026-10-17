@@ -229,6 +229,8 @@ impl AisleSeven {
                 n.place(home, &g.col);
                 n.health = n.max_health;
                 n.mode = Mode::Prowl { prev: 0, cur: n.first_post };
+                // (0x8007bc60: +0x688 |= 0x1800.)
+                n.passes = true;
             }
         }
         self.put(g, AISLES, 2048);

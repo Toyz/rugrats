@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-196 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 98, render 29, save 4, test 26, tooling 18, ui 13, video 10.
+197 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 99, render 29, save 4, test 26, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -208,3 +208,4 @@ The [reference](docs/README.md) says what is true now.
 | 194 | [Followers bite in the original's mode cycle; damage posted a frame late](worklog/0194-followers-bite-in-the-original-s-mode-cycle-damage-posted-a.md) | 2026-10-17 | play |
 | 195 | [A character's hit, its walk and its root as the original's; damage to characters posted](worklog/0195-a-character-s-hit-its-walk-and-its-root-as-the-original-s.md) | 2026-10-17 | play |
 | 196 | [Characters run only when scheduled, by script or trigger](worklog/0196-characters-run-only-when-scheduled-by-script-or-trigger.md) | 2026-10-17 | play |
+| 197 | [Characters step through the shared body; the probe ahead's fall; posts and waits as the original's](worklog/0197-characters-step-through-the-shared-body-the-probe-ahead-s.md) | 2026-10-17 | play |

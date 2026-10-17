@@ -43,6 +43,8 @@ impl CookieRace {
             n.post_reach = POST_REACH;
             n.speed_index = 4;
             n.mode = Mode::Posts { prev: 0, cur: FIRST_POST };
+            // (0x80079600: +0x688 |= 0x1800.)
+            n.passes = true;
         }
         let total = g.goodies.iter().filter(|x| x.template == COOKIE).count() as u32;
         g.checkpoint = Some(g.player.pose());

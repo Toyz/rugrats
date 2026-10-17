@@ -151,6 +151,8 @@ impl Script for ChuckiesGlasses {
                 }
                 let first = g.npcs[k].first_post;
                 g.npcs[k].mode = Mode::Posts { prev: 0, cur: first };
+                // (0x800831a4: +0x688 |= 0x1800.)
+                g.npcs[k].passes = true;
                 // Chuckie says 0x800b9728[(rand & 255) mod 3].
                 g.speech.push([158, 160, 165][(g.rand.next() & 255) as usize % 3]);
             }

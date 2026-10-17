@@ -218,6 +218,10 @@ impl GrandpasTeeth {
                 scheduled: false,
                 trigger: 0,
                 radius: 0,
+                body: None,
+                driven: false,
+                waited: false,
+                passes: false,
                 bumped: false,
                 reach: 600,
                 bite_wait: 900,
@@ -295,6 +299,8 @@ impl GrandpasTeeth {
             let at = g.posts.get(CHUCKIE_POST as usize - 1).map_or(n.pos, |p| p.pos);
             n.place(at, &g.col);
             n.mode = Mode::Posts { prev: 0, cur: CHUCKIE_POST };
+            // (0x8007c6e0: +0x688 |= 0x1800.)
+            n.passes = true;
         }
         if let Some(s) = find(g, SPIKE) {
             g.npcs[s].hidden = false;

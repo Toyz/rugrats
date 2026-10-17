@@ -84,6 +84,8 @@ impl Training {
             let home = n.home;
             n.place(home, &g.col);
             n.mode = Mode::Posts { prev: 0, cur: n.first_post };
+            // (+0x688 |= 0x1800.)
+            n.passes = true;
         }
         g.player.pos = COUNTER;
         g.player.heading = 2048;

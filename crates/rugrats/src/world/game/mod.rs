@@ -895,6 +895,10 @@ impl Game {
                 scheduled: false,
                 trigger: 0,
                 radius: 0,
+                body: None,
+                driven: false,
+                waited: false,
+                passes: false,
                 bumped: false,
                 reach: 600,
                 bite_wait: 900,
@@ -912,6 +916,8 @@ impl Game {
             if matches!(h, 23..=26 | 33 | 35 | 39) {
                 n.trigger = n.radius;
             }
+            // (0x80081bac: character 33's +0x688 |= 0x1c04.)
+            n.passes = h == 33;
             n.size = n.hierarchy.half_size();
             n.place(p.pos, &col);
             npcs.push(n);
@@ -1617,6 +1623,8 @@ impl Game {
             obstacles: &obstacles,
             level: self.level.0,
             player_y: self.player.pos[1] + self.player.root_y,
+            solids: &solids,
+            npc_of: &npc_of,
             player_box_y: {
                 let h = |at: usize| self.player.hierarchy.header.get(at..at + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
                 [h(6), h(0xe)]

@@ -652,6 +652,26 @@ impl Ground<'_> {
     /// The three probes (0x80064a34): the middle at the body's depth past
     /// the step, one to each side at its half width; the record they
     /// decide on is left on the player (`st.met`).
+    /// A character's probe (0x80064838, which 0x80064a34 hands an object
+    /// of flag 0x4000 to): the middle one alone, at the body's depth past
+    /// the step; held, the slide along what held it (0x800647b4).
+    pub fn probe_middle(&self, pos: [i32; 3], floor: i32, way: [i32; 3], step: i32, st: &mut Probes) -> Probed {
+        let (trig, body, limit) = (self.trig, self.body, self.limit);
+        let reach = body.depth() + step;
+        let yaw = trig.ratan2(way[0], way[2]);
+        let m = trig.heading_matrix(yaw);
+        let coff = trig.apply(&m, [0, 0, reach]);
+        let point = [pos[0] + coff[0], pos[1] + coff[1] + body.lo[1], pos[2] + coff[2]];
+        let centre = self.one(pos, floor, coff, point, st);
+        if kind(&centre, limit, trig) == 5 {
+            let back = [-coff[0], 0, -coff[2]];
+            let n = [centre.normal[0], 0, centre.normal[2]];
+            Probed::Held { record: centre, slide: Some(turned_off(back, n, trig, self.reflect)) }
+        } else {
+            Probed::Clear(centre)
+        }
+    }
+
     pub fn probe(&self, pos: [i32; 3], floor: i32, way: [i32; 3], step: i32, st: &mut Probes) -> Probed {
         let (trig, body, limit) = (self.trig, self.body, self.limit);
         let reach = body.depth() + step;

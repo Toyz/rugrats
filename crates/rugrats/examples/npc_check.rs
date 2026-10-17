@@ -52,6 +52,40 @@ fn main() -> Result<(), String> {
         p.frame(0)?;
     }
     let objs = objects(&mut p);
+    // POSTS=1: each post, the original's record (D_800c4b9c, 28 bytes:
+    // +4 place, +0x10 next, +0x14 flags) beside the port's.
+    if std::env::var_os("POSTS").is_some() {
+        let base = p.read_u32(0x800c_4b9c);
+        for (i, post) in g.posts.iter().enumerate() {
+            let r = base + 28 * i as u32;
+            let at = [4u32, 8, 12].map(|o| p.read_i32(r + o));
+            let next: Vec<u8> = (0..4).map(|o| p.read_u8(r + 0x10 + o)).collect();
+            let same = at == post.pos;
+            println!("post {}: {} orig {at:?} {next:?} {:#x} | port {:?} {:?} {:#x}", i + 1, if same { "same" } else { "DIFF" }, p.read_u32(r + 0x14), post.pos, post.next, post.flags);
+        }
+    }
+    // DUMP=1: the original's bodies: id (+0x38), character (+0x15c),
+    // place, heading, mode (+0x699), post (+0x695), speed, state; and the
+    // player.
+    if std::env::var_os("DUMP").is_some() {
+        for &o in &objs {
+            if p.read_u32(o + 0x154) != 0 {
+                println!(
+                    "body {o:#x} id {} char {} at {:?} h {} mode {} post {} speed {} state {}",
+                    p.read_i16(o + 0x38) as u16,
+                    p.read_i16(o + 0x15c),
+                    [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)),
+                    p.read_i16(o + 0x24),
+                    p.read_u8(o + 0x699),
+                    p.read_u8(o + 0x695),
+                    p.read_i32(o + 0x184),
+                    p.read_u8(o + 0x18c)
+                );
+            }
+        }
+        let me = p.player();
+        println!("player at {:?} h {} | port player at {:?} h {}", me.pos, me.heading, g.player.pos, g.player.heading);
+    }
     // Each NPC's object: the one of its template at its place, or nearest.
     let mut pairs = Vec::new();
     let mut bodies: Vec<(u32, [i32; 3])> = Vec::new();
@@ -62,7 +96,10 @@ fn main() -> Result<(), String> {
         }
     }
     for (k, n) in g.npcs.iter().enumerate() {
-        let best = bodies.iter().map(|&(o, at)| ((0..3).map(|i| (at[i] - n.pos[i]).abs() as i64).sum::<i64>(), o)).min();
+        // Its own id (+0x38) if a body has it, else the nearest.
+        let by_id: Vec<(u32, [i32; 3])> = bodies.iter().copied().filter(|&(o, _)| p.read_i16(o + 0x38) as u16 == n.id && n.id != 0).collect();
+        let pool = if by_id.is_empty() { &bodies } else { &by_id };
+        let best = pool.iter().map(|&(o, at)| ((0..3).map(|i| (at[i] - n.pos[i]).abs() as i64).sum::<i64>(), o)).min();
         if let Some((d, o)) = best {
             println!("npc {k} id {} at {:?} <-> {o:#x} (off {d})", n.id, n.pos);
             pairs.push((k, o));
@@ -151,9 +188,24 @@ fn main() -> Result<(), String> {
     for f in 0..frames {
         if sync_at == Some(f) {
             for &(k, o) in &pairs {
+                let t = tracks(&mut p, o);
+                let speed = p.read_i16(o + 0xe4) as i32;
+                let after = (p.read_u8(o + 0xe6), p.read_u8(o + 0xe7));
+                let fidget = (p.read_i16(o + 0xf0), p.read_i16(o + 0xf2) as i32);
+                let (cur, prev) = (p.read_u8(o + 0x695), p.read_u8(o + 0x694));
                 let n = &mut g.npcs[k];
                 n.pos = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
                 n.heading = p.read_i16(o + 0x24) as i32 & 4095;
+                let pose = n.animator.record();
+                let _ = pose;
+                n.animator.load_record(t, speed, after, fidget, vec![None; 32], &g.anims);
+                if let Some(a) = (0..54).find(|&a| rugrats::actors::animator::table_state(a, 0, t[0][0], false) == Some(t[0][0])) {
+                    n.animator.mark_asked(a);
+                }
+                n.sync_body(p.read_u8(o + 0x18c), p.read_i32(o + 0x184));
+                if let rugrats::actors::npc::Mode::Posts { .. } = n.mode {
+                    n.mode = rugrats::actors::npc::Mode::Posts { prev, cur };
+                }
             }
         }
         g.frame(&pads);
@@ -165,7 +217,7 @@ fn main() -> Result<(), String> {
             let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
             let way = [0, 4, 8].map(|i| p.read_i32(o + 0x178 + i));
             println!(
-                "{f:3} MOVE orig {at:?} h {} to {} mode {} wait {} ev {:#x} track0 {:?} speed {} way {way:?} state {} | port {:?} h {} speed {} {:?} {:?}",
+                "{f:3} MOVE orig {at:?} h {} to {} mode {} wait {} ev {:#x} track0 {:?} speed {} way {way:?} v {:?} state {} posts {}<{} | port {:?} h {} speed {} {:?} {:?} {:?}",
                 p.read_i16(o + 0x24),
                 p.read_i16(o + 0x2c),
                 p.read_u8(o + 0x699),
@@ -173,12 +225,16 @@ fn main() -> Result<(), String> {
                 p.read_u32(o + 0xe0),
                 tracks(&mut p, o)[0],
                 p.read_i32(o + 0x184),
+                [0, 2, 4].map(|i| p.read_i16(o + 0x170 + i)),
                 p.read_u8(o + 0x18c),
+                p.read_u8(o + 0x695),
+                p.read_u8(o + 0x694),
                 n.pos,
                 n.heading,
                 n.speed,
                 n.bite,
-                n.animator.record()[0]
+                n.animator.record()[0],
+                n.mode
             );
         }
         for &(k, o) in &pairs {

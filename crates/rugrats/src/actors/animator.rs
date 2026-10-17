@@ -909,6 +909,7 @@ pub struct RootCurve {
     /// state run out this step still had (for a state whose word has 32).
     across_done: [i32; 2],
     across_rest: Option<[i32; 2]>,
+    across_cur: usize,
 }
 
 impl RootCurve {
@@ -918,7 +919,11 @@ impl RootCurve {
     /// one before still had.
     pub fn across(&mut self, a: &Animator, anims: &Anims, lo: i32) -> [i32; 2] {
         let mut d = [0; 2];
-        if a.began() {
+        // (A loop's next round starts it again as well.)
+        let (_, _, _, now, _) = a.track();
+        let round = now < self.across_cur;
+        self.across_cur = now;
+        if a.began() || round {
             if let Some(rest) = self.across_rest.take() {
                 d = [rest[0] - self.across_done[0], rest[1] - self.across_done[1]];
             }

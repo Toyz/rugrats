@@ -129,7 +129,7 @@ pub struct Player {
     pub head_on: i32,
     /// The stick's push in the air this frame (the body's frame: across,
     /// along).
-    push: [i32; 2],
+    pub push: [i32; 2],
     pub animator: Animator,
     /// Sound effects asked for this frame (0x8006f644's numbers).
     pub effects: Vec<u8>,
@@ -229,6 +229,15 @@ pub struct Player {
     /// What the animation before still had when it ran out in the step
     /// this one began: on top of this one's curve until the next begins.
     root_rest: i32,
+    /// A character's body (object flag 0x4000): it walks under this speed
+    /// and runs from it (0x80059008, 0x800590d4: its table row's fifth),
+    /// where the player walks to `WALK`.
+    pub walk_below: Option<i32>,
+    /// A character whose probe held lets it by (+0x688 bit 0x1000,
+    /// 0x80064838: the floor delta 0, the way open): the route runners.
+    pub passes: bool,
+    /// This frame's step was held up (a wall, an object).
+    pub held_up: bool,
 }
 
 impl Player {
@@ -249,17 +258,10 @@ impl Player {
 
     /// Puts the player at `start` with heading `heading` on the floor
     /// (0x800596e8), with `hierarchy`.
-    pub fn new(
-        disc: &GameDisc,
-        hierarchy: Hierarchy,
-        start: [i32; 3],
-        heading: i32,
-        col: &Col,
-        anims: &Anims,
-    ) -> Result<Player, String> {
-        let animator = Animator::load(disc, TOMMY)?;
+    /// A body standing at `start`, its floor at its feet's height.
+    fn bare(hierarchy: Hierarchy, animator: Animator, start: [i32; 3], heading: i32) -> Player {
         let feet = hierarchy.parts.first().map_or(0, |p| p.offset[1]);
-        let mut p = Player {
+        Player {
             pos: start,
             heading,
             target: heading,
@@ -315,7 +317,23 @@ impl Player {
             root_seen: RootSeen::default(),
             root_base: 0,
             root_rest: 0,
-        };
+            walk_below: None,
+            passes: false,
+            held_up: false,
+        }
+    }
+
+    pub fn new(
+        disc: &GameDisc,
+        hierarchy: Hierarchy,
+        start: [i32; 3],
+        heading: i32,
+        col: &Col,
+        anims: &Anims,
+    ) -> Result<Player, String> {
+        let animator = Animator::load(disc, TOMMY)?;
+        let feet = hierarchy.parts.first().map_or(0, |p| p.offset[1]);
+        let mut p = Player::bare(hierarchy, animator, start, heading);
         let q = collide::query(col, start);
         if q.tile.is_some() {
             p.floor = q.floor;
@@ -323,6 +341,38 @@ impl Player {
         }
         p.animator.set(anim::IDLE, anims);
         Ok(p)
+    }
+
+    /// Standing again, out of any air (a body put somewhere).
+    pub fn reset_air(&mut self) {
+        self.state = State::Stand;
+        self.v = [0; 3];
+        self.pending_jump = None;
+        self.climb = None;
+        self.action = None;
+    }
+
+    /// Landing (state 10).
+    pub fn landing(&self) -> bool {
+        self.state == State::Land
+    }
+
+    /// On the floor (stand, walk, run, landing).
+    pub fn on_ground(&self) -> bool {
+        matches!(self.state, State::Stand | State::Walk | State::Run | State::Land)
+    }
+
+    /// A character's body (the shared one 0x8005a068 runs for it): its
+    /// hierarchy and animator, where it stands, walking under `walk_below`.
+    pub fn character_body(hierarchy: Hierarchy, animator: Animator, pos: [i32; 3], heading: i32, walk_below: i32) -> Player {
+        let feet = hierarchy.parts.first().map_or(0, |p| p.offset[1]);
+        let mut p = Player::bare(hierarchy, animator, pos, heading);
+        p.feet = feet;
+        p.floor = pos[1] - feet;
+        p.walk_below = Some(walk_below);
+        p.falls_hurt = false;
+        p.bumps = false;
+        p
     }
 
     /// The base track: (state, first frame, frames, frame showing, time
@@ -397,7 +447,6 @@ impl Player {
                 }
             }
         }
-        let acting = self.action.is_some();
         if magnitude >= DEAD {
             let dir = (((sx as f64).atan2(sz as f64) / std::f64::consts::TAU) * 4096.0).round() as i32;
             let want = (dir + camera_heading).rem_euclid(4096);
@@ -457,12 +506,37 @@ impl Player {
         // The stick's push in the air (0x80061330), had there: the axes
         // as the pad gives them (4096 a full one, 8 times that raw).
         self.push = if self.frozen { [0; 2] } else { air_push([sx, sz], camera_heading, self.heading, trig) };
+        self.drive(start, way, on_ground, pressed(input::CROSS), held(input::CROSS), col, boxes, solids, anims, trig);
+    }
+
+    /// The body's frame from its way on (the state's handler, 0x8005a068
+    /// after the stick): the ground move along `way` at the speed, the
+    /// jump on `jump` (Cross pressed; `lift` held), the air, the floor,
+    /// the state and its animation. The player's stick (`frame`) or a
+    /// character's (0x80082264) has set the speed and the heading wanted.
+    #[allow(clippy::too_many_arguments)]
+    pub fn drive(
+        &mut self,
+        start: [i32; 3],
+        way: [i32; 3],
+        on_ground: bool,
+        jump: bool,
+        lift: bool,
+        col: &Col,
+        boxes: &[Box3],
+        solids: &[Exact],
+        anims: &Anims,
+        trig: &Trig,
+    ) {
+        let acting = self.action.is_some();
         // A wall met head-on (or no way along it) by the ground move.
         let mut wall_met = false;
         // The probe's record that held the step head-on (`ground_move`).
         let mut ground_held: Option<ground::Record> = None;
         // The stand handler's probe held (see `ground_move`).
         let mut stand_held = false;
+        // What the probe ahead found (walking or running), if it ran.
+        let mut ahead: Option<ground::Ahead> = None;
         let first_step = self.state == State::Stand && self.speed > 0 && !acting && self.pending_jump.is_none();
         // In the air the original's own air move tests and has the step
         // (`air_move`), landing included.
@@ -501,11 +575,18 @@ impl Player {
                     // first frame, `hub_run_as_the_original`).
                     probe_step = Some((dx, dz));
                 } else {
+                    // Walking or running, the way open: the probe ahead
+                    // (0x800645d8, 0x80064838 in mode 2) of the step from
+                    // here: a drop past the step limit is the fall (state
+                    // 4).
+                    if held.is_none() && matches!(self.state, State::Walk | State::Run) && (dx, dz) != (0, 0) {
+                        ahead = Some(self.ahead_step(col, trig, way, self.speed * DT, solids));
+                    }
                     self.pos[0] += dx;
                     self.pos[2] += dz;
                 }
             }
-            if pressed(input::CROSS) && !acting && self.jump_lock == 0 && !self.no_jump && !self.frozen {
+            if jump && !acting && self.jump_lock == 0 && !self.no_jump && !self.frozen {
                 // The launch (0x80060f1c): up 1000, and along the facing
                 // 40 a unit of speed when running, else 12.
                 self.standing_jump = self.speed <= WALK;
@@ -522,7 +603,7 @@ impl Player {
             // The air (0x80061330): gravity 14, less 5 while jump is held
             // on the way up; across, the stick's push against the drag
             // (`air_step`).
-            air_landed = self.air_move(held(input::CROSS), col, trig, solids, anims, false);
+            air_landed = self.air_move(lift, col, trig, solids, anims, false);
             exact_air = true;
         }
         // The floor (0x800627a0): the feet on it, or back where the frame
@@ -577,6 +658,18 @@ impl Player {
             ok
         } {
             // Onto the ledge.
+        } else if q.kind != 0
+            && self.passes
+            && {
+                // A runner let by (+0x688 bit 0x1000) stands on the floor
+                // where it now is, however high (0x80067448 from over it).
+                let up = collide::query(col, [self.pos[0], start[1] - self.feet - CLIMB, self.pos[2]]);
+                if up.kind == 0 {
+                    self.floor = up.floor;
+                }
+                up.kind == 0
+            }
+        {
         } else if q.kind != 0 {
             // Into a wall or a step too high: back across, keep the height.
             let back = collide::query(col, [start[0], probe[1], start[2]]);
@@ -752,6 +845,7 @@ impl Player {
         }
         // Whether the step was held up at all.
         let stopped = blocked || wall_met;
+        self.held_up = stopped;
         // Running (0x800590d4) into a thing not climbed: the bump, its
         // damage to the game (0x8005e1f4).
         // (A wall's has no thing, +0xf4 0: no damage.)
@@ -786,11 +880,16 @@ impl Player {
         }
         let feet_y = self.pos[1] - self.feet;
         if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
-            if self.floor - feet_y > STEP_DOWN {
+            let falls = match ahead {
+                Some(a) => a == ground::Ahead::Fall,
+                None => self.floor - feet_y > STEP_DOWN,
+            };
+            if falls {
                 self.state = State::Fall;
-                // Off along the facing at the step's speed (the body's own
-                // frame, +0x170).
-                self.v = [0, 0, self.speed << 6];
+                // Off along the way at the running jump's 40 a unit of
+                // speed, in the body's own frame (+0x170; the original's
+                // (-13, 0, 680) for a character at 17).
+                self.v = launch_v(way, 0, self.moving_jump.1 * self.speed, self.heading, trig);
                 self.air_hit = false;
                 self.lift_time = 0;
                 self.air = 0;
@@ -854,7 +953,7 @@ impl Player {
                 // probe; the oracle: one bump, then Up held stands).
                 _ if stopped && self.state == State::Stand => State::Stand,
                 0 => State::Stand,
-                s if s <= WALK => State::Walk,
+                s if self.walk_below.map_or(s <= WALK, |w| s < w) => State::Walk,
                 _ => State::Run,
             };
             // Held standing, its speed is put by (+0x184 into +0x176) and
@@ -1015,6 +1114,26 @@ impl Player {
     /// at a slant from `head_on` to a right angle and the way along it is
     /// clear or meets a wall there at 512 or more (0x80065120); else held,
     /// with the record that held it (for the climb or the bump).
+    /// The probe ahead (0x800645d8) of a step `len` along `way` from here.
+    fn ahead_step(&mut self, col: &Col, trig: &Trig, way: [i32; 3], len: i32, solids: &[Exact]) -> ground::Ahead {
+        let (lo, hi) = self.body_box();
+        let near: Vec<ground::Near> = solids.iter().map(|e| ground::Near { solid: &e.solid, skip: false }).collect();
+        let g = ground::Ground {
+            col,
+            trig,
+            near: &near,
+            body: ground::Body { lo, hi },
+            limit: self.step_limit,
+            angles: [self.heading as i16, 0, 0],
+            reflect: false,
+            low: i32::MIN,
+        };
+        let mut st = self.probes;
+        let r = g.ahead(self.pos, self.floor, way, len, false, &mut st);
+        self.probes = st;
+        r
+    }
+
     fn ground_move(&mut self, col: &Col, trig: &Trig, way: [i32; 3], len: i32, solids: &[Exact], reflect: bool) -> ((i32, i32), Option<ground::Record>, bool) {
         let (lo, hi) = self.body_box();
         let near: Vec<ground::Near> = solids.iter().map(|e| ground::Near { solid: &e.solid, skip: false }).collect();
@@ -1030,7 +1149,17 @@ impl Player {
         };
         let mut st = self.probes;
         let (pos, floor) = (self.pos, self.floor);
-        let mut probe = |w: [i32; 3]| g.probe(pos, floor, w, len, &mut st);
+        let character = self.walk_below.is_some();
+        let passes = self.passes;
+        let mut probe = |w: [i32; 3]| {
+            if !character {
+                return g.probe(pos, floor, w, len, &mut st);
+            }
+            match g.probe_middle(pos, floor, w, len, &mut st) {
+                ground::Probed::Held { record, .. } if passes => ground::Probed::Clear(ground::Record { delta: 0, ..record }),
+                r => r,
+            }
+        };
         let out = match probe(way) {
             ground::Probed::Clear(_) => (along(way, len, trig), None, false),
             p @ ground::Probed::Held { record, slide } => {

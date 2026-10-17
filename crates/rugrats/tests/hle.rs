@@ -616,6 +616,7 @@ fn level_9_friend_chases_as_the_original() {
     let n = &mut b.game.npcs[k];
     n.pos = [0, 4, 8].map(|i| b.hle.read_i32(o + 0x18 + i));
     n.heading = b.hle.read_i16(o + 0x24) as i32 & 4095;
+    n.sync_body(b.hle.read_u8(o + 0x18c), b.hle.read_i32(o + 0x184));
     let mut seen = Vec::new();
     let (port, orig) = b.script_with(&[(0, 520)], |g, h| {
         let n = &g.npcs[k];
@@ -680,6 +681,7 @@ fn level_9_friend_bites_as_the_original() {
         n.animator.load_record(t, speed, after, fidget, pose, &g.anims);
         n.pos = [0, 4, 8].map(|i| b.hle.read_i32(o + 0x18 + i));
         n.heading = b.hle.read_i16(o + 0x24) as i32 & 4095;
+        n.sync_body(b.hle.read_u8(o + 0x18c), b.hle.read_i32(o + 0x184));
         n.bite = match mode {
             5 => Bite::Strike,
             1 => Bite::Recover,
@@ -715,14 +717,23 @@ fn level_9_friend_bites_as_the_original() {
 /// Mr. Friend (46) in level 9 given the original's place, heading,
 /// animation and mode; his object.
 fn sync_friend(b: &mut Both) -> (usize, u32) {
-    use rugrats::actors::npc::Bite;
-    let k = b.game.npcs.iter().position(|n| n.id == 46).expect("Mr. Friend");
+    sync_npc(b, 46)
+}
+
+/// Character `id` given the original's place, heading, animation, health,
+/// body state, mode (a follower's bite, a post walker's posts); its index
+/// and its object.
+fn sync_npc(b: &mut Both, id: u16) -> (usize, u32) {
+    use rugrats::actors::npc::{Bite, Mode};
+    let k = b.game.npcs.iter().position(|n| n.id == id).expect("the character");
     let at = b.game.npcs[k].pos;
+    // Its own id (+0x38) first, else the body nearest.
     let mut bodies = Vec::new();
     for o in objects(&mut b.hle) {
         if b.hle.read_u32(o + 0x154) != 0 {
             let d: i32 = (0..3).map(|i| (b.hle.read_i32(o + 0x18 + 4 * i as u32) - at[i]).abs()).sum();
-            bodies.push((d, o));
+            let other = (b.hle.read_i16(o + 0x38) as u16 != id) as i32;
+            bodies.push(((other, d), o));
         }
     }
     let o = bodies.into_iter().min().expect("his object").1;
@@ -743,6 +754,7 @@ fn sync_friend(b: &mut Both) -> (usize, u32) {
         }
     }
     let mode = b.hle.read_u8(o + 0x699);
+    let (cur, prev) = (b.hle.read_u8(o + 0x695), b.hle.read_u8(o + 0x694));
     let g = &mut b.game;
     let n = &mut g.npcs[k];
     n.animator.load_record(t, speed, after, fidget, pose, &g.anims);
@@ -753,13 +765,54 @@ fn sync_friend(b: &mut Both) -> (usize, u32) {
     n.pos = [0, 4, 8].map(|i| b.hle.read_i32(o + 0x18 + i));
     n.heading = b.hle.read_i16(o + 0x24) as i32 & 4095;
     n.health = b.hle.read_i16(o + 0x1a4) as i32;
+    n.sync_body(b.hle.read_u8(o + 0x18c), b.hle.read_i32(o + 0x184));
     n.bite = match mode {
         5 => Bite::Strike,
         1 => Bite::Recover,
         0 => Bite::Resume,
         _ => Bite::Chase,
     };
+    if let Mode::Posts { .. } = n.mode {
+        n.mode = Mode::Posts { prev, cur };
+    }
     (k, o)
+}
+
+/// Level 13 past cine 6: Angelica's race, Tommy left standing. Given the
+/// original's Angelica once, she runs her posts as the original does: the
+/// shared body's step (a single probe, 0x80064838; a held one lets her by,
+/// +0x688 bit 0x1000), the probe ahead and its fall down the stairs
+/// (0x800645d8, state 4: the running launch, the character's push 12),
+/// the landing, the waits at posts 13 and 5 (mode 7: no body update the
+/// frame it starts, the wait's own animation, VSync), the random post (20:
+/// rand & 3), to the goal post. Her place and heading every frame to it,
+/// and her animation tracks once the sync's first frames are past.
+#[test]
+#[ignore]
+fn level_13_angelica_races_as_the_original() {
+    let Some(mut b) = Both::open(Boot { level: 13, cinematics: true, ..Default::default() }) else { return };
+    for _ in 0..600 {
+        b.hle.frame(0).unwrap();
+    }
+    let (k, o) = sync_npc(&mut b, 600);
+    b.sync_animation();
+    let mut seen = Vec::new();
+    b.script_with(&[(0, 940)], |g, h| {
+        let n = &g.npcs[k];
+        let theirs: [[i16; 6]; 4] = std::array::from_fn(|j| std::array::from_fn(|i| h.read_i16(o + 0xa8 + 12 * j as u32 + 2 * i as u32)));
+        let mine = n.animator.record();
+        let tracks = theirs.iter().zip(&mine).all(|(a, c)| a[..4] == c[..4] && (a[5] & 0xff) == (c[5] & 0xff));
+        let place = [n.pos[0], n.pos[2], n.heading & 4095] == [h.read_i32(o + 0x18), h.read_i32(o + 0x20), h.read_i16(o + 0x24) as i32 & 4095];
+        if std::env::var_os("TRACKS").is_some() && seen.len() % 50 == 25 {
+            eprintln!("    angelica {:?} | {:?}", theirs, mine);
+        }
+        seen.push((place, tracks));
+    });
+    let place_off: Vec<usize> = seen.iter().enumerate().filter(|(_, s)| !s.0).map(|(f, _)| f).collect();
+    let tracks_off: Vec<usize> = seen.iter().enumerate().filter(|(f, s)| *f >= 20 && !s.1).map(|(f, _)| f).collect();
+    eprintln!("Angelica: place off at {place_off:?}, tracks off at {tracks_off:?}");
+    assert!(place_off.is_empty(), "her place and heading, off at {place_off:?}");
+    assert!(tracks_off.is_empty(), "her animation tracks, off at {tracks_off:?}");
 }
 
 /// Level 9: Tommy picks up ball 2 and throws it at Mr. Friend coming

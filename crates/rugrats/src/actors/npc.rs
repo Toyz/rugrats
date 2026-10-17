@@ -82,6 +82,9 @@ pub enum Mode {
     Posts { prev: u8, cur: u8 },
     /// Mode 7: waiting at a post for the player, frames left.
     Wait { prev: u8, cur: u8, left: i32 },
+    /// Mode 0 after a wait (0x80083efc): one frame with no body update,
+    /// then the mode before.
+    Resume(Box<Mode>),
     /// Mode 11: guarding home, chasing the player within range.
     Guard,
     /// Mode 1: hit, recovering for `left` dt.
@@ -167,6 +170,15 @@ pub struct Npc {
     pub trigger: i32,
     /// Its template's trigger radius (+0x34, into +0xa0).
     pub radius: i32,
+    /// The shared body its moves go through (0x8005a068), and whether it
+    /// did this frame (it asked for its own animation then).
+    pub body: Option<Box<crate::actors::player::Player>>,
+    pub driven: bool,
+    /// Waiting at a post (mode 7) or just resumed: no ask at the end.
+    pub waited: bool,
+    /// Its probe held lets it by (+0x688 bit 0x1000): set for route
+    /// runners by their scripts and for character 33.
+    pub passes: bool,
     /// Its last step was taken back off a wall or an object (the bump,
     /// state 9).
     pub bumped: bool,
@@ -274,7 +286,14 @@ impl Npc {
     /// - then the body's turn (0x8005bc80) toward the heading wanted by
     ///   1025 dt >> 6 (Spike 298, 0x8005bbf4).
     fn go(&mut self, me: usize, goal: [i32; 3], speed: i32, w: &World) {
-        let (col, trig) = (w.col, w.trig);
+        self.steer(me, goal, speed, w, true);
+    }
+
+    /// The stick (0x80082264) and the turn (0x8005bc80); with `body`, the
+    /// body's step too (state 19's handler takes none: a bite or stagger
+    /// playing out only turns).
+    fn steer(&mut self, me: usize, goal: [i32; 3], speed: i32, w: &World, body: bool) {
+        let trig = w.trig;
         let want = trig.ratan2(goal[0] - self.pos[0], goal[2] - self.pos[2]) & 4095;
         let d = wrap(want - self.heading);
         let d = if d.abs() < TURN { d } else { TURN * d.signum() };
@@ -297,50 +316,84 @@ impl Npc {
         let near = (self.heading - want).abs() < 1025;
         let v = if near { long } else if long < 0 { (long + 3) >> 2 } else { long >> 2 };
         let way = crate::actors::ground::set_length(trig.turn_by([self.heading as i16, 0, 0], [0, 0, v]), long, trig);
-        let step = if speed == 0 { [0; 3] } else { crate::actors::ground::set_length(way, speed * DT, trig) };
         let rate = if matches!(self.character, 6 | 34 | 45) { 298 } else { 1025 };
         let turn = (rate * DT) >> 6;
         let d = wrap(want - self.heading);
         self.heading = (self.heading + d.clamp(-turn, turn)).rem_euclid(4096);
         self.speed = speed;
         self.bumped = false;
-        let start = self.pos;
-        self.pos[0] += step[0];
-        self.pos[2] += step[2];
-        // Asked from a step above the feet, as the player's floor test.
-        let q = collide::query(col, [self.pos[0], self.pos[1] - self.feet() - 384, self.pos[2]]);
-        if q.kind == 2 || q.tile.is_none() {
-            self.pos = start;
-            self.speed = 0;
-            self.bumped = true;
-        } else if !matches!(self.mode, Mode::Posts { .. } | Mode::Wait { .. }) && self.walled(start, w.walls) {
-            // An object in the way (a shut door, a crate): back across.
-            // Route walkers keep to their posts (guess: +0x688 bit 0x800,
-            // set for the toss and race runners).
-            self.pos = start;
-            self.speed = 0;
-            self.bumped = true;
-        } else if q.floor - (self.pos[1] - self.feet()) > -1200 {
-            self.pos[1] = q.floor + self.feet();
-        } else {
-            // A wall: back across.
-            self.pos = start;
-            self.speed = 0;
-            self.bumped = true;
+        if body {
+            self.drive_body(me, way, want, w);
         }
     }
 
-    /// Whether the body walked deeper into an object's box than it was at
-    /// `start` (a box whose top is within a step of the feet is floor).
-    fn walled(&self, start: [i32; 3], walls: &[Box3]) -> bool {
-        let feet = self.pos[1] - self.feet();
-        walls.iter().any(|b| {
-            !b.character
-                && b.min_y < feet - 384
-                && b.max_y > feet - 600
-                && b.covers(self.pos, 200)
-                && b.depth(self.pos, 200) > b.depth(start, 200)
-        })
+    /// Its body set to the original's state (+0x18c: 0 stand, 1 walk, 2
+    /// run) at its place (for tools starting it where the original is).
+    pub fn sync_body(&mut self, state: u8, speed: i32) {
+        use crate::actors::player::{Player, State};
+        let walk_below = SPEEDS[self.slow as usize][4];
+        let body = self.body.get_or_insert_with(|| {
+            Box::new(Player::character_body(self.hierarchy.clone(), Animator::default(), self.pos, self.heading, walk_below))
+        });
+        body.pos = self.pos;
+        body.floor = self.pos[1] - body.feet();
+        body.reset_air();
+        body.state = match state {
+            1 => State::Walk,
+            2 => State::Run,
+            _ => State::Stand,
+        };
+        body.speed = speed;
+        self.speed = speed;
+    }
+
+    /// The shared body's step (0x8005a068's handlers, `Player::drive`):
+    /// along `way` at the speed, the probes, a fall off an edge, the air
+    /// and the landing, the state and its animation. The character's own
+    /// solid is not in its way. A body moved by a script starts again
+    /// standing where it was put.
+    fn drive_body(&mut self, me: usize, way: [i32; 3], want: i32, w: &World) {
+        let walk_below = SPEEDS[self.slow as usize][4];
+        let body = self.body.get_or_insert_with(|| {
+            Box::new(crate::actors::player::Player::character_body(
+                self.hierarchy.clone(),
+                Animator::default(),
+                self.pos,
+                self.heading,
+                walk_below,
+            ))
+        });
+        if body.pos != self.pos {
+            body.pos = self.pos;
+            body.floor = self.pos[1] - body.feet();
+            body.reset_air();
+        }
+        body.heading = self.heading;
+        body.target = want;
+        // (The landing, state 10, takes no step and plays out, the speed
+        // kept: as the player's stick has it there, 0 to the body.)
+        body.speed = if body.landing() { 0 } else { self.speed };
+        body.hold = self.hold;
+        body.passes = self.passes;
+        // In the air a character is pushed on 12 a dt (0x80061330's
+        // object flag 0x4000 branch), the stick's push it has none of.
+        body.push = [0, 12];
+        std::mem::swap(&mut body.animator, &mut self.animator);
+        let solids: Vec<crate::world::boxhit::Exact> =
+            w.solids.iter().zip(w.npc_of).filter(|(_, n)| **n != Some(me)).map(|(e, _)| e.clone()).collect();
+        let start = body.pos;
+        let on_ground = body.on_ground();
+        body.drive(start, way, on_ground, false, false, w.col, w.walls, &solids, w.anims, w.trig);
+        body.effects.clear();
+        body.hints.clear();
+        std::mem::swap(&mut body.animator, &mut self.animator);
+        self.bumped = body.held_up;
+        self.pos = body.pos;
+        self.heading = body.heading;
+        if !body.landing() {
+            self.speed = body.speed;
+        }
+        self.driven = true;
     }
 
     /// The look ahead (0x800825fc): three casts from the body to the goal
@@ -452,6 +505,9 @@ pub struct World<'a> {
     /// top and bottom (+0x154 + 6, + 0xe).
     pub player_y: i32,
     pub player_box_y: [i32; 2],
+    /// This frame's solids, and which character each is.
+    pub solids: &'a [crate::world::boxhit::Exact],
+    pub npc_of: &'a [Option<usize>],
 }
 
 /// An object as the characters' casts see it.
@@ -501,7 +557,18 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 continue;
             }
         }
-        let body = !(matches!(n.mode, Mode::Follow(_)) && matches!(n.bite, Bite::Strike | Bite::Resume));
+        // (Reaching a post to wait at, mode 6 leaves without the body's
+        // update: 0x80083e2c has made it mode 7.)
+        let enters_wait = match n.mode {
+            Mode::Posts { cur, .. } => w
+                .posts
+                .get((cur as usize).wrapping_sub(1))
+                .is_some_and(|p| p.flags & post::WAIT != 0 && p.flags & post::END == 0 && n.dist(p.pos) <= n.post_reach),
+            _ => false,
+        };
+        let body = !(matches!(n.mode, Mode::Follow(_)) && matches!(n.bite, Bite::Strike | Bite::Resume))
+            && !matches!(n.mode, Mode::Resume(_))
+            && !enters_wait;
         let mut across = [0; 2];
         if body {
             n.animator.step(w.anims, w.trig);
@@ -542,7 +609,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 // in the bites seen.)
                 Bite::Recover => {
                     let goal = n.goal;
-                    n.go(k, goal, 0, w);
+                    n.steer(k, goal, 0, w, false);
                     n.pos[0] += across[0];
                     n.pos[2] += across[1];
                     if n.animator.events & 0x800_0000 != 0 {
@@ -612,9 +679,20 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     }
                     let next = n.next_post(&post, prev, rand);
                     n.mode = if post.flags & post::WAIT != 0 {
+                        // 0x80083e2c: the speed put by, the wait (logical
+                        // 9) asked at 4096, a line; mode 7 (no body update
+                        // this frame).
                         events.push(Event::Waits(k));
+                        n.speed = 0;
+                        n.animator.start_at(9, 4096, w.anims);
+                        n.driven = false;
+                        n.waited = true;
                         Mode::Wait { prev: cur, cur: next, left: n.wait * DT / 2 }
                     } else {
+                        // The body still steps this frame, aimed at the post
+                        // reached (mode 6 takes its place for +0x67c
+                        // before 0x80082c78 moves on).
+                        n.go(k, post.pos, base, w);
                         Mode::Posts { prev: cur, cur: next }
                     };
                 } else {
@@ -622,32 +700,36 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 }
             }
             Mode::Wait { prev, cur, left } => {
-                // Resume (0x80083efc) when (0x800843f0) the time is up, the
-                // player comes near, or he lies within 768 of the way to
-                // the next post: ahead of her (0x800760f4), the one that
-                // says a line.
+                // Mode 7 (0x800843f0): state 19, the look-at the player; the
+                // body updated (its stick turning it to the player, no step:
+                // state 19's handler); then the resume (0x80083efc) when the
+                // wait (+0x68e, VSync ticks) is up or the player is within
+                // range, and again when he lies within 768 of the way to the
+                // next post (both as 0..4095, 0x8001f650), the one with a
+                // line.
                 n.speed = 0;
-                let near = n.dist(w.player) < n.range;
-                let bearing = |to: [i32; 3]| {
-                    let (dx, dz) = ((to[0] - n.pos[0]) as f64, (to[2] - n.pos[2]) as f64);
-                    ((dx.atan2(dz) / std::f64::consts::TAU) * 4096.0).round() as i32
-                };
-                let ahead = w
-                    .posts
-                    .get((cur as usize).wrapping_sub(1))
-                    .is_some_and(|post| wrap(bearing(w.player) - bearing(post.pos)).abs() < 768);
-                if left <= 0 || near || ahead {
-                    if ahead {
-                        events.push(Event::Resumes(k));
-                    }
-                    n.mode = Mode::Posts { prev, cur };
-                } else {
-                    n.mode = Mode::Wait { prev, cur, left: left - DT };
-                    let p = w.player;
-                    let (dx, dz) = ((p[0] - n.pos[0]) as f64, (p[2] - n.pos[2]) as f64);
-                    let want = ((dx.atan2(dz) / std::f64::consts::TAU) * 4096.0).round() as i32;
-                    n.heading = (n.heading + wrap(want - n.heading).clamp(-TURN, TURN)).rem_euclid(4096);
+                let p = w.player;
+                n.steer(k, p, 0, w, false);
+                let yaw = |to: [i32; 3]| w.trig.ratan2(to[0] - n.pos[0], to[2] - n.pos[2]) & 4095;
+                // (VSync since the entry, 2 a frame, against the wait.)
+                let left = left - DT;
+                let mut resume = left <= 0 || n.dist(p) < n.range;
+                let ahead = w.posts.get((cur as usize).wrapping_sub(1)).is_some_and(|post| (yaw(post.pos) - yaw(p)).abs() < 768);
+                if ahead {
+                    events.push(Event::Resumes(k));
+                    resume = true;
                 }
+                n.mode = if resume {
+                    n.sync_body(0, n.speed);
+                    Mode::Resume(Box::new(Mode::Posts { prev, cur }))
+                } else {
+                    Mode::Wait { prev, cur, left }
+                };
+                n.waited = true;
+            }
+            Mode::Resume(then) => {
+                n.mode = *then;
+                n.waited = true;
             }
             Mode::Guard => {
                 let p = w.player;
@@ -728,6 +810,19 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         // Walking under the table's fifth speed of its row (0x80059008,
         // 0x800590d4 for objects of flag 0x4000), running from it.
         let run_from = SPEEDS[n.slow as usize][4];
+        if std::mem::take(&mut n.waited) {
+            // (The wait plays its own animation; mode 0 asks nothing.)
+            continue;
+        }
+        if std::mem::take(&mut n.driven) {
+            // (Its body asked for what it plays; entered anew after a
+            // bite, afresh.)
+            if std::mem::take(&mut n.reenter) {
+                let a = n.animator.asked();
+                n.animator.start(a, w.anims);
+            }
+            continue;
+        }
         let a = n.hold.unwrap_or(match n.speed {
             s if s <= 0 => IDLE,
             s if s < run_from => WALK,
@@ -768,17 +863,20 @@ impl Npc {
     }
 }
 
-/// The next post (0x80082c78): a random neighbour with flag 4, else the
-/// first neighbour that is not the one come from, else neighbour 0.
+/// The next post (0x80082ee0): with flag 4, a neighbour slot drawn as
+/// rand & 3 until one is set (40 draws at most); else the first neighbour
+/// that is not the one come from; else the first slot.
 fn next_post(p: &Post, prev: u8, rand: &mut Rand) -> u8 {
-    let real: Vec<u8> = p.next.iter().copied().filter(|&n| n != 0).collect();
-    if real.is_empty() {
-        return prev;
-    }
     if p.flags & post::RANDOM != 0 {
-        return real[rand.next() as usize % real.len()];
+        for _ in 0..40 {
+            let n = p.next[(rand.next() & 3) as usize];
+            if n != 0 {
+                return n;
+            }
+        }
+        return p.next[0];
     }
-    real.iter().copied().find(|&n| n != prev).unwrap_or(real[0])
+    p.next.iter().copied().find(|&n| n != 0 && n != prev).unwrap_or(p.next[0])
 }
 
 /// The NPC's triangles.

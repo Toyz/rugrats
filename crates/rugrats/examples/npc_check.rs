@@ -286,7 +286,7 @@ fn main() -> Result<(), String> {
             let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
             let way = [0, 4, 8].map(|i| p.read_i32(o + 0x178 + i));
             println!(
-                "{f:3} MOVE orig {at:?} h {} to {} mode {} wait {} ev {:#x} track0 {:?} speed {} way {way:?} v {:?} state {} flags {:#x} held {} posts {}<{} player health {} | port {:?} h {} speed {} {:?} {:?} {:?}",
+                "{f:3} MOVE orig {at:?} h {} to {} mode {} wait {} ev {:#x} track0 {:?} speed {} way {way:?} v {:?} state {} flags {:#x} held {} posts {}<{} player health {} | port {:?} root y {} h {} speed {} {:?} {:?} {:?}",
                 p.read_i16(o + 0x24),
                 p.read_i16(o + 0x2c),
                 p.read_u8(o + 0x699),
@@ -302,6 +302,7 @@ fn main() -> Result<(), String> {
                 p.read_u8(o + 0x694),
                 p.read_i16(0x800e_2b48 + 0x1a4),
                 n.pos,
+                n.root.y,
                 n.heading,
                 n.speed,
                 n.bite,

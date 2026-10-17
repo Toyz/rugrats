@@ -120,6 +120,9 @@ pub struct Player {
     /// Golf's aim (state 14): 0x8005be24's own case steps the heading, so
     /// the stick turns the body no other way.
     pub script_aims: bool,
+    /// Held in place, the turn not kept to the camera's (levels 20 and
+    /// 21: 0x8005be24 takes +0x188 bit 1 as 0 there).
+    pub free_while_frozen: bool,
     /// The turn rate (0x800c41fc; 298 for chars 6 and 34).
     pub turn_rate: i32,
     /// The highest step walked up (0x800c430c by +0x15e: 256, or 750).
@@ -274,6 +277,7 @@ impl Player {
             health: 255,
             frozen: false,
             script_aims: false,
+            free_while_frozen: false,
             turn_rate: TURN,
             head_on: 384,
             step_limit: 256,
@@ -490,6 +494,15 @@ impl Player {
             // a tap of Up and Left from the hub's start: 2048, 1888, held).
             self.target = self.heading;
         }
+        // Held in place (+0x188 bit 1, but in levels 20 and 21): the
+        // target kept within 512 of the camera's heading, both as 0..4096
+        // (0x8005c3dc); the pie toss's Tommy, put facing 2048 by a camera
+        // looking along 1024, turns to 1536.
+        if self.frozen && !self.script_aims && !self.free_while_frozen {
+            let norm = |a: i32| a.rem_euclid(4096);
+            let (want, cam) = (norm(self.target), norm(camera_heading));
+            self.target = want.clamp(cam - 512, cam + 512);
+        }
         // The state's handler steps along the heading as it is; the turn
         // toward the wanted heading (0x8005bc80) comes after the step is
         // added (0x8005cb48), so this frame's turn moves the next frame's
@@ -606,6 +619,9 @@ impl Player {
             air_landed = self.air_move(lift, col, trig, solids, anims, false);
             exact_air = true;
         }
+        // Held in place (+0x188 bit 1) and standing, no step and no floor
+        // follows: the pie toss's Tommy stays as put, 31 into the counter.
+        let held_still = (self.frozen && on_ground).then_some((self.pos[1], self.floor));
         // The floor (0x800627a0): the feet on it, or back where the frame
         // began when the point is not in the open.
         // Asked from a step's height above the feet, so a slope or a
@@ -679,6 +695,10 @@ impl Player {
             }
         } else {
             self.floor = q.floor;
+        }
+        if let Some((y, floor)) = held_still {
+            self.pos[1] = y;
+            self.floor = floor;
         }
         // Held head-on by the height field (0x8005e1f4 -> 0x80058da4): a
         // ledge up to the body's reach is climbed (0x80056e44 from the

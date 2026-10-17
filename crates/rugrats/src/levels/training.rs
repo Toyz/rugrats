@@ -5,16 +5,12 @@
 //! hub with the progress kept.
 
 use rrt::glam::Vec3;
-use rugrats_render::Vtx;
 
 use crate::actors::npc::{Event, Mode, Target};
 use crate::actors::player::State;
-use crate::actors::player::anim::THROW;
 use crate::disc::GameDisc;
-use crate::input::{self, Pads};
-use crate::levels::Level;
-use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
-use crate::world::game::{self, Game, Script, Strike};
+use crate::input::Pads;
+use crate::world::game::{Game, Script, Strike};
 
 const ANGELICA: u16 = 600;
 /// The lobster (template 495, id 0): posts 10-19, bites 15.
@@ -42,12 +38,9 @@ const AFTER: [i32; 3] = [31000, -1781, -8146];
 const START_ROOM: usize = 5;
 const PIE: u16 = 564;
 
-struct Toss {
-    pies: Vec<Pie>,
-}
-
 pub struct Training {
-    toss: Option<Toss>,
+    /// The pie toss under way (+0x30 bit 8).
+    toss: bool,
 }
 
 fn find(g: &Game, id: u16) -> Option<usize> {
@@ -71,7 +64,7 @@ impl Training {
             n.mode = Mode::Prowl { prev: 0, cur: n.first_post };
             n.damage = BITE;
         }
-        Ok(Training { toss: None })
+        Ok(Training { toss: false })
     }
 
     /// 0x8007e680: Angelica on her posts with 250, Tommy on the counter
@@ -88,6 +81,8 @@ impl Training {
             n.passes = true;
         }
         g.player.pos = COUNTER;
+        // Standing on the counter (+0x148 with him).
+        g.player.floor = COUNTER[1] - g.player.feet();
         g.player.heading = 2048;
         g.player.target = 2048;
         g.player.speed = 0;
@@ -98,28 +93,23 @@ impl Training {
         // The stick turns him camera-relative: the camera looks east.
         let at = Vec3::new(COUNTER[0] as f32, COUNTER[1] as f32, COUNTER[2] as f32);
         g.fixed = Some((at + EYE, at - Vec3::new(0.0, LOOK_UP, 0.0)));
-        // The counter's pie is the pool's: the toss draws its own, and
-        // the pies end up thrown (guess: none back on the counter).
-        if let Some(k) = g.carried()
-            && g.things[k].template == PIE
-        {
-            g.drop_carried();
-        }
-        for t in g.things.iter_mut().filter(|t| t.template == PIE) {
-            t.hidden = true;
-        }
+        // The six pies at the pie spot, pie 0 in hand; the speed by
+        // Angelica's distance across (0x8001f57c).
+        g.start_pie_toss(ANGELICA, true);
         g.training.show(28);
         g.timer = Some(CLOCK);
-        self.toss = Some(Toss { pies: Vec::new() });
+        self.toss = true;
     }
 
     /// 0x8007e904: the follow camera back, Tommy off the counter.
     fn end(&mut self, g: &mut Game) {
-        self.toss = None;
+        self.toss = false;
+        g.end_pie_toss();
         g.timer = None;
         g.player.frozen = false;
         g.fixed = None;
         g.player.pos = AFTER;
+        g.player.floor = AFTER[1] - g.player.feet();
         g.player.speed = 0;
         g.player.v = [0; 3];
         g.player.state = State::Stand;
@@ -128,27 +118,19 @@ impl Training {
         g.set_camera_yaw(h as f32);
     }
 
-    fn toss_frame(&mut self, g: &mut Game, pads: &Pads) {
-        let Some(toss) = &mut self.toss else { return };
-        // The next pie is in hand at once (0x8004eb10); message 27.
-        let ready = g.player.action.is_none();
-        if ready {
-            g.training.show(27);
+    /// A pie that struck Angelica (Damage 50, 0x800780ac from the flight;
+    /// 0x8007eafc): sound 44, at 0 her health back and the toss won.
+    fn toss_frame(&mut self, g: &mut Game) {
+        if !self.toss {
+            return;
         }
-        if pads.pressed(0, input::TRIANGLE) && ready {
-            let aim = find(g, ANGELICA).map(|k| g.npcs[k].pos);
-            toss.pies.push(Pie::thrown(g, g.player.pos, g.player.heading, aim));
-            g.player.act_at(THROW, crate::world::game::THROW_ANIM_SPEED, &g.anims);
-        }
-        let targets: Vec<usize> = find(g, ANGELICA).into_iter().collect();
-        let hits = roll_pies(g, &mut toss.pies, &targets);
-        // A hit (0x8007eafc): 50 off; at 0 her health back and won.
-        for _ in hits {
-            let Some(k) = find(g, ANGELICA) else { break };
+        let hits: Vec<usize> = g.struck.iter().filter(|h| g.things.get(h.thing).is_some_and(|t| t.template == PIE)).map(|h| h.npc).collect();
+        for k in hits {
+            if g.npcs[k].id != ANGELICA {
+                continue;
+            }
             let at = g.npcs[k].pos;
             g.play_at(44, at);
-            let r = g.rand.next() & 1;
-            g.speech.extend(game::hit_line(3, Level::TRAINING, r));
             let n = &mut g.npcs[k];
             n.hurt(PIE_DAMAGE);
             if n.health == 0 {
@@ -163,7 +145,7 @@ impl Training {
 }
 
 impl Script for Training {
-    fn frame(&mut self, g: &mut Game, pads: &Pads) {
+    fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         let me = g.player.pos;
         let room = g.current_room();
         let sparkling: Vec<([i32; 3], i16)> = g
@@ -211,7 +193,7 @@ impl Script for Training {
                 g.hide(LOBSTER, true);
             }
         }
-        self.toss_frame(g, pads);
+        self.toss_frame(g);
     }
 
     fn gameplay(&mut self, g: &mut Game, n: u8) {
@@ -222,7 +204,7 @@ impl Script for Training {
 
     /// 0x8007ea10: the clock out; Angelica idle.
     fn timer_expired(&mut self, g: &mut Game) {
-        if self.toss.is_some() {
+        if self.toss {
             if let Some(k) = find(g, ANGELICA) {
                 g.npcs[k].mode = Mode::Idle;
             }
@@ -239,14 +221,7 @@ impl Script for Training {
         true
     }
 
-    fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, _overlay: &mut Vec<Vtx>) {
-        if let Some(toss) = &self.toss {
-            draw_pies(g, &toss.pies, g.player.action.is_none(), moving);
-        }
-    }
-
     fn describe(&self) -> String {
-        let pies = self.toss.as_ref().map(|t| t.pies.len());
-        format!("toss {:?}", pies)
+        format!("toss {}", self.toss)
     }
 }

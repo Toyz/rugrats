@@ -278,14 +278,31 @@ impl Solid {
     /// passes), then its boxes. The box met, its point and normal; `normal`
     /// the caller's buffer ([`object`]).
     pub fn meet(&self, trig: &Trig, from: [i32; 3], to: [i32; 3], normal: &mut [i32; 3]) -> Option<(usize, Hit)> {
+        self.meet_grown(trig, from, to, 0, normal)
+    }
+
+    /// [`Self::meet`] for a segment of radius `grow` (its words +0x0c and
+    /// +0x1c, a pie's flight: 0x80087594 with flag 0x40000000): each box
+    /// grown by it on every side (0x8006a318, 0x8006a008, 0x80069c40); the
+    /// bound's cube is not.
+    pub fn meet_grown(&self, trig: &Trig, from: [i32; 3], to: [i32; 3], grow: i32, normal: &mut [i32; 3]) -> Option<(usize, Hit)> {
         let r = self.bound;
         let corner = [0, 1, 2].map(|k| self.pos[k].wrapping_sub(r));
         let local = |p: [i32; 3]| [0, 1, 2].map(|k| p[k].wrapping_sub(corner[k]));
         let mut n = [0; 3];
         slab_into(local(from), local(to), [2 * r; 3], &mut n)?;
+        let g = |(lo, hi): ([i32; 3], [i32; 3])| (lo.map(|v| v - grow), hi.map(|v| v + grow));
         match &self.shape {
+            Shape::Model(boxes) if grow != 0 => {
+                let boxes: Vec<_> = boxes.iter().copied().map(g).collect();
+                object(trig, from, to, self.pos, self.angles, &boxes, normal)
+            }
             Shape::Model(boxes) => object(trig, from, to, self.pos, self.angles, boxes, normal),
-            Shape::Body(lo, hi) => object(trig, from, to, self.pos, self.angles, &[(*lo, *hi)], normal),
+            Shape::Body(lo, hi) => object(trig, from, to, self.pos, self.angles, &[g((*lo, *hi))], normal),
+            Shape::Parts(ps) if grow != 0 => {
+                let ps: Vec<Part> = ps.iter().map(|p| Part { rot: p.rot, trans: p.trans, boxes: p.boxes.iter().copied().map(g).collect() }).collect();
+                parts(trig, from, to, &ps, normal)
+            }
             Shape::Parts(ps) => parts(trig, from, to, ps, normal),
         }
     }

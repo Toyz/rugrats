@@ -55,7 +55,7 @@ pub use goodies::{Collected, Goodie, goodie, spawn};
 pub use movers::Mover;
 pub use pause::PauseEnd;
 pub use story::{hit_line, start_cine};
-pub use things::{Breakable, Strike, THROW_ANIM_SPEED, Thing, ThingState};
+pub use things::{Breakable, Ended, PieToss, Strike, THROW_ANIM_SPEED, Thing, ThingState};
 pub use toys::{Spinner, Walker};
 
 const COL: usize = 466;
@@ -343,6 +343,8 @@ pub struct Game {
     pub walkers: Vec<Walker>,
     /// Thrown objects that struck a character this frame (0x80086ef0).
     pub struck: Vec<Strike>,
+    /// Flights done at a hit this frame (flag 0x2000000).
+    pub ended: Vec<things::Ended>,
     /// A fixed camera (eye, look-at) a level sets (0x800291f8 kind 4).
     pub fixed: Option<(Vec3, Vec3)>,
     /// The follow camera's height (0x800c3f5c) and distance (0x800c4a4c),
@@ -379,6 +381,8 @@ pub struct Game {
     pub card: Option<usize>,
     /// Throws aim at characters (level 9's case of 0x80061c98).
     pub aim: bool,
+    /// A pie toss under way (levels 3 and 16, +0x30 bit 8).
+    pub pie_toss: Option<things::PieToss>,
     /// The player's aim target (+0x1f4, 0x80059b34): a character.
     pub aim_target: Option<usize>,
     /// A bonus level's fourth bar was earned (0x80076ba8 and friends).
@@ -626,6 +630,14 @@ impl Game {
                     bounced: false,
                     flown: None,
                 }
+            })
+            .collect();
+        // A class 9 object is six (0x8004997c: the pies, 0x800e2770).
+        let things: Vec<Thing> = things
+            .into_iter()
+            .flat_map(|t| {
+                let n = if set.templates[t.template as usize].raw[4] == 9 { 6 } else { 1 };
+                std::iter::repeat_n(t, n)
             })
             .collect();
         // Collectibles: template class 12 (0x80049af4, which makes them
@@ -995,6 +1007,7 @@ impl Game {
             hidden_places: Default::default(),
             collected: Vec::new(),
             struck: Vec::new(),
+            ended: Vec::new(),
             movers,
             pending_throw: None,
             pending_grab: None,
@@ -1029,6 +1042,7 @@ impl Game {
             spots,
             card: None,
             aim: false,
+            pie_toss: None,
             aim_target: None,
             damage_posted: Vec::new(),
             fourth_bar: false,
@@ -1051,6 +1065,7 @@ impl Game {
             strokes: None,
         };
         g.talkers = talkers(&g.set, level);
+        g.player.free_while_frozen = level.is_box_toss();
         // A long fall hurts (0x8005b2d8) but in the hub, level 2 and the
         // circus, and not Spike (the player's type 9, character 6).
         g.player.falls_hurt = !g.no_damage
@@ -1086,6 +1101,20 @@ impl Game {
             self.scenery = self.set.objects_except(&Frame::default(), skip);
             self.boxes = object_boxes(&self.set, &self.trig, skip);
         }
+    }
+
+    /// Template `template` solid or not to the object tests (its flag 8,
+    /// D_800c4300: 0x80063d3c, 0x8006a824 and the rest skip it): what is
+    /// drawn and collided with built again.
+    pub fn set_template_solid(&mut self, template: usize, solid: bool) {
+        let Some(t) = self.set.templates.get_mut(template) else { return };
+        if solid {
+            t.flags &= !8;
+        } else {
+            t.flags |= 8;
+        }
+        let skip = |k: usize| self.apart[k] || self.hidden.contains(&self.set.placements[k].id) || self.hidden_places.contains(&k);
+        self.boxes = object_boxes(&self.set, &self.trig, skip);
     }
 
     /// Changes the scenery placements with registry id `id` (a level's

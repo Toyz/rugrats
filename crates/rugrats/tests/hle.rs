@@ -609,6 +609,57 @@ fn level_9_ball_put_down_as_the_original() {
     assert_eq!(camera_off(&port, &orig), 0, "the follow camera's heading");
 }
 
+/// Level 16: Tommy put in room 4, the booth, starts the pie toss
+/// (0x8007e680: on the counter, pie 0 in hand, the six pies' home the
+/// pie spot). Its two messages closed, a pie thrown (Triangle): the
+/// throw's flight is 0x80061c98's (flags 0x0a070400: gravity 1, done at a
+/// hit; (0, 35, 1024) turned by him, 225 with Angelica within 13000) and
+/// pie 1 is in his hand at once (0x8004eb10). The pie on the original's
+/// place every frame of its flight, done where the original's is.
+#[test]
+#[ignore]
+fn level_16_pie_flies_as_the_original() {
+    use rugrats::input::{CROSS, TRIANGLE};
+    let Some(mut b) = Both::open(Boot { level: 16, ..Default::default() }) else { return };
+    for _ in 0..30 {
+        b.hle.frame(0).unwrap();
+    }
+    b.put([33500, -1269, -8141], 2048, 4);
+    let pies: Vec<usize> = (0..b.game.things.len()).filter(|&k| b.game.things[k].template == 564).collect();
+    assert_eq!(pies.len(), 6, "six pies");
+    let theirs: Vec<u32> = (0..6).map(|i| b.hle.read_u32(0x800e_2770 + 4 * i)).collect();
+    assert_eq!(b.game.carried(), Some(pies[0]), "pie 0 in hand");
+    let p = rugrats_hle::play::PLAYER;
+    b.script(&[(0, 10), (bits(&[CROSS]), 1), (0, 10), (bits(&[CROSS]), 1), (0, 10)]);
+    let mut flown = Vec::new();
+    let mut hands = Vec::new();
+    let mut each = |g: &Game, h: &mut Play| {
+        let mine = g.things[pies[0]].pos;
+        let o = theirs[0];
+        let done = h.read_u8(o + 0x6b) == 255 || g.things[pies[0]].hidden;
+        if g.carried() != Some(pies[0]) && h.read_u32(p + 0x1f0) != o {
+            flown.push(([mine.x as i32, mine.y as i32, mine.z as i32], [0, 4, 8].map(|i| h.read_i32(o + 0x18 + i)), done));
+        }
+        hands.push((g.carried().and_then(|k| pies.iter().position(|&x| x == k)), theirs.iter().position(|&x| x == h.read_u32(p + 0x1f0))));
+    };
+    b.script_with(&[(bits(&[TRIANGLE]), 1), (0, 10)], &mut each);
+    // (The throw's messages hold the world until Cross: the original's
+    // 0x800c3eb9.)
+    for _ in 0..4 {
+        b.script_with(&[(0, 10), (bits(&[CROSS]), 1), (0, 2)], &mut each);
+    }
+    b.script_with(&[(0, 40)], &mut each);
+    let off = flown.iter().filter(|(m, t, _)| m != t).count();
+    eprintln!("pie flew {} frames, {off} off: {:?}", flown.len(), flown.iter().find(|(m, t, _)| m != t));
+    assert!(flown.len() >= 5 && off == 0, "the pie's places: {:?}", flown);
+    assert!(hands.iter().all(|(m, t)| m == t), "the pie in hand: {hands:?}");
+    // (The original's +0x6b is 255 the frame its flight ends; the port's
+    // pie leaves its room.)
+    assert!(flown.iter().any(|f| f.2), "done at its hit");
+    assert!(b.game.things[pies[0]].hidden, "the pie gone from its room");
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
+}
+
 /// The original's objects in the rooms' lists (0x800c4a8c).
 fn objects(p: &mut Play) -> Vec<u32> {
     let rooms = p.read_u32(0x800c_4a8c);

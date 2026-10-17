@@ -20,6 +20,7 @@ pub struct Breakable {
 }
 
 /// A model that can be picked up (object flag 0x10000).
+#[derive(Clone)]
 pub struct Thing {
     /// Its placement, template and registry id; +0x6d (template +0x32).
     pub placement: usize,
@@ -62,6 +63,38 @@ pub struct Flown {
     pub bounce: i32,
     pub objects: bool,
     pub rolls: bool,
+    /// Its gravity (flags & 0xf00, 0x80087c5c): 13 for 0x700, 1 for the
+    /// pies' 0x400.
+    pub gravity: i32,
+    /// Done at a hit (flag 0x2000000 and result bit 1: the pies).
+    pub ends_on_hit: bool,
+    /// What it meets is met by a segment of its reach's radius (flag
+    /// 0x40000000: the pies).
+    pub grows: bool,
+}
+
+/// A pie toss (levels 3 and 16, +0x30 bit 8): the six pies (class 9,
+/// 0x800e2770) thrown one after another from the pie spot.
+#[derive(Clone, Copy, Debug)]
+pub struct PieToss {
+    /// The pie in hand (0x800c4134, 0..5, among the pies).
+    pub next: usize,
+    /// The pies' home: (0, 0, 512) turned by the player plus his place
+    /// at the start (0x80049818).
+    pub spot: [i32; 3],
+    /// Whose distance picks the speed (0x80061c98): level 3's Larry (75,
+    /// in 3D) or level 16's Angelica (600, across).
+    pub target: u16,
+    pub flat: bool,
+}
+
+/// A flight done at a hit (flag 0x2000000): the thing, where it stopped
+/// and the normal it met (its +0x5c and record +0x80 callbacks).
+#[derive(Clone, Copy, Debug)]
+pub struct Ended {
+    pub thing: usize,
+    pub at: [i32; 3],
+    pub normal: [i32; 3],
 }
 
 /// Who a flight's segment can meet (0x80086340's room lists): an object
@@ -131,13 +164,13 @@ impl Game {
     /// start, the first of the nearest), then the world's segment
     /// (0x8002cd7c), kept over the target only when nearer on all three
     /// axes. What was met, the point and the normal.
-    fn flight_meets(&self, from: [i32; 3], to: [i32; 3], objects: bool, targets: &[(crate::world::boxhit::Solid, Met)]) -> Option<(Option<(Met, [i32; 3])>, [i32; 3], [i32; 3])> {
+    fn flight_meets(&self, from: [i32; 3], to: [i32; 3], objects: bool, grow: i32, targets: &[(crate::world::boxhit::Solid, Met)]) -> Option<(Option<(Met, [i32; 3])>, [i32; 3], [i32; 3])> {
         let mut met: Option<(Met, [i32; 3], [i32; 3], [i32; 3])> = None;
         if objects {
             let mut best = 0x1001;
             for (solid, who) in targets {
                 let mut n = [0; 3];
-                if let Some((_, h)) = solid.meet(&self.trig, from, to, &mut n)
+                if let Some((_, h)) = solid.meet_grown(&self.trig, from, to, grow, &mut n)
                     && h.t > 0
                     && h.t < best
                 {
@@ -173,7 +206,7 @@ impl Game {
         }
         let mut touched = None;
         let old = f.pos;
-        let a = [0, THING_GRAVITY, 0];
+        let a = [0, f.gravity, 0];
         for i in 0..3 {
             let ad = a[i] * dt;
             f.pos[i] += (((ad * dt) >> 1) + v[i] * dt) >> 6;
@@ -185,7 +218,7 @@ impl Game {
         let mut bits = 0;
         let mut normal = [0; 3];
         let mut point = f.pos;
-        if let Some((who, p, n)) = self.flight_meets(old, to, f.objects, targets) {
+        if let Some((who, p, n)) = self.flight_meets(old, to, f.objects, if f.grows { reach } else { 0 }, targets) {
             (point, normal) = (p, n);
             match who {
                 None => bits |= 9,
@@ -233,7 +266,7 @@ impl Game {
                 f.pos = [0, 1, 2].map(|i| point[i] - ((u[i] * reach) >> 12));
                 let speed = collide::length(v) - 95;
                 let below = [f.pos[0], f.pos[1] + f.radius, f.pos[2]];
-                if speed < 382 && self.flight_meets(f.pos, below, f.objects, targets).is_some() {
+                if speed < 382 && self.flight_meets(f.pos, below, f.objects, if f.grows { reach } else { 0 }, targets).is_some() {
                     v = [0; 3];
                     bits |= 2;
                 } else {
@@ -245,6 +278,17 @@ impl Game {
         }
         let t = &mut self.things[k];
         t.pos = Vec3::new(f.pos[0] as f32, f.pos[1] as f32, f.pos[2] as f32);
+        // Done at a hit (flag 0x2000000): +0x6b 255, and its think takes
+        // it out of its room (0x8004eb10, 0x80049380).
+        if bits & 1 != 0 && f.ends_on_hit {
+            t.state = ThingState::Rest;
+            t.flown = None;
+            t.last_hit = None;
+            t.bounced = false;
+            t.hidden = true;
+            self.ended.push(Ended { thing: k, at: f.pos, normal });
+            return touched;
+        }
         if bits & 2 != 0 {
             t.state = ThingState::Rest;
             t.flown = None;
@@ -269,7 +313,7 @@ impl Game {
         let (Some(mut f), ThingState::Flying(mut v)) = (self.things[k].flown, self.things[k].state) else { return None };
         let mut touched = None;
         let old = f.pos;
-        let a = [0, THING_GRAVITY, 0];
+        let a = [0, f.gravity, 0];
         for i in 0..3 {
             let ad = a[i] * dt;
             f.pos[i] += (((ad * dt) >> 1) + v[i] * dt) >> 6;
@@ -291,7 +335,7 @@ impl Game {
         let mut bits = 0;
         let mut normal = [0; 3];
         let mut point = f.pos;
-        if let Some((who, p, n)) = self.flight_meets(old, to, f.objects, targets) {
+        if let Some((who, p, n)) = self.flight_meets(old, to, f.objects, 0, targets) {
             (point, normal) = (p, n);
             bits |= 1;
             if let Some((who, at)) = who {
@@ -518,7 +562,16 @@ impl Game {
         let t = &self.things[k];
         let radius = self.set.models.get(t.shape).and_then(|m| m.boxes.first()).map_or(10, |b| (b.0[1] as i32).abs().max((b.1[1] as i32).abs()));
         let rolls = !hurts_player(&self.set.templates, t.template);
-        let f = Flown { pos: [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32], radius, bounce: bounce_of(&self.set.templates, t.template), objects: !t.world_only, rolls };
+        let f = Flown {
+            pos: [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32],
+            radius,
+            bounce: bounce_of(&self.set.templates, t.template),
+            objects: !t.world_only,
+            rolls,
+            gravity: THING_GRAVITY,
+            ends_on_hit: false,
+            grows: false,
+        };
         self.things[k].flown = Some(f);
         self.things[k].state = ThingState::Flying(v);
     }
@@ -548,6 +601,24 @@ impl Game {
             // (0x80075ee8) and made a unit (0x8007652c), or level 9's aim, at
             // speed 170 (D_800b7fec): dir * (170 << 16) / 6000 >> 12
             // (0x8008864c).
+            // The pie (0x80061c98, +0x30 bit 8): (0, 35, 1024) turned by
+            // the player and made a unit, at 225 with the target within
+            // 13000, else 450.
+            PendingThrow::Aimed(k) if self.pie_toss.is_some() && self.things[k].template == PIE => {
+                let toss = self.pie_toss.unwrap();
+                let dir = collide::unit(self.trig.turn_by([self.player.heading as i16, 0, 0], [0, 35, 1024]));
+                let me = self.player.pos;
+                let near = self.npcs.iter().find(|n| n.id == toss.target).is_some_and(|n| {
+                    let d = if toss.flat {
+                        crate::actors::npc::approx_dist(me, n.pos) as i64
+                    } else {
+                        collide::length([n.pos[0] - me[0], n.pos[1] - me[1], n.pos[2] - me[2]]) as i64
+                    };
+                    d < 13000
+                });
+                let speed = (if near { 225 } else { 450 } << 16) / 6000;
+                (k, dir.map(|d| (d * speed) >> 12))
+            }
             PendingThrow::Aimed(k) => {
                 let plain = || collide::unit(self.trig.turn_by([self.player.heading as i16, 0, 0], [0, -384, 1024]));
                 let dir = if self.aim { self.aimed_dir() } else { None }.unwrap_or_else(plain);
@@ -559,12 +630,85 @@ impl Game {
         // (0x80087594's path, or 0x80086ef0's roll for template +0x30 of 1).
         if self.carried == Some(k) {
             self.start_flight(k, v);
+            if self.pie_toss.is_some()
+                && self.things[k].template == PIE
+                && let Some(f) = &mut self.things[k].flown
+            {
+                // Flags 0x4a070400: gravity 1, done at a hit, met as a
+                // segment of its radius.
+                f.gravity = 1;
+                f.ends_on_hit = true;
+                f.grows = true;
+            }
             self.carried = None;
             self.player.carrying = false;
             // The arms as they were after (0x80060910, 0x80060b44:
             // 0x80057244(player, 17, 0)).
             self.player.animator.set_after(17, false);
+            if self.pie_toss.is_some() && self.things[k].template == PIE {
+                self.next_pie();
+            }
         }
+    }
+
+    /// The pies, in their order (0x800e2770).
+    fn pies(&self) -> Vec<usize> {
+        (0..self.things.len()).filter(|&k| self.things[k].template == PIE).collect()
+    }
+
+    /// A pie toss starts (0x8007e680 / level 3's): the six pies' home is
+    /// the pie spot, (0, 0, 512) turned by the player plus his place
+    /// (0x80049818), and they wait there; pie 0 is in hand (0x80049464,
+    /// +0x1f0). `target` and `flat` pick the throw's speed.
+    pub fn start_pie_toss(&mut self, target: u16, flat: bool) {
+        let ahead = self.trig.turn_by([self.player.heading as i16, 0, 0], [0, 0, 512]);
+        let me = self.player.pos;
+        let spot = [me[0] + ahead[0], me[1] + ahead[1], me[2] + ahead[2]];
+        self.pie_toss = Some(PieToss { next: 0, spot, target, flat });
+        for k in self.pies() {
+            let t = &mut self.things[k];
+            t.pos = Vec3::new(spot[0] as f32, t.pos.y, spot[2] as f32);
+            t.state = ThingState::Rest;
+            t.flown = None;
+            t.hidden = false;
+        }
+        if let Some(&k) = self.pies().first() {
+            self.hold(k);
+        }
+    }
+
+    /// The pie toss over: the pie in hand put away with the others
+    /// (guess: the end's pies are not read).
+    pub fn end_pie_toss(&mut self) {
+        self.pie_toss = None;
+        if self.carried.is_some_and(|k| self.things[k].template == PIE) {
+            self.carried = None;
+            self.player.carrying = false;
+        }
+        for k in self.pies() {
+            if !matches!(self.things[k].state, ThingState::Flying(_)) {
+                self.things[k].state = ThingState::Rest;
+                self.things[k].hidden = true;
+            }
+        }
+    }
+
+    /// The thrown pie's first think (0x8004eb10): the next pie (0x800c4134
+    /// + 1, mod 6) back at the pie spot, in its room and in hand.
+    fn next_pie(&mut self) {
+        let pies = self.pies();
+        let Some(toss) = &mut self.pie_toss else { return };
+        if pies.is_empty() {
+            return;
+        }
+        toss.next = (toss.next + 1) % pies.len();
+        let (k, spot) = (pies[toss.next], toss.spot);
+        let t = &mut self.things[k];
+        t.pos = Vec3::new(spot[0] as f32, t.pos.y, spot[2] as f32);
+        t.state = ThingState::Rest;
+        t.flown = None;
+        t.hidden = false;
+        self.hold(k);
     }
 
     /// The carry (0x8005ff88 mode 1): the thing carried at hand 15 as last
@@ -625,6 +769,21 @@ impl Game {
         self.carried = Some(k);
         self.player.carrying = true;
         self.player.carry_climbs = !self.things[k].keep;
+    }
+
+    /// Puts thing `k` in the player's hand as +0x1f0 alone does (the pie
+    /// toss, 0x8007e680, 0x8004eb10): the grip kept as it was.
+    pub fn hold(&mut self, k: usize) {
+        if k >= self.things.len() {
+            return;
+        }
+        self.things[k].state = ThingState::Carried;
+        self.things[k].flown = None;
+        self.carried = Some(k);
+        self.player.carrying = true;
+        self.player.carry_climbs = !self.things[k].keep;
+        // No grab's animation: the arms play on as they were.
+        self.player.animator.mark_asked(crate::actors::player::anim::CARRY_IDLE);
     }
 
     /// Puts the carried thing down where the player stands (a cine's
@@ -688,9 +847,11 @@ impl Game {
             return;
         }
         if let Some(k) = self.carried {
-            // The carry's animation done (0x80060b44): message 6, 27 for
-            // the pie.
-            self.training.show(if self.things[k].template == PIE { 27 } else { 6 });
+            // The carry's animation done this frame (0x80060b44 at
+            // 0x80060ef8, +0xe0 bit 0x8000000): message 6, 27 for the pie.
+            if self.player.animator.events & 0x800_0000 != 0 {
+                self.training.show(if self.things[k].template == PIE { 27 } else { 6 });
+            }
             let throw = pads.pressed(0, input::TRIANGLE) && !self.things[k].keep;
             // GRAB never puts down in levels 5, 20 and 21 (0x8005d11c).
             let put_down = pads.pressed(0, input::CIRCLE)
@@ -995,6 +1156,7 @@ impl Game {
     /// the original's record flies it (`fly_exact`, `roll_exact`).
     pub(super) fn fly(&mut self, solids: &[crate::world::boxhit::Exact], npc_of: &[Option<usize>]) {
         self.struck.clear();
+        self.ended.clear();
         let mut touched = Vec::new();
         if self.things.iter().any(|t| t.flown.is_some()) {
             let targets = self.flight_targets(solids, npc_of);
@@ -1002,6 +1164,19 @@ impl Game {
                 if self.things[k].flown.is_some() && matches!(self.things[k].state, ThingState::Flying(_)) {
                     touched.extend(self.fly_exact(k, &targets));
                 }
+            }
+        }
+        // A flight done at a hit: its object's callback (+0x5c, 0x8005282c
+        // for a template whose +0x0b is 1: five splats) and the record's
+        // mark (+0x80, 0x8008652c: the pies' 284 sounds 46 at the player).
+        for e in self.ended.clone() {
+            let template = self.things[e.thing].template;
+            if self.set.templates.get(template as usize).is_some_and(|tp| tp.raw[0x0b] == 1) {
+                self.flights.splat(e.normal, e.at, self.sprites.as_ref());
+            }
+            if template == PIE {
+                let me = self.player.pos;
+                self.play_at(46, me);
             }
         }
         // Touch 1's sound at the object, once its count runs out

@@ -350,6 +350,9 @@ pub struct Game {
     hazard_touch: bool,
     /// The level timer (0x800c4430, dt left), set by a level.
     pub timer: Option<i32>,
+    /// Where the timer's clock was put (0x800c464c): by the text it was
+    /// made with, kept until the timer stops (0x80078df8).
+    clock_at: Option<(i16, i16)>,
     /// The level a finish is recorded for (golf records level 8).
     pub record: Level,
     /// The puzzle board asked for (its object's use, 0x8004d3f0).
@@ -422,6 +425,10 @@ const ICON_DEPTH: f32 = 1024.0;
 const PIECE_ICON: u32 = 292;
 
 const CLOCK_ICON: u32 = 375;
+
+/// The timer text's y: the screen's top (0x800c4428, -110) and its height
+/// (0x800c4a06, 240) times 171 / 2048.
+const TIMER_Y: i16 = (-110i32 + (240 * 171 >> 11)) as i16;
 
 /// Text in font 1 with its shadow 2 down and right (0x80090004).
 pub fn shadowed(fonts: &Fonts, x: i16, y: i16, string: String, out: &mut Vec<Vtx>) {
@@ -961,6 +968,7 @@ impl Game {
             hazards: Vec::new(),
             hazard_touch: false,
             timer: None,
+            clock_at: None,
             record: level,
             board: false,
             view: (Vec3::ZERO, Mat3::IDENTITY),
@@ -1708,16 +1716,20 @@ impl Game {
             let cubes = self.pause.shown_cubes();
             self.pause.view.draw(&cubes, over);
         } else {
-            // The level timer (0x8007f5a8): "%ld" seconds at the top, the
-            // clock (model 375) behind it, semi-transparent, 20 right of
-            // and 13 below the text's corner.
+            // The level timer (0x8007f5a8): "%ld" seconds in font 1
+            // centred across the top, the clock (model 375) behind it,
+            // semi-transparent, made once 20 right of and 13 below the
+            // first text's corner.
             if let Some(t) = self.timer {
-                let text = (-20, -92);
+                let mut text = Text { font: 1, spacing: 1, y: TIMER_Y, string: format!("{}", t / 300), ..Default::default() };
+                self.fonts.centre(&mut text, true, false);
+                let at = *self.clock_at.get_or_insert((text.x + 20, text.y + 13));
                 if let Some(sp) = &self.sprites {
-                    let at = (text.0 + 20, text.1 + 13);
                     sp.draw_as(CLOCK_ICON, at, CLOCK_ICON_SIZE.0, CLOCK_ICON_SIZE.1, ICON_DEPTH, 0.0, self.focal, true, &mut self.stage.overlay);
                 }
-                shadowed(&self.fonts, text.0, text.1, format!("{}", t / 300), &mut self.stage.overlay);
+                shadowed(&self.fonts, text.x, text.y, text.string, &mut self.stage.overlay);
+            } else {
+                self.clock_at = None;
             }
             if self.bar_shown > 0 {
                 // The bar counter (0x80090004): model 291 at (-192, -76)

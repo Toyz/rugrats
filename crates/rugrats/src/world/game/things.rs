@@ -503,9 +503,18 @@ impl Game {
                 PendingThrow::Down(_) => (2048, PUT_DOWN),
                 _ => (16, THROW),
             };
-            if anim.events & event != 0 || !anim.playing(playing) {
+            if anim.events & event != 0 {
                 self.pending_throw = None;
                 self.release(throw);
+            } else if !anim.playing(playing) {
+                self.pending_throw = None;
+                // The put-down lets go only at its event (0x80060910: +0xe0
+                // bit 2048); run out without it, the state ends with the
+                // thing still in hand (the oracle's Chuckie at level 6's
+                // shelf). The throw's own end still lets go.
+                if !matches!(throw, PendingThrow::Down(_)) {
+                    self.release(throw);
+                }
             }
             return;
         }

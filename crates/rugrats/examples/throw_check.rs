@@ -62,6 +62,14 @@ fn main() -> Result<(), String> {
     }
     // PUTDOWN=1: Circle again to put it down instead of the throw.
     let second = if std::env::var_os("PUTDOWN").is_some() { input::CIRCLE } else { input::TRIANGLE };
+    if let Ok(list) = std::env::var("HOOKFNS") {
+        for a in list.split(',').filter_map(|a| u32::from_str_radix(a.trim_start_matches("0x"), 16).ok()) {
+            p.hle.m.hook(a, move |c| {
+                println!("     CALL {a:#010x} a0 {:#x} a1 {:#x}", c.arg32(0), c.arg32(1));
+                rrt::emu::HookResult::Continue
+            });
+        }
+    }
     let script = [(0u16, 6usize), (1 << input::CIRCLE, 1), (0, 40), (1 << second, 1), (0, 80)];
     let mut held: std::collections::VecDeque<u16> = std::iter::repeat_n(0, 1).collect();
     let mut pads = Pads::default();

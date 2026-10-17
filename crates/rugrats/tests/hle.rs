@@ -370,10 +370,11 @@ fn hub_pick_up_as_the_original() {
 }
 
 /// Level 6 as Chuckie (character 2): box 1016 picked up off its shelf,
-/// carried and put down. The states whose word has 32 move the body by
-/// their root keys across (the pick-up steps him in and back, the put-down
-/// back), and the box rides the hand as last drawn: body and box on the
-/// original's places every frame until the box leaves the hand.
+/// carried, and Circle again. The states whose word has 32 move the body
+/// by their root keys across (the pick-up steps him in and back, the
+/// put-down back), and the box rides the hand as last drawn. The put-down
+/// plays out without its event (2048), so the box stays in hand (0x80060910
+/// lets go only then). Body and box on the original's places every frame.
 #[test]
 #[ignore]
 fn level_6_chuckie_box_as_the_original() {
@@ -397,5 +398,6 @@ fn level_6_chuckie_box_as_the_original() {
     let off = held.iter().filter(|(m, t)| m != t).count();
     eprintln!("box held {} frames, {off} off", held.len());
     assert_eq!(worst, 0, "the body's places");
-    assert!(held.len() > 40 && off == 0, "the box's places: {:?}", held.iter().find(|(m, t)| m != t));
+    assert!(held.len() >= 50 && off == 0, "the box's places: {:?}", held.iter().find(|(m, t)| m != t));
+    assert_eq!(b.game.carried(), Some(k), "still in hand");
 }

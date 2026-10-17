@@ -345,6 +345,8 @@ pub struct Game {
     pub struck: Vec<Strike>,
     /// Flights done at a hit this frame (flag 0x2000000).
     pub ended: Vec<things::Ended>,
+    /// Marks left by this frame's hits, drawn this frame only.
+    pub marks: Vec<things::Mark>,
     /// A fixed camera (eye, look-at) a level sets (0x800291f8 kind 4).
     pub fixed: Option<(Vec3, Vec3)>,
     /// The follow camera's height (0x800c3f5c) and distance (0x800c4a4c),
@@ -1009,6 +1011,7 @@ impl Game {
             collected: Vec::new(),
             struck: Vec::new(),
             ended: Vec::new(),
+            marks: Vec::new(),
             movers,
             pending_throw: None,
             pending_grab: None,
@@ -1848,6 +1851,18 @@ impl Game {
             models::model_triangles(&shard.model, shard.base * spin, at, &mut moving);
         }
         self.flights.draw(self.view, self.sprites.as_ref(), &mut moving);
+        if let Some(s) = &self.sprites {
+            for m in &self.marks {
+                let r = self.trig.rotation(m.angles);
+                let axis = |v: [i32; 3]| {
+                    let w = self.trig.apply(&r, v);
+                    Vec3::new(w[0] as f32, w[1] as f32, w[2] as f32)
+                };
+                let at = Vec3::new(m.at[0] as f32, m.at[1] as f32, m.at[2] as f32);
+                let look = crate::ui::hud::Look { grey: m.grey, semi: false };
+                s.quad(m.sprite, at, (axis([m.size, 0, 0]), axis([0, m.size, 0])), look, &mut moving);
+            }
+        }
         let mut overlay = Vec::new();
         if let Some(s) = &self.script {
             s.draw(self, &mut moving, &mut overlay);

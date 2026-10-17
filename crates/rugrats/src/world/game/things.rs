@@ -73,6 +73,10 @@ pub struct Flown {
     pub grows: bool,
 }
 
+/// The pies' mark (0x80061c98: desc +0x46 284, +0x68 900).
+const PIE_MARK: u32 = 284;
+const PIE_MARK_SIZE: i32 = 900;
+
 /// A pie toss (levels 3 and 16, +0x30 bit 8): the six pies (class 9,
 /// 0x800e2770) thrown one after another from the pie spot.
 #[derive(Clone, Copy, Debug)]
@@ -95,6 +99,24 @@ pub struct Ended {
     pub thing: usize,
     pub at: [i32; 3],
     pub normal: [i32; 3],
+    /// The point it met, and the tile there if it was the world.
+    pub point: [i32; 3],
+    pub world: bool,
+}
+
+/// The mark a flight leaves where it hits (0x8008652c with record +0x2a,
+/// the pies' 284): sprite `sprite` laid on the face met, a square of
+/// half side `size` (+0x8c), turned by (x, y) = (-asin(-ny),
+/// ratan2(-nx, -nz)) of the normal (0x8008e6c8), grey the COL tile's
+/// shade there (+5) or 128. A pool entry without +0x08 bit 1
+/// (0x8008e36c), it is drawn the frame it is made and freed (0x8008e694).
+#[derive(Clone, Copy, Debug)]
+pub struct Mark {
+    pub sprite: u32,
+    pub at: [i32; 3],
+    pub angles: [i16; 3],
+    pub size: i32,
+    pub grey: u8,
 }
 
 /// Who a flight's segment can meet (0x80086340's room lists): an object
@@ -218,8 +240,10 @@ impl Game {
         let mut bits = 0;
         let mut normal = [0; 3];
         let mut point = f.pos;
+        let mut met_world = false;
         if let Some((who, p, n)) = self.flight_meets(old, to, f.objects, if f.grows { reach } else { 0 }, targets) {
             (point, normal) = (p, n);
+            met_world = who.is_none();
             match who {
                 None => bits |= 9,
                 Some((who, at)) => {
@@ -286,7 +310,7 @@ impl Game {
             t.last_hit = None;
             t.bounced = false;
             t.hidden = true;
-            self.ended.push(Ended { thing: k, at: f.pos, normal });
+            self.ended.push(Ended { thing: k, at: f.pos, normal, point, world: met_world });
             return touched;
         }
         if bits & 2 != 0 {
@@ -649,6 +673,13 @@ impl Game {
                 self.next_pie();
             }
         }
+    }
+
+    /// The shade of the COL tile at `p` (its byte +5, which 0x800869cc
+    /// reads for a mark; the player's brightness eases toward it).
+    fn shade_at(&self, p: [i32; 3]) -> Option<u8> {
+        let (c, t) = collide::query(&self.col, p).tile?;
+        self.col.columns.get(c)?.tiles.get(t).map(|tile| tile[5])
     }
 
     /// The pies, in their order (0x800e2770).
@@ -1157,6 +1188,7 @@ impl Game {
     pub(super) fn fly(&mut self, solids: &[crate::world::boxhit::Exact], npc_of: &[Option<usize>]) {
         self.struck.clear();
         self.ended.clear();
+        self.marks.clear();
         let mut touched = Vec::new();
         if self.things.iter().any(|t| t.flown.is_some()) {
             let targets = self.flight_targets(solids, npc_of);
@@ -1177,6 +1209,10 @@ impl Game {
             if template == PIE {
                 let me = self.player.pos;
                 self.play_at(46, me);
+                let n = e.normal;
+                let angles = [self.trig.ratan2(-n[0], -n[2]) as i16, (-self.trig.asin(-n[1])) as i16, 0];
+                let grey = if e.world { self.shade_at(e.point).unwrap_or(128) } else { 128 };
+                self.marks.push(Mark { sprite: PIE_MARK, at: e.point, angles, size: PIE_MARK_SIZE, grey });
             }
         }
         // Touch 1's sound at the object, once its count runs out

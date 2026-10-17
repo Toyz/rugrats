@@ -14,7 +14,9 @@
 //! +0x102c the columns' data, in order: cell[cells] then tile[tiles]
 //!   cell   u8 z cell, u8 tile   sorted by z cell
 //!   tile   u8 floor, u8 floor_normal, u8 ceiling, u8 ceiling_normal,
-//!          u8 unknown[2], u8 flags, u8 unknown
+//!          u8 unknown, u8 shade, u8 flags, u8 unknown
+//!          (the shade: what a body's brightness, +0x3a, eases toward
+//!          from the record under it, +0x8c; a flight's mark takes it)
 //!          heights are max y - byte * 128 (y points down, so the floor
 //!          is the larger); a normal index (1 on) slopes
 //!          the height through the tile's corner; flags bit 0 ends a

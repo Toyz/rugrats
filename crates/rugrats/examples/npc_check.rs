@@ -298,7 +298,7 @@ fn main() -> Result<(), String> {
             let base = p.read_u32(o + 0x158);
             let theirs: Vec<[i32; 3]> = (0..4u32).map(|i| [0, 4, 8].map(|j| p.read_i32(base + 32 * i + 0x14 + j))).collect();
             let ours: Vec<[i32; 3]> = g.npcs[k].posed(&g.trig).iter().take(4).map(|q| q.joint).collect();
-            println!("{f:3} PARTS orig {theirs:?} de {} floor {} | port {ours:?} root y {} pos y {} feet {}", p.read_i16(o + 0xde), p.read_i32(o + 0x148), g.npcs[k].root.y, g.npcs[k].pos[1], g.npcs[k].feet());
+            println!("{f:3} PARTS orig {theirs:?} de {} floor {} | port {ours:?} root y {} pos y {} feet {} body floor {:?}", p.read_i16(o + 0xde), p.read_i32(o + 0x148), g.npcs[k].root.y, g.npcs[k].pos[1], g.npcs[k].feet(), g.npcs[k].body.as_ref().map(|b| b.floor));
         }
         if let Some(m) = moves
             && let Some(&(k, o)) = pairs.iter().find(|(k, _)| *k == m)

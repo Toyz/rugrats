@@ -244,6 +244,15 @@ fn main() -> Result<(), String> {
                     n.animator.mark_asked(a);
                 }
                 n.sync_body(p.read_u8(o + 0x18c), p.read_i32(o + 0x184));
+                // (The original's height has the root's lift in it; the
+                // port's place is the floor (+0x148) and the feet, its lift
+                // added where drawn.)
+                // (One never stepped keeps its own height there, and a thing that
+                // is no body has none.)
+                let floor = p.read_i32(o + 0x148);
+                if floor != n.pos[1] && (floor + n.feet() - n.pos[1]).abs() < 1000 {
+                    n.pos[1] = floor + n.feet();
+                }
                 if let rugrats::actors::npc::Mode::Posts { .. } = n.mode {
                     n.mode = rugrats::actors::npc::Mode::Posts { prev, cur };
                 }
@@ -278,6 +287,18 @@ fn main() -> Result<(), String> {
         if lagged {
             println!("{f:3} LAG dt {dt}");
             continue;
+        }
+        // PARTS=1 with MOVES: the original's first parts' places (+0x158,
+        // 32 bytes a part: the matrix, then the place at +0x14) beside the
+        // port's posed joints.
+        if std::env::var_os("PARTS").is_some()
+            && let Some(m) = moves
+            && let Some(&(k, o)) = pairs.iter().find(|(k, _)| *k == m)
+        {
+            let base = p.read_u32(o + 0x158);
+            let theirs: Vec<[i32; 3]> = (0..4u32).map(|i| [0, 4, 8].map(|j| p.read_i32(base + 32 * i + 0x14 + j))).collect();
+            let ours: Vec<[i32; 3]> = g.npcs[k].posed(&g.trig).iter().take(4).map(|q| q.joint).collect();
+            println!("{f:3} PARTS orig {theirs:?} de {} floor {} | port {ours:?} root y {} pos y {} feet {}", p.read_i16(o + 0xde), p.read_i32(o + 0x148), g.npcs[k].root.y, g.npcs[k].pos[1], g.npcs[k].feet());
         }
         if let Some(m) = moves
             && let Some(&(k, o)) = pairs.iter().find(|(k, _)| *k == m)
@@ -317,7 +338,10 @@ fn main() -> Result<(), String> {
             let t = tracks(&mut p, o);
             let mine = n.animator.record();
             let same = t.iter().zip(&mine).all(|(a, b)| a[..4] == b[..4] && (a[5] & 0xff) == (b[5] & 0xff));
-            let place = at[0] == n.pos[0] && at[2] == n.pos[2] && h == n.heading;
+            // (Its height: the place plus the root curve's, as level 13's
+            // runner has it; YCHECK=1 counts it.)
+            let high = std::env::var_os("YCHECK").is_none() || at[1] == n.pos[1] + n.root.y;
+            let place = at[0] == n.pos[0] && at[2] == n.pos[2] && h == n.heading && high;
             let i = pairs.iter().position(|&(kk, _)| kk == k).unwrap();
             each[i].1 |= t != start_orig[i];
             each[i].2 |= mine != start_port[i];
@@ -325,7 +349,7 @@ fn main() -> Result<(), String> {
                 each[i].0 += 1;
                 off += 1;
                 if off <= 40 {
-                    println!("{f:3} npc {k}: port {:?} h {} {} | orig {at:?} h {h} {:?}", n.pos, n.heading, n.animator.describe(), t);
+                    println!("{f:3} npc {k}: port {:?} root y {} h {} {} | orig {at:?} h {h} {:?}", n.pos, n.root.y, n.heading, n.animator.describe(), t);
                 }
             }
         }

@@ -860,6 +860,14 @@ fn sync_npc(b: &mut Both, id: u16) -> (usize, u32) {
         n.animator.mark_asked(a);
     }
     n.pos = [0, 4, 8].map(|i| b.hle.read_i32(o + 0x18 + i));
+    // (The original's height has the root's lift in it; the port's place
+    // is the floor (+0x148) and the feet, its lift added where drawn.)
+    // (One never stepped keeps its own height there, and a thing that
+    // is no body has none.)
+    let floor = b.hle.read_i32(o + 0x148);
+    if floor != n.pos[1] && (floor + n.feet() - n.pos[1]).abs() < 1000 {
+        n.pos[1] = floor + n.feet();
+    }
     n.heading = b.hle.read_i16(o + 0x24) as i32 & 4095;
     n.health = b.hle.read_i16(o + 0x1a4) as i32;
     n.sync_body(b.hle.read_u8(o + 0x18c), b.hle.read_i32(o + 0x184));

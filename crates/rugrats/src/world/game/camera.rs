@@ -280,6 +280,17 @@ impl Game {
         self.flights.angles.ratan2(-m[0][2], m[2][2]).rem_euclid(4096)
     }
 
+    /// The last frame's world-to-camera rows, 4096 = 1 (for tools).
+    pub fn camera_rows(&self) -> Matrix {
+        self.camera_matrix()
+    }
+
+    /// The heading rows `m` give, as the stick reads it (0x800a0328 of
+    /// -m02 and m22; for tools reading the original's +0x224).
+    pub fn heading_of_rows(&self, m: &Matrix) -> i32 {
+        self.flights.angles.ratan2(-m[0][2], m[2][2]).rem_euclid(4096)
+    }
+
     /// The last frame's world-to-camera rows, 4096 = 1.
     fn camera_matrix(&self) -> Matrix {
         if let Some(m) = self.rows {
@@ -326,11 +337,14 @@ impl Game {
     /// from the body (`body`, 0x80026ddc).
     fn aim_point(&self, body: bool) -> [i32; 3] {
         let p = self.player.pos;
+        // (The body's height as the original's +0x1c has it: with the
+        // animation's root.)
+        let y_body = p[1] + self.player.root_y;
         let y = match self.player.float {
-            _ if body => p[1],
+            _ if body => y_body,
             Some((anchor, _)) => anchor,
             None if self.level == Level::REPTAR_2010 => self.player.floor,
-            None => p[1],
+            None => y_body,
         };
         [p[0], y - self.aim(), p[2]]
     }
@@ -770,7 +784,7 @@ impl Game {
         // (Level 11 with +0x188 bit 512 takes it at once: not ported.)
         f.look[0] += shr0(lead[0] + at[0] - f.look[0], 2);
         f.look[2] += shr0(lead[2] + at[2] - f.look[2], 2);
-        let base = p.float.map_or(p.pos[1], |(anchor, _)| anchor);
+        let base = p.float.map_or(p.pos[1] + p.root_y, |(anchor, _)| anchor);
         let goal = base - aim - lift;
         let off = goal - f.look[1];
         if off.abs() > if floating { 256 } else { 512 } {

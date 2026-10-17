@@ -121,10 +121,15 @@ impl Both {
                 port.push(Seen { pos: p.pos, y: p.pos[1] + p.root_y, heading: p.heading, state: port_state(&self.game), camera: self.game.camera_heading() & 4095 });
                 self.hle.frame(bits).unwrap();
                 let o = self.hle.player();
-                let camera = self.hle.camera_heading();
+                // (By the game's own table ratan2, 0x800a0328, on +0x224.)
+                let camera = {
+                    let m = self.hle.read_u32(rugrats_hle::play::PLAYER + 0x224);
+                    let r: [[i32; 3]; 3] = std::array::from_fn(|i| std::array::from_fn(|j| self.hle.read_i16(m + 6 * i as u32 + 2 * j as u32) as i32));
+                    if m == 0 { 0 } else { self.game.heading_of_rows(&r) }
+                };
                 if std::env::var_os("HLEVEL").is_some() {
                     let (low, plane) = (self.hle.read_i16(rugrats_hle::play::PLAYER + 0x68), self.hle.read_i32(rugrats_hle::play::PLAYER + 0x13c));
-                    eprintln!("    vel {:?} port {:?} speed {} way {:?} heading {} cam {camera} pad {bits:#06x} low {low} plane {plane} flags {:#x} d {:?}", o.velocity, self.game.player.v, o.speed, o.way, o.heading, o.flags, [0, 2, 4].map(|k| self.hle.read_i16(rugrats_hle::play::PLAYER + 0xd8 + k)));
+                    eprintln!("    mag {} state {} | port speed {} | vel {:?} port {:?} speed {} way {:?} heading {} cam {camera} pad {bits:#06x} low {low} plane {plane} flags {:#x} d {:?}", self.hle.read_i16(rugrats_hle::play::PLAYER + 0x1b0), o.state, self.game.player.speed, o.velocity, self.game.player.v, o.speed, o.way, o.heading, o.flags, [0, 2, 4].map(|k| self.hle.read_i16(rugrats_hle::play::PLAYER + 0xd8 + k)));
                 }
                 if std::env::var_os("CAMLOG").is_some() {
                     let r = |h: &mut Play, a: u32| [0, 4, 8].map(|k| h.read_i32(a + k));
@@ -133,7 +138,7 @@ impl Both {
                     let mat: Vec<i16> = (0..9).map(|k| self.hle.read_i16(m + 2 * k)).collect();
                     let (cam_eye, smooth) = (r(&mut self.hle, m + 0x14), r(&mut self.hle, 0x800d_e540));
                     let exact = self.game.trig.look_at(cam_eye, look);
-                    eprintln!("    eye {eye:?} look {look:?} cam {cam_eye:?} at {smooth:?} m {mat:?} exact {exact:?} | port {:?}", self.game.follow_camera());
+                    eprintln!("    eye {eye:?} look {look:?} cam {cam_eye:?} at {smooth:?} m {mat:?} exact {exact:?} | port {:?} rows {:?}", self.game.follow_camera(), self.game.camera_rows());
                 }
                 if std::env::var_os("CAMSTATE").is_some() {
                     let r = |h: &mut Play, a: u32| [0, 4, 8].map(|k| h.read_i32(a + k));
@@ -201,6 +206,12 @@ fn bits(buttons: &[usize]) -> u16 {
     buttons.iter().fold(0, |a, &b| a | 1 << b)
 }
 
+/// The frames whose camera heading (as the stick reads it, 0x800a0328 on
+/// +0x224) is not the original's.
+fn camera_off(port: &[Seen], orig: &[Seen]) -> usize {
+    port.iter().zip(orig).filter(|(p, o)| p.camera != o.camera).count()
+}
+
 /// The largest difference in height (with the root) over the frames.
 fn height_off(port: &[Seen], orig: &[Seen]) -> i32 {
     port.iter().zip(orig).map(|(p, o)| (p.y - o.y).abs()).max().unwrap_or(0)
@@ -233,6 +244,7 @@ fn hub_run_as_the_original() {
     let hold: usize = std::env::var("HOLD").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
     let (port, orig) = b.script(&[(bits(&[UP]), hold), (0, 10)]);
     let worst = report("run", &port, &orig);
+    assert_eq!(camera_off(&port, &orig), 0, "the original's camera heading");
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
@@ -280,6 +292,7 @@ fn spike_run_at_a_wall_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 4)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 12)]);
     let worst = report("spike", &port, &orig);
+    assert_eq!(camera_off(&port, &orig), 0, "the original's camera heading");
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
@@ -294,6 +307,7 @@ fn hub_standing_jump_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[CROSS]), 1), (0, 40)]);
     let worst = report("stand", &port, &orig);
+    assert_eq!(camera_off(&port, &orig), 0, "the original's camera heading");
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
@@ -324,6 +338,7 @@ fn hub_held_jump_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[CROSS]), 20), (0, 20)]);
     let worst = report("held", &port, &orig);
+    assert_eq!(camera_off(&port, &orig), 0, "the original's camera heading");
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
@@ -339,6 +354,7 @@ fn hub_tap_turn_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
     let (port, orig) = b.script(&[(0, 3), (bits(&[UP, LEFT]), 1), (0, 12)]);
     let worst = report("tap", &port, &orig);
+    assert_eq!(camera_off(&port, &orig), 0, "the original's camera heading");
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     let turned = port.iter().zip(&orig).filter(|(p, o)| p.heading != o.heading).count();
@@ -356,6 +372,7 @@ fn hub_run_across_the_playpen_as_the_original() {
     b.script(&[(bits(&[R1]), 1), (0, 4)]);
     let (port, orig) = b.script(&[(bits(&[UP]), 30)]);
     let worst = report("pen", &port, &orig);
+    assert_eq!(camera_off(&port, &orig), 0, "the original's camera heading");
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");

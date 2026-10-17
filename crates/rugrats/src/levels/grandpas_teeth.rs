@@ -119,6 +119,8 @@ impl GrandpasTeeth {
                 n.mode = Mode::Guard;
                 n.attacks = true;
                 n.health = 255;
+                // On the trigger list (0x8007914c: +0x48).
+                n.trigger = n.radius;
             }
         }
         {
@@ -213,6 +215,9 @@ impl GrandpasTeeth {
                 reenter: false,
                 wait_left: 0,
                 staggered: false,
+                scheduled: false,
+                trigger: 0,
+                radius: 0,
                 bumped: false,
                 reach: 600,
                 bite_wait: 900,

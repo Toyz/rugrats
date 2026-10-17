@@ -68,6 +68,8 @@ impl MrFriend {
         g.player.pos = START;
         if let Some(k) = find(g, 46) {
             g.npcs[k].mode = Mode::Follow(Target::Player);
+            // Scheduled by EpisodeStart (0x8007b078).
+            g.npcs[k].scheduled = true;
             g.npcs[k].place(FRIEND_START, &g.col);
         }
         g.aim = true;
@@ -84,6 +86,8 @@ impl MrFriend {
             n.attacks = true;
             n.bite_wait = 180;
             n.mode = Mode::Follow(Target::Player);
+            // (0x8007b17c.)
+            n.scheduled = true;
         }
         g.checkpoint = Some(g.player.pose());
         Ok(MrFriend { phase: Phase::First, counter: 1, l14: true })
@@ -201,6 +205,8 @@ impl Script for MrFriend {
                     let home = n.home;
                     n.place(home, &g.col);
                     n.mode = Mode::Follow(Target::Player);
+                    // Scheduled by 0x8007cac4.
+                    n.scheduled = true;
                     n.damage = BITE;
                     n.attacks = true;
                     if i > 0 {

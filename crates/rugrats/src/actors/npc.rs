@@ -159,6 +159,14 @@ pub struct Npc {
     /// callbacks +0x54/+0x58 off until mode 1 ends).
     pub wait_left: i32,
     pub staggered: bool,
+    /// Its think is scheduled (0x80049e18, 0x80072b48): a level script
+    /// puts it there, or its trigger (+0x48) when the player comes within
+    /// `trigger` (+0xa0: characters 23-26, 33, 35, 39, 0x80081bac). Not
+    /// scheduled, nothing of it runs, its animation neither.
+    pub scheduled: bool,
+    pub trigger: i32,
+    /// Its template's trigger radius (+0x34, into +0xa0).
+    pub radius: i32,
     /// Its last step was taken back off a wall or an object (the bump,
     /// state 9).
     pub bumped: bool,
@@ -469,6 +477,11 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
     };
     let heights: Vec<(i32, [i32; 2])> = npcs.iter().map(|n| (n.pos[1] + n.root.y, n.box_y())).collect();
     for (k, n) in npcs.iter_mut().enumerate() {
+        // (A character a level sets going is one its script scheduled.)
+        let runs = if n.trigger > 0 { n.scheduled } else { n.scheduled || !matches!(n.mode, Mode::Idle) };
+        if !runs {
+            continue;
+        }
         // The animation steps first and its root with it (0x8005a068),
         // then the mode asks for what plays from the next step. A bite's
         // modes 5 and 0 have no body update (0x80084084 leaves without

@@ -144,6 +144,10 @@ fn main() -> Result<(), String> {
     let sync_at: Option<usize> = std::env::var("SYNCAT").ok().and_then(|s| s.parse().ok());
     let pads = Pads::default();
     let mut off = 0;
+    // By NPC: frames off, and whether each side's tracks ever changed.
+    let mut each: Vec<(usize, bool, bool)> = vec![(0, false, false); pairs.len()];
+    let start_orig: Vec<[[i16; 6]; 4]> = pairs.iter().map(|&(_, o)| tracks(&mut p, o)).collect();
+    let start_port: Vec<[[i16; 6]; 4]> = pairs.iter().map(|&(k, _)| g.npcs[k].animator.record()).collect();
     for f in 0..frames {
         if sync_at == Some(f) {
             for &(k, o) in &pairs {
@@ -185,13 +189,21 @@ fn main() -> Result<(), String> {
             let mine = n.animator.record();
             let same = t.iter().zip(&mine).all(|(a, b)| a[..4] == b[..4] && (a[5] & 0xff) == (b[5] & 0xff));
             let place = at[0] == n.pos[0] && at[2] == n.pos[2] && h == n.heading;
+            let i = pairs.iter().position(|&(kk, _)| kk == k).unwrap();
+            each[i].1 |= t != start_orig[i];
+            each[i].2 |= mine != start_port[i];
             if !same || !place {
+                each[i].0 += 1;
                 off += 1;
                 if off <= 40 {
                     println!("{f:3} npc {k}: port {:?} h {} {} | orig {at:?} h {h} {:?}", n.pos, n.heading, n.animator.describe(), t);
                 }
             }
         }
+    }
+    for (i, &(k, _)) in pairs.iter().enumerate() {
+        let (n_off, o_moved, p_moved) = each[i];
+        println!("npc {k} id {} char {} trigger {} mode {:?}: {n_off} off, original {}, port {}", g.npcs[k].id, g.npcs[k].character, g.npcs[k].trigger, g.npcs[k].mode, if o_moved { "animated" } else { "still" }, if p_moved { "animated" } else { "still" });
     }
     println!("{off} frames off");
     Ok(())

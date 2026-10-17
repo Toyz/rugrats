@@ -79,6 +79,8 @@ impl LetThereBeLight {
                 n.mode = Mode::Guard;
                 n.reach = SHADOW_REACH;
                 n.bite_wait = 230;
+                // On the trigger list (0x8007b7c8: +0x48).
+                n.trigger = n.radius;
             }
         }
         let mesh = Mesh::load(disc, &fx::LIGHT).ok();

@@ -190,6 +190,8 @@ impl BoxToss {
                 let home = g.npcs[k].home;
                 g.npcs[k].place(home, &g.col);
                 g.npcs[k].mode = Mode::Idle;
+                // Scheduled by EpisodeStart (0x80079cb0, 0x8007a094).
+                g.npcs[k].scheduled = true;
             }
         }
         if let Some(k) = find(g, ANGELICA) {

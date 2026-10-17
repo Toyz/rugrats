@@ -84,6 +84,8 @@ impl ChuckiesGlasses {
         let n = &mut g.npcs[k];
         n.hidden = false;
         n.mode = Mode::Idle;
+        // (Scheduled, 0x8007ee54 / 0x8007f004.)
+        n.scheduled = true;
         n.run_speed = Some(RUN);
         if let Some(s) = spot {
             let (at, link) = (g.spots[s].pos, g.spots[s].link);

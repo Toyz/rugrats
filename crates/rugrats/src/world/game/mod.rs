@@ -892,6 +892,9 @@ impl Game {
                 reenter: false,
                 wait_left: 0,
                 staggered: false,
+                scheduled: false,
+                trigger: 0,
+                radius: 0,
                 bumped: false,
                 reach: 600,
                 bite_wait: 900,
@@ -903,6 +906,12 @@ impl Game {
             };
             // On the floor under it (0x80081bac asks 0x8002b240), the root
             // the hierarchy's offset above the feet.
+            // The trigger (0x80081bac's +0x48 for these characters), at the
+            // template's radius (+0x34 into +0xa0).
+            n.radius = h16(0x34);
+            if matches!(h, 23..=26 | 33 | 35 | 39) {
+                n.trigger = n.radius;
+            }
             n.size = n.hierarchy.half_size();
             n.place(p.pos, &col);
             npcs.push(n);
@@ -1457,6 +1466,14 @@ impl Game {
             self.play_at(sound, at);
         }
         self.track_npc_rooms();
+        // The trigger list (0x80072d38): a character with a trigger is
+        // scheduled while the player is within its radius (0x8001f57c),
+        // and dropped (0x800820ac) once out. (Five a frame in turn: not
+        // ported, all each frame.)
+        let p = self.player.pos;
+        for n in self.npcs.iter_mut().filter(|n| n.trigger > 0) {
+            n.scheduled = npc::approx_dist(p, n.pos) <= n.trigger;
+        }
         for k in 0..self.npcs.len() {
             let n = &mut self.npcs[k];
             let (c, at) = (n.character, n.pos);

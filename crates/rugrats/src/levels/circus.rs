@@ -124,6 +124,8 @@ impl Circus {
         }
         if let Some(k) = find(g, ANGELICA) {
             g.npcs[k].mode = Mode::Idle;
+            // Scheduled by EpisodeStart (0x8007d8f0).
+            g.npcs[k].scheduled = true;
         }
         let body = |c: usize| -> Result<(usize, Hierarchy, Animator), String> {
             let h = g.set.hierarchies.get(c).cloned().flatten().ok_or(format!("no hierarchy {c}"))?;

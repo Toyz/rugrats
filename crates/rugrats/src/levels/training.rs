@@ -63,6 +63,8 @@ impl Training {
         g.player.slip_sound = 169;
         if let Some(k) = find(g, ANGELICA) {
             g.npcs[k].mode = Mode::Idle;
+            // Scheduled by EpisodeStart (0x80079090).
+            g.npcs[k].scheduled = true;
         }
         if let Some(k) = find(g, LOBSTER) {
             let n = &mut g.npcs[k];

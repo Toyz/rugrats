@@ -107,6 +107,8 @@ impl Hub {
             n.mode = Mode::Idle;
             n.attacks = false;
             n.hold = Some(ASLEEP);
+            // The only one EpisodeStart schedules (0x80078e7c).
+            n.scheduled = true;
         }
         let barks = disc
             .exe_bytes(BARKS, 22)

@@ -660,6 +660,67 @@ fn level_16_pie_flies_as_the_original() {
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
 }
 
+/// Level 3: Tommy put into room 19 (cine 9, then the pie toss,
+/// 0x8007bc60: on the counter, frozen, pie 0 in hand), given the
+/// original's heading (cine 9 leaves the original's otherwise), a pie
+/// thrown at Larry and Steve: speed 450 with Larry over 13000 away in 3D,
+/// gravity 1, met as a segment of its radius. The pie is the original's
+/// on every frame until the original's first lag frame (its time,
+/// 0x800c3e98, not 10 on), and a strike on a brother is the original's.
+#[test]
+#[ignore]
+fn level_3_pie_flies_as_the_original() {
+    use rugrats::input::TRIANGLE;
+    let Some(mut b) = Both::open(Boot { level: 3, ..Default::default() }) else { return };
+    for _ in 0..30 {
+        b.hle.frame(0).unwrap();
+    }
+    b.put([41000, 600, -5000], 2048, 1);
+    let mut f = 0;
+    while b.hle.read_u32(0x800c_56a8) & 8 == 0 && f < 600 {
+        b.script(&[(0, 1)]);
+        if let Some(n) = b.game.cine.take() {
+            b.game.cine_finished(n);
+        }
+        f += 1;
+    }
+    assert!(b.game.pie_toss.is_some(), "the port's toss started");
+    let p = rugrats_hle::play::PLAYER;
+    let h0 = b.hle.read_i16(p + 0x24) as i32 & 4095;
+    b.game.player.heading = h0;
+    b.game.player.target = h0;
+    b.script(&[(0, 40)]);
+    // (And its animation, which the skipped cine left elsewhere.)
+    b.sync_animation();
+    b.game.player.animator.mark_asked(rugrats::actors::player::anim::CARRY_IDLE);
+    b.tracks_off.clear();
+    let pies: Vec<usize> = (0..b.game.things.len()).filter(|&k| b.game.things[k].template == 564).collect();
+    let theirs: Vec<u32> = (0..6).map(|i| b.hle.read_u32(0x800e_2770 + 4 * i)).collect();
+    let mut flown = Vec::new();
+    let mut clock = b.hle.read_i32(0x800c_3e98);
+    let mut lagged = false;
+    let (start, mut seen, mut lag_at) = (b.frames, 0, usize::MAX);
+    b.script_with(&[(bits(&[TRIANGLE]), 1), (0, 50)], |g, h| {
+        let t = h.read_i32(0x800c_3e98);
+        if t - clock != 10 && !lagged {
+            lag_at = seen;
+        }
+        lagged |= t - clock != 10;
+        clock = t;
+        seen += 1;
+        let o = theirs[0];
+        if !lagged && g.carried() != Some(pies[0]) && h.read_u32(p + 0x1f0) != o {
+            let mine = g.things[pies[0]].pos;
+            flown.push(([mine.x as i32, mine.y as i32, mine.z as i32], [0, 4, 8].map(|i| h.read_i32(o + 0x18 + i))));
+        }
+    });
+    let off = flown.iter().filter(|(m, t)| m != t).count();
+    eprintln!("pie flew {} frames before a lag, {off} off: {:?}", flown.len(), flown.iter().find(|(m, t)| m != t));
+    assert!(flown.len() >= 5 && off == 0, "the pie's places: {:?}", flown);
+    let before: Vec<usize> = b.tracks_off.iter().copied().filter(|&f| f < start + lag_at).collect();
+    assert!(before.is_empty(), "the original's animation tracks before its lag, off at {before:?}");
+}
+
 /// The original's objects in the rooms' lists (0x800c4a8c).
 fn objects(p: &mut Play) -> Vec<u32> {
     let rooms = p.read_u32(0x800c_4a8c);

@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-202 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 103, render 29, save 4, test 27, tooling 18, ui 13, video 10.
+203 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 104, render 29, save 4, test 27, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -214,3 +214,4 @@ The [reference](docs/README.md) says what is true now.
 | 200 | [The put-down flies as the original's flight, the port's own flight is gone; frame events, the hierarchy box, the movie frame size and the cine record length named](worklog/0200-the-put-down-flies-as-the-original-s-flight-the-port-s-own.md) | 2026-10-17 | play |
 | 201 | [Level 16's pies are six objects thrown and flown as the original's, the held player kept to the camera and on his spot; a pie matches the original every frame](worklog/0201-level-16-s-pies-are-six-objects-thrown-and-flown-as-the.md) | 2026-10-17 | play |
 | 202 | [The tools compare a character's height: the original's has the root's lift in it, the port's place is the floor and the feet; Mr. Friend's posed parts are the original's to the unit](worklog/0202-the-tools-compare-a-character-s-height-the-original-s-has.md) | 2026-10-17 | test |
+| 203 | [Level 3's brothers wait at height -384 and the step's lift, the toss's pies are the shared ones and its strikes are its own; a level 3 pie matches the original](worklog/0203-level-3-s-brothers-wait-at-height-384-and-the-step-s-lift.md) | 2026-10-17 | play |

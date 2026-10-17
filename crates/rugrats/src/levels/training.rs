@@ -124,7 +124,11 @@ impl Training {
         if !self.toss {
             return;
         }
-        let hits: Vec<usize> = g.struck.iter().filter(|h| g.things.get(h.thing).is_some_and(|t| t.template == PIE)).map(|h| h.npc).collect();
+        // (The pies' strikes are the toss's; the rest the level's own.)
+        let (pies, rest): (Vec<Strike>, Vec<Strike>) =
+            std::mem::take(&mut g.struck).into_iter().partition(|h| g.things.get(h.thing).is_some_and(|t| t.template == PIE));
+        g.struck = rest;
+        let hits: Vec<usize> = pies.iter().map(|h| h.npc).collect();
         for k in hits {
             if g.npcs[k].id != ANGELICA {
                 continue;
@@ -179,6 +183,8 @@ impl Script for Training {
                 }
             }
         }
+        // The toss's pies first (their strikes are its own).
+        self.toss_frame(g);
         // A thrown can kills the lobster (Damage 50 on 50).
         for Strike { npc: k, damage: amount, .. } in std::mem::take(&mut g.struck) {
             if g.npcs[k].id != LOBSTER {
@@ -193,7 +199,6 @@ impl Script for Training {
                 g.hide(LOBSTER, true);
             }
         }
-        self.toss_frame(g);
     }
 
     fn gameplay(&mut self, g: &mut Game, n: u8) {

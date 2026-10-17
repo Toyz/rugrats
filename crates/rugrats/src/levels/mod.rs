@@ -17,7 +17,6 @@ pub mod let_there_be_light;
 pub mod mirrorland;
 pub mod mr_friend;
 pub mod outer_space;
-pub mod pie_toss;
 pub mod reptar_2010;
 pub mod toy_palace;
 pub mod training;

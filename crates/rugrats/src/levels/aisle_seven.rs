@@ -11,14 +11,12 @@ use rugrats_render::Vtx;
 
 use crate::actors::npc::{Event, Mode, Target};
 use crate::actors::player::Pose;
-use crate::actors::player::anim::THROW;
 use crate::disc::GameDisc;
-use crate::input::{self, Pads};
+use crate::input::Pads;
 use crate::levels::Level;
-use crate::levels::pie_toss::{Pie, draw_pies, roll_pies};
 use crate::ui::hud;
 use crate::world::collide;
-use crate::world::game::{self, Exit, Game, Script, Strike};
+use crate::world::game::{Exit, Game, Script, Strike};
 
 /// Registry ids (LP +0x2a).
 const LARRY: u16 = 75;
@@ -57,6 +55,12 @@ const TOSS_EYE: Vec3 = Vec3::new(45493.0, -4200.0, 22720.0);
 const TOSS_HEALTH: i32 = 200;
 /// A pie hit takes 50 (0x8007e308).
 const PIE_DAMAGE: i32 = 50;
+/// The pie (class 9, six of it).
+const PIE: u16 = 564;
+/// The props set apart (template flag 8) through the toss (0x8007bc60,
+/// 0x8007e3c0).
+const TOSS_PROPS: [usize; 3] = [489, 566, 488];
+
 /// The lobster aisles' respawn (0x8007ece4).
 const AISLES: [i32; 3] = [45476, 779, 14446];
 /// The boss's swat (0x80084084 mode 3): 0x800c4268 = -1750 up and
@@ -68,12 +72,6 @@ const SWAT_SPEED: i32 = 2500 / 2;
 /// A lobster's bite (+0x6d) and the stun a throw gives the boss (600 dt).
 const BITE: i32 = 15;
 const STUN: i32 = 600;
-
-/// The pie toss under way.
-struct Toss {
-    holding: bool,
-    pies: Vec<Pie>,
-}
 
 /// The level's progress (0x800c4cd0).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -90,7 +88,7 @@ enum Phase {
 pub struct AisleSeven {
     phase: Phase,
     respawn: Pose,
-    toss: Option<Toss>,
+    toss: bool,
 }
 
 fn find(g: &Game, id: u16) -> Option<usize> {
@@ -121,7 +119,7 @@ impl AisleSeven {
             let n = &mut g.npcs[k];
             n.mode = Mode::Block { heading: n.heading };
         }
-        Ok(AisleSeven { phase: Phase::Store, respawn: Pose::new(START, heading), toss: None })
+        Ok(AisleSeven { phase: Phase::Store, respawn: Pose::new(START, heading), toss: false })
     }
 
     /// The aim marker (0x8005fe44): (0, 1024, 24000) turned by Tommy's
@@ -156,15 +154,21 @@ impl AisleSeven {
     /// The pie toss (0x8007bc60).
     fn pie_toss(&mut self, g: &mut Game) {
         g.player.pos = COUNTER;
+        // On the counter, where he is held (+0x148 is -2048, 7 under his
+        // feet; held, he never falls to it).
+        g.player.floor = COUNTER[1] - g.player.feet();
         g.player.heading = 2048;
         g.player.target = 2048;
         g.player.speed = 0;
         g.player.frozen = true;
         let look = Vec3::new(COUNTER[0] as f32, -500.0, 8000.0);
         g.fixed = Some((TOSS_EYE, look));
-        // The pie on the counter is the pool's: the toss draws its own.
-        for t in g.things.iter_mut().filter(|t| t.template == 564) {
-            t.hidden = true;
+        // The six pies at the pie spot, pie 0 in hand; the speed by Larry's
+        // distance (0x80075f58, in 3D).
+        g.start_pie_toss(LARRY, false);
+        // The bakery's props let Larry and Steve by (template flag 8).
+        for t in TOSS_PROPS {
+            g.set_template_solid(t, false);
         }
         for id in [LARRY, STEVE] {
             g.hide(id, false);
@@ -178,14 +182,18 @@ impl AisleSeven {
                 n.mode = Mode::Posts { prev: 0, cur: n.first_post };
             }
         }
-        self.toss = Some(Toss { holding: true, pies: Vec::new() });
+        self.toss = true;
         g.song = Some(1);
     }
 
     /// The end of the toss (0x8007e3c0): won, Mellon Rush (cine 13); else
     /// Larry and Steve win (cine 15) and Tommy cries back to the start.
     fn end_toss(&mut self, g: &mut Game, won: bool) {
-        self.toss = None;
+        self.toss = false;
+        g.end_pie_toss();
+        for t in TOSS_PROPS {
+            g.set_template_solid(t, true);
+        }
         g.player.frozen = false;
         g.fixed = None;
         for id in [LARRY, STEVE] {
@@ -248,28 +256,21 @@ impl AisleSeven {
         g.set_camera_yaw(heading as f32);
     }
 
-    /// The toss's frame: Triangle throws the pie held, or takes the next.
-    fn toss_frame(&mut self, g: &mut Game, pads: &Pads) {
-        let Some(toss) = &mut self.toss else { return };
-        if pads.pressed(0, input::TRIANGLE) && g.player.action.is_none() {
-            if toss.holding {
-                let aim = find(g, LARRY).map(|k| g.npcs[k].pos);
-                toss.pies.push(Pie::thrown(g, COUNTER, g.player.heading, aim));
-                toss.holding = false;
-                g.player.act_at(THROW, crate::world::game::THROW_ANIM_SPEED, &g.anims);
-            } else {
-                toss.holding = true;
-            }
+    /// A pie that struck Larry or Steve (0x800511a8, 0x8007e308): both
+    /// lose 50, the one hit flinches; at 0 the toss is won.
+    fn toss_frame(&mut self, g: &mut Game) {
+        if !self.toss {
+            return;
         }
-        let targets: Vec<usize> = [LARRY, STEVE].iter().filter_map(|&id| find(g, id)).collect();
-        let hits = roll_pies(g, &mut toss.pies, &targets);
-        // A hit (0x800511a8, 0x8007e308): both lose 50, the one hit
-        // flinches; at 0 the toss is won.
+        // (The pies' strikes are the toss's; the rest the level's own.)
+        let (pies, rest): (Vec<Strike>, Vec<Strike>) =
+            std::mem::take(&mut g.struck).into_iter().partition(|h| g.things.get(h.thing).is_some_and(|t| t.template == PIE));
+        g.struck = rest;
+        let hits: Vec<usize> = pies.iter().map(|h| h.npc).collect();
         for hit in hits {
-            // The one hit says so (0x800511a8: Larry 1065, Steve 1076 /
-            // 1079).
-            let r = g.rand.next() & 1;
-            g.speech.extend(game::hit_line(g.npcs[hit].character, Level::AISLE_SEVEN, r));
+            if ![LARRY, STEVE].contains(&g.npcs[hit].id) {
+                continue;
+            }
             let mut left = TOSS_HEALTH;
             for id in [LARRY, STEVE] {
                 if let Some(k) = find(g, id) {
@@ -294,7 +295,7 @@ impl AisleSeven {
 }
 
 impl Script for AisleSeven {
-    fn frame(&mut self, g: &mut Game, pads: &Pads) {
+    fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             match e {
                 Event::Bite { by, target: Target::Player, amount } if amount > 0 => {
@@ -304,7 +305,7 @@ impl Script for AisleSeven {
                     g.play_at(52, at);
                 }
                 // GoalPost (0x80077ff0): one of them reached post 39.
-                Event::Goal(k) if self.toss.is_some() && [LARRY, STEVE].contains(&g.npcs[k].id) => {
+                Event::Goal(k) if self.toss && [LARRY, STEVE].contains(&g.npcs[k].id) => {
                     self.end_toss(g, false);
                 }
                 Event::Swat { by, heading } => {
@@ -316,6 +317,8 @@ impl Script for AisleSeven {
                 _ => {}
             }
         }
+        // The toss's pies first (their strikes are its own).
+        self.toss_frame(g);
         // Thrown objects (0x800511a8): a lobster loses the thing's +0x6d
         // and at 0 is gone (0x8007ebd4); the boss is stunned 600 dt.
         for Strike { npc: k, damage: amount, .. } in std::mem::take(&mut g.struck) {
@@ -343,7 +346,6 @@ impl Script for AisleSeven {
                 }
             }
         }
-        self.toss_frame(g, pads);
     }
 
     fn cine_finished(&mut self, g: &mut Game, n: usize) {
@@ -417,10 +419,12 @@ impl Script for AisleSeven {
         true
     }
 
-    fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
-        let Some(toss) = &self.toss else { return };
-        draw_pies(g, &toss.pies, toss.holding, moving);
-        if toss.holding
+    fn draw(&self, g: &Game, _moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
+        if !self.toss {
+            return;
+        }
+        // The aim marker while a pie is in hand (0x8005fe44).
+        if g.carried().is_some_and(|k| g.things[k].template == PIE)
             && let Some(s) = &g.sprites
         {
             let at = self.marker(g);
@@ -438,7 +442,7 @@ impl Script for AisleSeven {
 
     /// +0x30 bit 8: the pie toss.
     fn cue(&self) -> i32 {
-        self.toss.is_some() as i32
+        self.toss as i32
     }
 
     fn phase(&self) -> u8 {

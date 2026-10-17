@@ -573,6 +573,8 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
             && !matches!(n.mode, Mode::Resume(_))
             && !enters_wait;
         let mut across = [0; 2];
+        // (The root's height before this step, for level 3's brothers.)
+        let lift_before = n.root.y;
         if body {
             n.animator.step(w.anims, w.trig);
             let lo = (n.feet() << 12) / ROOT_SCALE;
@@ -711,6 +713,12 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 // next post (both as 0..4095, 0x8001f650), the one with a
                 // line.
                 n.speed = 0;
+                // Level 3's Larry and Steve (75, 76) are put at height -384
+                // each wait frame (0x80084438), before the body adds the
+                // step's lift: drawn at -384 and this step's change of it.
+                if w.level == 3 && matches!(n.id, 75 | 76) {
+                    n.pos[1] = -384 - lift_before;
+                }
                 let p = w.player;
                 n.steer(k, p, 0, w, false);
                 let yaw = |to: [i32; 3]| w.trig.ratan2(to[0] - n.pos[0], to[2] - n.pos[2]) & 4095;

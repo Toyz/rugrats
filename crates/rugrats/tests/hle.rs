@@ -711,3 +711,145 @@ fn level_9_friend_bites_as_the_original() {
     assert_eq!(report("bitten", &port, &orig), 0, "Tommy's place");
     assert_eq!(camera_off(&port, &orig), 0, "the camera's heading");
 }
+
+/// Mr. Friend (46) in level 9 given the original's place, heading,
+/// animation and mode; his object.
+fn sync_friend(b: &mut Both) -> (usize, u32) {
+    use rugrats::actors::npc::Bite;
+    let k = b.game.npcs.iter().position(|n| n.id == 46).expect("Mr. Friend");
+    let at = b.game.npcs[k].pos;
+    let mut bodies = Vec::new();
+    for o in objects(&mut b.hle) {
+        if b.hle.read_u32(o + 0x154) != 0 {
+            let d: i32 = (0..3).map(|i| (b.hle.read_i32(o + 0x18 + 4 * i as u32) - at[i]).abs()).sum();
+            bodies.push((d, o));
+        }
+    }
+    let o = bodies.into_iter().min().expect("his object").1;
+    let t: [[i16; 6]; 4] = std::array::from_fn(|j| std::array::from_fn(|i| b.hle.read_i16(o + 0xa8 + 12 * j as u32 + 2 * i as u32)));
+    let speed = b.hle.read_i16(o + 0xe4) as i32;
+    let after = (b.hle.read_u8(o + 0xe6), b.hle.read_u8(o + 0xe7));
+    let fidget = (b.hle.read_i16(o + 0xf0), b.hle.read_i16(o + 0xf2) as i32);
+    let hier = b.hle.read_u32(o + 0x154);
+    let parts = b.hle.read_i16(hier) as u32;
+    let mut pose = vec![None; 32];
+    for (channel, slot) in pose.iter_mut().enumerate() {
+        let part = b.hle.read_u8(hier + 0x14 + channel as u32) as u32;
+        if part < parts {
+            let q = [0, 4, 8, 12].map(|c| b.hle.read_i32(hier + 0x34 + 40 * part + 4 + c));
+            if q != [0; 4] {
+                *slot = Some(q);
+            }
+        }
+    }
+    let mode = b.hle.read_u8(o + 0x699);
+    let g = &mut b.game;
+    let n = &mut g.npcs[k];
+    n.animator.load_record(t, speed, after, fidget, pose, &g.anims);
+    // What its base state was asked as (the logical animation).
+    if let Some(a) = (0..54).find(|&a| rugrats::actors::animator::table_state(a, 0, t[0][0], false) == Some(t[0][0])) {
+        n.animator.mark_asked(a);
+    }
+    n.pos = [0, 4, 8].map(|i| b.hle.read_i32(o + 0x18 + i));
+    n.heading = b.hle.read_i16(o + 0x24) as i32 & 4095;
+    n.health = b.hle.read_i16(o + 0x1a4) as i32;
+    n.bite = match mode {
+        5 => Bite::Strike,
+        1 => Bite::Recover,
+        0 => Bite::Resume,
+        _ => Bite::Chase,
+    };
+    (k, o)
+}
+
+/// Level 9: Tommy picks up ball 2 and throws it at Mr. Friend coming
+/// for him. The aim (0x80059b34), the roll (0x80086ef0) and its meeting
+/// with him, his stagger (0x800834b0: logical 8 at 2048, mode 1, his
+/// callbacks off) and his chase after. Given the original's Friend once
+/// (place, animation, mode), the ball's places, his tracks, place and
+/// health, and Tommy, are the original's every frame.
+#[test]
+#[ignore]
+fn level_9_ball_at_friend_as_the_original() {
+    use rugrats::input::{CIRCLE, R1, TRIANGLE};
+    let Some(mut b) = Both::open(Boot { level: 9, cinematics: true, ..Default::default() }) else { return };
+    for _ in 0..900 {
+        b.hle.frame(0).unwrap();
+    }
+    let ball = b.game.things.iter().position(|t| t.template == 777 && (t.pos.x as i32, t.pos.z as i32) == (31204, -11085)).expect("ball 2");
+    b.put([31846, 7947, -10807], 2805, 6);
+    b.script(&[(bits(&[R1]), 1), (0, 4)]);
+    let (k, o) = sync_friend(&mut b);
+    if std::env::var_os("AIMDBG").is_some() {
+        use rrt::emu::{BusExt, Cpu};
+        b.hle.hle.m.hook(0x8006_1e9c, |c| {
+            let sp = c.cpu.reg(29) as u32;
+            let mut w = |a: u32| c.bus.read_u32(a).unwrap_or(0) as i32;
+            let p = rugrats_hle::play::PLAYER;
+            let t = w(p + 0x1f4) as u32;
+            println!("    AIM orig way [{}, {}, {}] player [{}, {}, {}] target [{}, {}, {}]", w(sp + 16), w(sp + 20), w(sp + 24), w(p + 0x18), w(p + 0x1c), w(p + 0x20), w(t + 0x18), w(t + 0x1c), w(t + 0x20));
+            rrt::emu::HookResult::Continue
+        });
+        b.hle.hle.m.hook(0x8006_1f38, |c| {
+            let sp = c.cpu.reg(29) as u32;
+            let mut w = |a: u32| c.bus.read_u32(a).unwrap_or(0) as i32;
+            println!("    AIM orig dir [{}, {}, {}] angles {:#x}", w(sp + 16), w(sp + 20), w(sp + 24), w(sp + 32));
+            rrt::emu::HookResult::Continue
+        });
+    }
+    let p = rugrats_hle::play::PLAYER;
+    let (mut rolled, mut friend, mut obj) = (Vec::new(), Vec::new(), 0u32);
+    let (port, orig) = b.script_with(&[(bits(&[CIRCLE]), 1), (0, 40), (bits(&[TRIANGLE]), 1), (0, 90)], |g, h| {
+        let ob = h.read_u32(p + 0x1f0);
+        if ob != 0 {
+            obj = ob;
+        }
+        if g.carried().is_none() && obj != 0 {
+            let at = g.things[ball].pos;
+            rolled.push(([at.x as i32, at.y as i32, at.z as i32], [0, 4, 8].map(|i| h.read_i32(obj + 0x18 + i))));
+            if std::env::var_os("TRACKS").is_some() && rolled.len() <= 8 {
+                let fl = h.read_u32(obj + 0x90);
+                let v = if fl != 0 { [0, 4, 8].map(|i| h.read_i32(fl + 0x3c + i)) } else { [0; 3] };
+                eprintln!("    v port {:?} orig {v:?}", g.things[ball].state);
+            }
+        }
+        let n = &g.npcs[k];
+        let theirs: [[i16; 6]; 4] = std::array::from_fn(|j| std::array::from_fn(|i| h.read_i16(o + 0xa8 + 12 * j as u32 + 2 * i as u32)));
+        let mine = n.animator.record();
+        let same = theirs.iter().zip(&mine).all(|(a, c)| a[..4] == c[..4] && (a[5] & 0xff) == (c[5] & 0xff));
+        if std::env::var_os("TRACKS").is_some() {
+            eprintln!(
+                "    friend {} {:?} | {:?} {:?} mode {} speed {} | {} at {:?} h {} | {:?} h {}",
+                if same { "same" } else { "DIFF" },
+                theirs[0],
+                mine[0],
+                n.bite,
+                h.read_u8(o + 0x699),
+                h.read_i32(o + 0x184),
+                n.speed,
+                [0, 8].map(|i| h.read_i32(o + 0x18 + i)),
+                h.read_i16(o + 0x24),
+                [n.pos[0], n.pos[2]],
+                n.heading
+            );
+        }
+        let place = [n.pos[0], n.pos[1] + n.root.y, n.pos[2], n.heading] == [h.read_i32(o + 0x18), h.read_i32(o + 0x1c), h.read_i32(o + 0x20), h.read_i16(o + 0x24) as i32 & 4095];
+        if !place && std::env::var_os("TRACKS").is_some() {
+            eprintln!("    friend place port {:?} {} orig {:?} {}", [n.pos[0], n.pos[1] + n.root.y, n.pos[2]], n.heading, [0, 4, 8].map(|i| h.read_i32(o + 0x18 + i)), h.read_i16(o + 0x24));
+        }
+        friend.push((same, place, (n.health, h.read_i16(o + 0x1a4) as i32), h.read_u8(o + 0x699)));
+    });
+    let roll_off = rolled.iter().filter(|(m, t)| m != t).count();
+    if std::env::var_os("TRACKS").is_some() {
+        for (f, r) in rolled.iter().enumerate().take(8) {
+            eprintln!("    ball {f}: {r:?}");
+        }
+    }
+    let first = friend.iter().position(|f| !(f.0 && f.1 && f.2.0 == f.2.1));
+    eprintln!("ball {} frames, {roll_off} off; Friend first off {:?}", rolled.len(), first.map(|f| (f, friend[f])));
+    assert_eq!(report("thrown", &port, &orig), 0, "Tommy's place");
+    assert!(b.tracks_off.is_empty(), "Tommy's tracks, off at {:?}", b.tracks_off);
+    assert!(rolled.len() >= 30 && roll_off == 0, "the ball: {:?}", rolled.iter().position(|(m, t)| m != t).map(|f| (f, rolled[f])));
+    assert_eq!(first, None, "Mr. Friend: tracks, place, health");
+    assert_eq!(camera_off(&port, &orig), 0, "the camera's heading");
+}

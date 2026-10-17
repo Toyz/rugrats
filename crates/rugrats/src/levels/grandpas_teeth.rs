@@ -211,6 +211,8 @@ impl GrandpasTeeth {
                 bite: Default::default(),
                 goal: [0; 3],
                 reenter: false,
+                wait_left: 0,
+                staggered: false,
                 bumped: false,
                 reach: 600,
                 bite_wait: 900,

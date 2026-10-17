@@ -17,7 +17,7 @@ use rugrats_render::{Vtx, models};
 
 use crate::actors::animator::{Animator, RootCurve};
 use crate::actors::pose::{self, PartMatrix};
-use crate::actors::player::anim::{IDLE, RUN};
+use crate::actors::player::anim::{IDLE, RUN, STAND as WALK};
 use crate::actors::player::{Box3, DT, Pose};
 use crate::gte::Trig;
 use crate::rand::Rand;
@@ -155,6 +155,10 @@ pub struct Npc {
     pub goal: [i32; 3],
     /// Its state set anew (mode 1's end): the next ask starts it again.
     pub reenter: bool,
+    /// Mode 1's wait (+0x69c, dt), and whether a hit put it there (its
+    /// callbacks +0x54/+0x58 off until mode 1 ends).
+    pub wait_left: i32,
+    pub staggered: bool,
     /// Its last step was taken back off a wall or an object (the bump,
     /// state 9).
     pub bumped: bool,
@@ -469,11 +473,35 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         // then the mode asks for what plays from the next step. A bite's
         // modes 5 and 0 have no body update (0x80084084 leaves without
         // 0x80082230).
+        // Mode 1 at its animation's event 0x2000 (not for 1776): a wait of
+        // 300 + (rand & 3) x 300 dt (+0x69c), with no body update.
+        if matches!(n.mode, Mode::Follow(_))
+            && n.bite == Bite::Recover
+            && n.animator.events & 0x2000 != 0
+            && n.id != 1776
+        {
+            if n.wait_left == 0 {
+                n.wait_left = 300 + (rand.next() & 3) as i32 * 300;
+            }
+            n.wait_left = (n.wait_left - DT).max(0);
+            if n.wait_left != 0 {
+                continue;
+            }
+        }
         let body = !(matches!(n.mode, Mode::Follow(_)) && matches!(n.bite, Bite::Strike | Bite::Resume));
+        let mut across = [0; 2];
         if body {
             n.animator.step(w.anims, w.trig);
-            let scale = n.feet() as f32 / ROOT_SCALE;
-            n.root.step(&n.animator, w.anims, scale);
+            let lo = (n.feet() << 12) / ROOT_SCALE;
+            n.root.step(&n.animator, w.anims, lo);
+            // Across by the root (the stagger's step back), turned by the
+            // heading as it was; the body takes it after its stick (the
+            // steer reads the place before it, 0x8005a068).
+            let d = n.root.across(&n.animator, w.anims, lo);
+            if d != [0; 2] {
+                let m = w.trig.turn_by([n.heading as i16, 0, 0], [d[0], 0, d[1]]);
+                across = [m[0], m[2]];
+            }
         }
         n.cooldown = (n.cooldown - DT).max(0);
         let base = n.run_speed.unwrap_or(SPEEDS[n.slow as usize][n.speed_index.min(5)]);
@@ -502,8 +530,11 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 Bite::Recover => {
                     let goal = n.goal;
                     n.go(k, goal, 0, w);
+                    n.pos[0] += across[0];
+                    n.pos[2] += across[1];
                     if n.animator.events & 0x800_0000 != 0 {
                         n.bite = Bite::Resume;
+                        n.staggered = false;
                     }
                     continue;
                 }
@@ -679,7 +710,16 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 n.mode = if left <= 0 { *then } else { Mode::Hit { left: left - DT, then } };
             }
         }
-        let a = n.hold.unwrap_or(if n.speed > 0 { RUN } else { IDLE });
+        n.pos[0] += across[0];
+        n.pos[2] += across[1];
+        // Walking under the table's fifth speed of its row (0x80059008,
+        // 0x800590d4 for objects of flag 0x4000), running from it.
+        let run_from = SPEEDS[n.slow as usize][4];
+        let a = n.hold.unwrap_or(match n.speed {
+            s if s <= 0 => IDLE,
+            s if s < run_from => WALK,
+            _ => RUN,
+        });
         if std::mem::take(&mut n.reenter) {
             // Back from the bite's state 19 (mode 1 left state 0 for the
             // body's next update): the state's entry asks anew (0x8005b2d8).
@@ -731,7 +771,7 @@ fn next_post(p: &Post, prev: u8, rand: &mut Rand) -> u8 {
 /// The NPC's triangles.
 /// The root motion's reference height (0x800c41dc, peeked in levels 1, 4
 /// and 6): a body other than the player's moves by its root offset over it.
-const ROOT_SCALE: f32 = -561.0;
+const ROOT_SCALE: i32 = -561;
 
 pub fn triangles(n: &mut Npc, models: &Models, trig: &Trig, out: &mut Vec<Vtx>) {
     if n.hidden {

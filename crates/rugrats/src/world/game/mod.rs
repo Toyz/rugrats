@@ -414,7 +414,7 @@ pub struct Game {
     pub no_damage: bool,
     /// Damage posted to the player (0x800780ac's event 8 on D_800c4408),
     /// taken at the next frame's start (0x8007871c).
-    damage_posted: Vec<i32>,
+    damage_posted: Vec<(Option<usize>, i32)>,
     /// The levels won (+0x38), for the hub's signs, and the pieces earned
     /// (0x80094b8c) for the pause.
     pub won_levels: u32,
@@ -890,6 +890,8 @@ impl Game {
                 bite: Default::default(),
                 goal: [0; 3],
                 reenter: false,
+                wait_left: 0,
+                staggered: false,
                 bumped: false,
                 reach: 600,
                 bite_wait: 900,
@@ -1180,7 +1182,16 @@ impl Game {
         if matches!(self.level, Level::HUB | Level::CIRCUS | Level::GOLD_RUSH) || self.level.is_hole() {
             return;
         }
-        self.damage_posted.push(amount);
+        self.damage_posted.push((None, amount));
+    }
+
+    /// Damage to a character (0x800780ac with a target of flag 0x4000):
+    /// its health, at the next frame's start.
+    pub fn post_npc_damage(&mut self, k: usize, amount: i32) {
+        if matches!(self.level, Level::HUB | Level::CIRCUS | Level::GOLD_RUSH) || self.level.is_hole() {
+            return;
+        }
+        self.damage_posted.push((Some(k), amount));
     }
 
     pub fn frame(&mut self, pads: &Pads) {
@@ -1220,8 +1231,13 @@ impl Game {
         }
         // Damage posted last frame (0x8007871c's events, before the
         // player's update).
-        for amount in std::mem::take(&mut self.damage_posted) {
-            self.player.hurt(amount);
+        // (0x80077864: a character's health straight down; else the
+        // player's.)
+        for (who, amount) in std::mem::take(&mut self.damage_posted) {
+            match who.and_then(|k| self.npcs.get_mut(k)) {
+                Some(n) => n.hurt(amount),
+                None => self.player.hurt(amount),
+            }
         }
         if self.crying > 0 {
             // The cry runs on its own (0x8007f920's loop): the world waits.
@@ -1410,7 +1426,7 @@ impl Game {
         if let Some(t) = self.player.bumped.take() {
             let damage = self.set.templates.get(t as usize).map_or(0, |tp| tp.raw[0x32] as i32);
             if damage > 0 && !self.no_damage {
-                self.player.hurt(damage);
+                self.post_damage(damage);
             }
         }
         self.bodies = boxes.clone();

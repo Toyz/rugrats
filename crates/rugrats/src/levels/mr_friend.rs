@@ -4,7 +4,7 @@
 //! plays cine 18 and brings him back with two more; at 1 one try is left;
 //! at 0 cine 19 wins.
 
-use crate::actors::npc::{Event, Mode, Target};
+use crate::actors::npc::{Bite, Event, Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::world::game::{Effect, Game, Script, Strike};
@@ -89,27 +89,32 @@ impl MrFriend {
         Ok(MrFriend { phase: Phase::First, counter: 1, l14: true })
     }
 
-    /// Mode 1 (0x800841cc): staggered, its callbacks off, 300 + (rand & 3)
-    /// x 300 dt after the hit animation.
+    /// A hit (his callbacks 0x800833a4 / 0x800834b0): his line, the
+    /// damage, the stagger (logical 8 at 2048) and mode 1, his callbacks
+    /// off until it ends (`Npc::staggered`); mode 1's wait comes at the
+    /// stagger's event 0x2000 (`npc::step`).
     fn hit(&mut self, g: &mut Game, k: usize, amount: i32) {
-        let wait = 300 + (g.rand.next() & 3) as i32 * 300;
         let l14 = self.l14;
-        let n = &mut g.npcs[k];
-        if (matches!(n.mode, Mode::Hit { .. }) && !l14) || n.hidden {
+        if (g.npcs[k].staggered && !l14) || g.npcs[k].hidden {
             return;
         }
-        n.hurt(amount);
-        // Mode 1 ends in state 0: a hit wakes a waiting 46 too.
-        n.rooted = false;
         if !l14 {
             g.effects.push(Effect::new(19));
             // His line (0x800833a4 / 0x800834b0 in level 9: 0x800b96c8).
             g.speech.push([153, 187, 146][(g.rand.next() & 255) as usize % 3]);
         }
+        let anims = &g.anims;
+        let n = &mut g.npcs[k];
+        n.hurt(amount);
+        // Mode 1 ends in state 0: a hit wakes a waiting 46 too.
+        n.rooted = false;
         if n.health == 0 {
             self.die(g, k);
         } else {
-            n.mode = Mode::Hit { left: 600 + wait, then: Box::new(Mode::Follow(Target::Player)) };
+            n.mode = Mode::Follow(Target::Player);
+            n.bite = Bite::Recover;
+            n.staggered = true;
+            n.animator.start_at(8, 2048, anims);
         }
     }
 
@@ -147,11 +152,20 @@ impl Script for MrFriend {
                 g.post_damage(amount);
             }
         }
-        // Things thrown at him (0x800834b0 and Damage with the thing's
-        // +0x6d).
+        // Things thrown at him: their touch (0x800834b0) staggers him, and
+        // the Damage posted with the thing's +0x6d (0x800780ac) takes his
+        // health down at the next frame's start (0x80077864).
         for Strike { npc: k, damage: amount, .. } in std::mem::take(&mut g.struck) {
             if FRIENDS.contains(&g.npcs[k].id) && amount > 0 {
-                self.hit(g, k, amount);
+                self.hit(g, k, 0);
+                g.post_npc_damage(k, amount);
+            }
+        }
+        // Mode 1 with no health left (0x800841cc): mode 10, his end.
+        for k in 0..g.npcs.len() {
+            let n = &g.npcs[k];
+            if FRIENDS.contains(&n.id) && !n.hidden && n.health == 0 && matches!(n.mode, Mode::Follow(_)) {
+                self.die(g, k);
             }
         }
         // The kick (state 12, 0x800833a4): Triangle with him touching.

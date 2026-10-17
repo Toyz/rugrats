@@ -67,6 +67,23 @@ pub fn table_state(a: i16, climb: i32, current: i16, running: bool) -> Option<i1
     }
 }
 
+/// Frame `k`'s root key, scaled by `lo` (4096 = 1, toward zero) if given.
+fn root_key(anims: &Anims, k: usize, lo: Option<i32>) -> Option<[i32; 3]> {
+    let r = anims.frames.get(k).and_then(|f| {
+        anims.keys_of(f).iter().find_map(|key| match *key {
+            Key::Lift { dx, dy, dz, .. } => Some([dx as i32, dy as i32, dz as i32]),
+            _ => None,
+        })
+    })?;
+    Some(match lo {
+        Some(lo) => r.map(|c| {
+            let p = c * lo;
+            if p < 0 { (p + 4095) >> 12 } else { p >> 12 }
+        }),
+        None => r,
+    })
+}
+
 /// What a state does at its last frame (0x800b9c30, by table state; read
 /// by 0x8005562c): 4 turns back (ping-pong), 2 loops, 1 completes into the
 /// next state (0x80056484), else it holds the last frame (8 or nothing).
@@ -795,6 +812,13 @@ impl Animator {
     /// its time gone (0x80055904), and its whole move. None without root
     /// keys.
     pub fn root_progress(&self, anims: &Anims) -> Option<([i32; 3], [i32; 3])> {
+        self.root_progress_scaled(anims, None)
+    }
+
+    /// [`Self::root_progress`] with each key first scaled by `lo` (4096 =
+    /// 1, toward zero): another body than the player's moves by its root
+    /// offset (hierarchy +0x4c << 12 over D_800c41dc's -561, 0x80055904).
+    pub fn root_progress_scaled(&self, anims: &Anims, lo: Option<i32>) -> Option<([i32; 3], [i32; 3])> {
         let t = &self.tracks[0];
         let (first, count) = self.span(t.state, 0, anims)?;
         // Asked and not yet begun: at its start.
@@ -803,17 +827,9 @@ impl Animator {
         if count == 0 {
             return None;
         }
-        let root = |k: usize| {
-            anims.frames.get(k).and_then(|f| {
-                anims.keys_of(f).iter().find_map(|key| match *key {
-                    Key::Lift { dx, dy, dz, .. } => Some([dx as i32, dy as i32, dz as i32]),
-                    _ => None,
-                })
-            })
-        };
         let (mut done, mut total, mut any) = ([0; 3], [0; 3], false);
         for k in first..first + count {
-            let Some(r) = root(k) else { continue };
+            let Some(r) = root_key(anims, k, lo) else { continue };
             any = true;
             let part = if k < cur {
                 4096
@@ -889,27 +905,61 @@ pub struct RootCurve {
     base: i32,
     /// The height: drawn under the body's position.
     pub y: i32,
+    /// The across part of the base state's root taken so far, and what a
+    /// state run out this step still had (for a state whose word has 32).
+    across_done: [i32; 2],
+    across_rest: Option<[i32; 2]>,
 }
 
 impl RootCurve {
-    /// One step, after the animator's: `scale` turns the keys into this
-    /// body's size (a body other than the player's moves by its root
-    /// offset, hierarchy +0x4c, over 0x800c41dc's -561).
-    pub fn step(&mut self, a: &Animator, anims: &Anims, scale: f32) {
-        let (state, first, count, cur, left) = a.track();
-        let (done, total) = a.root_progress(anims).map_or((0, 0), |r| (r.0[1], r.1[1]));
-        if (self.state, self.first) != (state, first) || cur < self.cur {
-            // From where the last one left the body, its end had.
-            let rest = if self.cur + 1 == self.first + self.count { self.total - self.done } else { 0 };
-            self.base = self.y + (rest as f32 * scale) as i32;
+    /// This step's move across by the base state's root (a state whose
+    /// word has 32, 0x80055904's +0xd8/+0xdc), in the body's own frame:
+    /// the keys scaled by `lo`; a state begun anew first gives what the
+    /// one before still had.
+    pub fn across(&mut self, a: &Animator, anims: &Anims, lo: i32) -> [i32; 2] {
+        let mut d = [0; 2];
+        if a.began() {
+            if let Some(rest) = self.across_rest.take() {
+                d = [rest[0] - self.across_done[0], rest[1] - self.across_done[1]];
+            }
+            self.across_done = [0; 2];
         }
-        let blend = if cur > first {
-            1.0
+        self.across_rest = None;
+        if a.moves_across()
+            && let Some((done, total)) = a.root_progress_scaled(anims, Some(lo))
+        {
+            d = [d[0] + done[0] - self.across_done[0], d[1] + done[2] - self.across_done[1]];
+            self.across_done = [done[0], done[2]];
+            let (_, first, count, cur, _) = a.track();
+            if cur + 1 == first + count {
+                self.across_rest = Some([total[0], total[2]]);
+            }
+        }
+        d
+    }
+
+    /// One step, after the animator's: the keys scaled by `lo` (4096 = 1:
+    /// a body other than the player's moves by its root offset, hierarchy
+    /// +0x4c << 12 over 0x800c41dc's -561, 0x80055904). A new state, or a
+    /// loop's next round, starts from where the last left the body (with
+    /// what its end still had); its first frame takes the body from there
+    /// to the key, base + (key - base) frac rounded toward zero.
+    pub fn step(&mut self, a: &Animator, anims: &Anims, lo: i32) {
+        let (state, first, count, cur, left) = a.track();
+        let (done, total) = a.root_progress_scaled(anims, Some(lo)).map_or((0, 0), |r| (r.0[1], r.1[1]));
+        if (self.state, self.first) != (state, first) || cur < self.cur {
+            let rest = if self.cur + 1 == self.first + self.count { self.total - self.done } else { 0 };
+            self.base = self.y + rest;
+        }
+        self.y = if cur > first {
+            done
         } else {
             let dur = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
-            ((dur - left) as f32 / dur as f32).clamp(0.0, 1.0)
+            let frac = ((dur - left).clamp(0, dur) << 12) / dur;
+            let key = root_key(anims, first, Some(lo)).map_or(0, |k| k[1]);
+            let p = (key - self.base) * frac;
+            self.base + if p < 0 { (p + 4095) >> 12 } else { p >> 12 }
         };
-        self.y = (done as f32 * scale) as i32 + (self.base as f32 * (1.0 - blend)) as i32;
         (self.state, self.first, self.count, self.cur, self.done, self.total) = (state, first, count, cur, done, total);
     }
 }

@@ -222,9 +222,10 @@ impl Game {
                             self.speech.extend(hit_line(c, self.level, r));
                             self.things[k].last_hit = Some(n);
                         }
+                        // Damage(player, player, +0x8e), posted (0x800780ac).
                         Met::Player => {
                             if damage > 0 && !self.no_damage {
-                                self.player.hurt(damage);
+                                self.post_damage(damage);
                             }
                             self.things[k].last_hit = Some(PLAYER_HIT);
                         }
@@ -520,7 +521,9 @@ impl Game {
     /// its height then -300, at speed 170 (D_800b7fec).
     pub(super) fn aimed_dir(&self) -> Option<[i32; 3]> {
         let t = self.aim_target?;
-        let (p, q) = (self.player.pos, self.npcs[t].pos);
+        // (The character's height as its +0x1c has it: with its root.)
+        let n = &self.npcs[t];
+        let (p, q) = (self.player.pos, [n.pos[0], n.pos[1] + n.root.y, n.pos[2]]);
         let way = collide::unit([q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
         let angles = [self.trig.ratan2(way[0], way[2]) as i16, -self.trig.asin(way[1] as i16 as i32) as i16, 0];
         let off = (angles[0] as i32 - self.player.heading) as i16 as i32;

@@ -4,7 +4,7 @@
 use super::*;
 
 /// The placements with a speech line (LP +0x4c; template 613 says 194,
-/// 0x80046d04) and their trigger radius (template +0x34).
+/// 0x80046d04), on the trigger list at their template's radius (+0x34).
 /// The hub's doors lose theirs to the sign's enter (0x800481c8).
 pub(super) fn talkers(set: &Set, level: Level) -> Vec<Talker> {
     set.placements
@@ -13,21 +13,16 @@ pub(super) fn talkers(set: &Set, level: Level) -> Vec<Talker> {
         .filter(|(_, p)| p.kind == 1 && !(level == Level::HUB && p.level > 0))
         .filter_map(|(k, p)| {
             let line = if p.template == 613 { 194 } else { p.speech };
-            let t = set.templates.get(p.template as usize)?;
-            let radius = u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32;
-            (line != 0 && radius > 0).then_some(Talker { placement: k, line, radius, inside: false })
+            (line != 0).then_some(Talker { placement: k, line })
         })
         .collect()
 }
 
-/// A placement that speaks when the player comes within `radius` (2D).
+/// A placement that speaks when the trigger pass enters it.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Talker {
-    placement: usize,
+    pub(super) placement: usize,
     line: u16,
-    radius: i32,
-    /// The player was inside last frame.
-    inside: bool,
 }
 
 impl Game {
@@ -68,21 +63,16 @@ impl Game {
         })
     }
 
-    /// The trigger list (0x80072d38): coming within a talker's radius
-    /// (2D) says its line (0x8004d0f0) when it is in the player's room.
-    pub(super) fn talk(&mut self) {
-        let p = self.player.pos;
-        let room = self.room;
-        for k in 0..self.talkers.len() {
-            let Talker { placement, line, radius, inside: was } = self.talkers[k];
-            let d = &self.set.placements[placement];
-            let (dx, dz) = ((d.pos[0] - p[0]) as i64, (d.pos[2] - p[2]) as i64);
-            let inside = dx * dx + dz * dz < (radius as i64) * (radius as i64);
-            if inside && !was && !self.hidden.contains(&d.id) && room.is_some() && self.room_of(d.pos) == room {
-                self.speech.push(line);
-            }
-            self.talkers[k].inside = inside;
+    /// A talker's enter (0x8004d0f0): with the player in its room it is
+    /// in and says its line; else it stays out, to be entered again.
+    pub(super) fn talk(&mut self, t: usize) -> bool {
+        let Talker { placement, line, .. } = self.talkers[t];
+        let d = &self.set.placements[placement];
+        if self.hidden.contains(&d.id) || self.room.is_none() || self.room_of(d.pos) != self.room {
+            return false;
         }
+        self.speech.push(line);
+        true
     }
 
     /// The player's room (0x8002b660, here by the rooms' bounds, the one

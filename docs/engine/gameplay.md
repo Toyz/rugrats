@@ -705,8 +705,14 @@ calls the object's +0x44; a negative result removes it.
 
 ### Triggers (0x80072d38)
 
-Objects with an LP trigger are kept in the list 0x800c4c24. At setup
-(argument 1) every one within +0xa0 (3D distance squared) gets +0x48. Each
+Objects with an LP trigger are kept in the list 0x800c4c24. The full pass
+(argument 1) walks it from the front and calls +0x48 on every one whose
+squared distance, its three 32-bit products summed and compared signed
+with +0xa0, is under it. It runs only before a loader fills the list: in
+the level runner before 0x800454dc (0x80017d98), in main's own
+cinematics (0x80074858) and in the activity reset (0x80096b54). So it
+walks an empty list and leaves the cursor null, and each level's first
+five-a-frame pass starts at the list's head. Each
 frame (argument 0) five of them, round robin, are tested by 2D distance
 (0x8001f57c): coming within +0xa0 calls +0x48 (sets +0x00 bit 1), going
 out calls +0x4c. A placement with a speech line (LP +0x4c) gets
@@ -722,9 +728,23 @@ back to the front at the end. Seen in level 5 (51 entries: sound objects
 1139, movers 1156, the sliding doors 843, the robots and others; the
 cursor at the 25th): Angelica put beside robot 13002, the 43rd, it is
 scheduled on the fourth frame, five a frame from the cursor, and holds
-still until then. The port tests every character with a trigger every
-frame; which inits set +0x48 (0x80049e18 and a dozen others) is not yet
-mapped.
+still until then. The port's pass (`Game::trigger_pass`) runs the same
+list, and so starts each level at the head.
+
+What the enters and leaves do, and whether the object is in after:
+- a character (0x80049e18 / 0x80049e5c): scheduled, unscheduled;
+- a speech line (0x8004d0f0): in only with the player in its room, and
+  then it speaks; 0x8004d160 lets it out;
+- level 5's sliding door (0x8004d078 / 0x8004d0b0): opened (in, also when
+  a beam opens it), shut;
+- level 12's battery (0x8004cf58): taken and off the list;
+- the hub's signs and level 16's sparklers: scheduled, their think
+  (0x80049eec) showing them in the player's room;
+- level 4's Cynthia (0x8004d138): used (0x8004f78c), the win.
+
+The original's pass runs after the oracle's frame boundary (0x80072bf0,
+then the boundary, then 0x80072d38), so what it does in a frame shows in
+the oracle a frame later (`level_5_door_opens_as_the_original`).
 
 ### Doors (0x8004f78c)
 

@@ -14,7 +14,7 @@ use crate::levels::Level;
 use crate::ui::front;
 use crate::ui::text::Text;
 use crate::world::collide;
-use crate::world::game::{Game, Script, ThingState};
+use crate::world::game::{Game, Script, ThingState, Trigger};
 
 /// Hidden at every start: cine 7's end hook (0x800732d4 case 7, also
 /// when the cine is skipped) and EpisodeStart (0x80078e7c).
@@ -48,8 +48,9 @@ const PUT_DOWN: u16 = 190;
 const BARKS: u32 = 0x800b_96ec;
 /// Mode 14 (giving up) in the back doorways.
 const DOORWAYS: [usize; 2] = [35, 36];
-/// Door signs (0x80049eec): within 2500 (2D) in the player's room; the
-/// mirror only with +0x30 bit 16.
+/// Door signs (0x80049eec): thinking while their trigger entry has them in
+/// (within 2500), in the player's room; the mirror, not on the list, within
+/// 2500 (2D), only with +0x30 bit 16.
 const SIGN_REACH: i64 = 2500;
 const MIRRORS: [u32; 2] = [836, 881];
 const HARD: [Level; 3] = [Level::AISLE_SEVEN, Level::CYNTHIA, Level::TOY_PALACE];
@@ -297,7 +298,11 @@ fn signs(g: &Game) -> Vec<(usize, Level, [i32; 3])> {
             .iter()
             .find(|t| t.placement == k)
             .map_or(d.pos, |t| [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32]);
-        if dist2(pos, me) < SIGN_REACH * SIGN_REACH && room.is_some() && g.room_of(pos) == room {
+        let near = match g.trigger_active(Trigger::Placement(k)) {
+            Some(active) => active,
+            None => dist2(pos, me) < SIGN_REACH * SIGN_REACH,
+        };
+        if near && room.is_some() && g.room_of(pos) == room {
             out.push((k, level, pos));
         }
     }

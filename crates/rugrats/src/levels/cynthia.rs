@@ -22,9 +22,9 @@ const RATS: [u16; 4] = [444, 445, 447, 448];
 /// The rooms that move the phase on (0x8007f498 case 1).
 const SEWER: usize = 26;
 const WATER: usize = 21;
-/// Cynthia's spawn group and the reach that wins (0x80047e30: 2000).
+/// Cynthia's spawn group (her trigger entry's reach that wins, 2000, is
+/// the list's: 0x8004691c).
 const HIDING: usize = 0;
-const REACH: i64 = 2000;
 const CINE_WON: usize = 48;
 /// Script 2 (0x8007e198): the clock, card HINT15, the portrait (sprite
 /// 287, half 32 x 64 at depth 1024, at (-60, -70)).
@@ -58,8 +58,10 @@ enum Phase {
 pub struct Cynthia {
     phase: Phase,
     respawn: Pose,
-    /// Where Cynthia waits, and whether the win was asked for.
+    /// Where Cynthia waits, her placement, and whether the win was asked
+    /// for.
     cynthia: [i32; 3],
+    placement: Option<usize>,
     shape: u32,
     found: bool,
     hurt: [i32; 2],
@@ -74,7 +76,8 @@ impl Cynthia {
     pub fn start(g: &mut Game, _disc: &GameDisc) -> Result<Cynthia, String> {
         // Cynthia is drawn by the level at her spot; she is no door
         // (0x80047e30 takes LP +0x42 away).
-        let place = g.set.placements.iter().find(|p| p.kind == 1 && p.id == CYNTHIA).copied();
+        let placement = g.set.placements.iter().position(|p| p.kind == 1 && p.id == CYNTHIA);
+        let place = placement.map(|k| g.set.placements[k]);
         let shape = place.and_then(|p| g.set.templates.get(p.template as usize)).map_or(0, |t| t.shape as u32);
         g.hide(CYNTHIA, true);
         g.disable_use(CYNTHIA);
@@ -85,6 +88,7 @@ impl Cynthia {
             phase: Phase::Start,
             respawn: g.player.pose(),
             cynthia: place.map_or([0; 3], |p| p.pos),
+            placement,
             shape,
             found: false,
             hurt: [0; 2],
@@ -121,6 +125,24 @@ impl Cynthia {
 }
 
 impl Script for Cynthia {
+    /// Cynthia's entry (0x8004d138, within 2000 at her spot): she is found,
+    /// cine 48.
+    fn trigger(&mut self, g: &mut Game, who: game::Trigger, entered: bool) -> Option<bool> {
+        if who != game::Trigger::Placement(self.placement?) {
+            return None;
+        }
+        if entered && !self.found {
+            self.found = true;
+            g.timer = None;
+            g.cine = Some(CINE_WON);
+        }
+        Some(entered)
+    }
+
+    fn trigger_at(&self, who: game::Trigger) -> Option<[i32; 3]> {
+        (who == game::Trigger::Placement(self.placement?)).then_some(self.cynthia)
+    }
+
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             if let Event::Bite { by, target: Target::Player, amount } = e
@@ -149,14 +171,6 @@ impl Script for Cynthia {
                     g.player.hurt(d);
                 }
             }
-        }
-        // Cynthia's trigger (0x8004d138): within 2000 (2D).
-        let p = g.player.pos;
-        let (dx, dz) = ((self.cynthia[0] - p[0]) as i64, (self.cynthia[2] - p[2]) as i64);
-        if !self.found && dx * dx + dz * dz < REACH * REACH {
-            self.found = true;
-            g.timer = None;
-            g.cine = Some(CINE_WON);
         }
     }
 

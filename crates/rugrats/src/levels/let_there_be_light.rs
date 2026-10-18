@@ -49,9 +49,9 @@ const SHRINK: i32 = 250;
 /// The hierarchy's box (+0x04..+0x10), zeroed while struck.
 const BOX: std::ops::Range<usize> = 4..0x12;
 const SPOTS: usize = 10;
-/// Batteries (kind 12): taken within 1000 by the trigger pass, +30.
+/// Batteries (kind 12): taken by their trigger entry (within 1000,
+/// 0x8004cf58), +30.
 const BATTERY: u16 = 12;
-const BATTERY_REACH: f32 = 1000.0;
 /// The refrigerator doors (cine 67), Spike (cine 68).
 const DOORS: [u16; 2] = [601, 602];
 const SPIKE: u16 = 14;
@@ -194,6 +194,22 @@ fn shot(g: &Game) -> Option<([i32; 3], [i32; 3])> {
 }
 
 impl Script for LetThereBeLight {
+    /// A battery's entry (0x8004cf58): taken (its +0x58: +30 to the
+    /// carried light, clamped to the gauge, sound 109) and off the list.
+    fn trigger(&mut self, g: &mut Game, who: game::Trigger, entered: bool) -> Option<bool> {
+        let game::Trigger::Goodie(k) = who else { return None };
+        if !entered || g.goodies[k].kind != BATTERY || g.goodies[k].taken {
+            return None;
+        }
+        g.goodies[k].taken = true;
+        if self.holding(g) {
+            self.charge = (self.charge + 30).min(self.max);
+        }
+        g.effects.push(Effect::new(109));
+        g.trigger_remove(who);
+        Some(false)
+    }
+
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             if let Event::Bite { target: Target::Player, amount, .. } = e
@@ -246,17 +262,6 @@ impl Script for LetThereBeLight {
         if self.shining {
             self.charge -= 1;
             self.shine(g);
-        }
-        // Batteries within 1000 (0x8004cf58): +30, clamped to the gauge.
-        let me = rrt::glam::Vec3::new(g.player.pos[0] as f32, g.player.pos[1] as f32, g.player.pos[2] as f32);
-        for b in g.goodies.iter_mut().filter(|b| b.kind == BATTERY && !b.taken) {
-            if (b.pos - me).length() < BATTERY_REACH {
-                b.taken = true;
-                if holding {
-                    self.charge = (self.charge + 30).min(self.max);
-                }
-                g.effects.push(Effect::new(109));
-            }
         }
         // Picked up again (0x800602d8): the gauge's max is 100.
         if holding && self.max == CHARGE && self.fridge_done {

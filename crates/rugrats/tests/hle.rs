@@ -1568,3 +1568,67 @@ fn level_10_babies_hide_as_the_original() {
     eprintln!("hiding: port {mine:?} orig {theirs:?}");
     assert_eq!(mine, theirs);
 }
+
+/// Level 5: Angelica put 4000 short of a sliding door (template 843), the
+/// port's trigger pass given the original's place in its list. The pass
+/// enters the door (0x8004d078: open, +0x00 bit 0) on the original's frame,
+/// five entries a frame from the cursor (the original's read a frame
+/// later: its pass runs after the oracle's frame boundary).
+#[test]
+#[ignore]
+fn level_5_door_opens_as_the_original() {
+    use rugrats::world::game::Trigger;
+    let Some(mut b) = Both::open(Boot { level: 5, character: Some(3), ..Default::default() }) else { return };
+    for _ in 0..30 {
+        b.hle.frame(0).unwrap();
+    }
+    // A door on the list with open floor 4000 short of it, and its object.
+    let short = |at: [i32; 3]| [at[0], at[1], at[2] - 4000];
+    let (k, spot) = b
+        .game
+        .triggers
+        .iter()
+        .filter_map(|e| match e.who {
+            Trigger::Placement(k) if b.game.set.placements[k].template == 843 => Some(k),
+            _ => None,
+        })
+        .find_map(|k| {
+            let q = rugrats::world::collide::query(&b.game.col, short(b.game.set.placements[k].pos));
+            (q.kind == 0 && q.tile.is_some()).then(|| (k, q.floor))
+        })
+        .expect("a door on the list with floor before it");
+    let at = b.game.set.placements[k].pos;
+    // The list's nodes (+8 its object), the door's the one at its place.
+    let list = |h: &mut Play| {
+        let mut nodes = Vec::new();
+        let mut node = h.read_u32(0x800c_4c24);
+        while node != 0 && nodes.len() < 400 {
+            nodes.push(node);
+            node = h.read_u32(node + 4);
+        }
+        nodes
+    };
+    let objs: Vec<u32> = list(&mut b.hle).into_iter().map(|n| b.hle.read_u32(n + 8)).collect();
+    let o = objs.into_iter().find(|&o| (0..3).all(|i| b.hle.read_i32(o + 0x18 + 4 * i as u32) == at[i])).expect("the door's object");
+    b.put([at[0], spot + b.game.player.feet(), at[2] - 4000], 0, 2);
+    let nodes = list(&mut b.hle);
+    assert_eq!(nodes.len(), b.game.triggers.len(), "the list's length");
+    let cursor = b.hle.read_u32(0x800c_4c20);
+    b.game.trigger_next = nodes.iter().position(|&n| n == cursor).map_or(0, |i| i + 1);
+    // (The oracle's frame ends between the objects' update and the pass,
+    // 0x80072bf0 | 0x80072d38: the original's pass of a frame is read a
+    // frame later.)
+    let (mut mine, mut theirs) = (None, None);
+    let mut f = 0;
+    b.script_with(&[(0, 20)], |g, h| {
+        f += 1;
+        if mine.is_none() && g.trigger_active(Trigger::Placement(k)) == Some(true) {
+            mine = Some(f);
+        }
+        if theirs.is_none() && h.read_u32(o) & 1 != 0 {
+            theirs = Some(f);
+        }
+    });
+    eprintln!("door in: port {mine:?} orig {theirs:?}");
+    assert!(theirs.is_some() && mine.map(|f| f + 1) == theirs, "the door entered on the original's frame");
+}

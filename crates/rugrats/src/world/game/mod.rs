@@ -195,6 +195,17 @@ pub trait Script {
     fn cry_animation(&self) -> bool {
         true
     }
+    /// The trigger pass called an object's enter (`entered`) or leave
+    /// (0x80072d38): whether it is in after (+0x00 bit 0); None leaves it
+    /// to the pass (in while within).
+    fn trigger(&mut self, _g: &mut Game, _who: Trigger, _entered: bool) -> Option<bool> {
+        None
+    }
+    /// Where one of the level's own objects on the trigger list is, when
+    /// the level moved it (None: its placement's place).
+    fn trigger_at(&self, _who: Trigger) -> Option<[i32; 3]> {
+        None
+    }
     /// A room's Gameplay script (room flag 64, 0x80077ee4).
     fn gameplay(&mut self, _g: &mut Game, _n: u8) {}
     /// The player entered room `room` (the level's case of 0x8007f498).
@@ -1371,16 +1382,26 @@ impl Game {
     /// left (+0x4c: unscheduled).
     fn trigger_pass(&mut self) {
         let p = self.player.pos;
-        let len = self.triggers.len();
-        for _ in 0..len.min(TRIGGERS_A_FRAME) {
-            if self.trigger_next >= len {
+        for _ in 0..self.triggers.len().min(TRIGGERS_A_FRAME) {
+            // (An entry may take itself off: a battery.)
+            if self.triggers.is_empty() {
+                break;
+            }
+            if self.trigger_next >= self.triggers.len() {
                 self.trigger_next = 0;
             }
             let e = self.triggers[self.trigger_next];
             self.trigger_next += 1;
+            // (Where the object is now, +0x18: a thing as it moved, a
+            // level's own object where the level has it.)
             let at = match e.who {
                 Trigger::Npc(n) | Trigger::Watch(n) => self.npcs[n].pos,
-                Trigger::Placement(k) => self.set.placements[k].pos,
+                Trigger::Placement(k) => self
+                    .script
+                    .as_ref()
+                    .and_then(|s| s.trigger_at(e.who))
+                    .or_else(|| self.things.iter().find(|t| t.placement == k).map(|t| [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32]))
+                    .unwrap_or(self.set.placements[k].pos),
                 Trigger::Goodie(g) => {
                     let v = self.goodies[g].pos;
                     [v.x as i32, v.y as i32, v.z as i32]
@@ -1394,8 +1415,52 @@ impl Game {
             if within != active {
                 match e.who {
                     Trigger::Npc(n) => self.npcs[n].scheduled = within,
-                    _ => self.triggers[self.trigger_next - 1].active = within,
+                    Trigger::Watch(_) => self.triggers[self.trigger_next - 1].active = within,
+                    // Another object's enter (+0x48) or leave (+0x4c), which
+                    // says whether it is in after (+0x00 bit 0).
+                    who => {
+                        let now = self.trigger_called(who, within);
+                        if let Some(e) = self.triggers.iter_mut().find(|e| e.who == who) {
+                            e.active = now;
+                        }
+                    }
                 }
+            }
+        }
+    }
+
+    /// An object's enter or leave as the pass calls it; whether it is in
+    /// after. A speech line (0x8004d0f0) speaks and is in only with the
+    /// player in its room (0x8004d160 lets it out); a level's own objects
+    /// are the level's (`Script::trigger`); the rest are in while within.
+    fn trigger_called(&mut self, who: Trigger, entered: bool) -> bool {
+        if let Trigger::Placement(k) = who
+            && let Some(t) = self.talkers.iter().position(|t| t.placement == k)
+        {
+            return entered && self.talk(t);
+        }
+        self.with_script(|s, g| s.trigger(g, who, entered)).unwrap_or(entered)
+    }
+
+    /// Whether an entry is in (None: not on the list).
+    pub fn trigger_active(&self, who: Trigger) -> Option<bool> {
+        self.triggers.iter().find(|e| e.who == who).map(|e| e.active)
+    }
+
+    /// Sets whether an entry is in (+0x00 bit 0), as an object's own code
+    /// does (a door opened by a beam, 0x80051d44).
+    pub fn trigger_set(&mut self, who: Trigger, active: bool) {
+        if let Some(e) = self.triggers.iter_mut().find(|e| e.who == who) {
+            e.active = active;
+        }
+    }
+
+    /// Takes an entry off the list (0x8001a810: a battery taken).
+    pub fn trigger_remove(&mut self, who: Trigger) {
+        if let Some(i) = self.triggers.iter().position(|e| e.who == who) {
+            self.triggers.remove(i);
+            if self.trigger_next > i {
+                self.trigger_next -= 1;
             }
         }
     }
@@ -1937,7 +2002,6 @@ impl Game {
             self.meter_shown = METER_TIME;
         }
         self.room_change();
-        self.talk();
         // The trigger list (0x80072d38(0)): five entries in turn, late in
         // the frame (after the objects' updates and the draw), so one
         // woken moves the frame after.

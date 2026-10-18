@@ -15,7 +15,7 @@ use crate::input::{self, Pads};
 use crate::levels::Level;
 use crate::world::collide;
 use crate::world::fx::{BEAM, Mesh};
-use crate::world::game::{Collected, Exit, Game, Script};
+use crate::world::game::{Collected, Exit, Game, Script, Trigger};
 
 /// Hidden by cine 37's end (0x800732d4 case 37) and 0x8007b280.
 const CINE_ACTORS: [u16; 11] = [1776, 608, 609, 1492, 130, 132, 131, 134, 514, 524, 8801];
@@ -33,9 +33,9 @@ const GAUGE: (i16, i16) = (-172, 73);
 const ROBOT: usize = 35;
 const ROBOT_REACH: i32 = 1536;
 const STUN: i32 = 6000;
-/// Sliding doors (template 843): open within 5000, sound 71.
+/// Sliding doors (template 843): opened and shut by their trigger entry
+/// (within their radius, 5000), sound 71.
 const DOOR: u32 = 843;
-const DOOR_REACH: i64 = 5000;
 /// The elevator (template 855, id 1969): 60 a frame in level 5
 /// (0x80046ed8).
 const ELEVATOR_TEMPLATE: u16 = 855;
@@ -249,11 +249,22 @@ impl OuterSpace {
         self.beams = beams;
         for i in opened {
             self.door(g, i, true);
+            // (0x80051d44 sets it in, +0x00 bit 0: the pass shuts it when
+            // it next finds the player out of reach.)
+            g.trigger_set(Trigger::Placement(self.doors[i].placement), true);
         }
     }
 }
 
 impl Script for OuterSpace {
+    /// A sliding door's entry (0x8004d078 opens it, 0x8004d0b0 shuts it).
+    fn trigger(&mut self, g: &mut Game, who: Trigger, entered: bool) -> Option<bool> {
+        let Trigger::Placement(k) = who else { return None };
+        let i = self.doors.iter().position(|d| d.placement == k)?;
+        self.door(g, i, entered);
+        Some(entered)
+    }
+
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             if let Event::Bite { target: Target::Player, amount, .. } = e
@@ -275,15 +286,6 @@ impl Script for OuterSpace {
             self.zap(g);
         }
         self.beams(g);
-        // Sliding doors (0x8004d078, 0x8004d0b0): open within 5000.
-        let p = g.player.pos;
-        for i in 0..self.doors.len() {
-            let at = self.doors[i].at;
-            let (dx, dz) = (((at[0] - p[0]) as i64).abs(), ((at[2] - p[2]) as i64).abs());
-            let d = dx.max(dz) + dx.min(dz) / 2;
-            let near = d < DOOR_REACH && (at[1] - p[1]).abs() < 4000;
-            self.door(g, i, near);
-        }
     }
 
     fn room(&mut self, g: &mut Game, room: usize) {

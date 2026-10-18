@@ -259,9 +259,18 @@ In the player update, carrying an object with +0x00 bit 0x1000000:
    [objectives](../engine/objectives.md)), so a Shadow monster ahead
    draws the light up toward it.
 2. The matrix of hand bone 15 (0x800bb2e2, 0x80044fec).
-3. 0x80091834(player, matrix, +0x200, 100 + the player's forward speed),
-   beam type 1: start at bone 15 + (0, 0, 350) (table 0x800bb28c entry
-   1, +0x24), speed +0x44 = the last argument.
+3. 0x80091834(player, matrix, +0x200, 100 + the z of the body's step
+   +0xd8..+0xdc turned by its angles), beam type 1: start at bone 15 +
+   (0, 0, 350) (table 0x800bb28c entry 1, +0x24), speed +0x44 = the last
+   argument. The step's z is 0 on the ground (seen walking: only +0xda,
+   the lift, moves). On a frame whose animation event 2048 fired
+   (+0xe0 bit 2048), 0x8005f4cc calls it with 2048 instead of 100 and
+   clears the bit: that shot is about 84,000 long (seen walking, three
+   such frames in 24).
+   The handler runs in the player's update, which comes before the
+   characters' (0x80018c38): the facing is the heading before the body's
+   turn this frame, the target and its size (+0x36) as they were before
+   the characters' step; the shot is stepped after them (0x8009173c).
 4. Charge -= +0xa2 (1); gauge = 0x8008ca80(gauge, charge). The result is
    not stored back.
 
@@ -362,7 +371,9 @@ crash in the oracle, byte 0x6d = 30, the battery gone.
 ## The refrigerator: cine 67
 
 ACTION (Triangle) with a refrigerator door touched: the flashlight is
-class 13, so ACTION uses the touched object (state 12, animation 50); at
+class 13, so ACTION uses the touched object (0x800631d8, the nearest of
+the nearby list within reach and a quarter turn: the door upstairs above
+it is no use; state 12, animation 50); at
 the animation event (0x8005f584 -> 0x8005f614) +0x54 = 0x8004f83c(door,
 player): PostCine(player, +0x6a = 67, 0) (0x80078350). The light also
 shines while Triangle is held. Circle would put the flashlight down
@@ -585,13 +596,6 @@ order:
 
 ## Unknown
 
-- The light's speed term while walking (player +0xd8..+0xdc turned by
-  the angles): standing it is 0 (the shots are the original's), moving
-  is not compared.
-- Which of the player's and a struck monster's updates comes first on
-  the frame its size runs out (the oracle's light aimed at it through
-  frame 17 and the port's matches, but no frame where the two orders
-  differ was seen).
 - What hierarchies 44 and 45 look like.
 - What templates 1070, 1271, 954, 678 and 960 are (the stairs? the
   doghouse?) and what template +0x24 means.

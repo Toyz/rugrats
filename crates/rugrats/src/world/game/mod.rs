@@ -55,7 +55,7 @@ pub use goodies::{Collected, Goodie, goodie, spawn};
 pub use movers::Mover;
 pub use pause::PauseEnd;
 pub use story::{hit_line, start_cine};
-pub use things::{Breakable, Ended, PieToss, Strike, THROW_ANIM_SPEED, Thing, ThingState};
+pub use things::{Breakable, Ended, PieToss, Strike, THROW_ANIM_SPEED, Thing, ThingState, Touched};
 pub use toys::{Spinner, Walker};
 
 const COL: usize = 466;
@@ -287,12 +287,9 @@ pub struct Game {
     carried: Option<usize>,
     grip: [i32; 3],
     /// The player's parts and rotation as last drawn (+0x158 and +4, the
-    /// matrices the grip reads: the original draws before it updates, so
-    /// the hands it holds by are the frame before's).
+    /// matrices an update reads: the frame's update runs before its draw,
+    /// so the hands it holds by are the frame before's).
     pose_before: Option<(Vec<crate::actors::pose::PartMatrix>, [[i32; 3]; 3])>,
-    /// The frame a thing was grabbed on: the grip is set then and the
-    /// carry (0x8005ff88 mode 1) first moves it the frame after.
-    grabbed_on: Option<u32>,
     /// Objects hidden by id (0x80078bc4) and the placements always drawn
     /// apart (characters, pickables, collectibles).
     hidden: std::collections::HashSet<u16>,
@@ -350,6 +347,14 @@ pub struct Game {
     /// A guard that began an attack (0x800c443c), which level 5's
     /// ambience reads and clears.
     pub attacker: Option<usize>,
+    /// The characters' places and the aim target before this frame's
+    /// step: what the player's update, which runs before theirs
+    /// (0x80072bf0; 0x80059b34 is each character's), sees.
+    pub npcs_before: Vec<[i32; 3]>,
+    pub aim_before: Option<usize>,
+    /// This frame's shots (the pool 0x800e6ef0: made in an update, stepped
+    /// after the objects, drawn and freed): each one's start and end.
+    pub shots: Vec<([i32; 3], [i32; 3])>,
     /// This frame's solids and the character each is (none for an
     /// object), as the shots after the flights meet them.
     solids: Vec<crate::world::boxhit::Exact>,
@@ -594,6 +599,7 @@ impl Game {
         rrt::tracing::info!("level {level}: the player starts at {start:?}, heading {heading}");
         let hierarchy = set.hierarchies.get(body).cloned().flatten().ok_or("no hierarchy for the player")?;
         let mut player = Player::new(disc, hierarchy.clone(), start, heading, &col, &anims)?;
+        player.pickables = (0..set.templates.len()).filter(|&t| set.templates[t].pickable()).map(|t| t as u16).collect();
         if who != TOMMY {
             // Another body (0x80059328): Spike turns slowly (0x80062eac).
             let a = Animator::load(disc, who as u16)?;
@@ -1011,7 +1017,6 @@ impl Game {
             carried: None,
             grip: [0; 3],
             pose_before: None,
-            grabbed_on: None,
             hidden: Default::default(),
             apart,
             unusable: Default::default(),
@@ -1021,6 +1026,9 @@ impl Game {
             ended: Vec::new(),
             marks: Vec::new(),
             attacker: None,
+            npcs_before: Vec::new(),
+            aim_before: None,
+            shots: Vec::new(),
             solids: Vec::new(),
             npc_of: Vec::new(),
             movers,
@@ -1267,6 +1275,7 @@ impl Game {
     pub fn frame(&mut self, pads: &Pads) {
         self.frames = self.frames.wrapping_add(1);
         self.effects.clear();
+        self.shots.clear();
         self.speech.clear();
         if !self.paused && pads.pressed(0, input::START) {
             self.paused = true;
@@ -1496,6 +1505,7 @@ impl Game {
             npc_of.push(Some(i));
             b.solid = Some(((solids.len() - 1) as u16, 0));
         }
+        self.player.carry_box = self.carry_box();
         self.player.frame(pads, self.camera_heading(), &self.col, &boxes, &solids, &self.anims, &self.trig);
         // A thing run into with a +0x6d hurts by it (Damage, 0x800780ac).
         if let Some(t) = self.player.bumped.take() {
@@ -1690,7 +1700,10 @@ impl Game {
                 [h(6), h(0xe)]
             },
         };
+        let before: Vec<[i32; 3]> = self.npcs.iter().map(|n| n.pos).collect();
+        self.aim_before = self.aim_target;
         self.npc_events = npc::step(&mut self.npcs, &world, &mut self.rand);
+        self.npcs_before = before;
         // A guard's bite begun (mode 11 into its attack, 0x80084084 at
         // 0x80085220): the last one this frame is 0x800c443c.
         if let Some(by) = self.npc_events.iter().rev().find_map(|e| match e {
@@ -1807,12 +1820,11 @@ impl Game {
     fn draw(&mut self) {
         let mut moving = self.scenery.clone();
         self.player.triangles(&self.set.models, &self.anims, &self.trig, &mut moving);
-        // The carried object rides hand 15 (0x8005ff88 mode 1), as the
-        // frame before drew it.
-        if self.grabbed_on != Some(self.frames) {
-            self.carry_place();
-        }
+        // The carried object rides hand 15 (0x8005ff88 mode 1, from the
+        // character's draw 0x8003205c once its parts are posed): as this
+        // frame draws it.
         self.pose_before = Some(self.pose_now());
+        self.carry_place();
         for t in self.things.iter().filter(|t| !t.hidden) {
             if let Some(m) = self.set.models.get(t.shape) {
                 models::model_triangles(m, t.rot, t.pos, &mut moving);

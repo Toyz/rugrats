@@ -3246,7 +3246,8 @@ fn the_tests_places_are_reachable_on_foot() {
 }
 
 /// Runs with the stick through `points` (x, z) in turn, each reached
-/// within 100: each leg straight, as a player lines one up along a ledge:
+/// within 100 (400 carrying: the thing held widens the body ahead,
+/// 0x80067ba4): each leg straight, as a player lines one up along a ledge:
 /// turned to it (`turn_to`), the camera put behind (R1), Up held (a climb
 /// on the way is had by running into it).
 fn go(g: &mut Game, points: &[[i32; 2]]) {
@@ -3256,7 +3257,8 @@ fn go(g: &mut Game, points: &[[i32; 2]]) {
         loop {
             let me = g.player.pos;
             let (dx, dz) = (x - me[0], z - me[2]);
-            if dx * dx + dz * dz < 100 * 100 {
+            let near = if g.carried().is_some() { 400 } else { 100 };
+            if dx * dx + dz * dz < near * near {
                 break;
             }
             assert!(left > 0, "to ({x}, {z}): at {me:?}");

@@ -127,7 +127,20 @@ Every frame the carrier's draw (0x8003205c, after its parts) runs
   position + carrier rotation * grip (+0x1f8, 0x8009fbe8).
 
 So the object rides hand slot 15 at a fixed offset (guess: slot 15 the
-right hand, 12 the left). Level 3 with state +0x30 bit 8 also runs
+right hand, 12 the left). The parts are this frame's (the main loop runs
+the player's update, then the objects', then the draw, 0x80018c38), so
+an update sees the carried object where the frame before's draw put it;
+the grab's own frame's draw places it too. In the hub the oracle's
+sample of a frame can come before its draw, so a test reads the place
+at the draw (just after the call, 0x800323b0).
+
+While carried it also widens the player's box (0x80067ba4, the body box
+every probe and test uses): the hierarchy's box (+0x154 + 4) grown to
+take in each of the object's model boxes (+0x88), each moved by the
+object's place less the player's turned into his frame (the matrix +4
+transposed, 0x80010bb4 / 0x80010c14). Seen in level 12: the box with
+the flashlight at the hand reached a wall a frame sooner than the bare
+body's, as the port's now does. Level 3 with state +0x30 bit 8 also runs
 0x8005fe44 (an aim line ahead of the player).
 
 ### Put down (state 8, 0x80060910)

@@ -11,7 +11,7 @@ use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::world::collide;
 use crate::world::fx::{self, Mesh};
-use crate::world::game::{self, Effect, Game, Script};
+use crate::world::game::{self, Effect, Game, Script, Touched};
 
 /// The flashlight (template 933): 120 charge at the start, 100 after a
 /// pick-up; 1 a frame.
@@ -31,6 +31,12 @@ const HAND_LIGHT: u32 = 1690;
 const HAND_BARE: u32 = 1310;
 const SHOT_FROM: i32 = 350;
 const SHOT_SPEED: i32 = 100;
+/// The speed on a frame whose animation event 2048 fired (0x8005f4cc's
+/// other call, which clears the event): the shot 20 times as long. The
+/// speed's other term, the body's step (+0xd8..+0xdc) turned by its
+/// angles, keeps only z, which a body on the ground never has (seen 0
+/// walking: only +0xda, the lift, moves).
+const SHOT_SPEED_EVENT: i32 = 2048;
 const SHOT_SCALE: i32 = 100;
 /// The light mesh's width (0x80090e70: scale 15000).
 const LIGHT_WIDTH: f32 = 15000.0;
@@ -48,9 +54,7 @@ const BATTERY: u16 = 12;
 const BATTERY_REACH: f32 = 1000.0;
 /// The refrigerator doors (cine 67), Spike (cine 68).
 const DOORS: [u16; 2] = [601, 602];
-const DOOR_REACH: i64 = 1500;
 const SPIKE: u16 = 14;
-const SPIKE_REACH: i64 = 1200;
 const CINE_FRIDGE: usize = 67;
 const CINE_WON: usize = 68;
 /// Where cine 66 leaves Tommy.
@@ -124,7 +128,6 @@ impl LetThereBeLight {
     /// monster its step meets first is struck (its +0x58, 0x800511a8 case
     /// 41): mode 10, its hierarchy's box zeroed, sound 110 at it.
     fn shine(&mut self, g: &mut Game) {
-        self.shot = shot(g);
         let Some((from, to)) = self.shot else { return };
         if let Some(k) = g.shot_meets(from, to)
             && SHADOWS.contains(&g.npcs[k].id)
@@ -162,16 +165,27 @@ fn hand(g: &mut Game) {
 /// unit toward the aim target (+0x1f4, 0x80075e4c) while it has a size
 /// (+0x36), else the facing's (0x80076040), made a unit again
 /// (0x8009f278); its end that unit times (speed << 10) / 100, >> 10.
-pub fn shot(g: &Game) -> Option<([i32; 3], [i32; 3])> {
+fn shot(g: &Game) -> Option<([i32; 3], [i32; 3])> {
     let (posed, _) = g.drawn_pose();
     let m = posed.get(g.player.slot_part(SHOT_SLOT)?)?;
     let from = [0, 1, 2].map(|r| m.joint[r] + ((m.rot[2][r] * SHOT_FROM) >> 12));
-    let way = match g.aim_target.map(|t| &g.npcs[t]).filter(|n| !n.hidden && n.scale > 0) {
-        Some(n) => [0, 1, 2].map(|k| n.pos[k] - g.player.pos[k]),
-        None => [g.trig.sin(g.player.heading), 0, g.trig.cos(g.player.heading)],
+    // (The player's update runs before the characters': the target, and
+    // its place, as they were before their step.)
+    let way = match g.aim_before.filter(|&t| !g.npcs[t].hidden && g.npcs[t].scale > 0) {
+        Some(t) => {
+            let at = g.npcs_before.get(t).copied().unwrap_or(g.npcs[t].pos);
+            [0, 1, 2].map(|k| at[k] - g.player.pos[k])
+        }
+        // (The facing as the state's handler, 0x8005f4cc, saw it: before
+        // the body's turn this frame.)
+        None => {
+            let h = g.player.handler_heading();
+            [g.trig.sin(h), 0, g.trig.cos(h)]
+        }
     };
     let dir = collide::normalize(collide::unit(way));
-    let step = (SHOT_SPEED << 10) / SHOT_SCALE;
+    let speed = if g.player.animator.events & 2048 != 0 { SHOT_SPEED_EVENT } else { SHOT_SPEED };
+    let step = (speed << 10) / SHOT_SCALE;
     Some((from, [0, 1, 2].map(|k| from[k] + ((dir[k] * step) >> 10))))
 }
 
@@ -191,6 +205,10 @@ impl Script for LetThereBeLight {
         if holding && pads.pressed(0, input::TRIANGLE) {
             g.play(161);
         }
+        // The shot made in the player's update, before the characters'
+        // (0x80072bf0); stepped after them (0x8009173c).
+        self.shot = if self.shining { shot(g) } else { None };
+        g.shots.extend(self.shot);
         // Mode 10 (0x80084314, +0x688 bit 0x8000): the size down 250 a
         // frame while above 0; then speech 143 or 21 (rand & 1) and back
         // (0x80083be0 case 43): size 4096, the box put back, guarding from
@@ -240,20 +258,16 @@ impl Script for LetThereBeLight {
         if holding && self.max == CHARGE && self.fridge_done {
             self.max = CHARGE_AGAIN;
         }
-        // Triangle by the refrigerator (cine 67) or Spike (cine 68).
+        // ACTION with a refrigerator door touched (state 12's use,
+        // 0x8004f83c: cine 67) or Spike (0x80083330: cine 68).
         if pads.pressed(0, input::TRIANGLE) {
-            let p = g.player.pos;
-            let near = |at: [i32; 3], r: i64| {
-                let (dx, dz) = ((at[0] - p[0]) as i64, (at[2] - p[2]) as i64);
-                dx * dx + dz * dz < r * r
-            };
-            if !self.fridge_done
-                && g.set.placements.iter().any(|q| q.kind == 1 && DOORS.contains(&q.id) && near(q.pos, DOOR_REACH))
-            {
+            let touched = g.touched_any();
+            let door = |k: usize| g.doors.get(k).and_then(|d| g.set.placements.get(d.placement)).is_some_and(|q| DOORS.contains(&q.id));
+            if !self.fridge_done && matches!(touched, Some(Touched::Door(k)) if door(k)) {
                 self.fridge_done = true;
                 g.drop_carried();
                 g.cine = Some(CINE_FRIDGE);
-            } else if self.spike_waiting && find(g, SPIKE).is_some_and(|k| near(g.npcs[k].pos, SPIKE_REACH)) {
+            } else if self.spike_waiting && matches!(touched, Some(Touched::Npc(k)) if g.npcs[k].id == SPIKE) {
                 self.spike_waiting = false;
                 g.drop_carried();
                 g.cine = Some(CINE_WON);

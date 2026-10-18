@@ -217,28 +217,31 @@ impl Game {
         }
     }
 
+    /// Whether door `k` is touched: the last move's probes met it (+0xf4,
+    /// 0x80063d3c), as a run's reach along the heading does from where it
+    /// stopped; or the body is at it.
+    fn door_touched(&self, k: usize) -> bool {
+        let p = self.player.pos;
+        let feet = p[1] - self.player.feet();
+        let d = &self.doors[k];
+        self.set.models.get(d.shape).is_some_and(|m| {
+            let (rot, pos) = d.pose(d.offset, &self.trig);
+            let a = self.player.heading as f32 * std::f32::consts::TAU / 4096.0;
+            let probes = self.player.probes([a.sin(), a.cos()], 170.0);
+            world_boxes(m, rot, pos).iter().any(|b| {
+                let h = self.player.probe_height(b, p);
+                (b.covers(p, RADIUS + 150) && b.min_y <= feet && b.max_y >= feet - HEIGHT)
+                    || probes.iter().any(|&(dx, dz)| b.segment_hit([p[0], h, p[2]], [p[0] + dx, h, p[2] + dz]).is_some())
+            })
+        })
+    }
+
     /// Triangle on the door Tommy is touching (0x8004f4a0, 0x8004f6d8):
     /// refused while it moves; a hinged door by the player's facing.
     pub(super) fn use_door(&mut self) -> bool {
-        let p = self.player.pos;
-        let feet = p[1] - self.player.feet();
         let touched = (0..self.doors.len()).find(|&k| {
             let d = &self.doors[k];
-            d.swing.is_none()
-                && !self.unusable.contains(&d.placement)
-                && self.set.models.get(d.shape).is_some_and(|m| {
-                    let (rot, pos) = d.pose(d.offset, &self.trig);
-                    // Touched: the last move's probes met it (+0xf4,
-                    // 0x80063d3c), as a run's reach along the heading does
-                    // from where it stopped; or the body is at it.
-                    let a = self.player.heading as f32 * std::f32::consts::TAU / 4096.0;
-                    let probes = self.player.probes([a.sin(), a.cos()], 170.0);
-                    world_boxes(m, rot, pos).iter().any(|b| {
-                        let h = self.player.probe_height(b, p);
-                        (b.covers(p, RADIUS + 150) && b.min_y <= feet && b.max_y >= feet - HEIGHT)
-                            || probes.iter().any(|&(dx, dz)| b.segment_hit([p[0], h, p[2]], [p[0] + dx, h, p[2] + dz]).is_some())
-                    })
-                })
+            d.swing.is_none() && !self.unusable.contains(&d.placement) && self.door_touched(k)
         });
         let Some(k) = touched else { return false };
         let level16 = self.level == Level::TRAINING;

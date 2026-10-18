@@ -485,10 +485,16 @@ falls (5). The boss only throws him back.
 
 ## Hint cards
 
+Cards are shown by 0x80044434(file, arg) alone. Every call passes a
+constant (0x800783d8's after cines: 675, 676, 681, 682, 683, 705, 706,
+708, 709, 710; 711, 712, 713 and 686 elsewhere) or shows the last card
+again (0x800448c8, D_800c4084, which only 0x80044434 sets). No call
+passes 680, so HINT09 is never shown.
+
 | card | file | shown | text (abridged) |
 |---|---|---|---|
 | HINT08 | 679 | after cine 2 (arg 6) | Work your way to the back of the store; Reptar posters; press ^ on slippery areas; hop the fruit bins into the bakery |
-| HINT09 | 680 | no caller found | Press @ for a fun ride to the bakery |
+| HINT09 | 680 | never (no call passes 680) | Press @ for a fun ride to the bakery |
 | HINT10 | 681 | after cine 8 or 9 (arg 4) | Watch out for Larry and Steve; press @ to toss pies, left and right to aim |
 | HINT11 | 682 | after cine 13 (arg 5) | Lobsters; unopened cans tame them, opened cans make Tommy cry; # picks up, @ throws; get to the soapy area |
 | HINT12 | 683 | after cine 86 (arg 6) | Get past the boss lobster and his bullies to throw the switch; a can stuns the boss |
@@ -593,28 +599,11 @@ levels/grandpas_teeth.rs, actors/npc.rs):
 - Which of 75 / 76 is Larry and which is Steve; what ids 13, 74, 79, 81,
   333 look like (79 the cart, 81 the balloon and 333 something to climb
   are guesses).
-- HINT09 (680): no caller found.
 - Why "opened cans make Tommy cry": templates 650 / 651 are pickable with
   +0x6d 8 and no callbacks; no code found that makes them hurt.
 - Who sets player +0x188 bit 128 (cleared on level 3 room changes and
   after cine 13); what player +0x00 bit 0x80 with +0x148 / +0x14c does
   (0x80067084 eases y), and why cine 15 leaves bit 0x80 set.
-- The pie flight's desc +0x46 (284), +0x66, +0x67, +0x68 (900): the
-  record's +0x2a, +0x8a, +0x8c, read by 0x8008652c at a hit (a mark of
-  sprite 284, 900 square, 0x8008e72c / 0x8008e76c, and sound 46 at the
-  player); the mark's drawing is not traced.
-- A brother's height at a post (the wait, table 31). Seen, Steve (76)
-  through the pie toss, a frame at a time: +0x1c is -384 (his floor
-  1024 plus feet -1289, less 119) plus +0xda, the y displacement. +0xda
-  goes 141 while the wait blends in from the walk, then 54, 0 (1206 to
-  1207), -8, -18 (to 1208), -9, 0 (to 1209), and 0 through 1213. The
-  wait's lift keys are 525 (1206), 0, -78 (1208), 0 ... 78 (1214). So
-  the displacement follows the frame's own key at about a quarter of it
-  (141 for 525, -18 for -78), eased across the frame, not the keys'
-  running total scaled by +0x4c over -561 (2.3 for an adult) that a
-  runner's height takes. +0xde holds 1325 throughout (the gap at the
-  wait's first frame: 0x80055904 at 0x80055b3c). 0x80055904's y is not
-  read through, and the port poses its waiting brothers about 1100 low.
 - Whether 0x8007dfe0's hierarchy write is per object or shared by every
   char 23 (+0x154 copies).
 - The camera's +0x4a values (the phase 1 cry test).

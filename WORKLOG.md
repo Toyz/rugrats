@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-208 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 108, render 30, save 4, test 27, tooling 18, ui 13, video 10.
+209 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 109, render 30, save 4, test 27, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -220,3 +220,4 @@ The [reference](docs/README.md) says what is true now.
 | 206 | [Level 12's flashlight is the original's shot, and a struck Shadow monster shrinks where it was hit](worklog/0206-level-12-s-flashlight-is-the-original-s-shot-and-a-struck.md) | 2026-10-17 | play |
 | 207 | [Only the pie in hand and flying pies are in the world; the ambience runs last; cines move characters in no room](worklog/0207-only-the-pie-in-hand-and-flying-pies-are-in-the-world-the.md) | 2026-10-17 | play |
 | 208 | [A jump's crouch keeps its height, as the original's runs no ground step](worklog/0208-a-jump-s-crouch-keeps-its-height-as-the-original-s-runs-no.md) | 2026-10-17 | play |
+| 209 | [The light walking, the carried thing in the body's box, ACTION's touched object, and running into things as the original](worklog/0209-the-light-walking-the-carried-thing-in-the-body-s-box.md) | 2026-10-17 | play |

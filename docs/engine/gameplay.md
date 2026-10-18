@@ -497,6 +497,26 @@ The stand handler (0x8005d11c), in order:
 - Else 0x800590d4 (run) / 0x80059008 (walk) with the move test 0x80064a34:
   state 2 / 1; 0x80058da4 and 0x80062cf4: state 6.
 
+Held by the probes in the walk and run (0x8005e1f4, 0x80064a34 answering
+1), a thing met at a slant under 384 (Spike 220):
+
+- A ledge in the body's reach (0x80058da4) and 0x80062cf4 allowing it:
+  the climb (state 6). 0x80062cf4 first puts the body at the record's
+  point (+0x104) out along its normal (+0x114) by the hierarchy box's
+  half depth (not a carried thing's), and the wanted heading (+0x2c)
+  square to the face. For a height-field wall the point is the COL
+  segment's (0x80064178 -> 0x800671f8 -> 0x8002cd7c).
+- A ledge not climbed: running (0x800590d4: the stick held and the
+  speed over the run's factor times 3933 >> 12) bumps (state 9), else
+  stands (state 0).
+- No ledge: running, it bumps when the thing met (+0xf4) is none (a
+  wall) or cannot be picked up; one that can (+0x00 bit 0x10000) stands
+  him (state 0), as does level 7; a running thing met with +0x6d posts
+  that damage. Not running: state 0.
+
+Seen in level 6 as Chuckie, a box in hand run at a box on the floor:
+the bump, then (the stick at a slant, speed 16) the stand.
+
 ### In the air (0x80061330, 0x8005f1b4)
 
 0x80061330(obj, dt):
@@ -520,7 +540,8 @@ down.
 - 0x8005ee78 moves with 0x80066014, which returns 2 on the floor (y >=
   floor: normal (0, -4096, 0) at +0x134), 1 against a wall (the floor
   ahead is above the feet: normal = the reversed move), 3 landing on an
-  object; it then tests the bounding shape (0x80067ba4) against objects
+  object; it then tests the bounding shape (0x80067ba4: the body box,
+  with a carried object's boxes taken in, see objectives) against objects
   (0x80065c5c, 0x800658cc, 0x800657d0; "quickRoomListCylinderScan"
   0x8006add8). A wall stops the move (0x80061a64 / 0x80061b28 slide);
   a ceiling hit (vy < 0) 0x80061be8.

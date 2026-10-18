@@ -108,6 +108,12 @@ pub fn height(col: &Col, point: [i32; 3], top_y: i32, floor: i32) -> i32 {
 /// (`off` ahead of `pos`) with floor delta `delta`; the body's floor
 /// `floor`, its top `top_y`. Zero for none.
 pub fn wall(col: &Col, trig: &Trig, pos: [i32; 3], off: [i32; 3], delta: i32, floor: i32, top_y: i32) -> [i32; 3] {
+    wall_met(col, trig, pos, off, delta, floor, top_y).map_or([0; 3], |(_, n)| n)
+}
+
+/// [`wall`] with the point the segment met (the record's +0x104, by
+/// 0x800671f8 from 0x80064178).
+pub fn wall_met(col: &Col, trig: &Trig, pos: [i32; 3], off: [i32; 3], delta: i32, floor: i32, top_y: i32) -> Option<([i32; 3], [i32; 3])> {
     let mut out = Segment::default();
     if delta < 0 {
         // Up: across at half the rise, or a little over the higher floor,
@@ -121,7 +127,7 @@ pub fn wall(col: &Col, trig: &Trig, pos: [i32; 3], off: [i32; 3], delta: i32, fl
         let from = [pos[0], h, pos[2]];
         let to = [pos[0] + off[0], h + off[1], pos[2] + off[2]];
         if collide::segment(col, from, to, &mut out) == 1 {
-            return out.normal;
+            return Some((out.point, out.normal));
         }
     } else if delta > 0 {
         // Down: across just over the floor, from 1024 ahead back to 1024
@@ -131,10 +137,10 @@ pub fn wall(col: &Col, trig: &Trig, pos: [i32; 3], off: [i32; 3], delta: i32, fl
         let behind = [pos[0] - o[0], h - o[1], pos[2] - o[2]];
         let ahead = [pos[0] + o[0], h + o[1], pos[2] + o[2]];
         if collide::segment(col, ahead, behind, &mut out) == 1 {
-            return out.normal;
+            return Some((out.point, out.normal));
         }
     }
-    [0; 3]
+    None
 }
 
 /// 0x80064444: a probe's kind for a body that steps up `limit` at most.
@@ -265,7 +271,11 @@ impl Ground<'_> {
         // the thing stood on is met on the way back from the drop.
         if delta < 0 {
             if st.met.hit.is_none() {
-                st.met.normal = wall(self.col, self.trig, pos, off, delta, floor, top_y);
+                st.met.normal = [0; 3];
+                if let Some((p, n)) = wall_met(self.col, self.trig, pos, off, delta, floor, top_y) {
+                    st.met.point = p;
+                    st.met.normal = n;
+                }
             }
         } else if delta > 0 {
             match st.below {
@@ -285,7 +295,13 @@ impl Ground<'_> {
                         None => st.met.normal = [0; 3],
                     }
                 }
-                None => st.met.normal = wall(self.col, self.trig, pos, off, delta, floor, top_y),
+                None => {
+                    st.met.normal = [0; 3];
+                    if let Some((p, n)) = wall_met(self.col, self.trig, pos, off, delta, floor, top_y) {
+                        st.met.point = p;
+                        st.met.normal = n;
+                    }
+                }
             }
         } else {
             st.met.normal = [0; 3];

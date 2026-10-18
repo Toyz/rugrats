@@ -161,6 +161,13 @@ pub struct Player {
     pub float: Option<(i32, i32)>,
     /// Carrying: the idle is 20 (0x80057244 at the grab).
     pub carrying: bool,
+    /// The carried thing's model boxes in the body's frame, each moved by
+    /// its place less the body's turned into that frame (0x80067ba4: the
+    /// matrix +4 transposed), as one box.
+    pub carry_box: Option<([i32; 3], [i32; 3])>,
+    /// The templates that can be picked up (template +0x28, object +0x00
+    /// bit 0x10000): run into without a ledge, they stand him, no bump.
+    pub pickables: Vec<u16>,
     /// What is carried holds the climbs under 522 (0x80058da4: an object
     /// without bit 0x1000000, class 13's).
     pub carry_climbs: bool,
@@ -294,6 +301,8 @@ impl Player {
             gait: (RUN, WALK),
             float: None,
             carrying: false,
+            carry_box: None,
+            pickables: Vec::new(),
             carry_climbs: false,
             jump_lock: 0,
             hints: Vec::new(),
@@ -646,6 +655,13 @@ impl Player {
         let walking = matches!(self.state, State::Stand | State::Walk | State::Run) && self.speed > 0 && !acting && !self.climb_off;
         let reach = if self.carrying && self.carry_climbs { CLIMB_CARRYING.min(self.climb_max) } else { self.climb_max };
         let mut climb_to: Option<i32> = None;
+        // A ledge met within the body's reach, climbable or not
+        // (0x80058da4's answer).
+        let mut ledge = false;
+        // Where a climb met its face: the box it is onto, or the probes'
+        // record (+0x104 point, +0x114 normal), for 0x80062cf4's move to it.
+        let mut climb_box: Option<usize> = None;
+        let mut climb_met: Option<([i32; 3], [i32; 3])> = None;
         // Falling through the floor this step (0x8005f1b4 lands when y +
         // vy reaches it): onto the floor under where the step began.
         let landing = (!on_ground && self.v[1] > 0 && q.kind != 0)
@@ -714,7 +730,9 @@ impl Player {
             let rise = -r.delta;
             let top = probe_floor + r.delta;
             let climbable = met_thing.is_none_or(|e| e.climb);
+            ledge |= rise > 0 && rise <= reach;
             if rise > 0 && rise <= reach && climbable {
+                climb_met = Some((self.probes.met.point, self.probes.met.normal));
                 climb_to = Some(climb_to.map_or(top, |c: i32| c.min(top)));
             } else if rise > 0 && rise <= reach {
                 self.hints.push(29);
@@ -786,7 +804,11 @@ impl Player {
                     self.support = Some(k);
                 }
             } else if met {
+                ledge |= walking && top >= start_feet - reach;
                 if b.climb && walking && top >= start_feet - reach {
+                    if climb_to.is_none_or(|c| top < c) {
+                        climb_box = Some(k);
+                    }
                     climb_to = Some(climb_to.map_or(top, |c: i32| c.min(top)));
                 } else {
                     // Not climbable (29) or too tall (16).
@@ -866,14 +888,18 @@ impl Player {
         // Whether the step was held up at all.
         let stopped = blocked || wall_met;
         self.held_up = stopped;
-        // Running (0x800590d4) into a thing not climbed: the bump, its
-        // damage to the game (0x8005e1f4).
+        // Running (0x800590d4: the speed over the run's factor times
+        // 3933 >> 12) into a thing not climbed: the bump, its damage to the
+        // game (0x8005e1f4). (Slower, held up: the stand.)
         // (A wall's has no thing, +0xf4 0: no damage.)
         if (ran_into.is_some() || wall_met && !blocked)
             && climb_to.is_none()
             && self.bumps
             && self.state == State::Run
-            && self.speed > WALK
+            && self.speed > (self.gait.0 * 3933) >> 12
+            // (With no ledge in reach, a thing that can be picked up, +0x00
+            // bit 0x10000, stands him instead.)
+            && (ledge || !ran_into.is_some_and(|t| self.pickables.contains(&t)))
         {
             self.bumped = ran_into;
             // The speed (+0x184) stays this frame: the bump's state zeroes
@@ -882,11 +908,44 @@ impl Player {
             let speed = self.speed;
             self.act(anim::BUMP, anims);
             self.speed = speed;
+        } else if ran_into.is_some_and(|t| self.pickables.contains(&t))
+            && !ledge
+            && climb_to.is_none()
+            && self.state == State::Run
+            && self.speed > (self.gait.0 * 3933) >> 12
+        {
+            // (0x8005e1f4 at 0x8005e68c: state 0.)
+            self.state = State::Stand;
+            self.speed = 0;
         }
         if let Some(top) = climb_to {
+            // The climb starts at the face (0x80062cf4): the body put where
+            // the way meets it, out along its normal by the hierarchy box's
+            // half depth (not the carried thing's), and turned square to it.
+            let mut from = start;
+            let met = climb_met.or_else(|| {
+                let b = boxes.get(climb_box?)?;
+                let a = self.heading as f32 * std::f32::consts::TAU / 4096.0;
+                let mid = start[1] - self.feet - HEIGHT / 2;
+                let to = [start[0] + (a.sin() * 3000.0) as i32, mid, start[2] + (a.cos() * 3000.0) as i32];
+                b.segment_hit([start[0], mid, start[2]], to).map(|(_, at, n)| (at, n))
+            });
+            if let Some((at, n)) = met
+                && n[1] == 0
+                && n != [0; 3]
+            {
+                let h = |o: usize| self.hierarchy.header.get(o..o + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
+                let depth = h(0x08).abs().max(h(0x10).abs());
+                let u = collide::normalize(collide::unit(n));
+                let to = [at[0] + ((u[0] * depth) >> 12), start[1], at[2] + ((u[2] * depth) >> 12)];
+                from = to;
+                self.pos[0] = from[0];
+                self.pos[2] = from[2];
+                self.target = trig.ratan2(-n[0], -n[2]) & 4095;
+            }
             // The rise picks the climb (+0x144, 0x80056e44).
             self.animator.climb = self.floor - top;
-            self.climb = Some(Climb { top: top + self.feet, whole: [0; 3], from: start, moved: [0; 3] });
+            self.climb = Some(Climb { top: top + self.feet, whole: [0; 3], from, moved: [0; 3] });
             self.pos[1] = top + self.feet;
             self.floor = top;
             self.state = State::Stand;
@@ -899,7 +958,10 @@ impl Player {
             self.hints.push(1);
         }
         let feet_y = self.pos[1] - self.feet;
-        if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
+        // (A climb is state 6, 0x8005f310, which runs no ground step: it
+        // never falls, and its height is the climb's.)
+        if self.climb.is_some() {
+        } else if matches!(self.state, State::Stand | State::Walk | State::Run | State::Land) {
             let falls = match ahead {
                 Some(a) => a == ground::Ahead::Fall,
                 None => self.floor - feet_y > STEP_DOWN,
@@ -1113,11 +1175,25 @@ impl Player {
         probe_height(b, at, lo, hi)
     }
 
-    /// The body's box (hierarchy header +4..+0x10: lo x, y, z, hi x, y,
-    /// z; 0x80067ba4 without a carried thing).
+    /// The body's box (0x80067ba4): the hierarchy header's (+4..+0x10: lo
+    /// x, y, z, hi x, y, z), grown to take in the carried thing's boxes
+    /// (`carry_box`).
     pub fn body_box(&self) -> ([i32; 3], [i32; 3]) {
         let h = |at: usize| self.hierarchy.header.get(at..at + 2).map_or(0, |b| i16::from_le_bytes([b[0], b[1]]) as i32);
-        ([h(0x04), h(0x06), h(0x08)], [h(0x0c), h(0x0e), h(0x10)])
+        let (mut lo, mut hi) = ([h(0x04), h(0x06), h(0x08)], [h(0x0c), h(0x0e), h(0x10)]);
+        if let Some((clo, chi)) = self.carry_box {
+            for k in 0..3 {
+                lo[k] = lo[k].min(clo[k]);
+                hi[k] = hi[k].max(chi[k]);
+            }
+        }
+        (lo, hi)
+    }
+
+    /// The heading the state's handler saw this frame, before the body's
+    /// turn (0x8005bc80 comes after it).
+    pub fn handler_heading(&self) -> i32 {
+        self.way_heading
     }
 
     fn extents(&self) -> (i32, i32) {

@@ -119,6 +119,32 @@ pub struct Mark {
     pub grey: u8,
 }
 
+/// What ACTION's use takes (`Game::touched_any`): a thing, a character
+/// or a door, by its index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Touched {
+    Thing(usize),
+    Npc(usize),
+    Door(usize),
+}
+
+/// The farthest corner of boxes (lo, hi) from their origin.
+fn corner_radius(boxes: &[([i16; 3], [i16; 3])]) -> i32 {
+    boxes
+        .iter()
+        .flat_map(|(lo, hi)| {
+            (0..8).map(move |c| {
+                Vec3::new(
+                    if c & 1 == 0 { lo[0] } else { hi[0] } as f32,
+                    if c & 2 == 0 { lo[1] } else { hi[1] } as f32,
+                    if c & 4 == 0 { lo[2] } else { hi[2] } as f32,
+                )
+                .length()
+            })
+        })
+        .fold(0.0f32, f32::max) as i32
+}
+
 /// Who a flight's segment can meet (0x80086340's room lists): an object
 /// by its template, a character, or the player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -779,6 +805,29 @@ impl Game {
         self.hold(k);
     }
 
+    /// The carried thing in the body's box (0x80067ba4 with +0x1f0): each
+    /// of its model's boxes moved by its place (as last placed) less the
+    /// player's, turned into his frame (the matrix +4 transposed,
+    /// 0x80010bb4 / 0x80010c14), as 16-bit sums, all in one box.
+    pub(super) fn carry_box(&self) -> Option<([i32; 3], [i32; 3])> {
+        let t = &self.things[self.carried?];
+        let boxes = &self.set.models.get(t.shape)?.boxes;
+        let me = self.player.pos;
+        let d = [t.pos.x as i32 - me[0], t.pos.y as i32 - me[1], t.pos.z as i32 - me[2]];
+        let m = self.trig.rotation([self.player.heading as i16, 0, 0]);
+        let local: [i32; 3] = std::array::from_fn(|c| (0..3).map(|r| m[r][c] as i64 * d[r] as i64).sum::<i64>() as i32 >> 12);
+        let mut out: Option<([i32; 3], [i32; 3])> = None;
+        for (lo, hi) in boxes {
+            let l: [i32; 3] = std::array::from_fn(|k| (lo[k] as i32 + local[k]) as i16 as i32);
+            let h: [i32; 3] = std::array::from_fn(|k| (hi[k] as i32 + local[k]) as i16 as i32);
+            out = Some(match out {
+                None => (l, h),
+                Some((a, b)) => (std::array::from_fn(|k| a[k].min(l[k])), std::array::from_fn(|k| b[k].max(h[k]))),
+            });
+        }
+        out
+    }
+
     /// The carry (0x8005ff88 mode 1): the thing carried at hand 15 as last
     /// drawn, plus the grip turned by the player's matrix (ApplyMatrixSV).
     pub(super) fn carry_place(&mut self) {
@@ -983,6 +1032,26 @@ impl Game {
     /// stands on.
     pub(super) fn touched(&self) -> Option<usize> {
         let p = &self.player;
+        let me = p.pos;
+        self.things
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.state == ThingState::Rest && !t.hidden)
+            .filter_map(|(k, t)| {
+                let radius = self.set.models.get(t.shape).map_or(0, |m| corner_radius(&m.boxes));
+                let stood = p.support.is_some_and(|b| self.bodies.get(b).is_some_and(|b| b.template == t.template && b.covers(me, 0)));
+                let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
+                self.reaches(at, radius).filter(|_| !stood).map(|d| (k, d))
+            })
+            .min_by_key(|&(_, d)| d)
+            .map(|(k, _)| k)
+    }
+
+    /// Whether the player reaches an object at `at` whose farthest box
+    /// corner is `radius` out, as 0x800631d8 has it (see `touched`): its
+    /// distance across if so.
+    fn reaches(&self, at: [i32; 3], radius: i32) -> Option<i32> {
+        let p = &self.player;
         let (lo, hi) = p.body_box();
         let half = |i: usize| lo[i].abs().max(hi[i].abs());
         let across = 3 * half(0).max(half(2));
@@ -990,38 +1059,45 @@ impl Game {
         let reach = half(2) + 1800;
         let me = p.pos;
         let off = |a: i32| (a + 2048).rem_euclid(4096) - 2048;
-        self.things
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| t.state == ThingState::Rest && !t.hidden)
-            .filter_map(|(k, t)| {
-                let radius = self.set.models.get(t.shape).map_or(0.0, |m| {
-                    m.boxes
-                        .iter()
-                        .flat_map(|(lo, hi)| (0..8).map(move |c| {
-                            Vec3::new(
-                                if c & 1 == 0 { lo[0] } else { hi[0] } as f32,
-                                if c & 2 == 0 { lo[1] } else { hi[1] } as f32,
-                                if c & 4 == 0 { lo[2] } else { hi[2] } as f32,
-                            )
-                            .length()
-                        }))
-                        .fold(0.0f32, f32::max)
-                }) as i32;
-                let (dx, dy, dz) = (t.pos.x as i32 - me[0], t.pos.y as i32 - me[1], t.pos.z as i32 - me[2]);
-                let d = ((dx as f32).hypot(dz as f32)) as i32;
-                let bearing = ((dx as f32).atan2(dz as f32) * 4096.0 / std::f32::consts::TAU) as i32;
-                let stood = p.support.is_some_and(|b| self.bodies.get(b).is_some_and(|b| b.template == t.template && b.covers(me, 0)));
-                (d <= across + radius
-                    && dy.abs() <= tall + radius
-                    && (-4095..512).contains(&dy)
-                    && d <= reach
-                    && off(bearing - p.heading).abs() < 1024
-                    && !stood)
-                    .then_some((k, d))
-            })
-            .min_by_key(|&(_, d)| d)
-            .map(|(k, _)| k)
+        let (dx, dy, dz) = (at[0] - me[0], at[1] - me[1], at[2] - me[2]);
+        let d = ((dx as f32).hypot(dz as f32)) as i32;
+        let bearing = ((dx as f32).atan2(dz as f32) * 4096.0 / std::f32::consts::TAU) as i32;
+        (d <= across + radius
+            && dy.abs() <= tall + radius
+            && (-4095..512).contains(&dy)
+            && d <= reach
+            && off(bearing - p.heading).abs() < 1024)
+            .then_some(d)
+    }
+
+    /// What ACTION's use takes (0x800631d8 into +0xf4, then its +0x54):
+    /// the nearest the player reaches of everything in his nearby list,
+    /// the things as GRAB sees them, the characters by their hierarchy's
+    /// box (+0x154 + 4), the doors by their model's boxes.
+    pub fn touched_any(&self) -> Option<Touched> {
+        let mut best: Option<(Touched, i32)> = None;
+        let mut keep = |t: Touched, d: Option<i32>| {
+            if let Some(d) = d
+                && best.is_none_or(|(_, b)| d < b)
+            {
+                best = Some((t, d));
+            }
+        };
+        if let Some(k) = self.touched() {
+            let t = &self.things[k];
+            keep(Touched::Thing(k), Some(((t.pos.x as i32 - self.player.pos[0]) as f32).hypot((t.pos.z as i32 - self.player.pos[2]) as f32) as i32));
+        }
+        for (k, n) in self.npcs.iter().enumerate().filter(|(_, n)| !n.hidden) {
+            let h = |at: usize| n.hierarchy.header.get(at..at + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
+            let radius = corner_radius(&[([h(4), h(6), h(8)].map(|v| v as i16), [h(0xc), h(0xe), h(0x10)].map(|v| v as i16))]);
+            keep(Touched::Npc(k), self.reaches(n.pos, radius));
+        }
+        for (k, door) in self.doors.iter().enumerate() {
+            let radius = self.set.models.get(door.shape).map_or(0, |m| corner_radius(&m.boxes));
+            let at = self.set.placements.get(door.placement).map_or([0; 3], |q| q.pos);
+            keep(Touched::Door(k), self.reaches(at, radius));
+        }
+        best.map(|(t, _)| t)
     }
 
     /// The walk's effects (0x8005e1f4): on a water tile (COL byte 4 bit
@@ -1203,7 +1279,6 @@ impl Game {
         let depth =
             self.set.models.get(self.things[k].shape).map_or(0, |m| m.boxes.iter().map(|b| b.1[2] as i32 - b.0[2] as i32).fold(0, i32::max));
         self.grip = self.grip_of(depth);
-        self.grabbed_on = Some(self.frames);
         self.things[k].state = ThingState::Carried;
         self.things[k].flown = None;
         self.carried = Some(k);

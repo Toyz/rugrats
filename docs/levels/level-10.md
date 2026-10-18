@@ -231,6 +231,10 @@ position, used bit set, class 1 objects placed by 0x800825b0, AI objects
 = 0 (the first free spot). See
 [level 4](level-04.md#kind-7-spawn-groups-0x800c4bac-16-bytes-each).
 
+`level_10_babies_hide_as_the_original` reads the original's rand as
+EpisodeStart's call begins and runs the port's start from it. Phil, Lil
+and Tommy hide at the original's three spots.
+
 ## Tagging (0x800831a4)
 
 Triangle with a hiding baby touched: state 12 (animation 50, 0x800628a4

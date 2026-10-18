@@ -501,11 +501,21 @@ A frame's lift key moves the body up and down (+0x1c):
   adds the frame's lift key times the change in its time gone. A body
   other than the player's scales the key by its feet (hierarchy +0x4c)
   << 12 over 0x800c41dc's -561.
-- **A state's first frame begun with its whole time** (0x80055560) takes,
-  instead of its key, the gap (+0xde): the feet, the floor (+0x148) and the
-  key, less the height. Across that frame the body comes to its floor,
-  its feet and the key, settled or not. An unsettled body's floor is the
-  one under its place (0x8002b240 at init, +0x13c).
+- **A state's first frame** moves the body by the gap (+0xde), never by
+  its key, whatever the time. The gap is set when the frame begins with
+  its whole time (0x80055560): the feet, the floor (+0x148) and the key,
+  less the height. Across that frame the body comes to its floor, its feet
+  and the key, settled or not.
+  - An attached body (+0x00 bit 0x80000, set by 0x8008357c: level 2's
+    Spike on the player, Chuckie on the goose) takes the key alone as its
+    gap.
+  - The settling (0x800452f8) clears the gap, so a body set up at load
+    moves by nothing across its first frame.
+  - An unsettled body's floor is the one under its place (0x8002b240 at
+    init, +0x13c).
+- **Applying it.** The step's sum (+0xda) goes into the height at the
+  body's end (0x8005cb48) unless +0x188 bit 1. Some state handlers take
+  it themselves and clear it (0x8005d978).
 
 A body set up and not yet begun anew goes on by its keys from where it
 is. Level 5's robot wakes at -9068 and drifts with its idle's keys. Its

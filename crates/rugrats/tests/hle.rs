@@ -962,7 +962,7 @@ fn sync_npc(b: &mut Both, id: u16) -> (usize, u32) {
         // Its root goes on from there as the original's set up does.
         n.root.y = n.pos[1] - own_y;
         n.pos[1] = own_y;
-        n.root.set_up(&n.animator, &g.anims, n.root_scale());
+        n.root.set_up(&n.animator, &g.anims, n.root_scale(), b.hle.read_i16(o + 0xde) as i32);
     } else if floor != n.pos[1] && (floor + n.feet() - n.pos[1]).abs() < 1000 {
         n.pos[1] = floor + n.feet();
     }
@@ -1475,7 +1475,7 @@ fn level_5_robot_wakes_as_the_original() {
     let cursor = b.hle.read_u32(0x800c_4c20);
     assert_eq!(nodes.len(), b.game.triggers.len(), "the list's length");
     b.game.trigger_next = nodes.iter().position(|&n| n == cursor).map_or(0, |i| i + 1);
-    b.game.npcs[k].scheduled = b.hle.read_u32(o) & 1 != 0;
+    b.game.npcs[k].scheduled = b.hle.read_u32(o + 0x9c) != 0;
     let (mut mine, mut theirs) = (None, None);
     let (h0, o0) = (b.game.npcs[k].heading, b.hle.read_i16(o + 0x24) as i32 & 4095);
     // Each frame: its heading, its height (place and lift, +0x1c), its
@@ -1504,4 +1504,67 @@ fn level_5_robot_wakes_as_the_original() {
     assert!(theirs.is_some() && mine == theirs, "woken on the original's frame");
     let off: Vec<_> = frames.iter().filter(|(_, m, t)| m != t).collect();
     assert!(off.is_empty(), "frames off the original: {off:?}");
+}
+
+/// Level 10: the babies hide at the original's spots. EpisodeStart
+/// (0x8007ee54) places Phil, Lil and Tommy in one call (0x8004fe14 for
+/// group 0, three objects), a rand each. The original's rand (0x800c3f94)
+/// is read as it begins; the port's start is run again from that rand,
+/// its hiding spots free, and each baby is where the original's is.
+#[test]
+fn level_10_babies_hide_as_the_original() {
+    use rrt::emu::{BusExt, Cpu};
+    use rugrats::levels::chuckies_glasses::ChuckiesGlasses;
+    let Some(cue) = cue() else { return };
+    let Ok(disc) = GameDisc::open(&cue) else { return };
+    let picks: Rc<std::cell::RefCell<Vec<(u32, u16)>>> = Rc::default();
+    let p2 = picks.clone();
+    let mut p = Play::boot_with(
+        Rc::new(rrt::disc::Image::open(&cue).unwrap()),
+        Boot { level: 10, character: Some(2), ..Default::default() },
+        move |h| {
+            h.m.hook(0x8004_fe14, move |c| {
+                if c.cpu.reg(5) == 0 {
+                    let list = c.cpu.reg(4) as u32;
+                    let rand = c.bus.read_u32(0x800c_3f94).unwrap_or(0);
+                    for i in 0..c.cpu.reg(6) as u32 {
+                        let o = c.bus.read_u32(list + 4 * i).unwrap_or(0);
+                        p2.borrow_mut().push((rand, c.bus.read_u16(o + 0x38).unwrap_or(0)));
+                    }
+                }
+                rrt::emu::HookResult::Continue
+            });
+        },
+    )
+    .unwrap();
+    let picks = picks.borrow().clone();
+    let ids: Vec<u16> = picks.iter().map(|p| p.1).collect();
+    assert_eq!(ids, [608, 609, 1492], "the order the babies hide in");
+    let theirs: Vec<[i32; 2]> = ids
+        .iter()
+        .map(|&id| {
+            let o = objects(&mut p)
+                .into_iter()
+                .find(|&o| o != 0x800e_2b48 && p.read_u32(o + 0x154) != 0 && p.read_i16(o + 0x38) as u16 == id)
+                .expect("the baby");
+            [p.read_i32(o + 0x18), p.read_i32(o + 0x20)]
+        })
+        .collect();
+    let mut g = Game::open_from(&disc, Level(10), None, &Progress::default()).unwrap();
+    // (Group 0, the hiding spots: up to the first of threshold 100.)
+    let end = g.spots.iter().position(|s| s.threshold >= 100).map_or(g.spots.len(), |i| i + 1);
+    for s in &mut g.spots[..end] {
+        s.used = false;
+    }
+    g.rand.state = picks[0].0;
+    let _ = ChuckiesGlasses::start(&mut g, &disc).unwrap();
+    let mine: Vec<[i32; 2]> = ids
+        .iter()
+        .map(|&id| {
+            let n = g.npcs.iter().find(|n| n.id == id).expect("the baby");
+            [n.pos[0], n.pos[2]]
+        })
+        .collect();
+    eprintln!("hiding: port {mine:?} orig {theirs:?}");
+    assert_eq!(mine, theirs);
 }

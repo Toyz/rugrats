@@ -93,6 +93,9 @@ impl ToyPalace {
                 n.range = range;
                 n.damage = bite;
                 n.reach = GUARD_REACH;
+                // (+0x688 bit 8: 506 and the clowns by EpisodeStart, 46
+                // by its character's init.)
+                n.attacks = true;
             }
         }
         let template = |t: u32| g.set.templates.get(t as usize);

@@ -265,11 +265,11 @@ impl Npc {
     /// settled one's settling (0x800452f8) puts back on the floor.
     pub fn set_up_idle(&mut self, s: i16, anims: &Anims) {
         self.animator.set_up(s, anims);
-        let lift = self.animator.take_lift();
+        let lift = self.animator.take_lift(&self.hierarchy);
         if self.unsettled {
             self.pos[1] += lift;
         }
-        self.root.set_up(&self.animator, anims, self.root_scale());
+        self.root.set_up(&self.animator, anims, self.root_scale(), 0);
     }
 
     pub fn feet(&self) -> i32 {
@@ -697,7 +697,9 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     Target::Npc(j) => heights.get(j).copied().unwrap_or((p[1], [0, 0])),
                     Target::Point(p) => (p[1], [0, 0]),
                 };
-                let (my, mb) = (n.pos[1] + n.root.y, n.box_y());
+                // (Its height before the body's step, as 0x80084cd0 runs
+                // before 0x8005a068.)
+                let (my, mb) = (n.pos[1] + lift_before, n.box_y());
                 let level = !(ty + tb[1] < my + mb[0]) && !(my + mb[1] < ty + tb[0]);
                 let mut seg = collide::Segment::default();
                 let seen = collide::segment(w.col, n.pos, p, &mut seg) == 0;
@@ -837,8 +839,9 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                         let level = !(ty + tb[1] < my_y + mb[0]) && !(my_y + mb[1] < ty + tb[0]);
                         let mut seg = collide::Segment::default();
                         let seen = collide::segment(w.col, n.pos, p, &mut seg) == 0;
-                        // (+0x688 bit 8: mode 5, the bite.)
-                        if level && seen {
+                        // (+0x688 bit 8: mode 5, the bite. Bit 512's snap
+                        // and mode 1 is never set by any code.)
+                        if level && seen && n.attacks {
                             n.bite = Bite::Strike;
                         }
                     }

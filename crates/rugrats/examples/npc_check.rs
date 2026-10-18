@@ -196,6 +196,23 @@ fn main() -> Result<(), String> {
             }
             rrt::emu::HookResult::Continue
         });
+        // The root's step (0x80055904: the track, the object, the time
+        // before; +0xde the first frame's gap).
+        p.hle.m.hook(0x8005_5904, move |c| {
+            if c.cpu.reg(5) as u32 == o {
+                let t = c.cpu.reg(4) as u32;
+                let mut r16 = |a: u32| c.bus.read_u16(a).unwrap_or(0) as i16;
+                let tr = [r16(t), r16(t + 2), r16(t + 4), r16(t + 6), r16(t + 10)];
+                let de = r16(o + 0xde);
+                let y = c.bus.read_u32(o + 0x1c).unwrap_or(0) as i32;
+                let floor = c.bus.read_u32(o + 0x148).unwrap_or(0) as i32;
+                let h = c.bus.read_u32(o + 0x154).unwrap_or(0);
+                let feet = c.bus.read_u16(h + 0x4c).unwrap_or(0) as i16;
+                let flags = c.bus.read_u32(o).unwrap_or(0);
+                println!("     ROOT track {tr:?} before {} de {de} y {y} floor {floor} feet {feet} flags {flags:#x}", c.cpu.reg(6) as i16);
+            }
+            rrt::emu::HookResult::Continue
+        });
         for a in [0x8008_4084u32, 0x8005_a068, 0x8005_6834, 0x8005_7214, 0x8005_72a8] {
             p.hle.m.hook(a, move |c| {
                 if c.arg32(0) == o {
@@ -229,6 +246,20 @@ fn main() -> Result<(), String> {
         if sync_at.is_some_and(|s| s == f || s < f && lagged) {
             // (The player's health too: a bite may end it.)
             g.player.health = p.read_i16(0x800e_2b48 + 0x1a4) as i32;
+            // (And the player's place: the characters aim at it.)
+            g.player.pos = [0, 4, 8].map(|i| p.read_i32(0x800e_2b48 + 0x18 + i));
+            // (And the trigger pass's place in its list, 0x800c4c20: the
+            // entry after the node it stopped at.)
+            if f == 0 {
+                let cursor = p.read_u32(0x800c_4c20);
+                let mut node = p.read_u32(0x800c_4c24);
+                let mut i = 0;
+                while node != 0 && node != cursor && i < 400 {
+                    node = p.read_u32(node + 4);
+                    i += 1;
+                }
+                g.trigger_next = if node == cursor && node != 0 { i + 1 } else { 0 };
+            }
             for &(k, o) in &pairs {
                 let t = tracks(&mut p, o);
                 let speed = p.read_i16(o + 0xe4) as i32;
@@ -239,18 +270,30 @@ fn main() -> Result<(), String> {
                 let own_y = n.pos[1];
                 n.pos = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
                 n.heading = p.read_i16(o + 0x24) as i32 & 4095;
+                // (Scheduled as the original's is: on the update list,
+                // +0x9c, which 0x80049e18 and a level's start put it on.)
+                n.scheduled = p.read_u32(o + 0x9c) != 0;
+                // (A bite's wait, +0x69c, and the events it waits on, +0xe0:
+                // kept while it waits.)
+                n.wait_left = p.read_i32(o + 0x69c);
                 n.animator.load_record(t, speed, after, fidget, vec![None; 32], &g.anims);
+                n.animator.events = p.read_u32(o + 0xe0);
                 // (Its after state, +0xe6, playing is standing: the idle asked.)
                 if let Some(a) = rugrats::actors::animator::logical_of(t[0][0]).filter(|&a| a != after.0 as i16) {
                     n.animator.mark_asked(a);
                 }
-                n.sync_body(p.read_u8(o + 0x18c), p.read_i32(o + 0x184));
+                // (A state a level holds was asked once; what it completed
+                // into plays on.)
+                if let Some(h) = n.hold {
+                    n.animator.mark_asked(h);
+                }
                 // (The original's height has the root's lift in it; the
                 // port's place is the floor (+0x148) and the feet, its lift
                 // added where drawn.)
                 // (One never stepped keeps its own height there, and a thing that
                 // is no body has none.)
                 let floor = p.read_i32(o + 0x148);
+                let y = n.pos[1];
                 if n.unsettled {
                     // (Never settled, 0x800452f8: its place keeps its own
                     // height, the lift its hover.)
@@ -258,6 +301,13 @@ fn main() -> Result<(), String> {
                 } else if floor != n.pos[1] && (floor + n.feet() - n.pos[1]).abs() < 1000 {
                     n.pos[1] = floor + n.feet();
                 }
+                // Its lift the original's height less its place, going on by
+                // its keys from there (0x80055904).
+                n.root.y = y - n.pos[1];
+                let lo = n.root_scale();
+                n.root.set_up(&n.animator, &g.anims, lo, p.read_i16(o + 0xde) as i32);
+                // (Its body where its place is now.)
+                n.sync_body(p.read_u8(o + 0x18c), p.read_i32(o + 0x184));
                 if let rugrats::actors::npc::Mode::Posts { .. } = n.mode {
                     n.mode = rugrats::actors::npc::Mode::Posts { prev, cur };
                 }
@@ -312,7 +362,11 @@ fn main() -> Result<(), String> {
             let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
             let way = [0, 4, 8].map(|i| p.read_i32(o + 0x178 + i));
             println!(
-                "{f:3} MOVE orig {at:?} h {} to {} mode {} wait {} ev {:#x} track0 {:?} speed {} way {way:?} v {:?} state {} flags {:#x} held {} posts {}<{} player health {} | port {:?} root y {} h {} speed {} {:?} {:?} {:?}",
+                "{f:3} MOVE card {:?} sched {}/{} trig {} orig {at:?} h {} to {} mode {} wait {} ev {:#x} track0 {:?} speed {} way {way:?} v {:?} state {} flags {:#x} held {} posts {}<{} player health {} | port {:?} root y {} h {} speed {} {:?} {:?} {:?}",
+                g.card,
+                (p.read_u32(o + 0x9c) != 0) as u8,
+                g.npcs[k].scheduled,
+                g.triggers.len(),
                 p.read_i16(o + 0x24),
                 p.read_i16(o + 0x2c),
                 p.read_u8(o + 0x699),
@@ -322,7 +376,7 @@ fn main() -> Result<(), String> {
                 p.read_i32(o + 0x184),
                 [0, 2, 4].map(|i| p.read_i16(o + 0x170 + i)),
                 p.read_u8(o + 0x18c),
-                p.read_u32(o + 0x188),
+                p.read_u32(o + 0x188) as u64 | (p.read_u32(o + 0x688) as u64) << 32,
                 p.read_i16(o + 0x1b0),
                 p.read_u8(o + 0x695),
                 p.read_u8(o + 0x694),

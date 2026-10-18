@@ -104,6 +104,8 @@ impl LetThereBeLight {
                 let n = &mut g.npcs[k];
                 n.mode = Mode::Guard;
                 n.reach = SHADOW_REACH;
+                // (+0x688 |= 8.)
+                n.attacks = true;
                 // (Its enter callback set, 0x80049e18.)
             }
         }

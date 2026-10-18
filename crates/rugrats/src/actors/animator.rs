@@ -216,9 +216,10 @@ pub struct Animator {
     /// release, 2048 a grab, 0x2000 a hurt state's wait, 1 an animation's
     /// last frame), 0x8000000 the base completed, 0x10000000 an upper.
     pub events: u32,
-    /// The height a set up owes the body (0x80055170: each column's first
-    /// frame's lift key, as it is, added to +0x1c), until taken.
-    lift: i32,
+    /// The heights a set up owes the body, by channel (0x80055170: each
+    /// column's first frame's lift key, as it is, added to +0x1c), until
+    /// taken.
+    lift: Vec<(u8, i32)>,
     /// The speed its tracks run at (+0xe4, 4096 as written): each
     /// 0x800572a8 call sets it from its third argument, clamped to 2048 ..
     /// 16384 (0x80057214); a frame's time runs down by dt times it >> 12
@@ -267,7 +268,7 @@ impl Animator {
             after_upper: AS_YOU_WERE,
             pose: vec![None; 32],
             events: 0,
-            lift: 0,
+            lift: Vec::new(),
             speed: 4096,
             written_speed: 4096,
             character,
@@ -342,9 +343,14 @@ impl Animator {
         self.spans = std::array::from_fn(|k| self.span(self.tracks[k].state, k, anims));
     }
 
-    /// The height the last set up owes the body (0x80055170), taken.
-    pub fn take_lift(&mut self) -> i32 {
+    /// The height the last set up owes the body (0x80055170), taken: the
+    /// lift keys on channels `hierarchy` gives a part (+0x14, not 0xff).
+    pub fn take_lift(&mut self, hierarchy: &Hierarchy) -> i32 {
         std::mem::take(&mut self.lift)
+            .into_iter()
+            .filter(|&(c, _)| hierarchy.header.get(0x14 + c as usize).is_some_and(|&p| p != 0xff))
+            .map(|(_, dy)| dy)
+            .sum()
     }
 
     /// Marks logical animation `a` as asked last on its track, without
@@ -505,7 +511,7 @@ impl Animator {
                                 *slot = Some(q.map(|v| v as i32));
                             }
                         }
-                        Key::Lift { dy, .. } => self.lift += dy as i32,
+                        Key::Lift { channel, dy, .. } => self.lift.push((channel, dy as i32)),
                     }
                 }
             }
@@ -945,6 +951,9 @@ pub struct RootCurve {
     /// Its state begun here (its first frame's gap taken, the keys from
     /// there), not one set up and gone on from where it was.
     begun: bool,
+    /// What a state set up moves the body by across its first frame
+    /// (+0xde: 0 from the settling, 0x800452f8), in place of that frame's key.
+    gap: i32,
     /// The height: drawn under the body's position.
     pub y: i32,
     /// The across part of the base state's root taken so far, and what a
@@ -1008,6 +1017,8 @@ impl RootCurve {
         // A state set up (0x80055ed8) moves the body by its keys from where
         // it is, each step the frame's key times the time gone.
         if !self.begun {
+            let done = self.gap_for_key(anims, lo, first, cur, left, done);
+            let total = self.gap_for_key(anims, lo, first, first + 1, 0, total);
             self.y += done - self.done;
             (self.cur, self.done, self.total) = (cur, done, total);
             return;
@@ -1026,11 +1037,30 @@ impl RootCurve {
     }
 
     /// Takes on the base track as it stands, set up and not begun
-    /// (0x80055f7c): the body goes on by its keys from where it is.
-    pub fn set_up(&mut self, a: &Animator, anims: &Anims, lo: i32) {
-        let (state, first, count, cur, _) = a.track();
+    /// (0x80055f7c): the body goes on by its keys from where it is, and
+    /// across the first frame by `gap` (+0xde: 0x80055904 takes it there
+    /// whatever the time, the key only on the frames after).
+    pub fn set_up(&mut self, a: &Animator, anims: &Anims, lo: i32, gap: i32) {
+        let (state, first, count, cur, left) = a.track();
         let (done, total) = a.root_progress_scaled(anims, Some(lo)).map_or((0, 0), |r| (r.0[1], r.1[1]));
+        self.gap = gap;
+        let done = self.gap_for_key(anims, lo, first, cur, left, done);
+        let total = self.gap_for_key(anims, lo, first, first + 1, 0, total);
         (self.state, self.first, self.count, self.cur, self.done, self.total) = (state, first, count, cur, done, total);
         self.begun = false;
+    }
+
+    /// The keys' progress `done` with the first frame's part taken by the
+    /// gap instead of its key.
+    fn gap_for_key(&self, anims: &Anims, lo: i32, first: usize, cur: usize, left: i32, done: i32) -> i32 {
+        let part = if cur > first {
+            4096
+        } else {
+            let dur = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
+            ((dur - left).clamp(0, dur) << 12) / dur
+        };
+        let toward_zero = |p: i32| if p < 0 { (p + 4095) >> 12 } else { p >> 12 };
+        let key = root_key(anims, first, Some(lo)).map_or(0, |k| k[1]);
+        done - toward_zero(key * part) + toward_zero(self.gap * part)
     }
 }

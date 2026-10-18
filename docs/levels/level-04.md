@@ -320,7 +320,15 @@ player's state handlers:
 
 36 VSyncs is 0.6 s: 8.3 health a second standing, 5 walking. Phase 1
 (the first sewer and the water rooms before room 26) is safe. In the
-oracle the room 40 floor is 33 (flags 1 and 32; 32 unknown).
+oracle the room 40 floor is 33 (flags 1 and 32).
+
+Flags 32 and 64 (+4 bits 5 and 6) are how deep a character sinks into
+its floor as drawn. The character draw (0x8003205c) lowers each part by
+298 times (flags & 96) >> 5 while it draws, and puts the parts back
+after. A sunk character gets no shadow (0x8003414c skipped). None sink
+while standing on an object (+0xf8). Only level 4 has such tiles: 54
+water tiles of depth 1 (flags 33), the deep water around (-229000, 256,
+64000), where the babies wade 298 lower.
 
 Damage (0x80077864) has no level 4 routing (only levels 2, 3, 16). With
 +0xf8 set and a damage above 0 nothing is taken (0x80077900).

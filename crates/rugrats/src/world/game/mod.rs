@@ -2068,9 +2068,24 @@ impl Game {
         self.draw();
     }
 
+    /// How far a character at `at` sinks into its floor as drawn
+    /// (0x8003205c): the tile's flags (COL +4) bits 5 and 6 times 298, the
+    /// parts that much lower and no shadow; none standing on an object
+    /// (+0xf8). Only level 4 has such tiles (54 of depth 1).
+    fn sink(&self, at: [i32; 3], on_object: bool) -> i32 {
+        if on_object {
+            return 0;
+        }
+        let q = crate::world::collide::query(&self.col, at);
+        298 * ((crate::world::collide::floor_flags(&self.col, &q) & 96) >> 5) as i32
+    }
+
     fn draw(&mut self) {
         let mut moving = self.scenery.clone();
-        self.player.triangles(&self.set.models, &self.anims, &self.trig, &mut moving);
+        // (Sunk as drawn only: the hand places the carried thing from the
+        // parts put back.)
+        let sink = self.sink(self.player.pos, self.player.support.is_some());
+        self.player.triangles(&self.set.models, &self.anims, &self.trig, sink, &mut moving);
         // The carried object rides hand 15 (0x8005ff88 mode 1, from the
         // character's draw 0x8003205c once its parts are posed): as this
         // frame draws it.
@@ -2115,9 +2130,11 @@ impl Game {
                 models::model_triangles(m, g.rot, g.pos, &mut moving);
             }
         }
-        for (k, n) in self.npcs.iter_mut().enumerate() {
+        for k in 0..self.npcs.len() {
             if self.npc_rooms.get(k).is_some_and(|r| r.is_some()) {
-                npc::triangles(n, &self.set.models, &self.trig, &mut moving);
+                let n = &self.npcs[k];
+                let sink = self.sink([n.pos[0], n.pos[1] + n.root.y, n.pos[2]], n.body.as_ref().is_some_and(|b| b.support.is_some()));
+                npc::triangles(&mut self.npcs[k], &self.set.models, &self.trig, sink, &mut moving);
             }
         }
         for (shape, angles, at) in self.flights.models() {

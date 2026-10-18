@@ -1887,9 +1887,10 @@ impl Player {
 
     /// The player's triangles: each part's model by its matrix as posed
     /// (0x8004a5dc).
-    pub fn triangles(&self, models: &Models, anims: &Anims, trig: &Trig, out: &mut Vec<Vtx>) {
-        for (part, (rot, joint)) in self.hierarchy.parts.iter().zip(self.parts(anims, trig)) {
+    pub fn triangles(&self, models: &Models, anims: &Anims, trig: &Trig, sink: i32, out: &mut Vec<Vtx>) {
+        for (part, (rot, mut joint)) in self.hierarchy.parts.iter().zip(self.parts(anims, trig)) {
             if let Some(m) = models.get(part.model) {
+                joint.y += sink as f32;
                 models::model_triangles(m, rot, joint, out);
             }
         }

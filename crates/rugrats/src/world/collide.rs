@@ -70,8 +70,9 @@ pub fn height(col: &Col, pos: [i32; 3], t: &[u8; 8], floor: bool) -> i32 {
     plane_y(line, p, n.map(|v| v as i32)).unwrap_or(flat)
 }
 
-/// The flags of the tile a query found (COL record +4: bit 0 water in
-/// level 4, 16 dust, 32 unknown).
+/// The flags of the tile a query found (COL record +4: 1 water in level 4,
+/// 2 slippery, 4 a puff at a foot, 16 dust, 32 and 64 how deep a character
+/// sinks as drawn; 8 is read by nothing found).
 pub fn floor_flags(col: &Col, q: &Query) -> u8 {
     q.tile.and_then(|(c, k)| col.columns.get(c).and_then(|c| c.tiles.get(k))).map_or(0, |t| t[4])
 }

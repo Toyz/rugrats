@@ -1155,14 +1155,18 @@ const TURN_IN_PLACE: i16 = 53;
 const LUNGE: i16 = 43;
 
 /// The NPC's triangles.
-pub fn triangles(n: &mut Npc, models: &Models, trig: &Trig, out: &mut Vec<Vtx>) {
+/// Its parts' triangles, each drawn `sink` lower (a floor it sinks into,
+/// 0x8003205c); the pose kept as drawn is its own, unsunk (the parts are
+/// put back after the draw).
+pub fn triangles(n: &mut Npc, models: &Models, trig: &Trig, sink: i32, out: &mut Vec<Vtx>) {
     if n.hidden {
         return;
     }
     let posed = n.posed(trig);
     for (part, p) in n.hierarchy.parts.iter().zip(&posed) {
         if let Some(m) = models.get(part.model) {
-            let (rot, joint) = p.float();
+            let (rot, mut joint) = p.float();
+            joint.y += sink as f32;
             models::model_triangles(m, rot * (n.scale as f32 / 4096.0), joint, out);
         }
     }

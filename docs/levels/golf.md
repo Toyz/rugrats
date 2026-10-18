@@ -136,7 +136,9 @@ Installed for levels 23-31 by 0x8007871c (case 23..31). In order:
    see [level 3](level-03.md#phases-and-state)).
    26: object id 9999 (template 8, hierarchy 9) gets mode 8
    (0x80083918) and is scheduled (0x80049e18); prints "Reptar's
-   ALIVE!!!!".
+   ALIVE!!!!". His animations come from the golf holes' own tables
+   for character 9 (0x8008a42c in levels 23-31: entries 0x800c4584,
+   remap 0x800ba158): state 0 is columns 1008-1011 (frames 4182-4221).
    31: outside activity play id 6660 (template 224) is hidden; id 9998
    (template 516, hierarchy 47) follows the player (0x80083764, mode 4)
    with range +0x68c = 3500 and is scheduled.

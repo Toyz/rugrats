@@ -428,6 +428,16 @@ impl Npc {
         body.hints.clear();
         std::mem::swap(&mut body.animator, &mut self.animator);
         self.bumped = body.held_up;
+        // The floor query (0x800627a0) at the new place, its height the
+        // place and the root's lift (+0x1c): no tile under it, or below
+        // the floor (+0x13c) or above the ceiling (+0x140), and the whole
+        // place goes back where the frame began, this step's lift with it.
+        let at = [body.pos[0], body.pos[1] + self.root.y, body.pos[2]];
+        let q = collide::query(w.col, at);
+        if body.put_back || q.tile.is_none() || at[1] > q.floor || at[1] < q.ceiling {
+            body.pos = start;
+            self.root.put_back();
+        }
         self.pos = body.pos;
         self.heading = body.heading;
         if !body.landing() {

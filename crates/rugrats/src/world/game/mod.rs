@@ -919,7 +919,7 @@ impl Game {
             // Level 12's Spike is hierarchy 45 (0x80048284).
             let h = if level == Level::LET_THERE_BE_LIGHT && h == 6 { 45 } else { h };
             let Some(Some(hierarchy)) = set.hierarchies.get(h).cloned() else { continue };
-            let mut animator = Animator::load(disc, h as u16)?;
+            let mut animator = Animator::load_in(disc, h as u16, level.0)?;
             // 0x80082478: the idle set up at once (table state 0), not
             // asked; in the box toss levels a character stands in the
             // babies' idle, logical 35 after the base (table state 47).
@@ -1484,7 +1484,7 @@ impl Game {
         }
         // (The player's health at 0 there is ForceCry at once, 0x8007fd0c
         // from 0x80077864: no update this frame.)
-        if self.player.health <= 0 {
+        if std::mem::take(&mut self.player.hurt_out) {
             self.cry();
         }
         if self.crying > 0 {
@@ -1928,7 +1928,7 @@ impl Game {
             }
         }
         // Damage (0x80077864): health at 0 is a cry.
-        if self.player.health <= 0 {
+        if std::mem::take(&mut self.player.hurt_out) {
             self.cry();
         }
         self.meter_shown = (self.meter_shown - DT).max(0);

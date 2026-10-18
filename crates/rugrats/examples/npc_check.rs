@@ -128,7 +128,18 @@ fn main() -> Result<(), String> {
         let n = &mut g.npcs[k];
         n.animator.load_record(t, speed, after, fidget, pose, &g.anims);
         n.animator.mark_asked(n.hold.unwrap_or(0));
-        println!("    npc {k}: tracks {t:?} hold {:?} mode {:?}", n.hold, n.mode);
+        println!("    npc {k}: tracks {t:?} speed {speed} after {after:?} fidget {fidget:?} hold {:?} mode {:?}", n.hold, n.mode);
+        if std::env::var_os("COLUMNS").is_some() {
+            // The original's character (+0x15c) and its state 0 column for
+            // each track (+0xec's entry into +0xe8, then D_800c4594).
+            let ec = p.read_u32(o + 0xec);
+            let e8 = p.read_u32(o + 0xe8);
+            let entry = p.read_i16(ec) as u32;
+            let cols: Vec<i16> = (0..4).map(|j| p.read_i16(e8 + entry * 8 + 2 * j)).collect();
+            let table = p.read_u32(0x800c_4594);
+            let spans: Vec<(i16, i16)> = cols.iter().map(|&c| (p.read_i16(table + 4 * c as u32), p.read_i16(table + 4 * c as u32 + 2))).collect();
+            println!("    COLUMNS char {} entry {entry} cols {cols:?} spans {spans:?}", p.read_i16(o + 0x15c));
+        }
         n.pos = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
         n.heading = p.read_i16(o + 0x24) as i32 & 4095;
     }
@@ -196,6 +207,27 @@ fn main() -> Result<(), String> {
             }
             rrt::emu::HookResult::Continue
         });
+        // After it, each of the body's last calls, with the place.
+        for a in [0x8005_bc80u32, 0x8006_27a0, 0x8006_23a0, 0x8008_3634, 0x8006_af4c, 0x8006_31a4, 0x8004_a318] {
+            p.hle.m.hook(a, move |c| {
+                if c.cpu.reg(4) as u32 == o {
+                    let at = [0, 4, 8].map(|i| c.bus.read_u32(o + 0x18 + i).unwrap_or(0) as i32);
+                    println!("     TAIL {a:#x} at {at:?}");
+                }
+                rrt::emu::HookResult::Continue
+            });
+        }
+        // The body's end (0x8005cb48): the step's sum into the place.
+        p.hle.m.hook(0x8005_cb48, move |c| {
+            if c.cpu.reg(4) as u32 == o {
+                let mut r16 = |a: u32| c.bus.read_u16(a).unwrap_or(0) as i16;
+                let d = [r16(o + 0xd8), r16(o + 0xda), r16(o + 0xdc)];
+                let f = c.bus.read_u32(o + 0x188).unwrap_or(0);
+                let y = c.bus.read_u32(o + 0x1c).unwrap_or(0) as i32;
+                println!("     APPLY d {d:?} 188 {f:#x} y {y} ra {:#x}", c.cpu.reg(31));
+            }
+            rrt::emu::HookResult::Continue
+        });
         // The root's step (0x80055904: the track, the object, the time
         // before; +0xde the first frame's gap).
         p.hle.m.hook(0x8005_5904, move |c| {
@@ -230,6 +262,13 @@ fn main() -> Result<(), String> {
     // SYNCAT=f: each paired NPC given the original's place and heading
     // again before frame f.
     let sync_at: Option<usize> = std::env::var("SYNCAT").ok().and_then(|s| s.parse().ok());
+    // WATCH=addr: each call of that function in the original, as it comes.
+    if let Some(a) = std::env::var("WATCH").ok().and_then(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()) {
+        p.hle.m.hook(a, move |c| {
+            println!("     WATCH {a:#x} a0 {:#x} ra {:#x}", c.cpu.reg(4) as u32, c.cpu.reg(31) as u32);
+            rrt::emu::HookResult::Continue
+        });
+    }
     let pads = Pads::default();
     let mut off = 0;
     // By NPC: frames off, and whether each side's tracks ever changed.
@@ -326,7 +365,10 @@ fn main() -> Result<(), String> {
             }
         }
         g.frame(&pads);
-        p.frame(0)?;
+        // PRESS=f: Cross held on the original's pad that frame (a card
+        // waiting for a press; the port has none up).
+        let press = std::env::var("PRESS").ok().and_then(|v| v.parse::<usize>().ok()) == Some(f);
+        p.frame(if press { 1 << rugrats::input::CROSS } else { 0 })?;
         // PLAYER=1: the player's base track beside the port's, each frame.
         if std::env::var_os("PLAYER").is_some() {
             println!("{f:3} PLAYER orig {:?} health {} | port {:?} health {} crying {}", tracks(&mut p, 0x800e_2b48)[0], p.read_i16(0x800e_2b48 + 0x1a4), g.player.animator.record()[0], g.player.health, g.crying());

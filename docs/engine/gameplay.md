@@ -516,6 +516,14 @@ A frame's lift key moves the body up and down (+0x1c):
 - **Applying it.** The step's sum (+0xda) goes into the height at the
   body's end (0x8005cb48) unless +0x188 bit 1. Some state handlers take
   it themselves and clear it (0x8005d978).
+- **Put back.** After it, the floor query (0x800627a0) asks 0x8002b240 at
+  the new place (the origin, +0x1c with the lift in it). With no tile
+  there, or the origin below the floor (+0x13c) or above the ceiling
+  (+0x140), the whole place goes back to where the frame began (+0x160),
+  this step's lift with it. The keys go on regardless, so the lift stays
+  where it was put back. Level 13's Angelica, held against the raised
+  block at the start line (a tile floored at -5120), runs in place at
+  the same height every frame.
 
 A body set up and not yet begun anew goes on by its keys from where it
 is. Level 5's robot wakes at -9068 and drifts with its idle's keys. Its

@@ -248,12 +248,22 @@ pub struct Player {
     pub passes: bool,
     /// This frame's step was held up (a wall, an object).
     pub held_up: bool,
+    /// Damage has left it no health (0x80077864): the cry is due.
+    pub hurt_out: bool,
+    /// This frame's place was put back where the frame began by the floor
+    /// query (0x800627a0: no floor under it), the root's lift with it.
+    pub put_back: bool,
 }
 
 impl Player {
     /// Loses `amount` health, to 0 at least.
     pub fn hurt(&mut self, amount: i32) {
         self.health = (self.health - amount).max(0);
+        // (Damage that leaves none is ForceCry, 0x8007fd0c from
+        // 0x80077864: the health alone is never polled.)
+        if self.health <= 0 {
+            self.hurt_out = true;
+        }
     }
 
     /// Gains `amount` health, to 255 at most.
@@ -333,6 +343,8 @@ impl Player {
             walk_below: None,
             passes: false,
             held_up: false,
+            put_back: false,
+            hurt_out: false,
         }
     }
 
@@ -551,6 +563,7 @@ impl Player {
         trig: &Trig,
     ) {
         let acting = self.action.is_some();
+        self.put_back = false;
         // A wall met head-on (or no way along it) by the ground move.
         let mut wall_met = false;
         // The probe's record that held the step head-on (`ground_move`).
@@ -677,6 +690,7 @@ impl Player {
             self.floor = f.floor;
         } else if q.kind != 0 && q.tile.is_none() || q.kind == 2 {
             self.pos = start;
+            self.put_back = true;
         } else if q.kind != 0 && walking && {
             let feet_y = start[1] - self.feet;
             let up = collide::query(col, [self.pos[0], feet_y - reach, self.pos[2]]);
@@ -707,8 +721,11 @@ impl Player {
         {
         } else if q.kind != 0 {
             // Into a wall or a step too high: back across, keep the height.
+            // (0x800627a0 puts the whole place back, so a root's lift of
+            // this step goes too.)
             let back = collide::query(col, [start[0], probe[1], start[2]]);
             self.pos = [start[0], self.pos[1], start[2]];
+            self.put_back = true;
             if back.kind == 0 {
                 self.floor = back.floor;
             }

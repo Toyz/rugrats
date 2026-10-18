@@ -18,14 +18,15 @@ const DT: i32 = 10;
 const REMAP_COUNT: usize = 132;
 
 /// (entries, remap) by character (0x8008a42c's cases, character - 2).
-fn tables(character: u16) -> (u32, u32) {
+fn tables(character: u16, level: u8) -> (u32, u32) {
     match character {
         2 => (0x800b_a9e4, 0x800b_9dbc),
         3 | 37 => (0x800b_ab6c, 0x800b_9e40),
         4 | 5 => (0x800b_a5fc, 0x800b_9d38),
         6 => (0x800b_ac9c, 0x800b_9ec4),
-        // Reptar; the golf holes' table (0x800c4584, 0x800ba158) has no
-        // Reptar to use it.
+        // Reptar: the golf holes' own table in levels 23-31 (hole 26's
+        // Reptar, id 9999).
+        9 if (23..32).contains(&level) => (0x800c_4584, 0x800b_a158),
         9 => (0x800b_a754, 0x800b_a0d4),
         43 => (0x800c_458c, 0x800b_a4f4),
         10 | 11 => (0x800b_a7e4, 0x800b_9fcc),
@@ -240,7 +241,13 @@ pub struct Animator {
 impl Animator {
     /// Character `character`'s tables.
     pub fn load(disc: &GameDisc, character: u16) -> Result<Animator, String> {
-        let (entries_at, remap_at) = tables(character);
+        Self::load_in(disc, character, 0)
+    }
+
+    /// [`Self::load`] for a body in level `level` (0x8008a42c picks some
+    /// characters' tables by the level).
+    pub fn load_in(disc: &GameDisc, character: u16, level: u8) -> Result<Animator, String> {
+        let (entries_at, remap_at) = tables(character, level);
         let s16s = |addr: u32, n: usize| -> Result<Vec<i16>, String> {
             Ok(disc
                 .exe_bytes(addr, 2 * n)?
@@ -956,6 +963,10 @@ pub struct RootCurve {
     gap: i32,
     /// The height: drawn under the body's position.
     pub y: i32,
+    /// What the keys and the gap make the height (the original adds each
+    /// step's change of it to +0x1c), and the height before this step.
+    model: i32,
+    before: i32,
     /// The across part of the base state's root taken so far, and what a
     /// state run out this step still had (for a state whose word has 32).
     across_done: [i32; 2],
@@ -1007,11 +1018,13 @@ impl RootCurve {
     pub fn step(&mut self, a: &Animator, anims: &Anims, lo: i32, off: i32) {
         let (state, first, count, cur, left) = a.track();
         let (done, total) = a.root_progress_scaled(anims, Some(lo)).map_or((0, 0), |r| (r.0[1], r.1[1]));
+        self.before = self.y;
         // (A first frame begun again, as a state asked anew each frame is,
         // takes its gap from where the body is now: 0x80055904's +0xde.)
         if (self.state, self.first) != (state, first) || cur < self.cur || (a.began() && cur == first) {
             let rest = if self.cur + 1 == self.first + self.count { self.total - self.done } else { 0 };
             self.base = self.y + rest;
+            self.model = self.y;
             self.begun = true;
         }
         // A state set up (0x80055ed8) moves the body by its keys from where
@@ -1023,7 +1036,7 @@ impl RootCurve {
             (self.cur, self.done, self.total) = (cur, done, total);
             return;
         }
-        self.y = off + if cur > first {
+        let model = off + if cur > first {
             done
         } else {
             let dur = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
@@ -1033,7 +1046,17 @@ impl RootCurve {
             let p = (key - base) * frac;
             base + if p < 0 { (p + 4095) >> 12 } else { p >> 12 }
         };
+        // (Each step's change, as 0x80055904 adds it: a place put back
+        // keeps what was put back.)
+        self.y += model - self.model;
+        self.model = model;
         (self.state, self.first, self.count, self.cur, self.done, self.total) = (state, first, count, cur, done, total);
+    }
+
+    /// The place put back where the frame began (0x800627a0): the height
+    /// this step added goes with it.
+    pub fn put_back(&mut self) {
+        self.y = self.before;
     }
 
     /// Takes on the base track as it stands, set up and not begun

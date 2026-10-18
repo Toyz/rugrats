@@ -392,7 +392,7 @@ impl GrandpasTeeth {
                 _ => {}
             }
         }
-        if g.player.health <= 0 {
+        if std::mem::take(&mut g.player.hurt_out) {
             g.cry();
         }
         if self.phase != Phase::Court {

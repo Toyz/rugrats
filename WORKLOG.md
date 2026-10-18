@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-217 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 20, format 9, input 5, play 113, render 30, save 4, test 27, tooling 18, ui 13, video 10.
+218 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 21, format 9, input 5, play 113, render 30, save 4, test 27, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -229,3 +229,4 @@ The [reference](docs/README.md) says what is true now.
 | 215 | [Level 5's robot wakes on the original's frame and turns as the original's: the trigger pass late in the frame, the turn in place held](worklog/0215-level-5-s-robot-wakes-on-the-original-s-frame-and-turns-as.md) | 2026-10-18 | engine |
 | 216 | [Level 5's robot matches the original for 45 frames: the set up's lift, a root on its keys, the guard's goal out of range, guards bite through modes 5, 1 and 0](worklog/0216-level-5-s-robot-matches-the-original-for-45-frames-the-set.md) | 2026-10-18 | engine |
 | 217 | [A state's first frame moves by its gap, never its key: the sweep's characters match in 14 levels; level 10's babies hide at the original's spots; guards bite by bit 8](worklog/0217-a-state-s-first-frame-moves-by-its-gap-never-its-key-the.md) | 2026-10-18 | engine |
+| 218 | [The floor query puts a step's lift back with the place; the cry comes from damage, not the health; hole 26's Reptar takes the golf table: the sweep matches in levels 1-7, 9-18 and holes 23-31](worklog/0218-the-floor-query-puts-a-step-s-lift-back-with-the-place-the.md) | 2026-10-18 | engine |

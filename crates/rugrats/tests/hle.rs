@@ -1666,3 +1666,53 @@ fn level_3_turn_in_place_as_the_original() {
     let turned = port.iter().zip(&orig).filter(|(p, o)| p.heading != o.heading).count();
     assert_eq!((worst, turned), (0, 0), "the same as the original's, every frame");
 }
+
+/// Level 1 as Tommy, put in the hall, run along it then turned:
+/// the shadow's quad (0x8003414c at 0x80034518, before its draw) as the
+/// original builds it each frame: the facing from the first part, the
+/// six slots' extents with the least reach, and the floor under it.
+#[test]
+#[ignore]
+fn level_1_shadow_as_the_original() {
+    use rrt::emu::{BusExt, Cpu};
+    use rugrats::input::{LEFT, R1, UP};
+    use std::cell::RefCell;
+    let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
+    b.put([11000, 779, 19403], 1024, 6);
+    b.script(&[(bits(&[R1]), 1), (0, 4)]);
+    let hier = b.hle.read_u32(rugrats_hle::play::PLAYER + 0x154);
+    let theirs: Rc<RefCell<Option<rugrats::world::game::Quad>>> = Rc::default();
+    let t = theirs.clone();
+    b.hle.hle.m.hook(0x8003_4518, move |c| {
+        if c.cpu.reg(20) as u32 == hier {
+            let sp = c.cpu.reg(29) as u32;
+            let mut h = |a: u32| c.bus.read_u16(sp + a).unwrap_or(0) as i16 as i32;
+            let lo = [h(0x50), h(0x52), h(0x54)];
+            let hi = [h(0x58), h(0x5a), h(0x5c)];
+            let facing = [h(0x20), h(0x28)];
+            let mut w = |a: u32| c.bus.read_u32(sp + a).unwrap_or(0) as i32;
+            let at = [w(0x44), w(0x48), w(0x4c)];
+            *t.borrow_mut() = Some(rugrats::world::game::Quad { facing, lo, hi, at });
+        }
+        rrt::emu::HookResult::Continue
+    });
+    // (The original draws a frame before it updates: its quad is the
+    // port's of the frame before.)
+    let mut off = Vec::new();
+    let mut frame = 0;
+    let mut before = b.game.player_shadow();
+    for (bits, n) in [(bits(&[UP]), 12), (bits(&[UP, LEFT]), 8), (0, 6)] {
+        for _ in 0..n {
+            theirs.borrow_mut().take();
+            let (port, orig) = b.script(&[(bits, 1)]);
+            let orig_quad = *theirs.borrow();
+            if before != orig_quad {
+                eprintln!("{frame}: port {before:?} orig {orig_quad:?} | at {:?} {:?}", port[0].pos, orig[0].pos);
+                off.push(frame);
+            }
+            before = b.game.player_shadow();
+            frame += 1;
+        }
+    }
+    assert!(off.is_empty(), "the original's shadow quad, off at {off:?}");
+}

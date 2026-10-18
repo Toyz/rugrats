@@ -706,6 +706,33 @@ Camera outside room"). Per room (0x80033818): its 24-byte boxes when room
 flag 1 (0x80030ce0), its geometry blobs (0x80010e14), and the draw
 callback (+0x40) of every object in lists +0x48 and +0x4c.
 
+A character's draw (0x8003205c) draws its parts, then its shadow
+(0x8003414c), unless it sinks into its floor (COL +4 bits 5-6), rides
+another (+0x00 0x80000) or level 3's cine 15 runs (+0x30 bit 128):
+- **The floor** (0x8006c118): a segment from the body's place down to its
+  floor (+0x13c) through its room's two object lists (0x8006a9cc; a
+  character on the second, +0x00 0x4000, not); the nearest top met, else
+  the floor.
+- **The facing**: the first part's matrix row 2 across (x, z) when
+  |m21| < |m11|, else row 1 negated, made a unit (0x8009f278). R has rows
+  (z, 0, -x), (0, 4096, 0), (x, 0, z).
+- **The size**: the joints of the parts at slots 0x10, 0xe, 0xb, 6, 2,
+  0x11 (0x80012ff0), less the first part's, flat, turned by R
+  (0x8009fc64, >> 12); their box in x and z, reaching at least 128
+  behind and 164 ahead.
+- **The quad**: its corners (lo x, hi z), (hi x, hi z), (lo x, lo z),
+  (hi x, lo z), turned by R and set at the first part's x and z over the
+  floor. It is a POLY_FT4 (code 0x2e) of TEXPOS entry 261 (0x800c4484 +
+  3132: a 64-texel blob at (128, 128) of page 0x1b, CLUT 0x7dec), grey
+  128, its page | 64: subtracted.
+- **Switch**: 0x800c3fc4, off for the opening cine (0x8008f078) and on
+  for play (0x8008f308). The cines draw through the same render, so
+  their characters have shadows too.
+
+The draw runs a frame behind the update: the quad the oracle builds at
+0x80034518 is the port's of the frame before
+(`level_1_shadow_as_the_original`).
+
 ## Objects
 
 Objects are 168 bytes (0x800464d8(168)); the generic init 0x8004691c fills

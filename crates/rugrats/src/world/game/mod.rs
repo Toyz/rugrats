@@ -46,6 +46,7 @@ mod goodies;
 mod movers;
 mod pause;
 mod rooms;
+mod shadow;
 mod story;
 mod things;
 mod toys;
@@ -54,6 +55,7 @@ pub use doors::Door;
 pub use goodies::{Collected, Goodie, goodie, spawn};
 pub use movers::Mover;
 pub use pause::PauseEnd;
+pub use shadow::Quad;
 pub use story::{hit_line, start_cine};
 pub use things::{Breakable, Ended, PieToss, Strike, THROW_ANIM_SPEED, Thing, ThingState, Touched};
 
@@ -2086,6 +2088,12 @@ impl Game {
         // parts put back.)
         let sink = self.sink(self.player.pos, self.player.support.is_some());
         self.player.triangles(&self.set.models, &self.anims, &self.trig, sink, &mut moving);
+        if sink == 0 {
+            let at = self.player.pos;
+            let floor = self.shadow_floor(at, shadow::tile_floor(&self.col, at, self.player.floor));
+            let parts = self.player.posed(&self.anims, &self.trig).0;
+            self.shadow(&self.player.hierarchy, &parts, floor, &mut moving);
+        }
         // The carried object rides hand 15 (0x8005ff88 mode 1, from the
         // character's draw 0x8003205c once its parts are posed): as this
         // frame draws it.
@@ -2133,8 +2141,20 @@ impl Game {
         for k in 0..self.npcs.len() {
             if self.npc_rooms.get(k).is_some_and(|r| r.is_some()) {
                 let n = &self.npcs[k];
-                let sink = self.sink([n.pos[0], n.pos[1] + n.root.y, n.pos[2]], n.body.as_ref().is_some_and(|b| b.support.is_some()));
+                let at = [n.pos[0], n.pos[1] + n.root.y, n.pos[2]];
+                let sink = self.sink(at, n.body.as_ref().is_some_and(|b| b.support.is_some()));
                 npc::triangles(&mut self.npcs[k], &self.set.models, &self.trig, sink, &mut moving);
+                // Its shadow, but sunk or riding another (+0x00 0x80000).
+                let n = &self.npcs[k];
+                if sink == 0
+                    && !n.hidden
+                    && !matches!(n.mode, Mode::Ride { .. })
+                    && let Some(parts) = &n.drawn
+                {
+                    let fallback = n.body.as_ref().map_or(at[1], |b| b.floor);
+                    let floor = self.shadow_floor(at, shadow::tile_floor(&self.col, at, fallback));
+                    self.shadow(&n.hierarchy, parts, floor, &mut moving);
+                }
             }
         }
         for (shape, angles, at) in self.flights.models() {

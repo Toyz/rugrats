@@ -389,26 +389,46 @@ impl Game {
         if self.level == Level::MIRRORLAND { 256 } else { 0 }
     }
 
+    /// The camera's ray test from `from` to `to` (for tools): where it
+    /// first meets a wall or an object.
+    pub fn camera_ray(&self, from: [i32; 3], to: [i32; 3]) -> Option<[i32; 3]> {
+        self.blocked(from, to).map(|h| h.point)
+    }
+
     /// The line test (0x80090554): the objects in the rooms along the
     /// segment (0x80090340 -> 0x8006a9cc with 0x8000: not template flag 16
-    /// or 8, no characters; here their boxes, `solid`), then the height
-    /// field (0x8002cd7c); the nearer stop wins.
+    /// or 8, no characters), each by its exact test, then the height field
+    /// (0x8002cd7c). A start inside an object's box meets it there; its
+    /// normal is then whatever the original's stack held (0x8006a714's
+    /// buffer, untouched), which the port has as none.
     fn blocked(&self, from: [i32; 3], to: [i32; 3]) -> Option<Segment> {
+        // The objects (0x80090340 -> 0x8006a9cc with 0x8000): not of
+        // template flag 16 or 8, no characters; the nearest each by its
+        // exact test (0x8006a714: a start inside a box meets it there).
+        let mut object: Option<(i32, Segment)> = None;
+        for (e, n) in self.solids.iter().zip(&self.npc_of) {
+            let flags = self.set.templates.get(e.template as usize).map_or(0, |t| t.flags);
+            if n.is_some() || flags & (16 | 8) != 0 {
+                continue;
+            }
+            let mut normal = [0; 3];
+            if let Some((_, hit)) = e.solid.meet(&self.trig, from, to, &mut normal)
+                && hit.t >= 0
+                && object.as_ref().is_none_or(|(t, _)| hit.t < *t)
+            {
+                object = Some((hit.t, Segment { depth: 0, point: hit.point, normal, ..Segment::default() }));
+            }
+        }
+        // Then the world's segment (0x8002cd7c), kept over the object only
+        // when nearer on all three axes (0x80090554).
         let mut hit = Segment::default();
         let ground = (collide::segment(&self.col, from, to, &mut hit) != 0).then_some(hit);
-        let span = |p: [i32; 3]| {
-            let d: [f32; 3] = std::array::from_fn(|k| (p[k] - from[k]) as f32);
-            d.iter().map(|v| v * v).sum::<f32>()
-        };
-        let object = self
-            .solid
-            .iter()
-            .filter_map(|b| b.segment_hit(from, to))
-            .min_by(|a, b| a.0.total_cmp(&b.0))
-            .map(|(_, point, normal)| Segment { depth: 0, point, normal, ..Segment::default() });
         match (ground, object) {
-            (Some(g), Some(o)) => Some(if span(o.point) < span(g.point) { o } else { g }),
-            (g, o) => g.or(o),
+            (Some(g), Some((_, o))) => {
+                let nearer = (0..3).all(|k| (from[k] - g.point[k]).abs() < (from[k] - o.point[k]).abs());
+                Some(if nearer { g } else { o })
+            }
+            (g, o) => g.or(o.map(|(_, o)| o)),
         }
     }
 
@@ -490,7 +510,8 @@ impl Game {
                 let near = length(sub(h.point, eye)).clamp(0, 768);
                 let k = 2048 - (near << 11) / 768;
                 let half = [h.normal[0] / 2, 0, h.normal[2] / 2];
-                push = add(push, set_length(half, (k << 16) / 1_800_000));
+                // (hi((k << 16) * 0x4a90be59) >> 19: about / 1800000.)
+                push = add(push, set_length(half, ((((k as i64) << 16) * 0x4a90_be59) >> 51) as i32));
                 hit = true;
             }
         }

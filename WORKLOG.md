@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-220 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 23, format 9, input 5, play 113, render 30, save 4, test 27, tooling 18, ui 13, video 10.
+221 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 24, format 9, input 5, play 113, render 30, save 4, test 27, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -232,3 +232,4 @@ The [reference](docs/README.md) says what is true now.
 | 218 | [The floor query puts a step's lift back with the place; the cry comes from damage, not the health; hole 26's Reptar takes the golf table: the sweep matches in levels 1-7, 9-18 and holes 23-31](worklog/0218-the-floor-query-puts-a-step-s-lift-back-with-the-place-the.md) | 2026-10-18 | engine |
 | 219 | [The trigger list's other entries act through the pass: speech lines, level 5's doors, level 12's batteries, the signs and sparklers, Cynthia; the cursor starts each level at the head](worklog/0219-the-trigger-list-s-other-entries-act-through-the-pass.md) | 2026-10-18 | engine |
 | 220 | [The player turns in place as the original's stand asks it; a half turn keeps its sign; Spike and 34 turn slowly; the oracle's put leaves the floor](worklog/0220-the-player-turns-in-place-as-the-original-s-stand-asks-it-a.md) | 2026-10-18 | engine |
+| 221 | [The follow camera's ray test is the original's: objects by their exact test, a start inside a box meeting it; the wall push's divide exact; the shelf's last camera difference is a stale stack normal](worklog/0221-the-follow-camera-s-ray-test-is-the-original-s-objects-by.md) | 2026-10-18 | engine |

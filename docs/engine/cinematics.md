@@ -143,7 +143,14 @@ vblanks 9220-9400 (counter 1218 at 9220, 1246 at 9250).
   0x800c43d0 passes 50 (a swap, or a fade in; not yet seen).
 - A pose (0x80073f08) is a hierarchy object: position to object +0x18,
   angles at +0x24 cleared, and each key's quaternion to the part its
-  channel maps to (hierarchy +0x14 + channel, 0xff for none).
+  channel maps to (hierarchy +0x14 + channel, 0xff for none). The object
+  is the registry's by the id (0x800461f4), a character (+0xa6 1) in a
+  room or not; it is put in the room at its new place (0x8004a218: out
+  of the old room's characters' list +0x4c, into the new one's), and the
+  floor under the place is looked up (0x8002b240 into +0x13c, +0x148),
+  but its height is not settled. So level 13's Angelica, placed off the
+  map, is left at cine 6's (23346, -5625, -4942), and level 7's babies,
+  placed in no room, are in room 12 after cine 79.
 
 ## Faces
 

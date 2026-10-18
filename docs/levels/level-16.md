@@ -346,7 +346,11 @@ win at 3350; message 28 does not repeat).
    -9900..-6800.
 3. With pie 0 (0x800e2770): Tommy to (31189, -1750, -8141) (0x79d5,
    0xffffe033), room update, 0x800c4cd4 = pie 0, reset (0x80049464),
-   +0x1f0 = pie 0 (in hand), pie 0 into its room's list.
+   +0x1f0 = pie 0 (in hand), pie 0 out of its room's list (0x8001a810).
+   No pie is in a room's list: the one in
+   hand is drawn with the player (0x8003205c calls +0x1f0's draw), the
+   others are out of the world until each is next; a thrown one is
+   listed while it flies and leaves when its flight ends (seen).
 4. Heading and target heading 2048; +0x188 |= 1 (frozen: he turns but
    does not move).
 5. 0x800e577c.. = the player's matrix, 0x800e5790.. = his position with
@@ -414,8 +418,10 @@ recorded.
 2. The follow camera: 0x800291f8(camera, player, 1, 1500, 3000, 0, 0,
    612).
 3. Tommy to (31000, -1781, -8146) (0x7918, 0xffffe02e).
-4. A pie in hand drops where it is (room from its position, else his),
-   into that room's list; +0x1f0 = 0; +0x188 bit 4 off.
+4. A pie in hand: its room from its position (else his), out of that
+   room's list (0x8001a810); +0x1f0 = 0, so it is no longer drawn (it
+   was drawn with the player); +0x188 bit 4 off. The other pies stay as
+   they are: out of the world, or flying.
 5. 0x8008e878 (guess: the splats' list, as in level 3).
 
 Pies still flying can hit Tommy afterwards: seen Damage(player, player,

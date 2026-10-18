@@ -629,6 +629,12 @@ fn level_16_pie_flies_as_the_original() {
     assert_eq!(pies.len(), 6, "six pies");
     let theirs: Vec<u32> = (0..6).map(|i| b.hle.read_u32(0x800e_2770 + 4 * i)).collect();
     assert_eq!(b.game.carried(), Some(pies[0]), "pie 0 in hand");
+    // (No pie is in a room's list, the one in hand drawn with the player
+    // (0x8003205c: +0x1f0's draw); the port's others are out of the
+    // world.)
+    let listed = objects(&mut b.hle);
+    assert!(theirs.iter().all(|o| !listed.contains(o)), "the original's pies listed");
+    assert!(pies.iter().enumerate().all(|(i, &k)| b.game.things[k].hidden == (i != 0)), "the port's pies out of the world");
     let p = rugrats_hle::play::PLAYER;
     b.script(&[(0, 10), (bits(&[CROSS]), 1), (0, 10), (bits(&[CROSS]), 1), (0, 10)]);
     let mut flown = Vec::new();
@@ -1177,4 +1183,39 @@ fn level_12_light_strikes_as_the_original() {
     assert!(theirs.len() >= 20 && mine.len() == theirs.len() && off == 0, "the shots: {:?}", mine.iter().zip(&theirs).enumerate().find(|(_, (m, t))| m != t));
     assert!(sizes.iter().any(|s| s.1.1) && sizes.iter().any(|s| s.1.0 == 4096 && !s.1.1 && sizes.iter().position(|x| x.1.1).is_some()), "struck and back");
     assert!(sizes.iter().all(|(m, t)| m == t), "the size and mode 10: {:?}", sizes.iter().enumerate().find(|(_, (m, t))| m != t));
+}
+
+/// Level 12 standing where cine 66 leaves Tommy, nothing held, the game's
+/// rand (0x800c3f94) and the ambience's countdown (0x800c4cc0) given the
+/// original's: the ambience (0x800818e0, last in the frame, 0x8001886c)
+/// says the original's lines (0x8008da4c) on the original's frames.
+#[test]
+#[ignore]
+fn level_12_ambience_as_the_original() {
+    let Some(mut b) = Both::open(Boot { level: 12, ..Default::default() }) else { return };
+    for _ in 0..30 {
+        b.hle.frame(0).unwrap();
+    }
+    b.put([29611, -5365, 15428], 1024, 4);
+    b.game.rand.state = b.hle.read_u32(0x800c_3f94);
+    b.game.ambience = b.hle.read_i32(0x800c_4cc0);
+    let said: Rc<std::cell::RefCell<Vec<u16>>> = Rc::default();
+    {
+        use rrt::emu::Cpu;
+        let s = said.clone();
+        b.hle.hle.m.hook(0x8008_da4c, move |c| {
+            s.borrow_mut().push(c.cpu.reg(4) as u16);
+            rrt::emu::HookResult::Continue
+        });
+    }
+    let (mut mine, mut theirs) = (Vec::new(), Vec::new());
+    let mut f = 0;
+    let heard = said.clone();
+    b.script_with(&[(0, 1500)], |g, _| {
+        f += 1;
+        mine.extend(g.speech.iter().map(|&n| (f, n)));
+        theirs.extend(heard.borrow_mut().drain(..).map(|n| (f, n)));
+    });
+    eprintln!("lines: port {mine:?}\n       orig {theirs:?}");
+    assert!(theirs.len() >= 2 && mine == theirs, "the lines and their frames");
 }

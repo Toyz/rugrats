@@ -125,8 +125,9 @@ lobsters (0x4c08) have it.
 Template flag 8 is skipped by the object collision tests (0x80063d3c,
 0x80065210, 0x8006592c, 0x8006a824, 0x8006baa8, 0x8006c334). Setting it
 on templates 489, 566, 488 during the pie toss (0x8007bc60) and clearing
-it after (0x8007e3c0) makes those props non-solid (guess: so the pies
-roll past them).
+it after (0x8007e3c0) makes those props non-solid during the toss: the
+pies' flights pass them (0x8006a824) and they no longer hold Larry and
+Steve (worklog 203).
 
 Ids 61-71, 77 and 78, hidden by cine 13's end, are not in DB03
 (0x80078bc4 prints a warning and goes on).
@@ -250,7 +251,9 @@ Prints "starting pie toss...". The phase stays 1.
    (0x800c4a04 * 5 >> 7) - 168, y = 88 - (0x800c4a06 >> 4), scale (64,
    64, 1024), flag 1. In the oracle: bottom left, a portrait of the two.
 8. 0x800c4cd4 = pie 0 (0x800e2770[0]); reset (0x80049464); player +0x1f0
-   = pie 0 (Tommy holds it); pie 0 into its room's list.
+   = pie 0 (Tommy holds it); pie 0 out of its room's list (0x8001a810
+   removes: 0x80049380 calls it until none is left). No pie is listed:
+   the one in hand is drawn with the player (see level 16).
 9. MidiPlaySong(2, 0) (0x8006eac4).
 
 No timer is set. In the oracle at frame 4200 (900 frames in): Tommy at
@@ -335,8 +338,9 @@ table), but level 3 never sets the timer.
    76's templates); Larry and Steve unscheduled (0x80049e5c).
 2. Timer 0, +0x30 bit 8 off, player unfrozen (+0x188 bit 1 off), the
    gauge freed (0x8008c994(75)).
-3. A held pie goes to the room under it (0x8002b660, else the player's)
-   and into its list; +0x1f0 = 0; +0x188 bit 4 off.
+3. A held pie: the room under it (0x8002b660, else the player's), out
+   of that room's list (0x8001a810); +0x1f0 = 0, so it is no longer
+   drawn; +0x188 bit 4 off.
 4. Larry's or Steve's health 0: PostCine(13 "Mellon Rush"), room 19
    flag 2 off (cine 9 not re-armed), id 81 +0x54 = 0 (no balloon).
 5. Else: PostCine(15 "Larry and Steve Win"), room 19 flag 2 on (cine 9

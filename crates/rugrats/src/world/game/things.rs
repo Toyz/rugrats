@@ -721,8 +721,10 @@ impl Game {
 
     /// A pie toss starts (0x8007e680 / level 3's): the six pies' home is
     /// the pie spot, (0, 0, 512) turned by the player plus his place
-    /// (0x80049818), and they wait there; pie 0 is in hand (0x80049464,
-    /// +0x1f0). `target` and `flat` pick the throw's speed.
+    /// (0x80049818); pie 0 is in hand (0x80049464, +0x1f0) and in its
+    /// room's list, the others in none (made by 0x80049870 / 0x8004997c,
+    /// which link no room): out of the world until each is next.
+    /// `target` and `flat` pick the throw's speed.
     pub fn start_pie_toss(&mut self, target: u16, flat: bool) {
         let ahead = self.trig.turn_by([self.player.heading as i16, 0, 0], [0, 0, 512]);
         let me = self.player.pos;
@@ -733,15 +735,18 @@ impl Game {
             t.pos = Vec3::new(spot[0] as f32, t.pos.y, spot[2] as f32);
             t.state = ThingState::Rest;
             t.flown = None;
-            t.hidden = false;
+            t.hidden = true;
         }
         if let Some(&k) = self.pies().first() {
+            self.things[k].hidden = false;
             self.hold(k);
         }
     }
 
-    /// The pie toss over: the pie in hand put away with the others
-    /// (guess: the end's pies are not read).
+    /// The pie toss over: the pie in hand out of its room's list
+    /// (0x8001a810: level 16's 0x8007e904, level 3's 0x8007e3c0, which
+    /// takes the other five out too, 0x80049380). A pie whose flight is
+    /// done has left its room already, so all but the flying are out.
     pub fn end_pie_toss(&mut self) {
         self.pie_toss = None;
         if self.carried.is_some_and(|k| self.things[k].template == PIE) {

@@ -347,6 +347,9 @@ pub struct Game {
     pub ended: Vec<things::Ended>,
     /// Marks left by this frame's hits, drawn this frame only.
     pub marks: Vec<things::Mark>,
+    /// A guard that began an attack (0x800c443c), which level 5's
+    /// ambience reads and clears.
+    pub attacker: Option<usize>,
     /// This frame's solids and the character each is (none for an
     /// object), as the shots after the flights meet them.
     solids: Vec<crate::world::boxhit::Exact>,
@@ -1017,6 +1020,7 @@ impl Game {
             struck: Vec::new(),
             ended: Vec::new(),
             marks: Vec::new(),
+            attacker: None,
             solids: Vec::new(),
             npc_of: Vec::new(),
             movers,
@@ -1153,9 +1157,10 @@ impl Game {
     /// Where a cinematic's last frame leaves the level's own objects (its
     /// actors move them, 0x80073c34): the pose with the player's id moves
     /// the player (onto the floor; heading -2 atan2(y, w) of its root key),
-    /// the poses of characters the loader put in a room move them (one in
-    /// none, level 7's babies, stays out of play). Before CineFinish, which
-    /// may place them again.
+    /// the poses of characters move them, in a room or not, to the pose's
+    /// place as it is (0x80073f08 moves the character the registry has by
+    /// the id, unsettled, and puts it in the room at its new place,
+    /// 0x8004a218). Before CineFinish, which may place them again.
     pub fn cine_left(&mut self, last: &Frame) {
         for pose in &last.poses {
             if Some(pose.id) == self.player_id {
@@ -1170,10 +1175,7 @@ impl Game {
                     self.player.target = yaw;
                 }
             } else if let Some(k) = self.npcs.iter().position(|n| n.id as i16 == pose.id) {
-                if self.room_of(self.npcs[k].pos).is_some() {
-                    let col = &self.col;
-                    self.npcs[k].place(pose.pos, col);
-                }
+                self.npcs[k].pos = pose.pos;
             }
         }
     }
@@ -1328,12 +1330,10 @@ impl Game {
         // A training message (0x80097584): no player or world update, the
         // level timer stopped; the camera and drawing go on.
         // The ambience runs even while a message holds the world.
-        let cue = self.script.as_ref().map_or(0, |s| s.cue());
-        let lines = self.ambience_lines.clone();
-        ambience::frame(self, &lines, cue);
         let mut closed = Vec::new();
         if self.training.frame(pads, &mut closed) {
             self.effects.extend(closed.into_iter().map(Effect::new));
+            self.ambience();
             self.draw();
             return;
         }
@@ -1691,6 +1691,14 @@ impl Game {
             },
         };
         self.npc_events = npc::step(&mut self.npcs, &world, &mut self.rand);
+        // A guard's bite begun (mode 11 into its attack, 0x80084084 at
+        // 0x80085220): the last one this frame is 0x800c443c.
+        if let Some(by) = self.npc_events.iter().rev().find_map(|e| match e {
+            Event::Bite { by, .. } if matches!(self.npcs[*by].mode, Mode::Guard) => Some(*by),
+            _ => None,
+        }) {
+            self.attacker = Some(by);
+        }
         for k in 0..self.npcs.len() {
             self.consider_aim(k);
         }
@@ -1760,7 +1768,16 @@ impl Game {
         }
         self.room_change();
         self.talk();
+        // The ambience last (0x8001886c ends with 0x800818e0).
+        self.ambience();
         self.camera_frame(moved);
+    }
+
+    /// The level's ambience callback (0x800818e0).
+    fn ambience(&mut self) {
+        let cue = self.script.as_ref().map_or(0, |s| s.cue());
+        let lines = self.ambience_lines.clone();
+        ambience::frame(self, &lines, cue);
     }
 
     /// The camera's frame (0x8002953c) and the picture from it, `moved`

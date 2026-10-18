@@ -155,16 +155,15 @@ pub fn frame(g: &mut Game, t: &Tables, cue: i32) {
                 g.ambience += 1000;
             }
         }
-        // 0x80080ba8: a robot attacking within 5000 (guess: one guarding
-        // and within its range), floating, or else.
+        // 0x80080ba8: a guard that began an attack this frame (0x800c443c,
+        // cleared each call) within 5000 of its target (+0x674, the
+        // game's distance across), floating, or else.
         5 => {
             g.ambience -= dt;
             let p = g.player.pos;
-            let attacking = g.npcs.iter().any(|n| {
-                n.character == 35 && !n.hidden && matches!(n.mode, Mode::Guard) && {
-                    let (dx, dz) = ((n.pos[0] - p[0]) as i64, (n.pos[2] - p[2]) as i64);
-                    dx * dx + dz * dz < 5000 * 5000 && dx * dx + dz * dz < (n.range as i64).pow(2)
-                }
+            let attacking = g.attacker.take().is_some_and(|k| {
+                let n = &g.npcs[k];
+                crate::actors::npc::approx_dist(n.pos, p) < 5000
             });
             if g.ambience > 0 {
                 return;

@@ -13,7 +13,6 @@ const ANGELICA: u16 = 600;
 /// Her route (EpisodeStart 0x80079600): from post 50, reach 1536.
 const FIRST_POST: u8 = 50;
 const POST_REACH: i32 = 1536;
-const UPPER_FLOOR: i32 = -5120;
 /// The cookies (template 863, kind 4).
 const COOKIE: u16 = 863;
 const CINE_LOST: usize = 20;
@@ -29,16 +28,8 @@ pub struct CookieRace {
 
 impl CookieRace {
     pub fn start(g: &mut Game, _disc: &GameDisc) -> Result<CookieRace, String> {
-        // Her LP spot is off the map (cine 6 moves her): she starts at
-        // her first post (guess at where the cine leaves her).
-        let first = g.posts.get(FIRST_POST as usize - 1).map(|p| p.pos);
+        // (Cine 6 leaves her in the bedroom, `Game::cine_left`.)
         if let Some(k) = g.npcs.iter().position(|n| n.id == ANGELICA) {
-            if let Some(at) = first {
-                // Upstairs, with the bedroom: snapped from above the
-                // upper floor (-5120).
-                let feet = g.npcs[k].feet();
-                g.npcs[k].place([at[0], UPPER_FLOOR - 600 + feet, at[2]], &g.col);
-            }
             let n = &mut g.npcs[k];
             n.post_reach = POST_REACH;
             n.speed_index = 4;

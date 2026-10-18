@@ -1886,20 +1886,26 @@ fn a_thrown_thing_lands_on_an_object() {
 }
 
 /// Objects are drawn from their rooms' lists; a character placed in no
-/// room (the hub's Angelica, id 600; level 7's babies) is in none and is
-/// never drawn, while one in a room is.
+/// room (the hub's Angelica, id 600) is in none and is never drawn, while
+/// one in a room is. Level 7's babies, placed in none, are moved by cine
+/// 79's actors into room 12 (0x80073c34, 0x8004a34c), where the oracle
+/// has them: Tommy (id 1492) at (43394, -1012, -15004).
 #[test]
 fn characters_in_no_room_are_not_drawn() {
     let Some(disc) = disc() else { return };
-    for (level, gone) in [(1u8, &[600u16][..]), (7, &[1492, 1776, 608, 609][..])] {
-        let mut g = open(&disc, level);
-        run(&mut g, &[(&[], 2)], |_, _| {});
-        for &id in gone {
-            let k = g.npcs.iter().position(|n| n.id == id).expect("placed");
-            assert_eq!(g.npc_rooms[k], None, "level {level} id {id}");
-        }
-        assert!(level != 1 || g.npc_rooms.iter().any(|r| r.is_some()), "level {level}: no character in a room");
+    let mut g = open(&disc, 1);
+    run(&mut g, &[(&[], 2)], |_, _| {});
+    let k = g.npcs.iter().position(|n| n.id == 600).expect("placed");
+    assert_eq!(g.npc_rooms[k], None, "the hub's Angelica");
+    assert!(g.npc_rooms.iter().any(|r| r.is_some()), "no character in a room");
+    let mut g = open(&disc, 7);
+    run(&mut g, &[(&[], 2)], |_, _| {});
+    for id in [1492u16, 1776, 608, 609] {
+        let k = g.npcs.iter().position(|n| n.id == id).expect("placed");
+        assert_eq!(g.npc_rooms[k], Some(12), "level 7 id {id}");
     }
+    let k = g.npcs.iter().position(|n| n.id == 1492).expect("Tommy");
+    assert_eq!([g.npcs[k].pos[0], g.npcs[k].pos[2]], [43394, -15004], "level 7's Tommy");
 }
 
 /// Hole 26's Reptar (id 9999, mode 8) makes a noise every 1000 dt
@@ -3382,6 +3388,17 @@ fn the_start_cinematics_leave_the_player_as_the_original() {
         assert_eq!(g.player.pos, at, "level {level}");
         assert!(off.abs() <= 16, "level {level} heading {} not {heading}", g.player.heading);
     }
+}
+
+/// And the others its actors name, in a room or not (0x80073c34): level
+/// 13's Angelica, whose LP place is off the map, where the oracle has her
+/// after cine 6.
+#[test]
+fn a_start_cinematic_leaves_angelica_as_the_original() {
+    let Some(disc) = disc() else { return };
+    let g = open(&disc, 13);
+    let n = g.npcs.iter().find(|n| n.id == 600).expect("Angelica");
+    assert_eq!(n.pos, [23346, -5625, -4942]);
 }
 
 /// So does one in play: level 2's gap (cine 3) leaves Tommy on Spike where

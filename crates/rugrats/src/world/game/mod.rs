@@ -441,6 +441,10 @@ pub struct Game {
     pub pie_toss: Option<things::PieToss>,
     /// The player's aim target (+0x1f4, 0x80059b34): a character.
     pub aim_target: Option<usize>,
+    /// Or, with no character, the box toss's dummy (0x800e5778) at this
+    /// place: the knock puts it there (0x8005f3a4), and a character the
+    /// aim test finds nearer takes it back.
+    pub aim_dummy: Option<[i32; 3]>,
     /// A bonus level's fourth bar was earned (0x80076ba8 and friends).
     pub fourth_bar: bool,
     /// Activity play (+0x21).
@@ -971,6 +975,7 @@ impl Game {
                 idle_home: false,
                 ignores_player: false,
                 lunge_speed: 0,
+                aim: 0,
                 first_post: p.post,
                 loops: (p.level as i32, p.level as i32),
                 size: 0,
@@ -1122,6 +1127,7 @@ impl Game {
             aim: false,
             pie_toss: None,
             aim_target: None,
+            aim_dummy: None,
             damage_posted: Vec::new(),
             fourth_bar: false,
             activity: progress.activity(),

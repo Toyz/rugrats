@@ -189,11 +189,11 @@ pub struct Player {
     /// The template of the thing last run into this frame (its +0x6d is
     /// Damage, 0x800780ac), for the game.
     pub bumped: Option<u16>,
-    /// The bump's root keys had so far (x, z).
-    bump_root: [i32; 2],
-    /// The whole move across of the animation showing its last frame, so
-    /// that one run out gives the rest of it.
-    across_rest: Option<[i32; 2]>,
+    /// The bump's root keys had so far (x, z), by frame of its state.
+    bump_root: Vec<[i32; 2]>,
+    /// The whole move across of the animation showing its last frame, by
+    /// frame, so that one run out gives the rest of it.
+    across_rest: Option<Vec<[i32; 2]>>,
     /// Time falling (0x800c428c, summed in 0x80061330).
     air: i32,
     /// Slipping on floor flag 2 (states 3, 17, 18: 0x8005dedc), and the
@@ -328,7 +328,7 @@ impl Player {
             hints: Vec::new(),
             bumps: true,
             bumped: None,
-            bump_root: [0; 2],
+            bump_root: Vec::new(),
             across_rest: None,
             air: 0,
             slipping: false,
@@ -1447,27 +1447,39 @@ impl Player {
         // (Spike's throws him back), Chuckie's pick-up and put-down. (The
         // climb carries itself.)
         // (One run out this step gives what it still had first.)
+        // (Each frame's part turned by itself, as 0x80055904 turns each
+        // frame the time crosses.)
         let ground = self.climb.is_none() && !matches!(self.state, State::Jump | State::Fall);
-        let mut d = [0; 2];
+        let mut parts: Vec<[i32; 2]> = Vec::new();
         if self.animator.began() {
             if let Some(rest) = self.across_rest.take() {
-                d = [rest[0] - self.bump_root[0], rest[1] - self.bump_root[1]];
+                for (k, r) in rest.iter().enumerate() {
+                    let had = self.bump_root.get(k).copied().unwrap_or([0; 2]);
+                    parts.push([r[0] - had[0], r[1] - had[1]]);
+                }
             }
-            self.bump_root = [0; 2];
+            self.bump_root.clear();
         }
         self.across_rest = None;
         if self.animator.moves_across()
-            && let Some((done, total)) = self.animator.root_progress(anims)
+            && let Some(frames) = self.animator.root_parts_scaled(anims, None)
         {
-            d = [d[0] + done[0] - self.bump_root[0], d[1] + done[2] - self.bump_root[1]];
-            self.bump_root = [done[0], done[2]];
+            self.bump_root.resize(frames.len(), [0; 2]);
+            for (k, (done, _)) in frames.iter().enumerate() {
+                let had = self.bump_root[k];
+                parts.push([done[0] - had[0], done[2] - had[1]]);
+                self.bump_root[k] = [done[0], done[2]];
+            }
             let (_, first, count, cur, _) = self.animator.track();
             if cur + 1 == first + count {
-                self.across_rest = Some([total[0], total[2]]);
+                self.across_rest = Some(frames.iter().map(|(_, t)| [t[0], t[2]]).collect());
             }
         }
-        if ground && d != [0; 2] {
-            let w = trig.turn_by([self.heading as i16, 0, 0], [d[0], 0, d[1]]);
+        let w = parts.iter().filter(|d| **d != [0; 2]).fold([0; 3], |w, d| {
+            let t = trig.turn_by([self.heading as i16, 0, 0], [d[0], 0, d[1]]);
+            [w[0] + t[0], 0, w[2] + t[2]]
+        });
+        if ground && w != [0; 3] {
             let (dx, dz) = self.ground_step(col, w[0], w[2]);
             self.pos[0] += dx;
             self.pos[2] += dz;

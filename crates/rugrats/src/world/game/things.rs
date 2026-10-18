@@ -604,14 +604,22 @@ impl Game {
             }
             return;
         }
-        match self.aim_target {
-            Some(t) if t != k => {
-                let q = self.npcs[t].pos;
+        let held = match self.aim_target {
+            Some(t) if t != k => Some(self.npcs[t].pos),
+            Some(_) => None,
+            None => self.aim_dummy,
+        };
+        match held {
+            Some(q) => {
                 if dist(d) < dist([q[0] - p[0], q[1] - p[1], q[2] - p[2]]) {
                     self.aim_target = Some(k);
+                    self.aim_dummy = None;
                 }
             }
-            _ => self.aim_target = Some(k),
+            None => {
+                self.aim_target = Some(k);
+                self.aim_dummy = None;
+            }
         }
     }
 
@@ -892,6 +900,15 @@ impl Game {
         self.carried = Some(k);
         self.player.carrying = true;
         self.player.carry_climbs = !self.things[k].keep;
+    }
+
+    /// Puts thing `k` in the player's hand without taking a grip (0x8005ff88
+    /// mode 1 alone): the box toss's start and its body swap (0x80079cb0,
+    /// 0x8007a094) set +0x1f0 and place it, and no body there ever took a
+    /// grip (+0x1f8 as the body began, 0): it rides hand 15 itself.
+    pub fn hand_over(&mut self, k: usize) {
+        self.give(k);
+        self.grip = [0; 3];
     }
 
     /// Puts thing `k` in the player's hand as +0x1f0 alone does (the pie

@@ -54,6 +54,9 @@ struct Rules {
     throw_costs: bool,
     /// The round start swaps the player back into Tommy (0x8007a0ec).
     back_to_tommy: bool,
+    /// Where the round start puts the dummy the knock throws at
+    /// (0x800e5778, its place 0x800e5790..98: 0x80079cb0, 0x8007a094).
+    dummy: [i32; 3],
 }
 
 const RULES_20: Rules = Rules {
@@ -64,9 +67,18 @@ const RULES_20: Rules = Rules {
     eat: EAT,
     throw_costs: false,
     back_to_tommy: false,
+    dummy: [22086, 775, 12864],
 };
-const RULES_21: Rules =
-    Rules { item: 259, count: 20, won: 50, lost: 51, eat: 40, throw_costs: true, back_to_tommy: true };
+const RULES_21: Rules = Rules {
+    item: 259,
+    count: 20,
+    won: 50,
+    lost: 51,
+    eat: 40,
+    throw_costs: true,
+    back_to_tommy: true,
+    dummy: [6825, 775, 10814],
+};
 
 pub struct BoxToss {
     rules: Rules,
@@ -124,9 +136,6 @@ fn lob(trig: &crate::gte::Trig, from: [i32; 3], to: [i32; 3], up: bool) -> [i32;
     dir.map(|c| (c * k) >> 12)
 }
 
-/// The dummy the knock throws at (0x800e5778, its place 0x800e5790..98:
-/// set by the round start).
-const DUMMY: [i32; 3] = [22086, 775, 12864];
 /// The knock's throw (0x8005f3a4: animation 8 at 4096).
 const KNOCKED: i16 = 8;
 
@@ -196,7 +205,7 @@ impl BoxToss {
         if let Some(k) = g.things.iter().position(|t| t.template == item) {
             g.things[k].keep = true;
             g.things[k].world_only = true;
-            g.give(k);
+            g.hand_over(k);
         }
         for id in BABIES {
             if let Some(k) = find(g, id) {
@@ -246,9 +255,10 @@ impl BoxToss {
         g.player.v = [0; 3];
         g.forget_pose();
         g.aim_target = None;
+        g.aim_dummy = None;
         let item = self.rules.item;
         if let Some(b) = g.things.iter().position(|t| t.template == item) {
-            g.give(b);
+            g.hand_over(b);
         }
     }
 
@@ -369,11 +379,22 @@ impl Script for BoxToss {
                         g.play_at(121, at);
                     }
                     // The knock (0x8005f3a4): +0x30 |= 64; the player
-                    // throws the box nearly straight up at the dummy.
+                    // throws the box nearly straight up at its aim, the
+                    // dummy put there, unless a baby's aim test after her
+                    // (0x80059b34) finds a nearer one in view: the lob is
+                    // kept from there (0x80057bc4 into +0x200).
                     Event::Knock(k) if k == a && holding && !self.knocked => {
                         self.knocked = true;
                         g.player.act_at(KNOCKED, 4096, &g.anims);
-                        let v = lob(&g.trig, g.player.pos, DUMMY, true);
+                        g.aim_target = None;
+                        g.aim_dummy = Some(self.rules.dummy);
+                        for id in BABIES {
+                            if let Some(b) = find(g, id) {
+                                g.consider_aim(b);
+                            }
+                        }
+                        let to = g.aim_target.map_or(self.rules.dummy, |t| g.npcs[t].pos);
+                        let v = lob(&g.trig, g.player.pos, to, true);
                         g.throw_carried(v);
                     }
                     _ => {}

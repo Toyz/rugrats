@@ -214,6 +214,7 @@ impl GrandpasTeeth {
                 idle_home: false,
                 ignores_player: false,
                 lunge_speed: 0,
+                aim: 0,
                 first_post: 0,
                 loops: (0, 0),
                 size: 0,

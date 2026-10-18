@@ -159,6 +159,9 @@ pub struct Npc {
     /// speed kept through the lunge (+0x176).
     pub lunges: bool,
     pub lunge_speed: i32,
+    /// The heading its stick last asked (+0x2c, 0x800820e0): the body
+    /// turns to it at its rate.
+    pub aim: i32,
     /// LP +0x40.
     pub first_post: u8,
     /// Loop posts (flag 16): the count left and its reload (LP +0x42).
@@ -376,6 +379,7 @@ impl Npc {
                 long = speed + ((speed + ((speed as u32) >> 31) as i32) >> 1);
             }
         }
+        self.aim = want;
         let near = (self.heading - want).abs() < 1025;
         let v = if near { long } else if long < 0 { (long + 3) >> 2 } else { long >> 2 };
         let way = crate::actors::ground::set_length(trig.turn_by([self.heading as i16, 0, 0], [0, 0, v]), long, trig);
@@ -388,6 +392,15 @@ impl Npc {
         if body {
             self.drive_body(me, way, want, w);
         }
+    }
+
+    /// The body's turn toward its stick's last heading (+0x2c) at its rate
+    /// (0x8005bc80).
+    fn turn_to(&mut self) {
+        let want = self.aim;
+        let rate = if matches!(self.character, 6 | 34 | 45) { 298 } else { 1025 };
+        let turn = (rate * DT) >> 6;
+        self.heading = (self.heading + wrap(want - self.heading).clamp(-turn, turn)).rem_euclid(4096);
     }
 
     /// Its body set to the original's state (+0x18c: 0 stand, 1 walk, 2
@@ -715,6 +728,9 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 // across; stopped where it meets something (0x80066014),
                 // the player a knock; its end, mode 0 and the speed back.
                 Bite::Lunge => {
+                    // (The stick asks no turn under +0x688 bit 4
+                    // (0x80082264): the body turns to where it last asked.)
+                    n.turn_to();
                     if n.animator.events & 0x800_0000 != 0 {
                         // (Its last step still had, untested: 0x8005cb48
                         // adds +0xd8 after the handler.)
@@ -813,8 +829,30 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 // The lunge (0x80084df0): the way to the target clear,
                 // within the range, +0x688 bit 128: the speed kept
                 // (+0x176), mode 8 and state 28 (+0x688 |= 4: no turn).
+                // It goes on to the follow's speed by the distance and its
+                // stick (0x80084f28, 0x80082264) and body (0x80082230); the
+                // body, in state 28, does not step. Mode 8 keeps that speed for the lunge's end
+                // (0x80085110 into +0x176).
                 if seen && d < n.range && n.lunges {
-                    n.lunge_speed = n.speed;
+                    let speed = if d > 2 * n.range {
+                        2 * base
+                    } else if d >= n.range / 2 {
+                        base
+                    } else {
+                        0
+                    };
+                    n.lunge_speed = if speed != 0 { speed } else { n.speed };
+                    // (+0x688 bit 4 already: the stick asks no turn, only
+                    // its way round, 0x800825fc.)
+                    if speed != 0 {
+                        let side = match n.detour(k, p, w) {
+                            1 | 2 => 512,
+                            3 | 4 => -512,
+                            _ => 0,
+                        };
+                        n.heading = (n.heading + side).rem_euclid(4096);
+                    }
+                    n.turn_to();
                     n.speed = 0;
                     n.bite = Bite::Lunge;
                     n.animator.start_at(LUNGE, 4096, w.anims);

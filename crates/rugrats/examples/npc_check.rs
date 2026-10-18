@@ -37,6 +37,31 @@ fn tracks(p: &mut Play, o: u32) -> [[i16; 6]; 4] {
     std::array::from_fn(|k| std::array::from_fn(|i| p.read_i16(o + 0xa8 + 12 * k as u32 + 2 * i as u32)))
 }
 
+/// An object's animation as the original keeps it, for
+/// `Animator::load_record`: the tracks, the speed (+0xe4), the states after
+/// (+0xe6, +0xe7), the fidget (+0xf0, +0xf2) and each channel's kept
+/// quaternion (its part's +4).
+#[allow(clippy::type_complexity)]
+fn record(p: &mut Play, o: u32) -> ([[i16; 6]; 4], i32, (u8, u8), (i16, i32), Vec<Option<[i32; 4]>>) {
+    let t = tracks(p, o);
+    let speed = p.read_i16(o + 0xe4) as i32;
+    let after = (p.read_u8(o + 0xe6), p.read_u8(o + 0xe7));
+    let fidget = (p.read_i16(o + 0xf0), p.read_i16(o + 0xf2) as i32);
+    let hier = p.read_u32(o + 0x154);
+    let parts = p.read_i16(hier) as u32;
+    let mut pose = vec![None; 32];
+    for (channel, slot) in pose.iter_mut().enumerate() {
+        let part = p.read_u8(hier + 0x14 + channel as u32) as u32;
+        if part < parts {
+            let q = [0, 4, 8, 12].map(|c| p.read_i32(hier + 0x34 + 40 * part + 4 + c));
+            if q != [0; 4] {
+                *slot = Some(q);
+            }
+        }
+    }
+    (t, speed, after, fidget, pose)
+}
+
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let level: u8 = args.next().and_then(|s| s.parse().ok()).unwrap_or(1);
@@ -121,22 +146,7 @@ fn main() -> Result<(), String> {
     }
     // The port's animators given the original's.
     for &(k, o) in &pairs {
-        let t = tracks(&mut p, o);
-        let speed = p.read_i16(o + 0xe4) as i32;
-        let after = (p.read_u8(o + 0xe6), p.read_u8(o + 0xe7));
-        let fidget = (p.read_i16(o + 0xf0), p.read_i16(o + 0xf2) as i32);
-        let hier = p.read_u32(o + 0x154);
-        let parts = p.read_i16(hier) as u32;
-        let mut pose = vec![None; 32];
-        for (channel, slot) in pose.iter_mut().enumerate() {
-            let part = p.read_u8(hier + 0x14 + channel as u32) as u32;
-            if part < parts {
-                let q = [0, 4, 8, 12].map(|c| p.read_i32(hier + 0x34 + 40 * part + 4 + c));
-                if q != [0; 4] {
-                    *slot = Some(q);
-                }
-            }
-        }
+        let (t, speed, after, fidget, pose) = record(&mut p, o);
         let n = &mut g.npcs[k];
         n.animator.load_record(t, speed, after, fidget, pose, &g.anims);
         n.animator.mark_asked(n.hold.unwrap_or(0));
@@ -389,6 +399,8 @@ fn main() -> Result<(), String> {
                     // (May lunge, +0x688 bit 128, and its kept speed.)
                     n.lunges = p.read_u32(o + 0x688) & 128 != 0;
                     n.lunge_speed = p.read_i16(o + 0x176) as i32;
+                    // (The heading its stick last asked, +0x2c.)
+                    n.aim = p.read_i16(o + 0x2c) as i32 & 4095;
                 }
             }
         }
@@ -400,16 +412,27 @@ fn main() -> Result<(), String> {
         // moves first, 0x80018c38; the characters aim at it): the
         // original's frame run first, its player given the port's.
         if std::env::var_os("PLAYERSYNC").is_some() {
-            p.frame(pad)?;
-            g.player.pos = [0, 4, 8].map(|i| p.read_i32(0x800e_2b48 + 0x18 + i));
-            g.player.heading = p.read_i16(0x800e_2b48 + 0x24) as i32 & 4095;
-            // (And what it carries where the original's is: in its hand,
-            // as its pose has it.)
+            // (And what it carries where the original's was as its frame
+            // began: the hand puts it there after the objects' update.)
             let held = p.read_u32(0x800e_2b48 + 0x1f0);
+            let held_at = [0, 4, 8].map(|i| p.read_i32(held + 0x18 + i));
+            // PLAYERANIM=1: and its animation as the original's frame
+            // began, the port's step taking it on (its hand where the
+            // original's is).
+            if std::env::var_os("PLAYERANIM").is_some() {
+                let (t, speed, after, fidget, pose) = record(&mut p, 0x800e_2b48);
+                g.player.animator.load_record(t, speed, after, fidget, pose, &g.anims);
+            }
+            // PLAYERBEFORE=1: its place as the original's frame began, the
+            // port's own step moving it (a knocked player pushed back).
+            let before = ([0, 4, 8].map(|i| p.read_i32(0x800e_2b48 + 0x18 + i)), p.read_i16(0x800e_2b48 + 0x24) as i32 & 4095);
+            p.frame(pad)?;
+            let after = ([0, 4, 8].map(|i| p.read_i32(0x800e_2b48 + 0x18 + i)), p.read_i16(0x800e_2b48 + 0x24) as i32 & 4095);
+            (g.player.pos, g.player.heading) = if std::env::var_os("PLAYERBEFORE").is_some() { before } else { after };
             if held != 0
                 && let Some(k) = g.carried()
             {
-                let at = [0, 4, 8].map(|i| p.read_i32(held + 0x18 + i));
+                let at = held_at;
                 g.things[k].pos = rrt::glam::Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32);
             }
             g.frame(&pads);
@@ -441,6 +464,12 @@ fn main() -> Result<(), String> {
         // (The level left: no more to compare.)
         if let Some(e) = &g.exit {
             println!("{f:3} EXIT {e:?}");
+            break;
+        }
+        // (A cine begun: the app takes it after the frame, and the
+        // original's world waits on its ForceCry or cine.)
+        if let Some(c) = g.cine {
+            println!("{f:3} CINE {c}");
             break;
         }
         let dt = p.read_i32(0x800c_3e98) - clock;

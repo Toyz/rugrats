@@ -143,7 +143,9 @@ player's position and angles, phase 1 (0x80078d60).
    the first round this writes address 0x78; seen 0 at 2300).
 2. 0x800c4420 = 0, +0x30 bit 64 cleared.
 3. The box in hand: player +0x1f0 = box, the box out of the room lists
-   (0x80078b00), the grip (0x8005ff88(player, 1)). The hand model is not
+   (0x80078b00), placed (0x8005ff88(player, 1)). No grip is taken
+   (0x8005ff88's mode 0 never runs here), so +0x1f8 stays as the body
+   began, 0, and the box rides hand 15 itself. The hand model is not
    changed in level 20.
 4. The dummy's position (0x800e5790..98) = (22086, 775, 12864).
 5. Ids 1776, 608, 609: idle (0x80083918, mode 8), +0x688 |= 66 (2: go
@@ -307,9 +309,15 @@ code, not checked); see the floor-box loss below.
 
 Mode 4 (follow, 0x80084084 at 0x80084df0) with +0x678 = the box: she
 runs to the box. Within her range (2000, +0x68c) with a clear line
-(0x8002cd7c) and +0x688 bit 128: mode 8, state 28 (the lunge), +0x688 |=
-4. State 28 (0x8005f3a4, animation 43, sound 121) moves her until the
-animation ends (+0xe0 bit 0x8000000: mode 0, state 0, +0x688 bit 4
+(0x8002cd7c) and +0x688 bit 128: mode 8, state 28 (the lunge), +0x688
+|= 4. The frame she lunges still goes on to the follow's speed by the
+distance (0x80084f28) and her stick (0x80082264): with bit 4 the stick
+asks no turn (0x800820e0 skipped), but with a speed its way round
+(0x800825fc) still turns her 512 to the open side, and the body turns
+back toward her last asked heading (+0x2c) at 160 a frame (0x8005bc80)
+through the lunge. Mode 8 (0x80084fc4) keeps that speed in +0x176 for
+the lunge's end. State 28 (0x8005f3a4, animation 43, sound 121) moves
+her until the animation ends (+0xe0 bit 0x8000000: mode 0, state 0, +0x688 bit 4
 cleared; she goes back to following). While she moves, if she touches
 (+0xf4) the player holding the box, or the box while the player holds
 it:
@@ -328,13 +336,21 @@ ForceCry and bit 64 cleared. So a box on the floor is lost as soon as she
 lunges (from the code; not seen).
 
 The knock's lob (0x80057bc4) with +0x30 bit 64 starts from (0, -4096, 100)
-in place of (0, -2048, 2048), turned toward the dummy and made a unit;
-the distance in its speed is the game's (0x8001f57c).
+in place of (0, -2048, 2048), turned toward the target and made a unit;
+the distance in its speed is the game's (0x8001f57c). The target is
++0x1f4 as the characters after Angelica leave it: each baby's update
+runs the aim test (0x80059b34), which takes +0x1f4 from the dummy for a
+baby in view and nearer, and keeps the lob (+0x200..+0x20c) from there.
+The release (0x80060b44: +0x188 bit 4 with bit 64) is in the player's next
+update. In level 21 the box went up toward Phil, not the dummy.
 
-Compared in `npc_check` (PLAYERSYNC, cinematics played): Angelica's
-lunges, stops against Lil and the ball, and her way back to the box match
-the original's on 297 of 300 frames; the babies (mode 8, +0x688 66: home
-past half the range, facing the player, the turn in place) on all.
+Compared in `npc_check` (FAST, PLAYERSYNC, PLAYERBEFORE, PLAYERANIM,
+cinematics played): Angelica's lunges, stops against Lil and the ball,
+and her way back to the box match the original's on all 300 frames, and
+the babies (mode 8, +0x688 66: home past half the range, facing the
+player, the turn in place) on all. Level 21's run matches to its knock's
+loss (cine 51 at frame 38): the box's ride in hand, its lob, the player's
+push and the babies turning to it.
 
 Seen: Angelica reached Tommy standing at the start spot at about 2500
 (state 28), the knock at 2514 (bit 64), the throw at 2516, ForceCry
@@ -538,9 +554,6 @@ the 3-bar award. Level 20 needs, in order:
 
 - How the kind 3 camera uses the box as its subject.
 - Whether the pitch limit of the cone matters in the flat kitchen.
-- The lob's other case: with 0x800c56a8 bit 64 (set by 0x8005f3a4, which
-  also makes 0x800e5778 the target) the direction is (0, -4096, 100) at
-  speed 100.
 - What happens on a miss in practice (the floor-box loss is from the
   code), and whether Angelica can be outrun for 15 eats.
 - What state 20 is for the new player after a swap (handler 0x8005cc24 is

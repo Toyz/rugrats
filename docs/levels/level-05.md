@@ -589,7 +589,13 @@ riders, `game.rs`). Level 5 needs, in order:
   frames (track state 49), mode 0, mode 11, and the next attack: one
   every 23 frames. The port's guard attacks on reaching, without the
   turn or the wait (the damage 3 frames early); its idle is track
-  state 0 where the original's is 63.
+  state 0 where the original's is 63. State 63 is logical 53, the turn
+  in place that the stand (0x8005d11c) asks when 0x80059204 answers
+  below 0 (52, state 64, above); but 0x80059204 answers 0 for a
+  character without +0x688 bit 0x10000, and the robots' +0x688 is
+  0x200a, so what asks 53 for them is not found. The attack waits for
+  0x80083ff0: the robot's hover (its lift, -9068 coming down to -8302)
+  brings its box level with Angelica's on the attack's frame.
 - 8801 (template 1268): what it looks like; whether it blocks the way
   back to the lower deck (guess).
 - Who uses posts 10-15 (the robots do not).

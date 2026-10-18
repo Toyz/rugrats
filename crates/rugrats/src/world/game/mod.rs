@@ -46,7 +46,7 @@ mod goodies;
 mod movers;
 mod pause;
 mod rooms;
-mod shadow;
+pub mod shadow;
 mod story;
 mod things;
 mod toys;

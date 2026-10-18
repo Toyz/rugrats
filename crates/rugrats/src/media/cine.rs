@@ -314,6 +314,57 @@ impl Set {
     }
 }
 
+/// What a cine's shadows are drawn with: the GTE's tables, the floors
+/// (COL) and the shadow's sprite (TEXPOS 261).
+pub struct Shadows {
+    trig: Trig,
+    col: rugrats_data::col::Col,
+    sprite: rugrats_data::level::Texture,
+}
+
+impl Shadows {
+    pub fn load(disc: &GameDisc, db: usize) -> Result<Shadows, String> {
+        let sprite = hud::Sprites::load(disc, db)?.texture(crate::world::game::shadow::SPRITE).copied().ok_or("no shadow sprite")?;
+        Ok(Shadows { trig: Trig::load(disc)?, col: rugrats_data::col::Col::parse(&disc.file(466 + db)?)?, sprite })
+    }
+}
+
+impl Set {
+    /// The posed characters' shadows in frame `f` (0x8003414c, as play's):
+    /// each posed from the stream's keys as the original's parts are, on
+    /// the floor under where the stream puts it (+0x13c there: no object
+    /// top is met in the cines run).
+    pub fn shadows(&self, f: &Frame, s: &Shadows, out: &mut Vec<Vtx>) {
+        for (_, q) in self.shadow_quads(f, s) {
+            q.triangles(&s.sprite, out);
+        }
+    }
+
+    /// [`Set::shadows`]' quads, by the posed object's id.
+    pub fn shadow_quads(&self, f: &Frame, s: &Shadows) -> Vec<(i16, crate::world::game::Quad)> {
+        use crate::world::game::shadow;
+        let mut out = Vec::new();
+        for pose in &f.poses {
+            let Some(place) = self.placements.iter().find(|p| p.kind == 1 && p.id as i16 == pose.id) else { continue };
+            let hierarchy = self.templates.get(place.template as usize).and_then(|t| t.hierarchy());
+            let Some(Some(h)) = hierarchy.and_then(|i| self.hierarchies.get(i)) else { continue };
+            let mut turns = vec![None; h.parts.len()];
+            for &(channel, q) in &pose.keys {
+                let part = h.header.get(0x14 + channel as usize).copied().unwrap_or(0xff);
+                if let Some(slot) = turns.get_mut(part as usize) {
+                    *slot = Some(q.map(|v| v as i32));
+                }
+            }
+            let parts = crate::actors::pose::posed(&s.trig, h, &turns, [0; 3], pose.pos).0;
+            let floor = shadow::tile_floor(&s.col, pose.pos, place.pos[1]);
+            if let Some(q) = shadow::quad(&s.trig, h, &parts, floor) {
+                out.push((pose.id, q));
+            }
+        }
+        out
+    }
+}
+
 fn vec3(p: [i32; 3]) -> Vec3 {
     Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32)
 }
@@ -424,6 +475,9 @@ pub struct Cine {
     pub stage: Stage,
     /// Its lens's projection distance (`focal`).
     focal: f32,
+    /// What its characters' shadows are drawn with (none in the opening's,
+    /// whose init clears 0x800c3fc4).
+    shadows: Option<Shadows>,
     /// Whether it fades out at its end, and how far it has.
     fades: bool,
     fade: i32,
@@ -449,8 +503,10 @@ impl Cine {
             if n == ending::CINE { Some((Ending::new(), Trig::load(disc)?, Fonts::load(disc)?)) } else { None };
         let fades = music_flags(disc, n) & 1 == 0;
         let focal = focal(disc, &Trig::load(disc)?, n);
+        let shadows = if n == ending::CINE { None } else { Shadows::load(disc, db).ok() };
         Ok(Cine {
             focal,
+            shadows,
             set,
             stream,
             started: now,
@@ -489,7 +545,11 @@ impl Cine {
         }
         self.stage.vram_rev += 1;
         let f = &self.stream.frames[k].1;
-        self.stage.set_moving(self.set.objects(f));
+        let mut moving = self.set.objects(f);
+        if let Some(s) = &self.shadows {
+            self.set.shadows(f, s, &mut moving);
+        }
+        self.stage.set_moving(moving);
         self.stage.camera = camera(f, self.focal);
         self.stage.overlay.clear();
         if let Some((e, trig, fonts)) = &self.ending

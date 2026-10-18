@@ -725,9 +725,10 @@ another (+0x00 0x80000) or level 3's cine 15 runs (+0x30 bit 128):
   floor. It is a POLY_FT4 (code 0x2e) of TEXPOS entry 261 (0x800c4484 +
   3132: a 64-texel blob at (128, 128) of page 0x1b, CLUT 0x7dec), grey
   128, its page | 64: subtracted.
-- **Switch**: 0x800c3fc4, off for the opening cine (0x8008f078) and on
-  for play (0x8008f308). The cines draw through the same render, so
-  their characters have shadows too.
+- **Switch**: 0x800c3fc4, off for the opening cine (0x8008f078 to
+  0x8008f308). The other cines draw through the same render, so their
+  characters have shadows too, on the floor under where the stream puts
+  them (`level_1_cine_shadows_as_the_original`: all 3473 of cine 7).
 
 The draw runs a frame behind the update: the quad the oracle builds at
 0x80034518 is the port's of the frame before

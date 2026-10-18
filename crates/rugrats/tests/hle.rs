@@ -1716,3 +1716,64 @@ fn level_1_shadow_as_the_original() {
     }
     assert!(off.is_empty(), "the original's shadow quad, off at {off:?}");
 }
+
+/// Level 1's start cine (7) with its cinematics played: every character's
+/// shadow quad (0x8003414c at 0x80034518, by the object's id +0x38 and the
+/// cine frame 0x800c4c34) as the port's cine player builds it from the
+/// same stream frame: posed from the keys, on the floor under where the
+/// stream puts it.
+#[test]
+#[ignore]
+fn level_1_cine_shadows_as_the_original() {
+    use rrt::emu::{BusExt, Cpu};
+    use rugrats::media::cine::{Set, Shadows, Stream};
+    use rugrats::world::game::Quad;
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+    let Some(cue) = cue() else { return };
+    let disc = GameDisc::open(&cue).unwrap();
+    type Seen = BTreeMap<(u32, u16, i16), Quad>;
+    let theirs: Rc<RefCell<Seen>> = Rc::default();
+    let cines: Rc<RefCell<Vec<u32>>> = Rc::default();
+    let drawing: Rc<RefCell<i16>> = Rc::default();
+    let (t, d1, d2, c1, c2) = (theirs.clone(), drawing.clone(), drawing.clone(), cines.clone(), cines.clone());
+    Play::boot_with(Rc::new(rrt::disc::Image::open(&cue).unwrap()), Boot { level: 1, cinematics: true, ..Default::default() }, move |hle| {
+        hle.m.hook(0x8007_424c, move |c| {
+            c1.borrow_mut().push(c.cpu.reg(4) as u32);
+            rrt::emu::HookResult::Continue
+        });
+        hle.m.hook(0x8003_414c, move |c| {
+            *d1.borrow_mut() = c.bus.read_u16(c.cpu.reg(22) as u32 + 0x38).unwrap_or(0) as i16;
+            rrt::emu::HookResult::Continue
+        });
+        hle.m.hook(0x8003_4518, move |c| {
+            let frame = c.bus.read_u16(0x800c_4c34).unwrap_or(0);
+            if frame != 0 {
+                let sp = c.cpu.reg(29) as u32;
+                let at = [0x44u32, 0x48, 0x4c].map(|a| c.bus.read_u32(sp + a).unwrap_or(0) as i32);
+                let mut h = |a: u32| c.bus.read_u16(sp + a).unwrap_or(0) as i16 as i32;
+                let q = Quad { facing: [h(0x20), h(0x28)], lo: [h(0x50), h(0x52), h(0x54)], hi: [h(0x58), h(0x5a), h(0x5c)], at };
+                let n = c2.borrow().last().copied().unwrap_or(0);
+                t.borrow_mut().insert((n, frame, *d2.borrow()), q);
+            }
+            rrt::emu::HookResult::Continue
+        });
+    })
+    .unwrap();
+    let n = *cines.borrow().last().unwrap();
+    assert_eq!(n, 7, "level 1's start cine");
+    let (set, shadows, stream) = (Set::load(&disc, 1).unwrap(), Shadows::load(&disc, 1).unwrap(), Stream::read(&disc, 7).unwrap());
+    let theirs = theirs.borrow();
+    let (mut same, mut off) = (0, Vec::new());
+    for (_, f) in &stream.frames {
+        for (id, q) in set.shadow_quads(f, &shadows) {
+            match theirs.get(&(n, f.number, id)) {
+                Some(o) if *o == q => same += 1,
+                Some(o) => off.push((f.number, id, q, *o)),
+                None => {}
+            }
+        }
+    }
+    eprintln!("{same} the same, {} off, first {:?}", off.len(), off.first());
+    assert!(same > 1000 && off.is_empty(), "the original's cine shadows");
+}

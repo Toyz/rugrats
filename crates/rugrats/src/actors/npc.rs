@@ -311,7 +311,13 @@ impl Npc {
     fn steer(&mut self, me: usize, goal: [i32; 3], speed: i32, w: &World, body: bool) {
         let trig = w.trig;
         let want = trig.ratan2(goal[0] - self.pos[0], goal[2] - self.pos[2]) & 4095;
-        let d = wrap(want - self.heading);
+        // (0x800820e0: from 2049 less a turn, under -2048 plus one, so a way
+        // straight behind, 2048, is turned to the positive side.)
+        let d = match want - self.heading {
+            a if a >= 2049 => a - 4096,
+            a if a < -2048 => a + 4096,
+            a => a,
+        };
         let d = if d.abs() < TURN { d } else { TURN * d.signum() };
         self.heading = (self.heading + d).rem_euclid(4096);
         // A way round what blocks the way to the goal (0x800825fc): a
@@ -766,6 +772,16 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     // to the player clear, and the two bodies level
                     // (0x80083ff0: their boxes' heights overlapping).
                     if approx_dist(n.pos, p) < n.reach {
+                        // Stopped (+0x184 into +0x176), it still turns to
+                        // the player: the stick's 512 and the body's 160.
+                        // Turning so, standing, 0x800820e0 sets +0x688 bit
+                        // 0x10000 and the stand asks the turn in place
+                        // (logical 53, state 63, 0x8005d11c).
+                        let was = n.heading;
+                        n.steer(k, p, 0, w, true);
+                        if n.heading != was {
+                            n.animator.set(TURN_IN_PLACE, w.anims);
+                        }
                         n.speed = 0;
                         let (ty, tb) = (w.player_y, w.player_box_y);
                         let (my, mb) = (n.pos[1] + n.root.y, n.box_y());
@@ -929,6 +945,10 @@ fn next_post(p: &Post, prev: u8, rand: &mut Rand) -> u8 {
 /// The root motion's reference height (0x800c41dc, peeked in levels 1, 4
 /// and 6): a body other than the player's moves by its root offset over it.
 const ROOT_SCALE: i32 = -561;
+
+/// The turn in place a standing character plays (logical 53, table state
+/// 63: 0x8005d11c's ask when 0x80059204 answers below 0).
+const TURN_IN_PLACE: i16 = 53;
 
 /// The NPC's triangles.
 pub fn triangles(n: &mut Npc, models: &Models, trig: &Trig, out: &mut Vec<Vtx>) {

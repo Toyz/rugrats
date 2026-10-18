@@ -667,6 +667,19 @@ out calls +0x4c. A placement with a speech line (LP +0x4c) gets
 0x8004d0f0 / 0x8004d160: in the player's room it plays line +0x94 through
 0x8008da4c (XA speech).
 
+The list is built by the loader (0x800454dc): each placed object, in LP
+order, whose init gave it an enter callback (+0x48) is pushed on the
+front (0x8001a1c0), so the list runs from the last placed to the first;
+later additions (EpisodeStart's, 0x80049af4's copies, 0x8007914c) go in
+front of those. The cursor (0x800c4c20) goes on from where it stopped,
+back to the front at the end. Seen in level 5 (51 entries: sound objects
+1139, movers 1156, the sliding doors 843, the robots and others; the
+cursor at the 25th): Angelica put beside robot 13002, the 43rd, it is
+scheduled on the fourth frame, five a frame from the cursor, and holds
+still until then. The port tests every character with a trigger every
+frame; which inits set +0x48 (0x80049e18 and a dozen others) is not yet
+mapped.
+
 ### Doors (0x8004f78c)
 
 A placement with LP +0x42 (a level) gets use = 0x8004f78c: unless

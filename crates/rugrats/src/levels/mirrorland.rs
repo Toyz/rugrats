@@ -10,12 +10,11 @@ use rugrats_render::Vtx;
 use crate::actors::player::Pose;
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::{self, Collected, Game, Script};
+use crate::world::game::{self, Collected, Game, Script, Touched};
 
 /// The boxes (template 1102, ids 207-212) and the room each stands in;
 /// the room's (group, slot) (0x8007d02c).
 const BOXES: [(u16, usize); 6] = [(207, 25), (208, 19), (209, 21), (210, 5), (211, 2), (212, 45)];
-const BOX_REACH: i64 = 1300;
 /// Rooms to (group, slot): slot order 3, 1, 2, 0, 4, 5 from LP order.
 fn colour_of(room: usize) -> Option<(u16, usize)> {
     Some(match room {
@@ -189,20 +188,13 @@ impl Script for Mirrorland {
                 }
             }
         }
-        // Triangle beside a box (0x8004d434), none running.
+        // Triangle with a box touched (ACTION's use, 0x800631d8 ->
+        // 0x8004d434), none running.
         if pads.pressed(0, input::TRIANGLE) && self.running.is_none() {
-            let p = g.player.pos;
-            let near = BOXES.iter().find_map(|&(id, _)| {
-                g.set
-                    .placements
-                    .iter()
-                    .find(|q| q.kind == 1 && q.id == id)
-                    .filter(|q| {
-                        let (dx, dz) = ((q.pos[0] - p[0]) as i64, (q.pos[2] - p[2]) as i64);
-                        dx * dx + dz * dz < BOX_REACH * BOX_REACH && !g.is_hidden(id)
-                    })
-                    .map(|_| id)
-            });
+            let near = match g.touched_any() {
+                Some(Touched::Placement(k)) => g.set.placements.get(k).map(|q| q.id).filter(|id| BOXES.iter().any(|b| b.0 == *id)),
+                _ => None,
+            };
             if let (Some(id), Some(room)) = (near, g.current_room()) {
                 self.open(g, id, room);
             }

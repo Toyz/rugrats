@@ -218,7 +218,7 @@ fn steer(g: &Game, h: i32) -> &'static [usize] {
         .map(|(w, keys)| (off(c + w - me), *keys))
         .filter(|(t, _)| t.signum() == d.signum() && t.abs() >= d.abs())
         .min_by_key(|(t, _)| t.abs())
-        .map_or(&[], |(_, keys)| keys)
+        .map_or_else(|| toward(g, h), |(_, keys)| keys)
 }
 
 /// Golf's aim (0x8005be24 in state 14): Left and Right turn 25 a frame, 8
@@ -686,6 +686,9 @@ fn win_15(g: &mut Game) {
         if ((b[0] - me[0]) as i64).pow(2) + ((b[2] - me[2]) as i64).pow(2) > 1000 * 1000 {
             stride_to(g, b[0], b[2], 950, 40);
         }
+        // Facing it: ACTION takes only what is within a quarter turn
+        // (0x800631d8).
+        face(g, b);
         let mut pieces = 0;
         run(g, &[(&[], 4), (&[input::TRIANGLE], 1), (&[], 2)], |g, _| pieces = pieces.max(g.flights.shards().count()));
         assert!(g.is_hidden(id), "box {id} did not open: Tommy at {:?}, the box at {b:?}, put at {at:?}", g.player.pos);
@@ -713,8 +716,8 @@ fn level_9_mr_friend_is_won() {
 /// Level 9 won by play (the test above).
 fn win_9(g: &mut Game) {
     // He comes after Tommy: one far off (46 waits at home after cine 18)
-    // is gone up to; one near is steered at and kicked (Triangle within
-    // 1100 of him).
+    // is gone up to; one near is steered at and kicked (Triangle with him
+    // the touched object, 0x800631d8).
     let friends = [46u16, 91, 800];
     let nearest = |g: &Game| {
         let me = g.player.pos;
@@ -728,8 +731,17 @@ fn win_9(g: &mut Game) {
         }
         let cine = play(g, 30 * 6, |g, f| {
             let Some((_, at, d2)) = nearest(g) else { return vec![] };
-            let mut keys = if d2 > 700 * 700 { steer_at(g, at).to_vec() } else { vec![] };
-            if d2 < 1000 * 1000 && f % 4 == 0 {
+            // A ball in the way is the touched object (nearer than him; run
+            // into, it stops Tommy): taken up (Circle) and thrown at him
+            // (Triangle; level 9's throw aims at +0x1f4).
+            if g.carried().is_some() {
+                return if f % 4 == 0 { vec![input::TRIANGLE] } else { vec![] };
+            }
+            if matches!(g.touched_any(), Some(rugrats::world::game::Touched::Thing(_))) {
+                return if f % 4 == 0 { vec![input::CIRCLE] } else { vec![] };
+            }
+            let mut keys = if d2 > 500 * 500 { steer_at(g, at).to_vec() } else { vec![] };
+            if d2 < 900 * 900 && f % 4 == 0 {
                 keys.push(input::TRIANGLE);
             }
             keys

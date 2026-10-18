@@ -7,7 +7,7 @@
 use crate::actors::npc::{Bite, Event, Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
-use crate::world::game::{Effect, Game, Script, Strike};
+use crate::world::game::{Effect, Game, Script, Strike, Touched};
 
 /// The Mr. Friends (char 16): 46 first, 91 and 800 after cine 18.
 const FRIENDS: [u16; 3] = [46, 91, 800];
@@ -18,8 +18,6 @@ const FRIEND_START: [i32; 3] = [29306, 7694, -11911];
 /// His bite (+0x6d of char 16) and Tommy's kick (+0x6d 50).
 const BITE: i32 = 15;
 const KICK: i32 = 50;
-/// Touching him: he stops within range / 2 (1000) to bite.
-const KICK_REACH: i64 = 1100;
 /// Cines: the first death (18), the last (19).
 const CINE_MORE: usize = 18;
 const CINE_WON: usize = 19;
@@ -174,11 +172,11 @@ impl Script for MrFriend {
         }
         // The kick (state 12, 0x800833a4): Triangle with him touching.
         if pads.pressed(0, input::TRIANGLE) && g.carried().is_none() && g.player.action.is_none() {
-            let p = g.player.pos;
-            let near = g.npcs.iter().position(|n| {
-                let (dx, dz) = ((n.pos[0] - p[0]) as i64, (n.pos[2] - p[2]) as i64);
-                FRIENDS.contains(&n.id) && !n.hidden && dx * dx + dz * dz < KICK_REACH * KICK_REACH
-            });
+            // (The touched object, 0x800631d8: him.)
+            let near = match g.touched_any() {
+                Some(Touched::Npc(k)) if FRIENDS.contains(&g.npcs[k].id) => Some(k),
+                _ => None,
+            };
             if let Some(k) = near {
                 let a = if self.l14 || g.rand.next() & 1 == 0 { 50 } else { 37 };
                 g.player.act(a, &g.anims);

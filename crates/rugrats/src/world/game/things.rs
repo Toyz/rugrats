@@ -119,6 +119,10 @@ pub struct Mark {
     pub grey: u8,
 }
 
+/// A character's size (+0x86): the radius the nearby list (0x8006abbc)
+/// and the collision screens take it by.
+const CHARACTER_SIZE: i32 = 8192;
+
 /// What ACTION's use takes (`Game::touched_any`): a thing, a character
 /// or a door, by its index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,6 +130,8 @@ pub enum Touched {
     Thing(usize),
     Npc(usize),
     Door(usize),
+    /// Another placed object (its placement), a box or a sign.
+    Placement(usize),
 }
 
 /// The farthest corner of boxes (lo, hi) from their origin.
@@ -1072,8 +1078,8 @@ impl Game {
 
     /// What ACTION's use takes (0x800631d8 into +0xf4, then its +0x54):
     /// the nearest the player reaches of everything in his nearby list,
-    /// the things as GRAB sees them, the characters by their hierarchy's
-    /// box (+0x154 + 4), the doors by their model's boxes.
+    /// the things as GRAB sees them, the characters by their size (8192),
+    /// the doors and other objects by their model's boxes.
     pub fn touched_any(&self) -> Option<Touched> {
         let mut best: Option<(Touched, i32)> = None;
         let mut keep = |t: Touched, d: Option<i32>| {
@@ -1087,15 +1093,30 @@ impl Game {
             let t = &self.things[k];
             keep(Touched::Thing(k), Some(((t.pos.x as i32 - self.player.pos[0]) as f32).hypot((t.pos.z as i32 - self.player.pos[2]) as f32) as i32));
         }
+        // (A character's +0x86, the nearby list's radius, 0x8006abbc, is
+        // 8192, about the middle of its bound cube of 1773.)
         for (k, n) in self.npcs.iter().enumerate().filter(|(_, n)| !n.hidden) {
-            let h = |at: usize| n.hierarchy.header.get(at..at + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
-            let radius = corner_radius(&[([h(4), h(6), h(8)].map(|v| v as i16), [h(0xc), h(0xe), h(0x10)].map(|v| v as i16))]);
-            keep(Touched::Npc(k), self.reaches(n.pos, radius));
+            keep(Touched::Npc(k), self.reaches(n.pos, CHARACTER_SIZE));
         }
         for (k, door) in self.doors.iter().enumerate() {
             let radius = self.set.models.get(door.shape).map_or(0, |m| corner_radius(&m.boxes));
             let at = self.set.placements.get(door.placement).map_or([0; 3], |q| q.pos);
             keep(Touched::Door(k), self.reaches(at, radius));
+        }
+        for (k, q) in self.set.placements.iter().enumerate() {
+            if q.kind != 1
+                || self.is_hidden(q.id)
+                || self.things.iter().any(|t| t.placement == k)
+                || self.doors.iter().any(|d| d.placement == k)
+            {
+                continue;
+            }
+            let Some(t) = self.set.templates.get(q.template as usize) else { continue };
+            if t.hierarchy().is_some() {
+                continue;
+            }
+            let Some(m) = self.set.models.get(t.shape as u32) else { continue };
+            keep(Touched::Placement(k), self.reaches(q.pos, corner_radius(&m.boxes)));
         }
         best.map(|(t, _)| t)
     }

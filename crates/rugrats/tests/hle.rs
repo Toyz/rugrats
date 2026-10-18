@@ -1310,3 +1310,39 @@ fn level_6_box_into_a_box_as_the_original() {
     assert!(port.iter().any(|p| p.state == 9), "the bump");
     assert!(turned <= 1, "the heading, {turned} off");
 }
+
+/// Level 9 past cine 17: Tommy put 600, 1000, 1400 and 2200 short of Mr.
+/// Friend facing him, and 600 short facing away (his places the
+/// original's), Triangle once. ACTION's touched object (0x800631d8: in
+/// the nearby list, a character by its size 8192, 0x8006abbc; within the
+/// body's depth and 1800, and a quarter turn) is him or nothing: the kick
+/// (state 12) on the original's frame, or none on both.
+#[test]
+#[ignore]
+fn level_9_kick_as_the_original() {
+    use rugrats::input::TRIANGLE;
+    for (d, heading) in [(600, 0), (1000, 0), (1400, 0), (2200, 0), (600, 2048)] {
+        let Some(mut b) = Both::open(Boot { level: 9, cinematics: true, ..Default::default() }) else { return };
+        for _ in 0..900 {
+            b.hle.frame(0).unwrap();
+        }
+        let (k, _) = sync_npc(&mut b, 46);
+        let at = b.game.npcs[k].pos;
+        let floor = b.game.player.pos[1];
+        b.put([at[0], floor, at[2] - d], heading, 2);
+        let (k, o) = sync_npc(&mut b, 46);
+        let (mut mine, mut theirs) = (None, None);
+        let mut f = 0;
+        b.script_with(&[(bits(&[TRIANGLE]), 1), (0, 12)], |g, h| {
+            f += 1;
+            if mine.is_none() && matches!(g.player.action, Some(37 | 50)) {
+                mine = Some(f);
+            }
+            if theirs.is_none() && h.read_u8(rugrats_hle::play::PLAYER + 0x18c) == 12 {
+                theirs = Some(f);
+            }
+        });
+        eprintln!("d {d} heading {heading}: kick port {mine:?} orig {theirs:?}, him at {:?} / {:?}", b.game.npcs[k].pos, [0, 4, 8].map(|i| b.hle.read_i32(o + 0x18 + i)));
+        assert_eq!(mine, theirs, "the kick at {d}, heading {heading}");
+    }
+}

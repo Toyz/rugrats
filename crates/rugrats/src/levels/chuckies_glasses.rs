@@ -11,7 +11,7 @@ use crate::actors::player::{DT, Pose};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
 use crate::levels::Level;
-use crate::world::game::{self, Exit, Game, Script};
+use crate::world::game::{self, Exit, Game, Script, Touched};
 
 /// The hiders' animation while hidden (logical 46).
 const HIDING: i16 = 46;
@@ -24,9 +24,8 @@ const HOME_POST: usize = 120;
 /// The playpen: the catch runs while it is the object in focus
 /// (0x8005ae98: +0x1e8 of template 1032, 0x8007f2e8).
 const PEN: u32 = 1032;
-/// Running speed (table row 1, index 4) and the tag's reach.
+/// Running speed (table row 1, index 4).
 const RUN: i32 = 11;
-const TAG_REACH: i64 = 900;
 const CINE_WON: usize = 78;
 
 struct Baby {
@@ -148,14 +147,13 @@ impl Script for ChuckiesGlasses {
         // The tag (0x800831a4): Triangle or Circle beside a hiding baby,
         // none running.
         if (pads.pressed(0, input::TRIANGLE) || pads.pressed(0, input::CIRCLE)) && !self.running(g) {
-            let p = g.player.pos;
+            // (The touched object, 0x800631d8: a hiding baby.)
+            let touched = match g.touched_any() {
+                Some(Touched::Npc(k)) => Some(k),
+                _ => None,
+            };
             let near = self.babies.iter().position(|b| {
-                !b.caught
-                    && find(g, b.id).is_some_and(|k| {
-                        let n = &g.npcs[k];
-                        let (dx, dz) = ((n.pos[0] - p[0]) as i64, (n.pos[2] - p[2]) as i64);
-                        hiding(&n.mode) && dx * dx + dz * dz < TAG_REACH * TAG_REACH
-                    })
+                !b.caught && find(g, b.id).is_some_and(|k| touched == Some(k) && hiding(&g.npcs[k].mode))
             });
             if let Some(i) = near
                 && let Some(k) = find(g, self.babies[i].id)

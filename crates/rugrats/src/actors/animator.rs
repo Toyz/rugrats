@@ -128,6 +128,37 @@ fn next(state: i16) -> Option<i16> {
     }
 }
 
+/// Sets animation `a`'s frame `i`'s events (0x800573b0: in the shared
+/// frame table, so for every body that plays it).
+fn set_events(anims: &mut Anims, a: usize, i: u16, events: u16) {
+    if let Some(Some((first, count))) = anims.index.get(a).copied()
+        && i < count
+        && let Some(f) = anims.frames.get_mut((first + i) as usize)
+    {
+        f.events = events;
+    }
+}
+
+/// The frames' events as the player's set up (0x800596e8) leaves them in
+/// every level: animations 9 and 5's steps moved or dropped (9: frame 2
+/// none, frame 3 a step, 256; 5: frame 2 none), 232-235's frame 2 none,
+/// and 234's frame 8 a grab (2048).
+pub fn set_up_events(anims: &mut Anims) {
+    set_events(anims, 9, 2, 0);
+    set_events(anims, 9, 3, 256);
+    set_events(anims, 5, 2, 0);
+    for a in [235, 234, 233, 232] {
+        set_events(anims, a, 2, 0);
+    }
+    set_events(anims, 234, 8, 2048);
+}
+
+/// The landing's entry (state 10, 0x8005b2d8) sets animation 190's frame
+/// 3 to a step (256).
+pub fn landing_events(anims: &mut Anims) {
+    set_events(anims, 190, 3, 256);
+}
+
 /// The sound a body makes entering table state `state` (0x800562bc, at
 /// its position): the footsteps of the walk's halves (1, 2) for Spike in
 /// levels 9 and 14 (132) and characters 47 (166), 33 (164) and 22 (165);

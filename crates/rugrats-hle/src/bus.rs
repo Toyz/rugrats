@@ -13,6 +13,9 @@ pub struct PsxBus {
     /// Debugging: a word that stops the run when 0 is written over a code
     /// address in it (RUGRATS_WATCH=ADDR).
     pub watch: Option<u32>,
+    /// RUGRATS_STOPW=addr[:was]: a write to that word (while it holds
+    /// `was`) stops the run (for finding who writes it).
+    pub stop_write: Option<(u32, Option<u32>)>,
     pub ram: Vec<u8>,
     pub scratch: Vec<u8>,
     pub hw: Hw,
@@ -21,7 +24,12 @@ pub struct PsxBus {
 impl Default for PsxBus {
     fn default() -> Self {
         let watch = std::env::var("RUGRATS_WATCH").ok().and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok());
-        PsxBus { watch, ram: vec![0; RAM_SIZE], scratch: vec![0; 1024], hw: Hw::default() }
+        let hex = |s: &str| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok();
+        let stop_write = std::env::var("RUGRATS_STOPW").ok().and_then(|s| {
+            let mut it = s.split(':');
+            Some((hex(it.next()?)?, it.next().and_then(hex)))
+        });
+        PsxBus { watch, stop_write, ram: vec![0; RAM_SIZE], scratch: vec![0; 1024], hw: Hw::default() }
     }
 }
 
@@ -101,6 +109,12 @@ impl Bus for PsxBus {
                     && (addr & 0x1f_fffc) == (w & 0x1f_fffc)
                     && data.iter().all(|&b| b == 0)
                     && (0x8001_0000..0x800c_0000).contains(&self.ram_u32(w))
+                {
+                    return Err(addr);
+                }
+                if let Some((w, was)) = self.stop_write
+                    && (addr & 0x1f_fffc) == (w & 0x1f_fffc)
+                    && was.is_none_or(|v| self.ram_u32(w) == v)
                 {
                     return Err(addr);
                 }

@@ -2276,3 +2276,39 @@ fn fold(d: i32) -> i32 {
         d
     }
 }
+
+/// What a body's step sounds (0x8005e1f4 at +0xe0 bit 256).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    /// Sound effect n at the body (0x8006f644).
+    Sound(u8),
+    /// Spike wading in level 4: sound 57 on every fifth step (0x800c42e4).
+    Wade,
+    /// The footstep (0x8007013c): program 0, tone 0, note 22 + (rand &
+    /// 7), drawn only when heard; Reptar (template 8) walking puffs between
+    /// his feet first (0x80050c48).
+    Footstep { puff: bool },
+}
+
+/// The step's sound: walking (0x8005e920) by the body's own character
+/// (+0x15c) and template (+0x96), running (0x8005e830) by the player's
+/// character (0x800c5680) and the floor: `water` is its tile's flag 1
+/// with no object stood on (+0xf8).
+pub fn step_sound(walking: bool, own: (usize, u16), player_character: usize, water: bool, level: u8) -> Step {
+    use crate::levels::Level;
+    if walking {
+        return match own {
+            (34, _) => Step::Sound(108),
+            (_, 8) => Step::Footstep { puff: true },
+            _ => Step::Footstep { puff: false },
+        };
+    }
+    match player_character {
+        6 if water && level == Level::CYNTHIA.0 => Step::Wade,
+        6 if water && level == Level::TRAINING.0 => Step::Sound(176),
+        6 if water => Step::Sound(27),
+        34 => Step::Sound(108),
+        _ if water && level != Level::HUB.0 => Step::Sound(27),
+        _ => Step::Footstep { puff: false },
+    }
+}

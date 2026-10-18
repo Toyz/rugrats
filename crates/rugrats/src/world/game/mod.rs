@@ -613,8 +613,9 @@ impl Game {
         let body = if level == Level::LET_THERE_BE_LIGHT { 44 } else { who };
         let set = Set::load(disc, db)?;
         let col = Col::parse(&disc.file(COL + db)?)?;
-        let anims = Anims::parse(&disc.file(ANM + db)?, &disc.file(FRM + db)?, &disc.file(ROT + db)?)
+        let mut anims = Anims::parse(&disc.file(ANM + db)?, &disc.file(FRM + db)?, &disc.file(ROT + db)?)
             .map_err(|e| e.to_string())?;
+        animator::set_up_events(&mut anims);
         let trig = Trig::load(disc)?;
         let start = disc.exe_bytes(STARTS + 16 * db as u32, 12)?;
         let start = [0, 4, 8].map(|k| i32::from_le_bytes(start[k..k + 4].try_into().unwrap()));
@@ -998,6 +999,8 @@ impl Game {
                 driven: false,
                 waited: false,
                 passes: false,
+                template: p.template as u16,
+                stepped: None,
                 bumped: false,
                 reach: REACH,
                 run_speed: None,
@@ -1770,6 +1773,7 @@ impl Game {
         }
         self.walk_effects();
         if std::mem::take(&mut self.player.landed) {
+            animator::landing_events(&mut self.anims);
             let on = self.player.support.and_then(|k| boxes.get(k)).map_or(0, |b| b.template);
             self.land_sounds(on);
         }
@@ -1942,6 +1946,8 @@ impl Game {
             walls: &boxes,
             obstacles: &obstacles,
             level: self.level.0,
+            player_character: self.character,
+            listener: self.view.0.to_array().map(|v| v as i32),
             player_y: self.player.pos[1] + self.player.root_y,
             solids: &solids,
             npc_of: &npc_of,
@@ -1954,6 +1960,11 @@ impl Game {
         self.aim_before = self.aim_target;
         self.npc_events = npc::step(&mut self.npcs, &world, &mut self.rand);
         self.npcs_before = before;
+        self.npc_steps();
+        // (A character's landing sets the same frame, 0x8005b2d8.)
+        if self.npcs.iter_mut().filter_map(|n| n.body.as_mut()).any(|b| std::mem::take(&mut b.landed)) {
+            animator::landing_events(&mut self.anims);
+        }
         // A guard's bite begun (mode 11 into its attack, 0x80084084 at
         // 0x80085220): the last one this frame is 0x800c443c.
         if let Some(by) = self.npc_events.iter().rev().find_map(|e| match e {

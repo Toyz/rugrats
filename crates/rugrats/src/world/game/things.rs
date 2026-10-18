@@ -4,7 +4,7 @@
 use super::*;
 use crate::actors::npc::Mode;
 use crate::actors::player::anim::{PICK_UP, PUT_DOWN, THROW};
-use crate::actors::player::{DT, State};
+use crate::actors::player::{DT, State, Step};
 use crate::world::collide;
 
 /// A breakable (class 14, 0x8004d7c4): touched, its model becomes shape +
@@ -1140,12 +1140,12 @@ impl Game {
 
     /// The walk's effects (0x8005e1f4): on a water tile (COL byte 4 bit
     /// 0) and not on an object, a splash each frame (0x80050770). At a
-    /// step (+0xe0 bit 256): character 34 sounds 108; in water Spike sounds
-    /// 57 on every fifth step in level 4 (0x800c42e4), 176 in level 16 and
-    /// 27 elsewhere, the others 27 but in level 1. Out of water the step
-    /// asks 0x8007013c for the floor's footstep, whose table (0x800c4ec4)
-    /// is empty in play (oracle): nothing. Reptar (template 8) at a step
-    /// puffs between his feet (0x80050c48: x and z between parts 3 and 7).
+    /// step (+0xe0 bit 256) its sound ([`crate::actors::player::step_sound`]):
+    /// running, by the character, Spike's wading and 176 or 27 in water,
+    /// 27 for the others in water but in level 1, 108 for character 34,
+    /// else the footstep (0x8007013c); walking, 108 for character 34, else
+    /// the footstep, Reptar (template 8) puffing between his feet first
+    /// (0x80050c48: x and z between parts 3 and 7).
     /// Placement `k`'s object breaks into its pieces (0x8004cdfc), flying
     /// from its own place at `speed`.
     pub fn shatter(&mut self, k: usize, speed: i32) {
@@ -1285,29 +1285,67 @@ impl Game {
             self.flights.splash(at, self.sprites.as_ref());
         }
         if step {
-            let sound = match (self.character, water) {
-                (34, _) => Some(108),
-                (6, true) if self.level == Level::CYNTHIA => {
-                    self.water_steps -= 1;
-                    (self.water_steps < 0).then(|| {
-                        self.water_steps = 4;
-                        57
-                    })
+            // (Reptar, template 8, is level 7's player.)
+            let own = (self.character, if self.level == Level::REPTAR_2010 { 8 } else { 0 });
+            let walking = p.state == State::Walk;
+            let sound = crate::actors::player::step_sound(walking, own, self.character, water, self.level.0);
+            if matches!(sound, Step::Footstep { puff: true }) {
+                let parts = self.player.parts(&self.anims, &self.trig);
+                if let (Some(a), Some(b)) = (parts.get(3), parts.get(7)) {
+                    let at = [((a.1.x + b.1.x) / 2.0) as i32, b.1.y as i32, ((a.1.z + b.1.z) / 2.0) as i32];
+                    self.flights.stomp(at, self.sprites.as_ref());
                 }
-                (6, true) if self.level == Level::TRAINING => Some(176),
-                (_, true) if self.character == 6 || self.level != Level::HUB => Some(27),
-                _ => None,
-            };
-            if let Some(s) = sound {
-                self.play_at(s, at);
+            }
+            self.step_sound(sound, at, None);
+        }
+    }
+
+    /// A step's sound at `at` (0x8005e1f4): an effect, Spike's wading (57
+    /// on every fifth step, 0x800c42e4), or the footstep (0x8007013c):
+    /// heard, program 0, tone 0 at note 22 + (rand & 7), the rand drawn
+    /// there (or `note`, drawn already for a character).
+    pub(super) fn step_sound(&mut self, step: Step, at: [i32; 3], note: Option<u8>) {
+        match step {
+            Step::Sound(s) => self.play_at(s, at),
+            Step::Wade => {
+                self.water_steps -= 1;
+                if self.water_steps < 0 {
+                    self.water_steps = 4;
+                    self.play_at(57, at);
+                }
+            }
+            Step::Footstep { .. } => {
+                if let Some(v) = self.heard_at(at) {
+                    let note = note.unwrap_or_else(|| 22 + (self.rand.next() & 7) as u8);
+                    self.effects.push(Effect { sound: 0, at: Some(v), key: Some([0, 0, note]) });
+                }
             }
         }
-        if step && self.level == Level::REPTAR_2010 {
-            let parts = self.player.parts(&self.anims, &self.trig);
-            if let (Some(a), Some(b)) = (parts.get(3), parts.get(7)) {
-                let at = [((a.1.x + b.1.x) / 2.0) as i32, b.1.y as i32, ((a.1.z + b.1.z) / 2.0) as i32];
-                self.flights.stomp(at, self.sprites.as_ref());
+    }
+
+    /// The characters' steps this frame (their bodies' 0x8005e1f4), as
+    /// `npc::step` found them.
+    pub(super) fn npc_steps(&mut self) {
+        let steps: Vec<(usize, Step, Option<u8>)> = self
+            .npc_events
+            .iter()
+            .filter_map(|e| match *e {
+                Event::Step(k, s) => Some((k, Step::Sound(s), None)),
+                Event::Wade(k) => Some((k, Step::Wade, None)),
+                Event::Footstep { k, note, puff } => Some((k, Step::Footstep { puff }, Some(note))),
+                _ => None,
+            })
+            .collect();
+        for (k, step, note) in steps {
+            let at = self.npcs[k].pos;
+            if matches!(step, Step::Footstep { puff: true }) {
+                let parts = self.npcs[k].posed(&self.trig);
+                if let (Some(a), Some(b)) = (parts.get(3), parts.get(7)) {
+                    let at = [(a.joint[0] + b.joint[0]) / 2, b.joint[1], (a.joint[2] + b.joint[2]) / 2];
+                    self.flights.stomp(at, self.sprites.as_ref());
+                }
             }
+            self.step_sound(step, at, note);
         }
     }
 

@@ -235,6 +235,8 @@ impl GrandpasTeeth {
                 driven: false,
                 waited: false,
                 passes: false,
+                template: 0,
+                stepped: None,
                 bumped: false,
                 reach: 1024,
                 run_speed: None,

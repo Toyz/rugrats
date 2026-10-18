@@ -50,6 +50,37 @@ pub(super) struct Swing {
 }
 
 impl Door {
+    /// Takes on another door's state as the original keeps it (for
+    /// tools): the offset (+0xa8..+0xac), +0x3c bit 2, whether its think
+    /// runs (+0xcc) and the wait left (+0xd2).
+    pub fn sync(&mut self, offset: [i32; 3], open: bool, moving: bool, wait: i32) {
+        self.offset = offset;
+        self.open = open;
+        self.moving = moving;
+        if let Some(s) = &mut self.swing {
+            s.wait = wait;
+        }
+    }
+
+    /// Where it was placed (+0xc0..+0xc8).
+    pub fn start(&self) -> [i32; 3] {
+        self.start
+    }
+
+    /// Its motion in words, for tools.
+    pub fn state(&self) -> String {
+        format!(
+            "offset {:?} open {} moving {} wait {:?} speed {:?} ends {} {}",
+            self.offset,
+            self.open,
+            self.moving,
+            self.swing.as_ref().map(|s| (s.wait, s.waits)),
+            self.speed,
+            self.shut,
+            self.open_end
+        )
+    }
+
     /// Its placed heading and the world corners of its first box (for
     /// tools).
     pub fn describe(&self, models: &Models, trig: &Trig) -> String {

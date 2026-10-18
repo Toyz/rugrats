@@ -292,6 +292,65 @@ fn main() -> Result<(), String> {
         });
     }
     let pads = Pads::default();
+    if std::env::var_os("TEMPLATES").is_some() {
+        let base = p.read_u32(0x800c_4300);
+        let mut n = 0;
+        for (k, t) in g.set.templates.iter().enumerate() {
+            let orig: Vec<u8> = (0..56).map(|i| p.read_u8(base + 56 * k as u32 + i)).collect();
+            let mine: Vec<u8> = t.raw.to_vec();
+            if orig[..mine.len().min(56)] != mine[..mine.len().min(56)] {
+                n += 1;
+                let at: Vec<usize> = (0..mine.len().min(56)).filter(|&i| orig[i] != mine[i]).collect();
+                if n <= 20 {
+                    println!("template {k}: bytes {at:?} orig {:?} port {:?}", at.iter().map(|&i| orig[i]).collect::<Vec<_>>(), at.iter().map(|&i| mine[i]).collect::<Vec<_>>());
+                }
+            }
+        }
+        println!("templates differ {n} of {} (table {base:#x})", g.set.templates.len());
+    }
+    if std::env::var_os("FRAMES").is_some() {
+        let table = p.read_u32(0x800c_4598);
+        let mut diffs = 0;
+        for k in 0..g.anims.frames.len() as u32 {
+            let w: Vec<u16> = (0..2).map(|i| p.read_i16(table + 8 * k + 2 * i) as u16).collect();
+            let f = &g.anims.frames[k as usize];
+            if w[0] != f.events as u16 || w[1] != f.duration as u16 {
+                diffs += 1;
+                if diffs <= 30 {
+                    println!("frame {k}: orig {w:?} port {} {}", f.events, f.duration);
+                }
+            }
+        }
+        println!("frames {} differ {diffs}", g.anims.frames.len());
+    }
+    // SOUNDS=1: the sounds each side keys on (0x800a99a8: program, tone and
+    // the note at sp + 0x10), the port's effects through the original's
+    // table (0x800b84fc, 3 bytes a sound); one a frame later in the
+    // original still counts (the trigger pass runs after its frame's end).
+    let keyed: Rc<std::cell::RefCell<Vec<[u8; 3]>>> = Rc::default();
+    let sounds = std::env::var_os("SOUNDS").is_some();
+    if sounds {
+        let k = keyed.clone();
+        p.hle.m.hook(0x800a_99a8, move |c| {
+            let note = c.bus.read_u8(c.cpu.reg(29) as u32 + 0x10).unwrap_or(0);
+            if std::env::var_os("SOUNDRA").is_some() {
+                println!("     KEYON ra {:#x} args {:?} note {note}", c.cpu.reg(31), [4, 5, 6, 7].map(|r| c.cpu.reg(r) as i32));
+            }
+            k.borrow_mut().push([c.cpu.reg(6) as u8, c.cpu.reg(7) as u8, note]);
+            rrt::emu::HookResult::Continue
+        });
+    }
+    if sounds && std::env::var_os("SOUNDRA").is_some() {
+        for (at, name) in [(0x8006_f26cu32, "PLAY"), (0x8006_f644, "PLAYAT")] {
+            p.hle.m.hook(at, move |c| {
+                println!("     {name} {} ra {:#x}", c.cpu.reg(4) as i32, c.cpu.reg(31));
+                rrt::emu::HookResult::Continue
+            });
+        }
+    }
+    let table = disc.exe_bytes(0x800b_84fc, 3 * 180)?;
+    let mut owed: Vec<(usize, [u8; 3])> = Vec::new();
+    let (mut sound_off, mut sound_same) = (0, 0);
     let mut off = 0;
     // By NPC: frames off, and whether each side's tracks ever changed.
     let mut each: Vec<(usize, bool, bool)> = vec![(0, false, false); pairs.len()];
@@ -308,6 +367,19 @@ fn main() -> Result<(), String> {
         if sync_at.is_some_and(|s| s == f || s < f && lagged) {
             // (The player's health too: a bite may end it.)
             g.player.health = p.read_i16(0x800e_2b48 + 0x1a4) as i32;
+            // (And the game's rand, 0x800c3f94: the footsteps' notes and
+            // the characters' choices draw on it.)
+            g.rand.state = p.read_u32(0x800c_3f94);
+            // (And each door where the original's is in its cycle: the
+            // object of its template placed where it is.)
+            if f == 0 {
+                for d in &mut g.doors {
+                    let start = d.start();
+                    let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 == d.template && [0, 4, 8].map(|i| p.read_i32(o + 0xc0 + i)) == start) else { continue };
+                    let offset = [0, 2, 4].map(|i| p.read_i16(o + 0xa8 + i) as i32);
+                    d.sync(offset, p.read_u32(o + 0x3c) & 2 != 0, p.read_u32(o + 0xcc) != 0, p.read_i16(o + 0xd2) as i32);
+                }
+            }
             // (And the player's place: the characters aim at it.)
             g.player.pos = [0, 4, 8].map(|i| p.read_i32(0x800e_2b48 + 0x18 + i));
             // (And the trigger pass's place in its list, 0x800c4c20: the
@@ -440,6 +512,63 @@ fn main() -> Result<(), String> {
             g.frame(&pads);
             p.frame(pad)?;
         }
+        if sounds && std::env::var_os("SOUNDRA").is_some() {
+            for e in &g.npc_events {
+                if let rugrats::actors::npc::Event::Footstep { k, note, .. } = e {
+                    println!("     PORT STEP npc {k} id {} char {} note {note} at {:?}", g.npcs[*k].id, g.npcs[*k].character, g.npcs[*k].pos);
+                }
+            }
+        }
+        if sounds {
+            let mine: Vec<[u8; 3]> = g
+                .effects
+                .iter()
+                .map(|e| match e.key {
+                    Some(k) => k,
+                    None => {
+                        let t = &table[3 * e.sound as usize..3 * e.sound as usize + 3];
+                        [t[0], t[1], t[2]]
+                    }
+                })
+                .collect();
+            let mut theirs = std::mem::take(&mut *keyed.borrow_mut());
+            // The port's owed from the frame before, then this frame's.
+            for (from, s) in std::mem::take(&mut owed).into_iter().chain(mine.into_iter().map(|s| (f, s))) {
+                if let Some(i) = theirs.iter().position(|t| *t == s) {
+                    theirs.remove(i);
+                    sound_same += 1;
+                } else if from == f {
+                    owed.push((from, s));
+                } else {
+                    sound_off += 1;
+                    println!("{f:3} SOUND port {s:?} (frame {from}) not in the original's");
+                }
+            }
+            for t in theirs {
+                sound_off += 1;
+                println!("{f:3} SOUND original {t:?} not in the port's");
+            }
+        }
+        // DOORS=t: template t's doors, the original's and the port's.
+        if let Some(t) = std::env::var("DOORS").ok().and_then(|v| v.parse::<u16>().ok()) {
+            for d in g.doors.iter().filter(|d| d.template == t) {
+                let start = d.start();
+                if let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 == t && [0, 4, 8].map(|i| p.read_i32(o + 0xc0 + i)) == start) {
+                    println!(
+                        "{f:3} DOOR orig offset {:?} bit2 {} cc {:#x} d2 {} be {:#x} speed {:?} ends {} {} | port {}",
+                        [0, 2, 4].map(|i| p.read_i16(o + 0xa8 + i)),
+                        p.read_u32(o + 0x3c) & 2,
+                        p.read_u32(o + 0xcc),
+                        p.read_i16(o + 0xd2),
+                        p.read_i16(o + 0xbe),
+                        [0, 2, 4].map(|i| p.read_i16(o + 0xb0 + i)),
+                        p.read_i16(o + 0xae),
+                        p.read_i16(o + 0xb6),
+                        d.state()
+                    );
+                }
+            }
+        }
         // PLAYER=1: the player's base track beside the port's, each frame.
         // TOUCH=1 with MOVES: what the body met (+0xf4: its template and
         // place) and the player's place.
@@ -554,5 +683,8 @@ fn main() -> Result<(), String> {
         println!("npc {k} id {} char {} trigger {} mode {:?}: {n_off} off, original {}, port {}", g.npcs[k].id, g.npcs[k].character, g.npcs[k].trigger, g.npcs[k].mode, if o_moved { "animated" } else { "still" }, if p_moved { "animated" } else { "still" });
     }
     println!("{off} frames off");
+    if sounds {
+        println!("{sound_off} sounds off, {sound_same} the same");
+    }
     Ok(())
 }

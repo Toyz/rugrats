@@ -211,6 +211,10 @@ pub struct Npc {
     /// Its probe held lets it by (+0x688 bit 0x1000): set for route
     /// runners by their scripts and for character 33.
     pub passes: bool,
+    /// Its template (+0x96: 8 is Reptar's).
+    pub template: u16,
+    /// Its body stepped this update: walking, and in water.
+    pub stepped: Option<(bool, bool)>,
     /// Its last step was taken back off a wall or an object (the bump,
     /// state 9).
     pub bumped: bool,
@@ -236,6 +240,13 @@ pub struct Npc {
 /// What a step of the NPCs asks of the level.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
+    /// Its step's sound effect (0x8005e1f4, 0x8006f644).
+    Step(usize, u8),
+    /// Its step in level 4's water as the player's Spike (sound 57 each
+    /// fifth step).
+    Wade(usize),
+    /// Its footstep heard (0x8007013c), the note drawn; `puff` Reptar's.
+    Footstep { k: usize, note: u8, puff: bool },
     /// Damage(player, target, amount) from a bite (mode 5).
     Bite {
         by: usize,
@@ -479,6 +490,15 @@ impl Npc {
         if !body.landing() {
             self.speed = body.speed;
         }
+        // A step (+0xe0 bit 256) walking or running, on its tile (+0x8c,
+        // the floor query's) and whether that is water with no object
+        // stood on.
+        use crate::actors::player::State;
+        if self.animator.events & 256 != 0 && matches!(body.state, State::Walk | State::Run) {
+            let q = collide::query(w.col, [self.pos[0], self.pos[1] + self.root.y, self.pos[2]]);
+            let water = collide::floor_flags(w.col, &q) & 1 != 0 && body.support.is_none();
+            self.stepped = Some((body.state == State::Walk, water));
+        }
         self.driven = true;
     }
 
@@ -590,6 +610,12 @@ pub struct World<'a> {
     pub obstacles: &'a [Obstacle],
     /// The level (0x800c5678).
     pub level: u8,
+    /// The player's character (0x800c5680), which a running body's step
+    /// sounds by.
+    pub player_character: usize,
+    /// The camera (0x800e3498): a sound within 0xfffe across and 0x7fff
+    /// up of it is heard (0x8006f4c0).
+    pub listener: [i32; 3],
     /// The player's height with its root (+0x1c) and its hierarchy box's
     /// top and bottom (+0x154 + 6, + 0xe).
     pub player_y: i32,
@@ -624,7 +650,13 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         Target::Thing(t) => Pose::new(w.things.get(t).copied().unwrap_or(w.player), 0),
     };
     let heights: Vec<(i32, [i32; 2])> = npcs.iter().map(|n| (n.pos[1] + n.root.y, n.box_y())).collect();
-    for (k, n) in npcs.iter_mut().enumerate() {
+    // (A body's step sounds as its update ends, before the next one's.)
+    let mut last = None;
+    for k in 0..npcs.len() {
+        if let Some(j) = last.replace(k) {
+            step_sounds(&mut npcs[j], j, w, rand, &mut events);
+        }
+        let n = &mut npcs[k];
         // (A character a level sets going is one its script scheduled.)
         let runs = if n.trigger > 0 { n.scheduled } else { n.scheduled || !matches!(n.mode, Mode::Idle) };
         if !runs {
@@ -1101,7 +1133,28 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
             n.animator.set(a, w.anims);
         }
     }
+    if let Some(j) = last {
+        step_sounds(&mut npcs[j], j, w, rand, &mut events);
+    }
     events
+}
+
+/// Character `k`'s step this update, sounded (0x8005e1f4): a footstep
+/// heard draws its note from the rand there (0x8007013c).
+fn step_sounds(n: &mut Npc, k: usize, w: &World, rand: &mut Rand, events: &mut Vec<Event>) {
+    let Some((walking, water)) = n.stepped.take() else { return };
+    let at = n.pos;
+    match crate::actors::player::step_sound(walking, (n.character, n.template), w.player_character, water, w.level) {
+        crate::actors::player::Step::Sound(s) => events.push(Event::Step(k, s)),
+        crate::actors::player::Step::Wade => events.push(Event::Wade(k)),
+        crate::actors::player::Step::Footstep { puff } => {
+            let d = [0, 1, 2].map(|i| (at[i] - w.listener[i]).abs());
+            if d[0] <= 0xfffe && d[1] < 0x7fff && d[2] <= 0xfffe {
+                let note = 22 + (rand.next() & 7) as u8;
+                events.push(Event::Footstep { k, note, puff });
+            }
+        }
+    }
 }
 
 impl Npc {

@@ -137,6 +137,10 @@ pub struct Hle {
     /// section, dispatcher not installed).
     pub dispatched: u64,
     pub held: [u64; 3],
+    /// Instructions a frame may run before a vertical blank comes anyway
+    /// (`FRAME_STEPS`): the console's speed, which decides the frames the
+    /// game takes three blanks over.
+    pub frame_steps: u64,
 }
 
 fn stop_text(pc: u32, what: impl Into<String>) -> Stop {
@@ -484,7 +488,7 @@ impl Hle {
             HookResult::Return(text.len() as u64)
         });
 
-        Ok(Hle { m, pad: 0, frame: 0, steps: 0, last_vblank: 0, shared, irq_enabled, reads, dispatched: 0, held: [0; 3] })
+        Ok(Hle { m, pad: 0, frame: 0, steps: 0, last_vblank: 0, shared, irq_enabled, reads, dispatched: 0, held: [0; 3], frame_steps: FRAME_STEPS })
     }
 
     /// Runs to the end of the next frame: the next VSync wait, or a frame's
@@ -499,7 +503,7 @@ impl Hle {
             self.steps += self.m.steps - before;
             match r {
                 Err(Stop::StepLimit { .. }) => {
-                    if self.steps - self.last_vblank >= FRAME_STEPS {
+                    if self.steps - self.last_vblank >= self.frame_steps {
                         self.vblank()?;
                         return Ok(());
                     }

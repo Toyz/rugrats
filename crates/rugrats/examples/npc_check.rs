@@ -46,6 +46,12 @@ fn main() -> Result<(), String> {
     let mut g = Game::open_from(&disc, Level(level), None, &Progress::default())?;
     let character = Some(g.character as u32).filter(|&c| c != 1);
     let mut p = Play::boot(Rc::new(rrt::disc::Image::open(&cue).map_err(|e| e.to_string())?), Boot { level, character, cinematics: std::env::var_os("CINES").is_some() })?;
+    // FAST=1: a console fast enough that the original never takes a third
+    // blank over a frame (the oracle's budget, `Hle::frame_steps`, is
+    // instructions): its time goes 10 every frame, as the port's.
+    if std::env::var_os("FAST").is_some() {
+        p.hle.frame_steps = std::env::var("FAST").ok().and_then(|s| s.parse().ok()).unwrap_or(1_200_000);
+    }
     // SETTLE=n: the original run on n frames first (with CINES, past the
     // level's opening cinematic).
     for _ in 0..std::env::var("SETTLE").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0) {
@@ -284,7 +290,8 @@ fn main() -> Result<(), String> {
     // (A frame the original took three VSyncs over, dt 15 (0x800c3f1c),
     // the port, at dt 10, cannot follow: its time (0x800c3e98) stands
     // still one frame and goes 15 the next. Those frames are not counted,
-    // and each pair is given the original's state again after them.)
+    // and each pair is given the original's state again after them;
+    // FAST keeps the original from taking them.)
     let mut lagged = false;
     let mut clock = p.read_i32(0x800c_3e98);
     for f in 0..frames {

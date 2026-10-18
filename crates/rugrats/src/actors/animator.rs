@@ -236,6 +236,12 @@ pub struct Animator {
     /// Whether the base track began a state in the last step (asked, or
     /// gone on to its next).
     began: bool,
+    /// Where the base track's last spending this step left its state
+    /// (state, frame, time left), and that point for the state a begin in
+    /// this step left (0x80055904 adds a frame's root key by the time
+    /// spent on it, before the next state begins).
+    spent: Option<(i16, i16, i16)>,
+    left_from: Option<(i16, i16, i16)>,
 }
 
 impl Animator {
@@ -281,6 +287,8 @@ impl Animator {
             character,
             spans: [None; 4],
             began: false,
+            spent: None,
+            left_from: None,
         })
     }
 
@@ -386,6 +394,12 @@ impl Animator {
     /// (again, it starts again) or gone on to its next.
     pub fn began(&self) -> bool {
         self.began
+    }
+
+    /// The state a begin in the last step left, where its spending left it
+    /// (state, frame, time left): None when it began before spending.
+    pub fn left_from(&self) -> Option<(i16, i16, i16)> {
+        self.left_from
     }
 
     /// The logical animation last asked for.
@@ -548,6 +562,7 @@ impl Animator {
     /// The base track's start (0x800562bc): playing, its state entered.
     fn begin_base(&mut self, anims: &Anims) {
         self.began = true;
+        self.left_from = self.spent.take();
         self.tracks[0].phase = 1;
         if self.entered.len() < 8 {
             self.entered.push(self.tracks[0].state);
@@ -588,6 +603,9 @@ impl Animator {
             *time = 0;
         }
         self.tracks[k].left = left;
+        if k == 0 {
+            self.spent = Some((t.state, t.cur, left));
+        }
         if left == 0 {
             self.events |= frame(t.cur).map_or(0, |f| f.events as u32);
         }
@@ -755,6 +773,8 @@ impl Animator {
     pub fn step(&mut self, anims: &Anims, trig: &Trig) {
         self.events = 0;
         self.began = false;
+        self.spent = None;
+        self.left_from = None;
         let speed = self.speed;
         let time = |t: &Track| if t.state == -1 { 0 } else { (DT * speed / 4096) as i16 };
         let mut times = self.tracks.map(|t| time(&t));
@@ -888,9 +908,22 @@ impl Animator {
     /// root keys.
     pub fn root_parts_scaled(&self, anims: &Anims, lo: Option<i32>) -> Option<Vec<([i32; 3], [i32; 3])>> {
         let t = &self.tracks[0];
-        let (first, count) = self.span(t.state, 0, anims)?;
         // Asked and not yet begun: at its start.
-        let (cur, left) = if t.phase == 0 { (first, duration(anims, first)) } else { (t.cur, t.left) };
+        let (cur, left) = if t.phase == 0 { (-1, 0) } else { (t.cur, t.left) };
+        self.root_parts_at(anims, lo, t.state, cur, left)
+    }
+
+    /// The base state `state`'s root height had at frame `cur` with `left`
+    /// to go (`lo` as [`Self::root_progress_scaled`]).
+    pub fn root_height_at(&self, anims: &Anims, lo: Option<i32>, state: i16, cur: i16, left: i16) -> Option<i32> {
+        Some(self.root_parts_at(anims, lo, state, cur, left)?.iter().map(|(d, _)| d[1]).sum())
+    }
+
+    /// [`Self::root_parts_scaled`] for state `state` at frame `cur` with
+    /// `left` to go (a frame below 0: at its start).
+    fn root_parts_at(&self, anims: &Anims, lo: Option<i32>, state: i16, cur: i16, left: i16) -> Option<Vec<([i32; 3], [i32; 3])>> {
+        let (first, count) = self.span(state, 0, anims)?;
+        let (cur, left) = if cur < 0 { (first, duration(anims, first)) } else { (cur, left) };
         let (first, count, cur, left) = (first as usize, count as usize, cur.max(0) as usize, left as i32);
         if count == 0 {
             return None;
@@ -974,6 +1007,9 @@ pub struct RootCurve {
     done: i32,
     total: i32,
     base: i32,
+    /// What the state left still moved the body by in the step its
+    /// successor's gap was taken: on top of the gap, not in it.
+    rest: i32,
     /// Its state begun here (its first frame's gap taken, the keys from
     /// there), not one set up and gone on from where it was.
     begun: bool,
@@ -1050,8 +1086,25 @@ impl RootCurve {
         // (A first frame begun again, as a state asked anew each frame is,
         // takes its gap from where the body is now: 0x80055904's +0xde.)
         if (self.state, self.first) != (state, first) || cur < self.cur || (a.began() && cur == first) {
-            let rest = if self.cur + 1 == self.first + self.count { self.total - self.done } else { 0 };
-            self.base = self.y + rest;
+            // (What the state left still had of the time spent on it this
+            // step: a fidget leaves the idle at a frame's end, wherever.)
+            let rest = match a.left_from() {
+                Some((s, at, left)) if s == self.state => {
+                    let had = a.root_height_at(anims, Some(lo), s, at, left).unwrap_or(self.done);
+                    let had = if self.begun { had } else { self.gap_for_key(anims, lo, self.first, at.max(0) as usize, left as i32, had) };
+                    had - self.done
+                }
+                _ if self.cur + 1 == self.first + self.count => self.total - self.done,
+                _ => 0,
+            };
+            // (0x80055904 takes the gap from +0x1c as the step began: the
+            // state left's rest is still in +0xda then. A first frame begun
+            // with time spent in this step takes its gap there and keeps the
+            // rest on top; one begun as the step ends takes it next step,
+            // the rest in it.)
+            let dur = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
+            let spent = !(cur == first && left >= dur);
+            (self.base, self.rest) = if spent { (self.y, rest) } else { (self.y + rest, 0) };
             self.model = self.y;
             self.begun = true;
         }
@@ -1064,7 +1117,7 @@ impl RootCurve {
             (self.cur, self.done, self.total) = (cur, done, total);
             return;
         }
-        let model = off + if cur > first {
+        let model = off + self.rest + if cur > first {
             done
         } else {
             let dur = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
@@ -1095,6 +1148,7 @@ impl RootCurve {
         let (state, first, count, cur, left) = a.track();
         let (done, total) = a.root_progress_scaled(anims, Some(lo)).map_or((0, 0), |r| (r.0[1], r.1[1]));
         self.gap = gap;
+        self.rest = 0;
         let done = self.gap_for_key(anims, lo, first, cur, left, done);
         let total = self.gap_for_key(anims, lo, first, first + 1, 0, total);
         (self.state, self.first, self.count, self.cur, self.done, self.total) = (state, first, count, cur, done, total);

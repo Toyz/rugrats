@@ -501,9 +501,21 @@ A frame's lift key moves the body up and down (+0x1c):
   adds the frame's lift key times the change in its time gone. A body
   other than the player's scales the key by its feet (hierarchy +0x4c)
   << 12 over 0x800c41dc's -561.
+  A state left in a step keeps what the step spent on it first: the
+  idle's fidget (0x800563bc) takes over at whatever frame's end, and the
+  idle's frame run out that step still moves the body by its key times
+  that time (level 5's robot: -37 for the last 10 of frame 1310's 20)
+  before the fidget's first frame begins. That rest is in the step's sum
+  (+0xda), not yet in the height (+0x1c), when the next first frame takes
+  its gap. A first frame that spends time in the same step takes its gap
+  without the rest, which then lands on top: level 2's Chuckie ends his
+  fidget 23 (frame 1088, +2) into the idle's 1022 two units higher than
+  the gap's target. One begun as the step ends (the robot's fidget, its
+  whole 25 to go) takes the gap on the next step, the rest in it.
 - **A state's first frame** moves the body by the gap (+0xde), never by
   its key, whatever the time. The gap is set when the frame begins with
-  its whole time (0x80055560): the feet, the floor (+0x148) and the key,
+  its whole time (0x80055904 at 0x80055b3c, its time before the step
+  equal to the frame's): the feet, the floor (+0x148) and the key,
   less the height. Across that frame the body comes to its floor, its feet
   and the key, settled or not.
   - An attached body (+0x00 bit 0x80000, set by 0x8008357c: level 2's

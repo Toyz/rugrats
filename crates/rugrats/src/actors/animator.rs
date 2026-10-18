@@ -871,6 +871,22 @@ impl Animator {
     /// 1, toward zero): another body than the player's moves by its root
     /// offset (hierarchy +0x4c << 12 over D_800c41dc's -561, 0x80055904).
     pub fn root_progress_scaled(&self, anims: &Anims, lo: Option<i32>) -> Option<([i32; 3], [i32; 3])> {
+        let parts = self.root_parts_scaled(anims, lo)?;
+        let (mut done, mut total) = ([0; 3], [0; 3]);
+        for (d, t) in parts {
+            for i in 0..3 {
+                done[i] += d[i];
+                total[i] += t[i];
+            }
+        }
+        Some((done, total))
+    }
+
+    /// [`Self::root_progress_scaled`] by frame of the base state: each
+    /// frame's part had so far (its key times its time gone, rounded toward
+    /// zero, as 0x80055904's deltas are) and its whole key. None without
+    /// root keys.
+    pub fn root_parts_scaled(&self, anims: &Anims, lo: Option<i32>) -> Option<Vec<([i32; 3], [i32; 3])>> {
         let t = &self.tracks[0];
         let (first, count) = self.span(t.state, 0, anims)?;
         // Asked and not yet begun: at its start.
@@ -879,9 +895,13 @@ impl Animator {
         if count == 0 {
             return None;
         }
-        let (mut done, mut total, mut any) = ([0; 3], [0; 3], false);
+        let mut parts = Vec::with_capacity(count);
+        let mut any = false;
         for k in first..first + count {
-            let Some(r) = root_key(anims, k, lo) else { continue };
+            let Some(r) = root_key(anims, k, lo) else {
+                parts.push(([0; 3], [0; 3]));
+                continue;
+            };
             any = true;
             let part = if k < cur {
                 4096
@@ -891,14 +911,13 @@ impl Animator {
             } else {
                 0
             };
-            // (Each part rounded toward zero, as 0x80055904's deltas are.)
-            for i in 0..3 {
-                total[i] += r[i];
-                let p = r[i] * part;
-                done[i] += if p < 0 { (p + 4095) >> 12 } else { p >> 12 };
-            }
+            let done = r.map(|v| {
+                let p = v * part;
+                if p < 0 { (p + 4095) >> 12 } else { p >> 12 }
+            });
+            parts.push((done, r));
         }
-        any.then_some((done, total))
+        any.then_some(parts)
     }
 
     /// Each part's kept quaternion (the part's +4 in the original), by
@@ -946,7 +965,7 @@ fn slerp(trig: &Trig, a: [i32; 4], b: [i32; 4], t: i32) -> [i32; 4] {
 /// (0x80055904 into +0xda / +0xde): the base track's root curve so far,
 /// plus where the body was as the animation began, blended away over its
 /// first frame (worklog 147).
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RootCurve {
     state: i16,
     first: usize,
@@ -969,8 +988,8 @@ pub struct RootCurve {
     before: i32,
     /// The across part of the base state's root taken so far, and what a
     /// state run out this step still had (for a state whose word has 32).
-    across_done: [i32; 2],
-    across_rest: Option<[i32; 2]>,
+    across_done: Vec<[i32; 2]>,
+    across_rest: Option<Vec<[i32; 2]>>,
     across_cur: usize,
 }
 
@@ -979,30 +998,39 @@ impl RootCurve {
     /// word has 32, 0x80055904's +0xd8/+0xdc), in the body's own frame:
     /// the keys scaled by `lo`; a state begun anew first gives what the
     /// one before still had.
-    pub fn across(&mut self, a: &Animator, anims: &Anims, lo: i32) -> [i32; 2] {
-        let mut d = [0; 2];
+    pub fn across(&mut self, a: &Animator, anims: &Anims, lo: i32) -> Vec<[i32; 2]> {
+        let mut out = Vec::new();
         // (A loop's next round starts it again as well.)
         let (_, _, _, now, _) = a.track();
         let round = now < self.across_cur;
         self.across_cur = now;
         if a.began() || round {
+            // What the state run out still had, frame by frame.
             if let Some(rest) = self.across_rest.take() {
-                d = [rest[0] - self.across_done[0], rest[1] - self.across_done[1]];
+                for (k, r) in rest.iter().enumerate() {
+                    let had = self.across_done.get(k).copied().unwrap_or([0; 2]);
+                    out.push([r[0] - had[0], r[1] - had[1]]);
+                }
             }
-            self.across_done = [0; 2];
+            self.across_done.clear();
         }
         self.across_rest = None;
         if a.moves_across()
-            && let Some((done, total)) = a.root_progress_scaled(anims, Some(lo))
+            && let Some(parts) = a.root_parts_scaled(anims, Some(lo))
         {
-            d = [d[0] + done[0] - self.across_done[0], d[1] + done[2] - self.across_done[1]];
-            self.across_done = [done[0], done[2]];
+            self.across_done.resize(parts.len(), [0; 2]);
+            for (k, (done, _)) in parts.iter().enumerate() {
+                let had = self.across_done[k];
+                out.push([done[0] - had[0], done[2] - had[1]]);
+                self.across_done[k] = [done[0], done[2]];
+            }
             let (_, first, count, cur, _) = a.track();
             if cur + 1 == first + count {
-                self.across_rest = Some([total[0], total[2]]);
+                self.across_rest = Some(parts.iter().map(|(_, t)| [t[0], t[2]]).collect());
             }
         }
-        d
+        out.retain(|d| *d != [0; 2]);
+        out
     }
 
     /// One step, after the animator's: the keys scaled by `lo` (4096 = 1:
@@ -1071,6 +1099,12 @@ impl RootCurve {
         let total = self.gap_for_key(anims, lo, first, first + 1, 0, total);
         (self.state, self.first, self.count, self.cur, self.done, self.total) = (state, first, count, cur, done, total);
         self.begun = false;
+        // On its first frame with its whole time still to go, its next step
+        // begins it (0x80055904 takes the gap anew there).
+        let dur = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
+        if cur == first && left >= dur {
+            self.state = -2;
+        }
     }
 
     /// The keys' progress `done` with the first frame's part taken by the

@@ -10,7 +10,7 @@
 
 use rugrats_render::Vtx;
 
-use crate::actors::npc::{Mode, Target};
+use crate::actors::npc::{Bite, Event, Mode, Target};
 use crate::actors::player::anim::THROW;
 use crate::actors::player::{Pose, State};
 use crate::disc::GameDisc;
@@ -28,9 +28,6 @@ pub(crate) const BABIES: [u16; 4] = [1776, 609, 608, 1492];
 const ANGELICA: u16 = 600;
 /// The catch: the box within 1400 (x and z) of the target (0x80057518).
 const CATCH: i32 = 1400;
-/// Angelica's lunge reach (+0x68c 2000) and her knock (touching).
-const LUNGE: i64 = 2000;
-const KNOCK: i64 = 1200;
 /// The counter's sprite (313) at (-160, 50).
 const COUNTER: u32 = 313;
 /// The target's arrow (0x80031a28, 0x800c4004..0x800c400c): sprite 364
@@ -80,8 +77,11 @@ pub struct BoxToss {
     target: Option<usize>,
     catcher: Option<usize>,
     eat_wait: i32,
-    lunge: i32,
     ended: bool,
+    /// Knocked (+0x30 bit 64): the box thrown up, then lost the frame
+    /// after it is let go (0x8004df94).
+    knocked: bool,
+    thrown_up: bool,
     /// The round's end lines: lost (level 20 0x800b9220, 5; level 21
     /// 0x800b922c, 12) and won (level 21 0x800b9244, 6).
     lost_lines: Vec<u16>,
@@ -108,17 +108,27 @@ fn find(g: &Game, id: u16) -> Option<usize> {
 /// 512 >> 12)) with s = 20 (d - 1024) >> 10 for the flat distance d, all
 /// in the original's unsigned 32 bits. The flight takes it as a throw's
 /// speed: dir * (speed * 65536 / 6000) (0x8008864c).
-fn lob(trig: &crate::gte::Trig, from: [i32; 3], to: [i32; 3]) -> [i32; 3] {
-    let (dx, dz) = ((to[0] - from[0]) as i64, (to[2] - from[2]) as i64);
-    let d = ((dx * dx + dz * dz) as f64).sqrt() as i32;
-    let s = ((d - 1024).wrapping_mul(20) as u32) >> 10;
-    let up = (trig.sin(512) * (trig.cos(512) << 1)) >> 12;
-    let speed = ((s << 12).wrapping_add(s << 13) << 7).checked_div(up as u32).map_or(0, |v| (v as f64).sqrt() as i32);
-    let flat = rrt::glam::Vec2::new(dx as f32, dz as f32).normalize_or(rrt::glam::Vec2::Y);
-    let dir = rrt::glam::Vec3::new(flat.x, -1.0, flat.y).normalize();
-    let v = dir * (speed as f32 * 65536.0 / 6000.0);
-    [v.x as i32, v.y as i32, v.z as i32]
+fn lob(trig: &crate::gte::Trig, from: [i32; 3], to: [i32; 3], up: bool) -> [i32; 3] {
+    // (The flat distance by the game's measure, 0x8001f57c.)
+    let d = crate::actors::npc::approx_dist(from, to);
+    let s = (d - 1024).wrapping_mul(20) as u32 >> 10;
+    let p = trig.sin(512).wrapping_mul(trig.cos(512) << 1);
+    let a = (if p < 0 { p + 4095 } else { p }) >> 12;
+    let speed = ((s << 12).wrapping_add(s << 13) << 7).checked_div(a as u32).map_or(0, |v| v.isqrt()) as i16 as i32;
+    // (0, -2048, 2048), or with +0x30 bit 64 (0, -4096, 100), turned toward
+    // the target (0x800760f4, 0x80075ee8) and made a unit (0x8007652c).
+    let yaw = trig.ratan2(to[0] - from[0], to[2] - from[2]);
+    let local = if up { [0, -4096, 100] } else { [0, -2048, 2048] };
+    let dir = crate::world::collide::unit(trig.turn_by([yaw as i16, 0, 0], local));
+    let k = (speed << 16) / 6000;
+    dir.map(|c| (c * k) >> 12)
 }
+
+/// The dummy the knock throws at (0x800e5778, its place 0x800e5790..98:
+/// set by the round start).
+const DUMMY: [i32; 3] = [22086, 775, 12864];
+/// The knock's throw (0x8005f3a4: animation 8 at 4096).
+const KNOCKED: i16 = 8;
 
 impl BoxToss {
     /// EpisodeStart (0x80079ff0) and the round start (0x80079cb0).
@@ -131,8 +141,9 @@ impl BoxToss {
             target: None,
             catcher: None,
             eat_wait: 0,
-            lunge: 0,
             ended: false,
+            knocked: false,
+            thrown_up: false,
             lost_lines,
             won_lines,
         };
@@ -158,8 +169,9 @@ impl BoxToss {
             target: None,
             catcher: None,
             eat_wait: 0,
-            lunge: 0,
             ended: false,
+            knocked: false,
+            thrown_up: false,
             lost_lines,
             won_lines,
         };
@@ -169,6 +181,7 @@ impl BoxToss {
     }
 
     fn round(&mut self, g: &mut Game) {
+        (self.knocked, self.thrown_up) = (false, false);
         // Level 21 hands the bottle back to Tommy's body.
         if self.rules.back_to_tommy
             && self.me != 1492
@@ -190,6 +203,10 @@ impl BoxToss {
                 let home = g.npcs[k].home;
                 g.npcs[k].place(home, &g.col);
                 g.npcs[k].mode = Mode::Idle;
+                // (+0x688 |= 66: home past half the range, facing the
+                // player.)
+                g.npcs[k].faces = true;
+                g.npcs[k].idle_home = true;
                 // Scheduled by EpisodeStart (0x80079cb0, 0x8007a094).
                 g.npcs[k].scheduled = true;
             }
@@ -200,6 +217,10 @@ impl BoxToss {
             g.npcs[k].speed_index = 2;
             g.npcs[k].mode = Mode::Follow(Target::Player);
             g.npcs[k].attacks = false;
+            // (+0x688 |= 128: she may lunge; +0x1f4 the player, whom her
+            // casts pass.)
+            g.npcs[k].lunges = true;
+            g.npcs[k].ignores_player = true;
         }
         g.player.gait = (17, 17);
     }
@@ -239,9 +260,6 @@ impl BoxToss {
         }
         self.ended = true;
         g.tries -= 1;
-        // Her lunge's sound at her (state 28's entry, 0x8005b2d8).
-        let at = find(g, ANGELICA).map_or(g.player.pos, |a| g.npcs[a].pos);
-        g.play_at(121, at);
         g.drop_carried();
         // 0x80079f5c / 0x8007a388: a line, then the cine.
         if !self.lost_lines.is_empty() {
@@ -254,7 +272,7 @@ impl BoxToss {
 
 impl Script for BoxToss {
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
-        g.npc_events.clear();
+        let events = std::mem::take(&mut g.npc_events);
         if self.ended {
             return;
         }
@@ -300,7 +318,7 @@ impl Script for BoxToss {
             && pads.pressed(0, input::TRIANGLE)
             && let Some(k) = self.target
         {
-            let v = lob(&g.trig, g.player.pos, g.npcs[k].pos);
+            let v = lob(&g.trig, g.player.pos, g.npcs[k].pos, false);
             g.player.act_at(THROW, crate::world::game::THROW_ANIM_SPEED, &g.anims);
             // 0x8005d11c: speech 1159 or 1167.
             g.speech.push(if g.rand.next() & 1 != 0 { 1159 } else { 1167 });
@@ -333,27 +351,45 @@ impl Script for BoxToss {
         if let Some(a) = find(g, ANGELICA) {
             // She follows the box itself (mode 4 with the box as the
             // target), in hand, flying or on the floor.
+            // (+0x678 the box: where it is as she steps.)
             let item = self.rules.item;
-            let p = g
-                .things
-                .iter()
-                .find(|t| t.template == item)
-                .map_or(g.player.pos, |t| [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32]);
-            if matches!(g.npcs[a].mode, Mode::Follow(_)) {
-                g.npcs[a].mode = Mode::Follow(Target::Point(p));
+            if let Some(b) = g.things.iter().position(|t| t.template == item)
+                && matches!(g.npcs[a].mode, Mode::Follow(_))
+            {
+                g.npcs[a].mode = Mode::Follow(Target::Thing(b));
             }
-            let q = g.npcs[a].pos;
-            let d2 = (q[0] - p[0]) as i64 * (q[0] - p[0]) as i64 + (q[2] - p[2]) as i64 * (q[2] - p[2]) as i64;
-            self.lunge = (self.lunge - 1).max(0);
-            // The lunge (state 28, sound 121) carries her about 1200 on.
-            let floor_box = !holding && self.catcher.is_none();
-            if d2 < LUNGE * LUNGE && self.lunge == 0 {
-                self.lunge = 40;
-                let at = g.npcs[a].pos;
-                g.play_at(121, at);
-                if d2 < KNOCK * KNOCK && (holding || floor_box) {
+            // Her lunge (state 28): its entry's sound at her (0x8005b2d8);
+            // meeting the player who holds the box, the knock (0x8005f3a4);
+            // the box resting on the floor while she lunges, lost
+            // (0x80057950).
+            for e in &events {
+                match *e {
+                    Event::Lunge(k) if k == a => {
+                        let at = g.npcs[a].pos;
+                        g.play_at(121, at);
+                    }
+                    // The knock (0x8005f3a4): +0x30 |= 64; the player
+                    // throws the box nearly straight up at the dummy.
+                    Event::Knock(k) if k == a && holding && !self.knocked => {
+                        self.knocked = true;
+                        g.player.act_at(KNOCKED, 4096, &g.anims);
+                        let v = lob(&g.trig, g.player.pos, DUMMY, true);
+                        g.throw_carried(v);
+                    }
+                    _ => {}
+                }
+            }
+            // The knocked box let go: its think ends the flight and posts
+            // ForceCry the frame after (0x8004df94): the round lost.
+            if self.knocked && !holding {
+                if self.thrown_up {
                     self.lose(g);
                 }
+                self.thrown_up = true;
+            }
+            let resting = g.things.iter().any(|t| t.template == item && t.state == ThingState::Rest);
+            if g.npcs[a].bite == Bite::Lunge && !holding && resting && g.carried().is_none() {
+                self.lose(g);
             }
         }
     }

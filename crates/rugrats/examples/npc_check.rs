@@ -100,11 +100,17 @@ fn main() -> Result<(), String> {
     for (k, n) in g.npcs.iter().enumerate() {
         // Its own id (+0x38) if a body has it, else the nearest.
         let by_id: Vec<(u32, [i32; 3])> = bodies.iter().copied().filter(|&(o, _)| p.read_i16(o + 0x38) as u16 == n.id && n.id != 0).collect();
-        let pool = if by_id.is_empty() { &bodies } else { &by_id };
+        // (By place only an object not paired yet and near: a character
+        // the original has not made pairs with none.)
+        let near: Vec<(u32, [i32; 3])> = bodies.iter().copied().filter(|&(o, _)| !pairs.iter().any(|&(_, q)| q == o)).collect();
+        let pool = if by_id.is_empty() { &near } else { &by_id };
         let best = pool.iter().map(|&(o, at)| ((0..3).map(|i| (at[i] - n.pos[i]).abs() as i64).sum::<i64>(), o)).min();
-        if let Some((d, o)) = best {
-            println!("npc {k} id {} at {:?} <-> {o:#x} (off {d})", n.id, n.pos);
-            pairs.push((k, o));
+        match best {
+            Some((d, o)) if !by_id.is_empty() || d <= 4000 => {
+                println!("npc {k} id {} at {:?} <-> {o:#x} (off {d})", n.id, n.pos);
+                pairs.push((k, o));
+            }
+            _ => println!("npc {k} id {} at {:?}: no object of the original's", n.id, n.pos),
         }
     }
     // The port's animators given the original's.
@@ -315,6 +321,12 @@ fn main() -> Result<(), String> {
                 // (A bite's wait, +0x69c, and the events it waits on, +0xe0:
                 // kept while it waits.)
                 n.wait_left = p.read_i32(o + 0x69c);
+                // (Idle, facing the player and going home: +0x688 bits 64
+                // and 2.)
+                let f688 = p.read_u32(o + 0x688);
+                n.faces = f688 & 64 != 0;
+                n.idle_home = f688 & 2 != 0;
+                n.ignores_player = p.read_u32(o + 0x1f4) == 0x800e_2b48;
                 n.animator.load_record(t, speed, after, fidget, vec![None; 32], &g.anims);
                 n.animator.events = p.read_u32(o + 0xe0);
                 // (Its after state, +0xe6, playing is standing: the idle asked.)
@@ -353,23 +365,69 @@ fn main() -> Result<(), String> {
                 // A follower's place in its bite (+0x699: 5, 1, 0, else 4).
                 if let rugrats::actors::npc::Mode::Follow(_) = n.mode {
                     use rugrats::actors::npc::Bite;
-                    // (Where it aims, +0x67c.)
+                    // (Where it aims, +0x67c; at that place when what it
+                    // follows, +0x678, is no player.)
                     n.goal = [0, 4, 8].map(|i| p.read_i32(o + 0x67c + i));
+                    if p.read_u32(o + 0x678) != 0x800e_2b48 {
+                        n.mode = rugrats::actors::npc::Mode::Follow(rugrats::actors::npc::Target::Point(n.goal));
+                    }
                     n.bite = match p.read_u8(o + 0x699) {
                         5 => Bite::Strike,
                         1 => Bite::Recover,
                         0 => Bite::Resume,
+                        // Mode 8 in state 28: the lunge.
+                        8 if p.read_u8(o + 0x18c) == 28 => Bite::Lunge,
                         _ => Bite::Chase,
                     };
+                    // (May lunge, +0x688 bit 128, and its kept speed.)
+                    n.lunges = p.read_u32(o + 0x688) & 128 != 0;
+                    n.lunge_speed = p.read_i16(o + 0x176) as i32;
                 }
             }
         }
-        g.frame(&pads);
         // PRESS=f: Cross held on the original's pad that frame (a card
         // waiting for a press; the port has none up).
         let press = std::env::var("PRESS").ok().and_then(|v| v.parse::<usize>().ok()) == Some(f);
-        p.frame(if press { 1 << rugrats::input::CROSS } else { 0 })?;
+        let pad = if press { 1 << rugrats::input::CROSS } else { 0 };
+        // PLAYERSYNC=1: the player where the original's is this frame (it
+        // moves first, 0x80018c38; the characters aim at it): the
+        // original's frame run first, its player given the port's.
+        if std::env::var_os("PLAYERSYNC").is_some() {
+            p.frame(pad)?;
+            g.player.pos = [0, 4, 8].map(|i| p.read_i32(0x800e_2b48 + 0x18 + i));
+            g.player.heading = p.read_i16(0x800e_2b48 + 0x24) as i32 & 4095;
+            // (And what it carries where the original's is: in its hand,
+            // as its pose has it.)
+            let held = p.read_u32(0x800e_2b48 + 0x1f0);
+            if held != 0
+                && let Some(k) = g.carried()
+            {
+                let at = [0, 4, 8].map(|i| p.read_i32(held + 0x18 + i));
+                g.things[k].pos = rrt::glam::Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32);
+            }
+            g.frame(&pads);
+        } else {
+            g.frame(&pads);
+            p.frame(pad)?;
+        }
         // PLAYER=1: the player's base track beside the port's, each frame.
+        // TOUCH=1 with MOVES: what the body met (+0xf4: its template and
+        // place) and the player's place.
+        if std::env::var_os("TOUCH").is_some()
+            && let Some(m) = moves
+            && let Some(&(_, o)) = pairs.iter().find(|(k, _)| *k == m)
+        {
+            let t = p.read_u32(o + 0xf4);
+            let met = if t != 0 { (p.read_i16(t + 0x96) as u16, [0, 4, 8].map(|i| p.read_i32(t + 0x18 + i))) } else { (0, [0; 3]) };
+            let target = p.read_u32(o + 0x678);
+            println!(
+                "{f:3} TOUCH {t:#x} {met:?} player {:?} carrying {:#x} goal {:?} target {target:#x} at {:?}",
+                [0, 4, 8].map(|i| p.read_i32(0x800e_2b48 + 0x18 + i)),
+                p.read_u32(0x800e_2b48 + 0x1f0),
+                [0, 4, 8].map(|i| p.read_i32(o + 0x67c + i)),
+                if target != 0 { [0, 4, 8].map(|i| p.read_i32(target + 0x18 + i)) } else { [0; 3] }
+            );
+        }
         if std::env::var_os("PLAYER").is_some() {
             println!("{f:3} PLAYER orig {:?} health {} | port {:?} health {} crying {}", tracks(&mut p, 0x800e_2b48)[0], p.read_i16(0x800e_2b48 + 0x1a4), g.player.animator.record()[0], g.player.health, g.crying());
         }

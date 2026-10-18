@@ -56,6 +56,8 @@ impl Training {
         g.player.slip_sound = 169;
         if let Some(k) = find(g, ANGELICA) {
             g.npcs[k].mode = Mode::Idle;
+            // (+0x688 |= 64: she faces the player.)
+            g.npcs[k].faces = true;
             // Scheduled by EpisodeStart (0x80079090).
             g.npcs[k].scheduled = true;
         }
@@ -209,6 +211,7 @@ impl Script for Training {
         if self.toss {
             if let Some(k) = find(g, ANGELICA) {
                 g.npcs[k].mode = Mode::Idle;
+                g.npcs[k].faces = true;
             }
             self.end(g);
         }

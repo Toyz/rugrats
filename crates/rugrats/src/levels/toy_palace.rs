@@ -144,6 +144,8 @@ impl ToyPalace {
         n.heading = heading;
         n.hidden = false;
         n.mode = Mode::Idle;
+        // (0x8007b670: +0x688 |= 64, he turns to watch Tommy.)
+        n.faces = true;
         g.tries = 3;
         self.phase = Phase::Tommy;
         g.checkpoint = Some(Pose::new(there, g.player.heading));

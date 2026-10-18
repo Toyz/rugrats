@@ -69,6 +69,8 @@ pub enum Target {
     Npc(usize),
     /// A place (a thing lying there, a home).
     Point([i32; 3]),
+    /// A thing, where it is now (+0x678 an object: level 20's box).
+    Thing(usize),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -116,6 +118,9 @@ pub enum Bite {
     Recover,
     /// Mode 0: back to mode 4 (no body update).
     Resume,
+    /// Mode 8 in body state 28 (0x8005f3a4): the lunge, carried by its
+    /// animation's root (43), until the animation ends.
+    Lunge,
 }
 
 pub struct Npc {
@@ -142,6 +147,18 @@ pub struct Npc {
     pub hidden: bool,
     /// May attack (+0x688 bit 8).
     pub attacks: bool,
+    /// Idle (mode 8), it faces the player (+0x688 bit 64: its stick turns
+    /// to the player, 0x80082264), and it walks home when more than half
+    /// its range from there (+0x688 bit 2).
+    pub faces: bool,
+    pub idle_home: bool,
+    /// Its casts pass the player (+0x1f4 the player, 0x80082b60: levels 20
+    /// and 21's Angelica).
+    pub ignores_player: bool,
+    /// May lunge (+0x688 bit 128: levels 20 and 21's Angelica), and the
+    /// speed kept through the lunge (+0x176).
+    pub lunges: bool,
+    pub lunge_speed: i32,
     /// LP +0x40.
     pub first_post: u8,
     /// Loop posts (flag 16): the count left and its reload (LP +0x42).
@@ -235,6 +252,12 @@ pub enum Event {
     /// came near (0x80083efc).
     Waits(usize),
     Resumes(usize),
+    /// State 28 entered (0x8005b2d8): the lunge begins (sound 121 at the
+    /// character in levels 20 and 21).
+    Lunge(usize),
+    /// The lunge met the player (0x8005f3a4, +0xf4 the player): stopped
+    /// there, a knock if the player holds the box.
+    Knock(usize),
 }
 
 fn wrap(a: i32) -> i32 {
@@ -500,6 +523,8 @@ impl Npc {
     /// only when nearer on all three axes. The world blocks; an object of
     /// template flag 72 or 8 does not.
     fn blocked(&self, me: usize, from: [i32; 3], to: [i32; 3], w: &World) -> bool {
+        // (The nearest met; the player counted as passed when it is the
+        // character's +0x1f4.)
         let mut best: Option<(i32, [i32; 3], u32)> = None;
         for o in w.obstacles {
             if o.flags & 16 != 0 || o.npc == Some(me) {
@@ -510,7 +535,8 @@ impl Npc {
                 && hit.t >= 0
                 && best.is_none_or(|b| hit.t < b.0)
             {
-                best = Some((hit.t, hit.point, o.flags));
+                let passed = self.ignores_player && o.npc.is_none() && o.solid.pos == w.player;
+                best = Some((hit.t, hit.point, if passed { 72 } else { o.flags }));
             }
         }
         let mut seg = collide::Segment::default();
@@ -555,6 +581,8 @@ pub struct World<'a> {
     /// top and bottom (+0x154 + 6, + 0xe).
     pub player_y: i32,
     pub player_box_y: [i32; 2],
+    /// Where each thing is (the targets of `Target::Thing`).
+    pub things: &'a [[i32; 3]],
     /// This frame's solids, and which character each is.
     pub solids: &'a [crate::world::boxhit::Exact],
     pub npc_of: &'a [Option<usize>],
@@ -580,6 +608,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         Target::Player => Pose::new(w.player, w.player_heading),
         Target::Npc(k) => places.get(k).copied().unwrap_or(Pose::new(w.player, 0)),
         Target::Point(p) => Pose::new(p, 0),
+        Target::Thing(t) => Pose::new(w.things.get(t).copied().unwrap_or(w.player), 0),
     };
     let heights: Vec<(i32, [i32; 2])> = npcs.iter().map(|n| (n.pos[1] + n.root.y, n.box_y())).collect();
     for (k, n) in npcs.iter_mut().enumerate() {
@@ -635,10 +664,11 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
             // Across by the root (the stagger's step back), turned by the
             // heading as it was; the body takes it after its stick (the
             // steer reads the place before it, 0x8005a068).
-            let d = n.root.across(&n.animator, w.anims, lo);
-            if d != [0; 2] {
+            // (Each frame's part turned and rounded on its own, as
+            // 0x80055904 turns each, 0x80075ee8.)
+            for d in n.root.across(&n.animator, w.anims, lo) {
                 let m = w.trig.turn_by([n.heading as i16, 0, 0], [d[0], 0, d[1]]);
-                across = [m[0], m[2]];
+                across = [across[0] + m[0], across[1] + m[2]];
             }
         }
         let base = n.run_speed.unwrap_or(SPEEDS[n.slow as usize][n.speed_index.min(5)]);
@@ -681,11 +711,76 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     n.reenter = true;
                     continue;
                 }
+                // State 28 (0x8005f3a4): carried by the animation's root
+                // across; stopped where it meets something (0x80066014),
+                // the player a knock; its end, mode 0 and the speed back.
+                Bite::Lunge => {
+                    if n.animator.events & 0x800_0000 != 0 {
+                        // (Its last step still had, untested: 0x8005cb48
+                        // adds +0xd8 after the handler.)
+                        n.pos[0] += across[0];
+                        n.pos[2] += across[1];
+                        n.bite = Bite::Resume;
+                        n.speed = n.lunge_speed;
+                        // (State 0 entered after the handler, 0x8005b2d8:
+                        // the stand asked, 0x80057274.)
+                        n.animator.stand(w.anims);
+                        continue;
+                    }
+                    // (The body's move test, 0x80066014, with the lift's step
+                    // in it: what it meets, the player among the nearby.)
+                    let near: Vec<crate::actors::ground::Near> = w
+                        .obstacles
+                        .iter()
+                        .filter(|o| o.npc != Some(k))
+                        .map(|o| crate::actors::ground::Near { solid: &o.solid, skip: o.flags & 8 != 0 })
+                        .collect();
+                    let is_player: Vec<bool> = w.obstacles.iter().filter(|o| o.npc != Some(k)).map(|o| o.npc.is_none() && o.solid.pos == w.player).collect();
+                    let d = [across[0], n.root.y - lift_before, across[1]];
+                    let pos = n.pos;
+                    let met = n.body.as_mut().map(|b| {
+                        b.pos = [pos[0], pos[1] + lift_before, pos[2]];
+                        b.move_test(d, w.col, w.trig, &near, w.anims)
+                    });
+                    match met {
+                        Some((crate::actors::ground::Air::Clear, _)) | None => {
+                            n.pos[0] += across[0];
+                            n.pos[2] += across[1];
+                        }
+                        Some((_, touched)) => {
+                            if touched.is_some_and(|i| is_player[i]) {
+                                events.push(Event::Knock(k));
+                            }
+                        }
+                    }
+                    continue;
+                }
                 Bite::Chase => {}
             }
         }
         match mode {
-            Mode::Idle => n.speed = 0,
+            // Mode 8 (0x80084fc4): home when more than half the range from
+            // it (bit 2), else still, turning to face the player (bit 64),
+            // turning in place as it turns (0x800820e0's +0x688 0x10000,
+            // the stand's 53).
+            Mode::Idle => {
+                if n.idle_home && n.dist(n.home) > n.range / 2 {
+                    let home = n.home;
+                    n.go(k, home, base, w);
+                } else {
+                    n.speed = 0;
+                    if n.faces {
+                        let was = n.heading;
+                        n.steer(k, w.player, 0, w, false);
+                        if n.heading != was {
+                            n.hold = Some(TURN_IN_PLACE);
+                            n.animator.set(TURN_IN_PLACE, w.anims);
+                        } else if n.hold == Some(TURN_IN_PLACE) {
+                            n.hold = None;
+                        }
+                    }
+                }
+            }
             Mode::Ride { on, up, turn } => {
                 let Pose { pos: p, heading: h } = at(on);
                 n.pos = [p[0], p[1] - up, p[2]];
@@ -706,6 +801,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     Target::Player => (w.player_y, w.player_box_y),
                     Target::Npc(j) => heights.get(j).copied().unwrap_or((p[1], [0, 0])),
                     Target::Point(p) => (p[1], [0, 0]),
+                    Target::Thing(_) => (p[1], [0, 0]),
                 };
                 // (Its height before the body's step, as 0x80084cd0 runs
                 // before 0x8005a068.)
@@ -714,6 +810,17 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 let mut seg = collide::Segment::default();
                 let seen = collide::segment(w.col, n.pos, p, &mut seg) == 0;
                 let mut speed = n.speed;
+                // The lunge (0x80084df0): the way to the target clear,
+                // within the range, +0x688 bit 128: the speed kept
+                // (+0x176), mode 8 and state 28 (+0x688 |= 4: no turn).
+                if seen && d < n.range && n.lunges {
+                    n.lunge_speed = n.speed;
+                    n.speed = 0;
+                    n.bite = Bite::Lunge;
+                    n.animator.start_at(LUNGE, 4096, w.anims);
+                    events.push(Event::Lunge(k));
+                    continue;
+                }
                 if seen && d < n.range / 2 && level {
                     speed = 0;
                     if n.attacks {
@@ -1006,6 +1113,8 @@ const ROOT_SCALE: i32 = -561;
 /// The turn in place a standing character plays (logical 53, table state
 /// 63: 0x8005d11c's ask when 0x80059204 answers below 0).
 const TURN_IN_PLACE: i16 = 53;
+/// The lunge's animation (state 28's entry, 0x8005b2d8).
+const LUNGE: i16 = 43;
 
 /// The NPC's triangles.
 pub fn triangles(n: &mut Npc, models: &Models, trig: &Trig, out: &mut Vec<Vtx>) {

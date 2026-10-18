@@ -966,6 +966,11 @@ impl Game {
                 home: p.pos,
                 hidden: false,
                 attacks: false,
+                lunges: false,
+                faces: false,
+                idle_home: false,
+                ignores_player: false,
+                lunge_speed: 0,
                 first_post: p.post,
                 loops: (p.level as i32, p.level as i32),
                 size: 0,
@@ -1004,6 +1009,8 @@ impl Game {
             }
             // (0x80081bac: character 33's +0x688 |= 0x1c04.)
             n.passes = h == 33;
+            // (0x80081bac case 7, character 9: +0x688 |= 64.)
+            n.faces = h == 9;
             n.size = n.hierarchy.half_size();
             n.place(p.pos, &col);
             n.set_up_idle(idle, &anims);
@@ -1904,7 +1911,20 @@ impl Game {
             let solid = crate::world::boxhit::Solid { pos: self.player.pos, angles: [self.player.heading as i16, 0, 0], bound: 1773, size: 8192, shape };
             obstacles.push(npc::Obstacle { solid, flags: 0, npc: None });
         }
+        // A thing in flight is in its room's list again (a throw puts it
+        // back): what the characters' tests meet too (level 21's ball
+        // stopping Angelica's lunge).
+        for t in self.things.iter().filter(|t| matches!(t.state, ThingState::Flying(_)) && !t.hidden) {
+            let Some(m) = self.set.models.get(t.shape) else { continue };
+            let r = m.radius as i32;
+            let shape = crate::world::boxhit::Shape::Model(m.boxes.iter().map(|(lo, hi)| (lo.map(|v| v as i32), hi.map(|v| v as i32))).collect());
+            let solid = crate::world::boxhit::Solid { pos: boxes::ipos(t.pos), angles: boxes::angles_of(&self.trig, t.rot), bound: r, size: r, shape };
+            let flags = self.set.templates.get(t.template as usize).map_or(0, |tp| tp.flags);
+            obstacles.push(npc::Obstacle { solid, flags, npc: None });
+        }
+        let thing_places: Vec<[i32; 3]> = self.things.iter().map(|t| [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32]).collect();
         let world = World {
+            things: &thing_places,
             player: self.player.pos,
             player_heading: self.player.heading,
             col: &self.col,

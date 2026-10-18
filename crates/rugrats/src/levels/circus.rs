@@ -124,6 +124,8 @@ impl Circus {
         }
         if let Some(k) = find(g, ANGELICA) {
             g.npcs[k].mode = Mode::Idle;
+            // (+0x688 |= 64: she faces the player.)
+            g.npcs[k].faces = true;
             // Scheduled by EpisodeStart (0x8007d8f0).
             g.npcs[k].scheduled = true;
         }

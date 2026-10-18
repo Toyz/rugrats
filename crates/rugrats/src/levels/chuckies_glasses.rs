@@ -192,6 +192,8 @@ impl Script for ChuckiesGlasses {
                 self.babies[i].caught = true;
                 if let Some(k) = find(g, self.babies[i].id) {
                     g.npcs[k].mode = Mode::Idle;
+                    // (0x8007f2e8: +0x688 |= 64, it turns to watch.)
+                    g.npcs[k].faces = true;
                 }
                 g.cine = Some(BABIES[i].1);
             }

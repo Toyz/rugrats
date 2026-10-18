@@ -327,6 +327,15 @@ the box, the box not flying (+0x90 = 0), Angelica (600) in state 28:
 ForceCry and bit 64 cleared. So a box on the floor is lost as soon as she
 lunges (from the code; not seen).
 
+The knock's lob (0x80057bc4) with +0x30 bit 64 starts from (0, -4096, 100)
+in place of (0, -2048, 2048), turned toward the dummy and made a unit;
+the distance in its speed is the game's (0x8001f57c).
+
+Compared in `npc_check` (PLAYERSYNC, cinematics played): Angelica's
+lunges, stops against Lil and the ball, and her way back to the box match
+the original's on 297 of 300 frames; the babies (mode 8, +0x688 66: home
+past half the range, facing the player, the turn in place) on all.
+
 Seen: Angelica reached Tommy standing at the start spot at about 2500
 (state 28), the knock at 2514 (bit 64), the throw at 2516, ForceCry
 posted by 0x8004df94 (0x8004e080) at 2518.

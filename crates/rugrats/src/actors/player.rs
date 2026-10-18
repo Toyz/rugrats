@@ -1686,6 +1686,21 @@ impl Player {
         pose::posed(trig, &self.hierarchy, &self.animator.turns(&self.hierarchy), [self.heading as i16, 0, 0], self.pos)
     }
 
+    /// The move test (0x80066014) for the move `d` (+0xd8..+0xdc) against
+    /// the height field and the objects `near`: its answer and the object
+    /// met (+0xf4), by index into `near`.
+    pub fn move_test(&mut self, d: [i32; 3], col: &Col, trig: &Trig, near: &[ground::Near], anims: &Anims) -> (ground::Air, Option<usize>) {
+        let plane = collide::query(col, self.pos).floor;
+        let (lo, hi) = self.body_box();
+        let low = self.lowest_joint(anims, trig);
+        let mut st = self.probes;
+        st.met.hit = None;
+        let g = ground::Ground { col, trig, near, body: ground::Body { lo, hi }, limit: self.step_limit, angles: [self.heading as i16, 0, 0], reflect: false, low };
+        let r = g.air(self.pos, d, plane, &mut self.floor, &mut st);
+        self.probes = st;
+        (r, st.met.hit.map(|(k, _)| k))
+    }
+
     /// The lowest of the body's posed joints (+0x68, set as
     /// UpdatePartRotations, 0x8004a5dc, poses the parts): the air probes
     /// reach down to it at least.

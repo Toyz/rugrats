@@ -219,7 +219,8 @@ impl Hub {
                     g.npcs[k].mode = Mode::Follow(Target::Player);
                     self.spike = Spike::Bringing(t);
                 } else {
-                    g.npcs[k].mode = Mode::Follow(Target::Point(p));
+                    // (Mode 12: +0x678 the toy, where it is as he steps.)
+                    g.npcs[k].mode = Mode::Follow(Target::Thing(t));
                 }
             }
             Spike::Bringing(t) => {

@@ -1704,8 +1704,7 @@ impl Game {
             self.play_at(sound, at);
         }
         self.track_npc_rooms();
-        // The trigger list (0x80072d38): five entries a frame in turn.
-        self.trigger_pass();
+
         for k in 0..self.npcs.len() {
             let n = &mut self.npcs[k];
             let (c, at) = (n.character, n.pos);
@@ -1937,6 +1936,10 @@ impl Game {
         }
         self.room_change();
         self.talk();
+        // The trigger list (0x80072d38(0)): five entries in turn, late in
+        // the frame (after the objects' updates and the draw), so one
+        // woken moves the frame after.
+        self.trigger_pass();
         // The ambience last (0x8001886c ends with 0x800818e0).
         self.ambience();
         self.camera_frame(moved);

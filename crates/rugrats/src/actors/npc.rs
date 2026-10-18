@@ -780,9 +780,13 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                         // 0x10000 and the stand asks the turn in place
                         // (logical 53, state 63, 0x8005d11c).
                         let was = n.heading;
-                        n.steer(k, p, 0, w, true);
+                        // (The turn alone: it stays where it is.)
+                        n.steer(k, p, 0, w, false);
                         if n.heading != was {
+                            n.hold = Some(TURN_IN_PLACE);
                             n.animator.set(TURN_IN_PLACE, w.anims);
+                        } else if n.hold == Some(TURN_IN_PLACE) {
+                            n.hold = None;
                         }
                         n.speed = 0;
                         let (ty, tb) = (w.player_y, w.player_box_y);

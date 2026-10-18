@@ -958,7 +958,8 @@ fn sync_npc(b: &mut Both, id: u16) -> (usize, u32) {
     let floor = b.hle.read_i32(o + 0x148);
     if n.unsettled {
         // (Never settled, 0x800452f8: its place keeps its own height, the
-        // lift its hover.)
+        // lift its hover: the original's height less it.)
+        n.root.y = n.pos[1] - own_y;
         n.pos[1] = own_y;
     } else if floor != n.pos[1] && (floor + n.feet() - n.pos[1]).abs() < 1000 {
         n.pos[1] = floor + n.feet();
@@ -1440,4 +1441,60 @@ fn trigger_lists_as_the_original() {
         }
     }
     assert!(off.is_empty(), "trigger lists not the original's in levels {off:?}");
+}
+
+/// Level 5: Angelica put 1200 short of robot 13002, the port's trigger
+/// pass given the original's place in the list (the entry after
+/// 0x800c4c20's). Five entries a frame (0x80072d38), late in the frame,
+/// the robot is woken (scheduled) on the original's frame, and turns to
+/// her from then on, 672 a frame, playing the turn in place (state 63):
+/// its heading and tracks the original's through the turn.
+#[test]
+#[ignore]
+fn level_5_robot_wakes_as_the_original() {
+    let Some(mut b) = Both::open(Boot { level: 5, character: Some(3), ..Default::default() }) else { return };
+    for _ in 0..30 {
+        b.hle.frame(0).unwrap();
+    }
+    let (k, o) = sync_npc(&mut b, 2000);
+    let at = b.game.npcs[k].pos;
+    let floor = b.hle.read_i32(o + 0x148);
+    b.put([at[0], floor + b.game.player.feet(), at[2] - 1200], 0, 2);
+    let (k, o) = sync_npc(&mut b, 2000);
+    // The list's nodes, front to back, and the one the pass stopped at.
+    let mut nodes = Vec::new();
+    let mut node = b.hle.read_u32(0x800c_4c24);
+    while node != 0 && nodes.len() < 400 {
+        nodes.push(node);
+        node = b.hle.read_u32(node + 4);
+    }
+    let cursor = b.hle.read_u32(0x800c_4c20);
+    assert_eq!(nodes.len(), b.game.triggers.len(), "the list's length");
+    b.game.trigger_next = nodes.iter().position(|&n| n == cursor).map_or(0, |i| i + 1);
+    b.game.npcs[k].scheduled = b.hle.read_u32(o) & 1 != 0;
+    let (mut mine, mut theirs) = (None, None);
+    let (h0, o0) = (b.game.npcs[k].heading, b.hle.read_i16(o + 0x24) as i32 & 4095);
+    let mut turn = Vec::new();
+    let mut f = 0;
+    let frames = std::env::var("ROBOT_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(12);
+    b.script_with(&[(0, frames)], |g, h| {
+        f += 1;
+        if mine.is_none() && g.npcs[k].heading != h0 {
+            mine = Some(f);
+        }
+        if theirs.is_none() && h.read_i16(o + 0x24) as i32 & 4095 != o0 {
+            theirs = Some(f);
+        }
+        if f <= 8 {
+            let t: [i16; 6] = std::array::from_fn(|i| h.read_i16(o + 0xa8 + 2 * i as u32));
+            let m = g.npcs[k].animator.record()[0];
+            turn.push(((g.npcs[k].heading, m[0], m[1], m[2]), (h.read_i16(o + 0x24) as i32 & 4095, t[0], t[1], t[2])));
+        }
+        if std::env::var_os("HPDBG").is_some() {
+            eprintln!("    {f}: hp {} / {} h {} / {} mode {} y {} / {} tracks {:?} / {:?}", g.player.health, h.read_i16(rugrats_hle::play::PLAYER + 0x1a4), g.npcs[k].heading, h.read_i16(o + 0x24) & 4095, h.read_u8(o + 0x699), g.npcs[k].pos[1] + g.npcs[k].root.y, h.read_i32(o + 0x1c), g.npcs[k].animator.record()[0], (0..6).map(|i| h.read_i16(o + 0xa8 + 2 * i)).collect::<Vec<_>>());
+        }
+    });
+    eprintln!("robot turns: port {mine:?} orig {theirs:?}");
+    assert!(theirs.is_some() && mine == theirs, "woken on the original's frame");
+    assert!(turn.iter().all(|(m, t)| m == t), "the turn: {turn:?}");
 }

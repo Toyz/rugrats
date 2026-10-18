@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-214 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 17, format 9, input 5, play 113, render 30, save 4, test 27, tooling 18, ui 13, video 10.
+215 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 18, format 9, input 5, play 113, render 30, save 4, test 27, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -226,3 +226,4 @@ The [reference](docs/README.md) says what is true now.
 | 212 | [Level 5's ambience proven, the guards' attack test the original's, and the unused hint cards settled](worklog/0212-level-5-s-ambience-proven-the-guards-attack-test-the.md) | 2026-10-17 | play |
 | 213 | [A guard within reach turns to the player the original's way round, with the turn in place; the trigger pass's five a frame found](worklog/0213-a-guard-within-reach-turns-to-the-player-the-original-s-way.md) | 2026-10-17 | play |
 | 214 | [The trigger list is the original's in every level and its pass runs five a frame; the loader's skipped objects are not made](worklog/0214-the-trigger-list-is-the-original-s-in-every-level-and-its.md) | 2026-10-17 | engine |
+| 215 | [Level 5's robot wakes on the original's frame and turns as the original's: the trigger pass late in the frame, the turn in place held](worklog/0215-level-5-s-robot-wakes-on-the-original-s-frame-and-turns-as.md) | 2026-10-18 | engine |

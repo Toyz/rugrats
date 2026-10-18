@@ -20,6 +20,8 @@ pub struct Goodie {
     pub pos: Vec3,
     pub rot: Mat3,
     pub taken: bool,
+    /// The placement it was made from.
+    pub placement: usize,
 }
 
 /// Collectible kinds and their sounds (0x800514b0).

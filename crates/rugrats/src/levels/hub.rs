@@ -109,6 +109,9 @@ impl Hub {
             n.hold = Some(ASLEEP);
             // The only one EpisodeStart schedules (0x80078e7c).
             n.scheduled = true;
+            // On the trigger list's front, his enter waking him and his
+            // leave laying him down (0x80083a94: 0x80083f24, 0x80083f6c).
+            g.push_watch(k, WAKE as i32);
         }
         let barks = disc
             .exe_bytes(BARKS, 22)
@@ -128,8 +131,10 @@ impl Hub {
         let Some(k) = find(g, SPIKE) else { return };
         let me = g.player.pos;
         let at = g.npcs[k].pos;
-        // Asleep beyond 30000, awake within (0x80083f6c, 0x80083f24).
-        if dist2(me, at) > WAKE * WAKE {
+        // Asleep once his trigger entry is left, awake once entered
+        // (0x80083f6c, 0x80083f24: the pass's five a frame, the game's
+        // distance, 30000).
+        if !g.trigger_in(k) {
             if let Spike::Bringing(t) = self.spike {
                 self.put_down(g, k, t, false);
             }

@@ -1412,3 +1412,32 @@ fn level_5_ambience_as_the_original() {
     eprintln!("lines: port {mine:?}\n       orig {theirs:?}");
     assert!(theirs.len() >= 5 && mine == theirs, "the lines and their frames");
 }
+
+/// The trigger list (0x800c4c24) the port builds at a level's load
+/// (`Game::trigger_list_placements`) against the original's, by template,
+/// in order.
+#[test]
+#[ignore]
+fn trigger_lists_as_the_original() {
+    let levels: Vec<u8> = std::env::var("TRIG_LEVELS").map(|v| v.split(',').map(|x| x.parse().unwrap()).collect()).unwrap_or(vec![5, 1, 12, 16, 3, 6, 2, 4, 7, 9, 10, 11, 13, 14, 15, 17, 18, 20, 21]);
+    let mut off = Vec::new();
+    for level in levels {
+        let Some(mut b) = Both::open(Boot { level, character: (level == 5).then_some(3), ..Default::default() }) else { return };
+        let mut theirs = Vec::new();
+        let mut node = b.hle.read_u32(0x800c_4c24);
+        while node != 0 && theirs.len() < 400 {
+            let ob = b.hle.read_u32(node + 8);
+            theirs.push(b.hle.read_i16(ob + 0x96) as u32);
+            if std::env::var_os("TRIGDBG").is_some() {
+                eprintln!("    {:#x} template {} 48 {:#x} a0 {} a6 {} id {} at {:?}", ob, b.hle.read_i16(ob + 0x96), b.hle.read_u32(ob + 0x48), b.hle.read_i16(ob + 0xa0) as u16, b.hle.read_u8(ob + 0xa6), b.hle.read_i16(ob + 0x38), [0, 4, 8].map(|i| b.hle.read_i32(ob + 0x18 + i)));
+            }
+            node = b.hle.read_u32(node + 4);
+        }
+        let mine = b.game.trigger_templates();
+        eprintln!("level {level}: port {} orig {}\n  port {mine:?}\n  orig {theirs:?}", mine.len(), theirs.len());
+        if mine != theirs {
+            off.push(level);
+        }
+    }
+    assert!(off.is_empty(), "trigger lists not the original's in levels {off:?}");
+}

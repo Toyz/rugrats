@@ -115,12 +115,14 @@ impl GrandpasTeeth {
         // The geese guard their spots (mode 11, bites of 10).
         for id in GEESE {
             if let Some(k) = find(g, id) {
+                // On the trigger list's front (0x8007914c: +0x48), at its
+                // template's radius.
+                let r = g.npcs[k].radius;
+                g.push_trigger(k, if r != 0 { r } else { 15000 });
                 let n = &mut g.npcs[k];
                 n.mode = Mode::Guard;
                 n.attacks = true;
                 n.health = 255;
-                // On the trigger list (0x8007914c: +0x48).
-                n.trigger = n.radius;
             }
         }
         {
@@ -219,6 +221,7 @@ impl GrandpasTeeth {
                 staggered: false,
                 scheduled: false,
                 trigger: 0,
+                placement: None,
                 radius: 0,
                 body: None,
                 driven: false,

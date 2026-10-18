@@ -56,6 +56,33 @@ pub use movers::Mover;
 pub use pause::PauseEnd;
 pub use story::{hit_line, start_cine};
 pub use things::{Breakable, Ended, PieToss, Strike, THROW_ANIM_SPEED, Thing, ThingState, Touched};
+
+/// The trigger list's default radius (+0xa0 when the template's +0x34 is
+/// 0) and the entries its pass tests a frame (0x80072d38).
+const TRIGGER_RADIUS: i32 = 15000;
+const TRIGGERS_A_FRAME: usize = 5;
+
+/// What an entry of the trigger list (0x800c4c24) is: a character, another
+/// placed object, or a collectible's copy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Trigger {
+    Npc(usize),
+    Placement(usize),
+    Goodie(usize),
+    /// A character whose enter and leave are a level's own (the hub's
+    /// Spike: 0x80083f24 wakes him, 0x80083f6c lays him down): the level
+    /// reads whether it is in (`Game::trigger_in`).
+    Watch(usize),
+}
+
+/// An entry of the trigger list, its radius (+0xa0), and whether it is in
+/// (+0x00 bit 0; a character's is its schedule).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TriggerEntry {
+    pub who: Trigger,
+    pub radius: i32,
+    pub active: bool,
+}
 pub use toys::{Spinner, Walker};
 
 const COL: usize = 466;
@@ -355,6 +382,10 @@ pub struct Game {
     /// This frame's shots (the pool 0x800e6ef0: made in an update, stepped
     /// after the objects, drawn and freed): each one's start and end.
     pub shots: Vec<([i32; 3], [i32; 3])>,
+    /// The trigger list (0x800c4c24) and where its pass goes on from
+    /// (0x800c4c20).
+    pub triggers: Vec<TriggerEntry>,
+    pub trigger_next: usize,
     /// This frame's solids and the character each is (none for an
     /// object), as the shots after the flights meet them.
     solids: Vec<crate::world::boxhit::Exact>,
@@ -711,6 +742,7 @@ impl Game {
                     value: t.raw[0x32] as i32,
                     pos: Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32),
                     rot: models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
+                    placement: k,
                 });
             }
         }
@@ -937,6 +969,7 @@ impl Game {
                 scheduled: false,
                 trigger: 0,
                 radius: 0,
+                placement: Some(k),
                 body: None,
                 driven: false,
                 waited: false,
@@ -1029,6 +1062,8 @@ impl Game {
             npcs_before: Vec::new(),
             aim_before: None,
             shots: Vec::new(),
+            triggers: Vec::new(),
+            trigger_next: 0,
             solids: Vec::new(),
             npc_of: Vec::new(),
             movers,
@@ -1088,6 +1123,7 @@ impl Game {
             strokes: None,
         };
         g.talkers = talkers(&g.set, level);
+        g.triggers = g.trigger_list();
         g.player.free_while_frozen = level.is_box_toss();
         // A long fall hurts (0x8005b2d8) but in the hub, level 2 and the
         // circus, and not Spike (the player's type 9, character 6).
@@ -1234,6 +1270,132 @@ impl Game {
     /// The room the player is in.
     pub fn current_room(&self) -> Option<usize> {
         self.room
+    }
+
+    /// The trigger list as the loader builds it (0x800454dc): the placed
+    /// objects whose init gives an enter callback (+0x48), each pushed on
+    /// the front (0x8001a1c0), so from the last placed to the first, each
+    /// with its radius (+0xa0: template +0x34, else 15000).
+    /// Which inits give one:
+    /// - classes 2, 8, 9 (the pool's last pie, 0x8004997c), 10, 14, 16, 17
+    ///   (the class table 0x800b7de8's inits);
+    /// - class 3 of template flag 0x40000000 (0x8004f6d8), or template 843
+    ///   but id 8801 (0x8004d078) (0x8004845c);
+    /// - class 15 but level 4's template 1189 (0x80048974);
+    /// - class 11 but a template of flag 0x40000000 (0x80048804);
+    /// - class 12 in level 12, a battery's copies (kind 12, 0x80048a44:
+    ///   0x8004cf58 within 1000), copies 1 on then copy 0 (0x80049af4);
+    /// - characters 23-26, 33, 35 and 39 (0x80081bac);
+    /// - a speech line (LP +0x4c, or template 613: 0x8004d0f0);
+    /// - level 16's templates 111 and 441, level 1's objects with a door's
+    ///   level (+0x6c, the signs), within 2500; level 4's id 34 (Cynthia),
+    ///   within 2000 (0x8004691c, its switch on the level).
+    fn trigger_list(&self) -> Vec<TriggerEntry> {
+        let level = self.level.0;
+        let mut pushed = Vec::new();
+        for (k, q) in self.set.placements.iter().enumerate().filter(|(_, q)| q.kind == 1) {
+            let Some(t) = self.set.templates.get(q.template as usize) else { continue };
+            let class = t.raw[4];
+            let character = i16::from_le_bytes([t.raw[0x10], t.raw[0x11]]);
+            let r = u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i32;
+            let radius = if r != 0 { r } else { TRIGGER_RADIUS };
+            if class == 12 {
+                let kind = u16::from_le_bytes([t.raw[0x26], t.raw[0x27]]);
+                if level == 12 && kind == 12 {
+                    let made: Vec<usize> = (0..self.goodies.len()).filter(|&g| self.goodies[g].placement == k).collect();
+                    for &g in made.iter().skip(1).chain(made.first()) {
+                        pushed.push(TriggerEntry { who: Trigger::Goodie(g), radius: 1000, active: false });
+                    }
+                }
+                continue;
+            }
+            let (member, radius) = match class {
+                2 | 8 | 9 | 10 | 14 | 16 | 17 => (true, radius),
+                3 if t.flags & 0x4000_0000 != 0 || (q.template == 843 && q.id != 8801) => (true, radius),
+                15 => (!(level == 4 && q.template == 1189), radius),
+                11 => (t.flags & 0x4000_0000 == 0, radius),
+                1 if matches!(character, 23..=26 | 33 | 35 | 39) => (true, radius),
+                _ if level == 16 && matches!(q.template, 111 | 441) => (true, 2500),
+                _ if level == 1 && q.level != 0 => (true, 2500),
+                _ if level == 4 && q.id == 34 => (true, 2000),
+                _ => (q.speech != 0 || q.template == 613, radius),
+            };
+            if member {
+                let who = match self.npcs.iter().position(|n| n.placement == Some(k)) {
+                    Some(n) => Trigger::Npc(n),
+                    None => Trigger::Placement(k),
+                };
+                pushed.push(TriggerEntry { who, radius, active: false });
+            }
+        }
+        pushed.reverse();
+        pushed
+    }
+
+    /// The trigger list's templates, front to back (for the tools).
+    pub fn trigger_templates(&self) -> Vec<u32> {
+        self.triggers
+            .iter()
+            .map(|e| match e.who {
+                Trigger::Npc(n) | Trigger::Watch(n) => self.npcs[n].placement.map_or(0, |k| self.set.placements[k].template),
+                Trigger::Placement(k) => self.set.placements[k].template,
+                Trigger::Goodie(g) => self.goodies[g].template as u32,
+            })
+            .collect()
+    }
+
+    /// A character put on the trigger list's front (0x8001a1c0 by a level's
+    /// start: level 12's Shadows), within `radius`.
+    pub fn push_trigger(&mut self, npc: usize, radius: i32) {
+        self.triggers.insert(0, TriggerEntry { who: Trigger::Npc(npc), radius, active: false });
+        self.npcs[npc].trigger = radius;
+    }
+
+    /// A character put on the trigger list's front with enter and leave of a
+    /// level's own (0x80083a94), within `radius`.
+    pub fn push_watch(&mut self, npc: usize, radius: i32) {
+        self.triggers.insert(0, TriggerEntry { who: Trigger::Watch(npc), radius, active: false });
+    }
+
+    /// Whether a watched character's entry is in (entered, not left).
+    pub fn trigger_in(&self, npc: usize) -> bool {
+        self.triggers.iter().any(|e| e.who == Trigger::Watch(npc) && e.active)
+    }
+
+    /// The trigger pass (0x80072d38(0)): five entries a frame, from where
+    /// the last left off, back to the front at the end. One within its
+    /// radius (the game's distance across, 0x8001f57c) and not active is
+    /// entered (+0x48: a character scheduled); one active and out of it
+    /// left (+0x4c: unscheduled).
+    fn trigger_pass(&mut self) {
+        let p = self.player.pos;
+        let len = self.triggers.len();
+        for _ in 0..len.min(TRIGGERS_A_FRAME) {
+            if self.trigger_next >= len {
+                self.trigger_next = 0;
+            }
+            let e = self.triggers[self.trigger_next];
+            self.trigger_next += 1;
+            let at = match e.who {
+                Trigger::Npc(n) | Trigger::Watch(n) => self.npcs[n].pos,
+                Trigger::Placement(k) => self.set.placements[k].pos,
+                Trigger::Goodie(g) => {
+                    let v = self.goodies[g].pos;
+                    [v.x as i32, v.y as i32, v.z as i32]
+                }
+            };
+            let active = match e.who {
+                Trigger::Npc(n) => self.npcs[n].scheduled,
+                _ => e.active,
+            };
+            let within = npc::approx_dist(p, at) <= e.radius;
+            if within != active {
+                match e.who {
+                    Trigger::Npc(n) => self.npcs[n].scheduled = within,
+                    _ => self.triggers[self.trigger_next - 1].active = within,
+                }
+            }
+        }
     }
 
     /// Takes the use away from the objects with id `id` (+0x54 = 0).
@@ -1542,14 +1704,8 @@ impl Game {
             self.play_at(sound, at);
         }
         self.track_npc_rooms();
-        // The trigger list (0x80072d38): a character with a trigger is
-        // scheduled while the player is within its radius (0x8001f57c),
-        // and dropped (0x800820ac) once out. (Five a frame in turn: not
-        // ported, all each frame.)
-        let p = self.player.pos;
-        for n in self.npcs.iter_mut().filter(|n| n.trigger > 0) {
-            n.scheduled = npc::approx_dist(p, n.pos) <= n.trigger;
-        }
+        // The trigger list (0x80072d38): five entries a frame in turn.
+        self.trigger_pass();
         for k in 0..self.npcs.len() {
             let n = &mut self.npcs[k];
             let (c, at) = (n.character, n.pos);

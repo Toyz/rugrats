@@ -41,8 +41,21 @@ const TEMPLATE: usize = 239;
 const SECTORS_PER_SECOND: u64 = 150;
 const TICKS_PER_SECOND: u64 = 60;
 
-/// Templates the LP loader (0x800454dc) passes over.
+/// Templates the LP loader (0x800454dc) passes over (0x800455d0).
 const SKIPPED: [u32; 6] = [1242, 1041, 1267, 834, 382, 625];
+/// The kind a skipped object's placement is given (none the loaders read).
+pub const NOT_LOADED: u32 = u32::MAX;
+
+/// Whether the LP loader (0x800454dc at 0x800455d0) passes over a kind 1
+/// placement of database `db`: the templates in `SKIPPED`, level 16's
+/// 391-395, level 10's 403, and template 1211 at (38650, 884, -13520)
+/// or (7900, 884, -2993).
+fn loader_skips(db: usize, p: &placement::Placement) -> bool {
+    SKIPPED.contains(&p.template)
+        || (db == 16 && (391..=395).contains(&p.template))
+        || (db == 10 && p.template == 403)
+        || (p.template == 1211 && matches!(p.pos, [38650, 884, -13520] | [7900, 884, -2993]))
+}
 
 /// The cinematics' backdrop, which play_cine's setup (0x8007475c) asks for
 /// with `set_backdrop` (0x8001d218).
@@ -127,7 +140,17 @@ impl Set {
             rooms: rooms::level_triangles(&level),
             models: Models::parse(&disc.file(MOD + db)?).map_err(|e| e.to_string())?,
             hierarchies: hierarchy::parse_file(&disc.file(HIE + db)?).map_err(|e| e.to_string())?,
-            placements: placement::parse_lp(&disc.file(LP + db)?),
+            // (The templates the loader passes over, 0x800455d0, are never
+            // made: their placements kept, of no kind any loader reads.)
+            placements: placement::parse_lp(&disc.file(LP + db)?)
+                .into_iter()
+                .map(|mut p| {
+                    if p.kind == 1 && loader_skips(db, &p) {
+                        p.kind = NOT_LOADED;
+                    }
+                    p
+                })
+                .collect(),
             templates: placement::parse_templates(&disc.file(TEMPLATE)?),
             faces: Faces::load(disc, Faces::mask(disc, db)?)?,
             neighbours: {

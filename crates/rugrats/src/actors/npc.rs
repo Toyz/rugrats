@@ -181,6 +181,8 @@ pub struct Npc {
     pub trigger: i32,
     /// Its template's trigger radius (+0x34, into +0xa0).
     pub radius: i32,
+    /// The placement it was made from (none for one a script makes).
+    pub placement: Option<usize>,
     /// The shared body its moves go through (0x8005a068), and whether it
     /// did this frame (it asked for its own animation then).
     pub body: Option<Box<crate::actors::player::Player>>,

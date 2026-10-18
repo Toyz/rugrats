@@ -97,12 +97,15 @@ impl LetThereBeLight {
         hand(g);
         for id in SHADOWS {
             if let Some(k) = find(g, id) {
+                // On the trigger list's front, in id order (0x8007b7c8), at
+                // its template's radius.
+                let r = g.npcs[k].radius;
+                g.push_trigger(k, if r != 0 { r } else { 15000 });
                 let n = &mut g.npcs[k];
                 n.mode = Mode::Guard;
                 n.reach = SHADOW_REACH;
                 n.bite_wait = 230;
-                // On the trigger list (0x8007b7c8: +0x48).
-                n.trigger = n.radius;
+                // (Its enter callback set, 0x80049e18.)
             }
         }
         let mesh = Mesh::load(disc, &fx::LIGHT).ok();

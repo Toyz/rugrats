@@ -929,13 +929,16 @@ A suggested order, each step checkable against the oracle:
   held it: under 384 head-on (220 for Spike) the stand handler tries the
   climb (0x80062cf4), up to 1024 the slide (0x80065120), which an
   object of flag 0x4000 never takes.)
-- COL +0x24, record bytes +4 and +7, the plane equation's exact form
-  (0x80068510).
+- COL +0x24, record byte +7, the plane equation's exact form
+  (0x80068510). (Byte +4 is the floor flags: 1 water in level 4, 2
+  slippery, 4 a puff at a foot, 16 dust, 32 and 64 the sink as drawn; 8
+  read by nothing found.)
 - The follow camera's details (0x80027304 is 1885 instructions): its flag
   bits 0x800c4a3c, easing, what R1 (0x80026ddc) does exactly, camera
   modes 2, 5 and 12.
 - The world-update callees 0x8008851c, 0x8008a358, 0x8008c0d4, 0x8009173c
-  and the draws 0x8006f88c .. 0x80034a98 (NPCs, effects, shadows: guesses).
+  and the draws 0x8006f88c .. 0x80034a98 (NPCs, effects: guesses; the
+  characters' shadows are 0x8003414c, above).
 - The HUD elements: which pool shows what.
 - LP kinds 3 (0x8006fe04, sound?) and 7, record +0x46..+0x4a (template 835
   chains), and template bytes +0x07..+0x0b's tables.

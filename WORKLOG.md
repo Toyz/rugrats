@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-228 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 27, format 9, input 5, play 114, render 33, save 4, test 27, tooling 18, ui 13, video 10.
+229 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 27, format 9, input 5, play 114, render 33, save 4, test 28, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -240,3 +240,4 @@ The [reference](docs/README.md) says what is true now.
 | 226 | [COL floor flags 32 and 64 sink a character as drawn: level 4's deep water](worklog/0226-col-floor-flags-32-and-64-sink-a-character-as-drawn-level-4.md) | 2026-10-18 | render |
 | 227 | [The characters cast the original's shadows](worklog/0227-the-characters-cast-the-original-s-shadows.md) | 2026-10-18 | render |
 | 228 | [The cines' characters cast the original's shadows](worklog/0228-the-cines-characters-cast-the-original-s-shadows.md) | 2026-10-18 | render |
+| 229 | [Reptar's fire and chomp match the original frame for frame without lag frames](worklog/0229-reptar-s-fire-and-chomp-match-the-original-frame-for-frame.md) | 2026-10-18 | test |

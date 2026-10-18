@@ -565,12 +565,13 @@ needs, in order:
    with sound 89: state 29 (animation 49; at its event a touched building
    breaks) and state 30 (animation 51; from its event, one flame a game
    frame from bone 16 along the head's yaw and pitch, speed 70, hitting
-   nothing). Done (world::flights, levels::reptar_2010); the port's
-   animation 51 runs about twice as fast as the original's: its event 10
-   frames (20 VSyncs) after the press and its end 19 frames (38 VSyncs)
-   after, where the oracle's state 30 has the event 34 VSyncs in and ends
-   at 70, so the port breathes 9 flames where the original breathes
-   about 18 at dt 10. The
+   nothing). Done (world::flights, levels::reptar_2010). Both play at the
+   written 2048 (template 8). With no lag frame (the oracle's
+   `frame_steps` raised), the fire's state 30 lasts 40 frames and the
+   chomp's state 29 60, the tracks and the height the original's on
+   every frame (`level_7_fire_as_the_original`,
+   `level_7_chomp_as_the_original`). The 70 and 110 VSyncs seen before
+   were frames of dt 15-20. The
    rumble jump: in the land state for char 9, sound 93 and the camera
    shake (0x8001e318 with 160, 450) every frame. Walking into a wall goes
    to stand, not state 9. GRAB and ACTION do nothing else.
@@ -605,9 +606,6 @@ needs, in order:
 
 - Whether anything can hurt Reptar in normal play (none found; guess:
   no).
-- Why animation 51 (and 49) take about 70 (110) VSyncs in the original
-  and half that in the port (the animator's rate for char 9 or the
-  state's own timing; not traced).
 - The exact test in 0x8006b6d0 (the player's shape against a model box)
   and why a building broke 2400 from Reptar while he stood (guess: the
   tail).

@@ -1777,3 +1777,36 @@ fn level_1_cine_shadows_as_the_original() {
     eprintln!("{same} the same, {} off, first {:?}", off.len(), off.first());
     assert!(same > 1000 && off.is_empty(), "the original's cine shadows");
 }
+
+/// Level 7 as Reptar, standing: Circle breathes fire (state 30, animation
+/// 51 at the written 2048), the console fast enough for no lag frame: the
+/// tracks as the original's every frame through the breath.
+#[test]
+#[ignore]
+fn level_7_fire_as_the_original() {
+    use rugrats::input::CIRCLE;
+    let Some(mut b) = Both::open(Boot { level: 7, character: Some(9), ..Default::default() }) else { return };
+    b.hle.hle.frame_steps = 1_200_000;
+    b.put([25279, -703, -1418], 2048, 6);
+    let (port, orig) = b.script(&[(bits(&[CIRCLE]), 1), (0, 50)]);
+    let worst = report("fire", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
+    assert_eq!(worst, 0, "the same as the original's, every frame");
+}
+
+/// Level 7 as Reptar, standing: Triangle chomps (state 29, animation 49 at
+/// the written 2048), no lag frame: tracks and height as the original's.
+#[test]
+#[ignore]
+fn level_7_chomp_as_the_original() {
+    use rugrats::input::TRIANGLE;
+    let Some(mut b) = Both::open(Boot { level: 7, character: Some(9), ..Default::default() }) else { return };
+    b.hle.hle.frame_steps = 1_200_000;
+    b.put([25279, -703, -1418], 2048, 6);
+    let (port, orig) = b.script(&[(bits(&[TRIANGLE]), 1), (0, 100)]);
+    let worst = report("chomp", &port, &orig);
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
+    assert_eq!(worst, 0, "the same as the original's, every frame");
+}

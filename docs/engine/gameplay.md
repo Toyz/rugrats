@@ -680,6 +680,16 @@ position), flags in 0x800c4a3c.
   4096 behind (0x800c4a4c; 6400 in level 7; 0x800c4a68 4800 or 7200),
   pulled in front of walls by a segment test (0x8002cd7c, "vectorwalk").
   It eases toward the goal (by 1/8 or 1/16 a frame, 0x80029c78).
+  Its line test (0x80090554 -> 0x80090340 -> 0x8006a9cc) hands each
+  object's exact test (0x80069c40) a normal buffer in 0x8006a9cc's frame
+  (local +0x38). A hit turns that buffer by the object's matrix in place
+  (0x80010c14); a start inside a box writes nothing first. Then the view
+  test (0x80026914) pushes 18 along whatever the stack slot held. On level
+  3's shelf that was (1642, 0, P), where P is written into the slot just
+  before each line test and is an address in the original's memory
+  (0x800E17C4, 0x800E162C, ... by call). The GTE turn takes its low half.
+  So that push depends on where the original's heap put a record, and the
+  port has no such address.
 - Mode 1: snap to the target. Mode 4: no motion. Mode 12: golf.
 - 0x800291f8(camera, player, kind, arg) switches: kind 1 or 2 follow
   (0x80025e90 / the room's fixed camera); the room's camera byte (room

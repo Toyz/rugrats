@@ -399,8 +399,9 @@ impl Game {
     /// segment (0x80090340 -> 0x8006a9cc with 0x8000: not template flag 16
     /// or 8, no characters), each by its exact test, then the height field
     /// (0x8002cd7c). A start inside an object's box meets it there; its
-    /// normal is then whatever the original's stack held (0x8006a714's
-    /// buffer, untouched), which the port has as none.
+    /// normal is then the stack slot 0x8006a9cc hands the test, turned by
+    /// the object (on level 3's shelf (1642, 0, P), P an address in the
+    /// original's memory), which the port has as none.
     fn blocked(&self, from: [i32; 3], to: [i32; 3]) -> Option<Segment> {
         // The objects (0x80090340 -> 0x8006a9cc with 0x8000): not of
         // template flag 16 or 8, no characters; the nearest each by its

@@ -485,6 +485,34 @@ Bit 32 adds the root's motion into +0xd8..+0xdc. At loop ends,
 character, 132 for Spike in levels 9 and 14), sound 6 for states 6 and
 41, and sound 11 for state 8.
 
+### The root's height (0x80055170, 0x80055904)
+
+A frame's lift key moves the body up and down (+0x1c):
+
+- **A set up** (0x80055f7c, each column by 0x80055ed8) puts each track at
+  its state's second frame. 0x80055170 then applies the first frame's
+  keys: the rotations into the parts, and each lift key's dy, as it is
+  (not scaled), added to the height. Every character is set up so at
+  load, on the idle (0x80081bac's mode init, 0x80082534 into 0x80082478).
+  A settled one is then put back on its floor (0x800452f8). An unsettled
+  one (template flag 0x10000000) keeps it: level 5's robots, four columns
+  of frame 1305's -311, from the LP's -7824 to -9068.
+- **Each step** (0x80056834, 0x80055904 for each frame the time crosses)
+  adds the frame's lift key times the change in its time gone. A body
+  other than the player's scales the key by its feet (hierarchy +0x4c)
+  << 12 over 0x800c41dc's -561.
+- **A state's first frame begun with its whole time** (0x80055560) takes,
+  instead of its key, the gap (+0xde): the feet, the floor (+0x148) and the
+  key, less the height. Across that frame the body comes to its floor,
+  its feet and the key, settled or not. An unsettled body's floor is the
+  one under its place (0x8002b240 at init, +0x13c).
+
+A body set up and not yet begun anew goes on by its keys from where it
+is. Level 5's robot wakes at -9068 and drifts with its idle's keys. Its
+turn in place (state 63) then begins, and the gap of 675 brings it to the
+floor's -5120, its feet's -2083 and the key's -1154 (-8357) over the
+frame.
+
 The stand handler (0x8005d11c), in order:
 
 - ACTION pressed: carrying, request a throw (+0x188 bit 4, anim 18; the

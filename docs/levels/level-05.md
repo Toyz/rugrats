@@ -112,7 +112,14 @@ template flag 8 (no object collision). Template flag 0x10000000 adds
 | 13003-13009 | 176-182 | y -7824, rooms 1, 4, 2, 3, 14, 9, 8 | upper deck |
 | 13010-13013 | 183-186 | (96613, 5155, 8575), (82862, 5155, 8766), (99853, 5155, 36440), (91139, 5155, 29227) | lower deck |
 
-The robots hover (seen y -8000 to -8600 above a floor at -5590). Only LP
+The robots hover (seen y -8000 to -8600 above a floor at -5590). Their
+init sets the idle up at once (0x80082478), which adds the first frame's
+lift four times (-311 a column, 0x80055170): never settled (template flag
+0x10000000), a robot waits at -9068, 1244 over its LP's -7824. Its first
+state begun anew takes the gap to its floor (-5120), feet (-2083) and key
+(-1154) over that frame, then bobs on its keys: -8007 to -8345
+([gameplay](../engine/gameplay.md#the-roots-height-0x80055170-0x80055904)).
+Only LP
 ids are registered by the loader for characters (0x8004584c: LP +0x2a,
 here 0 for most robots and 2000 for two), so 0x800461f4(13000..) finds
 nothing: the disarm loops of 0x8007b3d0 and 0x8007b4a0 do nothing (seen:
@@ -320,9 +327,27 @@ with the player within range (8000) of home and |dy| under 2800, chase;
 attack (mode 5) when the ray 0x80090554 toward the player first meets an
 object (not a wall, not nothing) that is not template 1177 or 843, the
 player is within +0x690 (1536) and heights overlap (0x80083ff0); else
-(bit 2) go home. Speed index 2: 8. Mode 5:
+(bit 2) go home when it is +0x690 or more from it. Short of that, it
+aims at the player with no distance (+0x674 = 0): it stops and turns to
+face her in place (state 63). Speed index 2: 8. The checks read the
+robot's height before its body's step. Mode 5:
 state 19, animation 37, Damage(player, +0x678, +0x6d = 42) (0x800780ac),
-then mode 1. The attacking robot is kept in 0x800c443c for the ambience.
+then mode 1 until the animation is done, mode 0, and mode 11 again. The
+attacking robot is kept in 0x800c443c for the ambience.
+
+`level_5_robot_wakes_as_the_original` follows a robot woken 1200 from
+Angelica for 45 frames:
+- frames 1-4: held, waiting for the trigger pass;
+- frames 5-8: the turn, 672 a frame;
+- frame 9: the attack (mode 5);
+- frame 10: the bite (state 49);
+- frame 11: the damage;
+- frames 30-31: mode 0 and mode 11;
+- frame 32: the next attack;
+- frame 34: its damage.
+
+The port's heading, hover height, four tracks and the player's health
+match every frame.
 
 Seen: a robot 1400 from Angelica bit at 3528 and 3574 (46 VSyncs apart),
 42 each. One 4000 away crept up (x +80 every 20 VSyncs, stops and
@@ -581,23 +606,6 @@ riders, `game.rs`). Level 5 needs, in order:
 - Why room 28 makes a floating Angelica cry (it is on the lower deck, far
   from the ducts; guess: a safety net).
 - Sound 64 heard 60 VSyncs after each robot hit (source not traced).
-- A robot's attack timing. Seen (`level_5_ambience_as_the_original`'s
-  run, a guarding robot 1200 off): held still 4 frames, turned 672 a
-  frame to face Angelica (0 to 2048), then the attack (mode 5 shown a
-  frame after facing; +0x688 bit 512 snaps +0x24 to +0x2c and asks
-  animation 13 first), the damage two frames after, mode 1 for 20
-  frames (track state 49), mode 0, mode 11, and the next attack: one
-  every 23 frames. The port's guard attacks on reaching, without the
-  turn or the wait (the damage 3 frames early); its idle is track
-  state 0 through its wait. Through the turn the original's base track is
-  state 63: logical 53, the turn in place to the left (52, state 64, to
-  the right) that the stand (0x8005d11c) asks from 0x80059204; but
-  0x80059204 answers 0 for a character without +0x688 bit 0x10000 (the
-  robots' is 0x200a), so what asks it for them is not found. (Read at the
-  start: the two robots registered as 2000 have +0x688 0x200a, mode 11,
-  track state 0; the others are not registered, id 0.) The attack waits for
-  0x80083ff0: the robot's hover (its lift, -9068 coming down to -8302)
-  brings its box level with Angelica's on the attack's frame.
 - 8801 (template 1268): what it looks like; whether it blocks the way
   back to the lower deck (guess).
 - Who uses posts 10-15 (the robots do not).

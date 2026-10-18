@@ -195,7 +195,8 @@ impl Trig {
         let at = if lz >= 24 { sum << (lz - 24) } else { sum >> (24 - lz) };
         let k = (at - 64).clamp(0, 191) as usize;
         let r = self.rsqrt[k] as i32;
-        v.map(|c| (c * r) >> shift)
+        // (srav takes the shift's low five bits: a zero vector's -1 is 31.)
+        v.map(|c| (c * r).wrapping_shr(shift as u32))
     }
 
     /// The arc cosine of `x` (4096 = 1), 0..2048 (0x80021500).

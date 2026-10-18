@@ -216,6 +216,9 @@ pub struct Animator {
     /// release, 2048 a grab, 0x2000 a hurt state's wait, 1 an animation's
     /// last frame), 0x8000000 the base completed, 0x10000000 an upper.
     pub events: u32,
+    /// The height a set up owes the body (0x80055170: each column's first
+    /// frame's lift key, as it is, added to +0x1c), until taken.
+    lift: i32,
     /// The speed its tracks run at (+0xe4, 4096 as written): each
     /// 0x800572a8 call sets it from its third argument, clamped to 2048 ..
     /// 16384 (0x80057214); a frame's time runs down by dt times it >> 12
@@ -264,6 +267,7 @@ impl Animator {
             after_upper: AS_YOU_WERE,
             pose: vec![None; 32],
             events: 0,
+            lift: 0,
             speed: 4096,
             written_speed: 4096,
             character,
@@ -336,6 +340,11 @@ impl Animator {
         self.asked = 0;
         self.asked_on = [0, -1];
         self.spans = std::array::from_fn(|k| self.span(self.tracks[k].state, k, anims));
+    }
+
+    /// The height the last set up owes the body (0x80055170), taken.
+    pub fn take_lift(&mut self) -> i32 {
+        std::mem::take(&mut self.lift)
     }
 
     /// Marks logical animation `a` as asked last on its track, without
@@ -478,8 +487,8 @@ impl Animator {
 
     /// The tracks set up on state `s` (0x80055f7c, 0x80055ed8): each
     /// column's track at the second frame from the first, the first's
-    /// rotations taken as they are (0x80055170); a column without an
-    /// animation leaves its track empty.
+    /// rotations taken as they are and its lift owed to the body
+    /// (0x80055170); a column without an animation leaves its track empty.
     fn init(&mut self, s: i16, anims: &Anims) {
         for k in 0..4 {
             let Some((first, _)) = self.span(s, k, anims) else {
@@ -490,10 +499,13 @@ impl Animator {
             self.tracks[k] = Track { state: s, prev: first, cur, left: duration(anims, cur), phase: 1, back: 0 };
             if let Some(f) = anims.frames.get(first as usize) {
                 for key in anims.keys_of(f) {
-                    if let Key::Rotation { channel, q } = *key
-                        && let Some(slot) = self.pose.get_mut(channel as usize)
-                    {
-                        *slot = Some(q.map(|v| v as i32));
+                    match *key {
+                        Key::Rotation { channel, q } => {
+                            if let Some(slot) = self.pose.get_mut(channel as usize) {
+                                *slot = Some(q.map(|v| v as i32));
+                            }
+                        }
+                        Key::Lift { dy, .. } => self.lift += dy as i32,
                     }
                 }
             }
@@ -930,6 +942,9 @@ pub struct RootCurve {
     done: i32,
     total: i32,
     base: i32,
+    /// Its state begun here (its first frame's gap taken, the keys from
+    /// there), not one set up and gone on from where it was.
+    begun: bool,
     /// The height: drawn under the body's position.
     pub y: i32,
     /// The across part of the base state's root taken so far, and what a
@@ -975,8 +990,12 @@ impl RootCurve {
     /// +0x4c << 12 over 0x800c41dc's -561, 0x80055904). A new state, or a
     /// loop's next round, starts from where the last left the body (with
     /// what its end still had); its first frame takes the body from there
-    /// to the key, base + (key - base) frac rounded toward zero.
-    pub fn step(&mut self, a: &Animator, anims: &Anims, lo: i32) {
+    /// to the key, base + (key - base) frac rounded toward zero. `off` is
+    /// where the keys start under the body's place: 0 for a body settled on
+    /// its floor, else the floor and the feet less its place (the original
+    /// takes its first frame's gap to the floor (+0x148), the feet and the
+    /// key: an unsettled hover is brought down to it).
+    pub fn step(&mut self, a: &Animator, anims: &Anims, lo: i32, off: i32) {
         let (state, first, count, cur, left) = a.track();
         let (done, total) = a.root_progress_scaled(anims, Some(lo)).map_or((0, 0), |r| (r.0[1], r.1[1]));
         // (A first frame begun again, as a state asked anew each frame is,
@@ -984,16 +1003,34 @@ impl RootCurve {
         if (self.state, self.first) != (state, first) || cur < self.cur || (a.began() && cur == first) {
             let rest = if self.cur + 1 == self.first + self.count { self.total - self.done } else { 0 };
             self.base = self.y + rest;
+            self.begun = true;
         }
-        self.y = if cur > first {
+        // A state set up (0x80055ed8) moves the body by its keys from where
+        // it is, each step the frame's key times the time gone.
+        if !self.begun {
+            self.y += done - self.done;
+            (self.cur, self.done, self.total) = (cur, done, total);
+            return;
+        }
+        self.y = off + if cur > first {
             done
         } else {
             let dur = anims.frames.get(first).map_or(1, |f| f.duration.max(1) as i32);
             let frac = ((dur - left).clamp(0, dur) << 12) / dur;
             let key = root_key(anims, first, Some(lo)).map_or(0, |k| k[1]);
-            let p = (key - self.base) * frac;
-            self.base + if p < 0 { (p + 4095) >> 12 } else { p >> 12 }
+            let base = self.base - off;
+            let p = (key - base) * frac;
+            base + if p < 0 { (p + 4095) >> 12 } else { p >> 12 }
         };
         (self.state, self.first, self.count, self.cur, self.done, self.total) = (state, first, count, cur, done, total);
+    }
+
+    /// Takes on the base track as it stands, set up and not begun
+    /// (0x80055f7c): the body goes on by its keys from where it is.
+    pub fn set_up(&mut self, a: &Animator, anims: &Anims, lo: i32) {
+        let (state, first, count, cur, _) = a.track();
+        let (done, total) = a.root_progress_scaled(anims, Some(lo)).map_or((0, 0), |r| (r.0[1], r.1[1]));
+        (self.state, self.first, self.count, self.cur, self.done, self.total) = (state, first, count, cur, done, total);
+        self.begun = false;
     }
 }

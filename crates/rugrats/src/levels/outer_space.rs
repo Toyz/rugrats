@@ -115,7 +115,6 @@ impl OuterSpace {
         for n in g.npcs.iter_mut().filter(|n| n.character == ROBOT) {
             n.mode = Mode::Guard;
             n.reach = ROBOT_REACH;
-            n.bite_wait = 230;
         }
         // The init sets template 855's y step to 60 (0x80046ed8: template
         // +0x1a), so every mover of it.

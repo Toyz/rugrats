@@ -920,13 +920,15 @@ impl Game {
             let h = if level == Level::LET_THERE_BE_LIGHT && h == 6 { 45 } else { h };
             let Some(Some(hierarchy)) = set.hierarchies.get(h).cloned() else { continue };
             let mut animator = Animator::load(disc, h as u16)?;
-            animator.set(IDLE, &anims);
-            // 0x80082478: in the box toss levels a character stands in the
+            // 0x80082478: the idle set up at once (table state 0), not
+            // asked; in the box toss levels a character stands in the
             // babies' idle, logical 35 after the base (table state 47).
-            if level.is_box_toss() {
+            let idle = if level.is_box_toss() {
                 animator.set_after(BOX_TOSS_IDLE, true);
-                animator.set_up(animator::table_state(BOX_TOSS_IDLE as i16, 0, 0, false).unwrap_or(0), &anims);
-            }
+                animator::table_state(BOX_TOSS_IDLE as i16, 0, 0, false).unwrap_or(0)
+            } else {
+                animator::table_state(IDLE, 0, 0, false).unwrap_or(0)
+            };
             // Template +0x18 health, +0x1a range, +0x1c wait, +0x1e speed
             // index, +0x32 damage (0x80081bac).
             let t = &set.templates[p.template as usize];
@@ -953,7 +955,6 @@ impl Game {
                 home: p.pos,
                 hidden: false,
                 attacks: false,
-                cooldown: 0,
                 first_post: p.post,
                 loops: (p.level as i32, p.level as i32),
                 size: 0,
@@ -975,8 +976,7 @@ impl Game {
                 waited: false,
                 passes: false,
                 bumped: false,
-                reach: 600,
-                bite_wait: 900,
+                reach: REACH,
                 run_speed: None,
                 post_reach: REACH,
                 hold: None,
@@ -995,6 +995,8 @@ impl Game {
             n.passes = h == 33;
             n.size = n.hierarchy.half_size();
             n.place(p.pos, &col);
+            n.set_up_idle(idle, &anims);
+            n.animator.mark_asked(IDLE);
             npcs.push(n);
         }
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
@@ -1771,7 +1773,7 @@ impl Game {
                         && !self.hidden.contains(&d.id)
                 })
                 .map(|(_, d, _)| d)
-                .min_by_key(|d| (d.pos[0] - p[0]).pow(2) as i64 + (d.pos[2] - p[2]).pow(2) as i64);
+                .min_by_key(|d| ((d.pos[0] - p[0]) as i64).pow(2) + ((d.pos[2] - p[2]) as i64).pow(2));
             if let Some(d) = near.filter(|d| {
                 (d.pos[0] - p[0]).abs() < USE_REACH
                     && (d.pos[2] - p[2]).abs() < USE_REACH

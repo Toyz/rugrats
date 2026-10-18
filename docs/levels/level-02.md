@@ -474,7 +474,7 @@ Char 21 (the goose) gets +0x688 |= 0x1801 at init; char 12 |= 2
 | 7 | goose at a wait post | goal = the player; resume (0x80083efc, mode 0) when (VSync - +0x69c) >= +0x68e, or the player is within +0x68c, or the player lies within 768 of the direction to the next post |
 | 8 | Spike (phase 3) | idle; with bit 2 walk home when beyond range / 2 |
 | 10 | (dead) | char 6: health 255, mode 0; else effects and 0x80083be0 |
-| 11 | geese 900-904 | guard: speed = table; player within +0x68c of home and |dy| < 2800: chase him; attack (bit 8, mode 5) when the ray 0x80090554 reports an object (not templates 1177, 843), he is within +0x690 (2000) and heights overlap. Else with bit 2 go home when he is beyond +0x690 of home |
+| 11 | geese 900-904 | guard: speed = table; player within +0x68c of home and |dy| < 2800: chase him; attack (bit 8, mode 5) when the ray 0x80090554 reports an object (not templates 1177, 843), he is within +0x690 (2000) and heights overlap. Else with bit 2 go home when the goose is +0x690 or more from it; short of that, aim at him with no distance (+0x674 = 0). Within +0x690 of its goal it stops and turns in place to it; the height is +0x1c before the body's step |
 
 The geese are armed by the trigger pass: within +0xa0 (15000) their
 enter callback 0x80049e18 schedules the think; leaving calls +0x4c =

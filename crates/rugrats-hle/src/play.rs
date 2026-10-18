@@ -66,7 +66,14 @@ pub struct Play {
 impl Play {
     /// Boots the disc into `boot.level` and runs to [`IN_PLAY`].
     pub fn boot(disc: Rc<Image>, boot: Boot) -> Result<Play, String> {
+        Self::boot_with(disc, boot, |_| {})
+    }
+
+    /// [`Self::boot`] with `setup` given the machine first (for hooks that
+    /// watch the boot itself).
+    pub fn boot_with(disc: Rc<Image>, boot: Boot, setup: impl FnOnce(&mut Hle)) -> Result<Play, String> {
         let mut hle = Hle::new(disc, true)?;
+        setup(&mut hle);
         let level = boot.level as u32;
         let set_level = Rc::new(Cell::new(false));
         {

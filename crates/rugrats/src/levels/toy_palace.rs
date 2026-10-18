@@ -15,10 +15,8 @@ use crate::world::game::{Game, Script};
 /// Ids: Tommy, Chuckie, the guards and the clowns.
 const TOMMY: u16 = 1492;
 const CHUCKIE: u16 = 1776;
-/// Guards (EpisodeStart 0x800794a0): (id, range, bite, time between
-/// bites in dt as seen).
-const GUARDS: [(u16, i32, i32, i32); 5] =
-    [(46, 5000, 15, 180), (506, 15000, 6, 80), (920, 7000, 8, 230), (921, 7000, 8, 230), (922, 7000, 8, 230)];
+/// Guards (EpisodeStart 0x800794a0): (id, range, bite).
+const GUARDS: [(u16, i32, i32); 5] = [(46, 5000, 15), (506, 15000, 6), (920, 7000, 8), (921, 7000, 8), (922, 7000, 8)];
 const GUARD_REACH: i32 = 1024;
 /// Where cine 45 leaves Chuckie.
 const START: [i32; 3] = [-4154, -1378, 9795];
@@ -88,13 +86,12 @@ impl ToyPalace {
         g.player.target = START_HEADING;
         g.set_camera_yaw(START_HEADING as f32);
         g.checkpoint = Some(Pose::new(START, START_HEADING));
-        for (id, range, bite, wait) in GUARDS {
+        for (id, range, bite) in GUARDS {
             if let Some(k) = find(g, id) {
                 let n = &mut g.npcs[k];
                 n.mode = Mode::Guard;
                 n.range = range;
                 n.damage = bite;
-                n.bite_wait = wait;
                 n.reach = GUARD_REACH;
             }
         }

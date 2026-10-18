@@ -59,7 +59,6 @@ impl MrFriend {
                 let n = &mut g.npcs[k];
                 n.damage = BITE;
                 n.attacks = true;
-                n.bite_wait = 180;
             }
         }
         // Where cine 17 leaves them (oracle).
@@ -82,7 +81,6 @@ impl MrFriend {
             let n = &mut g.npcs[k];
             n.damage = BITE;
             n.attacks = true;
-            n.bite_wait = 180;
             n.mode = Mode::Follow(Target::Player);
             // (0x8007b17c.)
             n.scheduled = true;

@@ -140,9 +140,8 @@ pub struct Npc {
     pub home: [i32; 3],
     /// Not drawn (0x80078bc4 hides by id).
     pub hidden: bool,
-    /// May attack (+0x688 bit 8), and the time until the next bite.
+    /// May attack (+0x688 bit 8).
     pub attacks: bool,
-    pub cooldown: i32,
     /// LP +0x40.
     pub first_post: u8,
     /// Loop posts (flag 16): the count left and its reload (LP +0x42).
@@ -195,12 +194,10 @@ pub struct Npc {
     /// Its last step was taken back off a wall or an object (the bump,
     /// state 9).
     pub bumped: bool,
-    /// How near a guard bites (+0x690; 600 by default, level 5's robots
+    /// How near a guard bites, and how far from home it walks back
+    /// (+0x690; 1024 from the init, level 2's geese 2000, level 5's robots
     /// 1536).
     pub reach: i32,
-    /// The time between a guard's bites (dt; the geese 900, level 5's
-    /// robots 230 as seen).
-    pub bite_wait: i32,
     /// A run speed other than the table's row 0 (levels 9 and 10 use row
     /// 1: index 4 is 11).
     pub run_speed: Option<i32>,
@@ -254,6 +251,25 @@ impl Npc {
     pub fn box_y(&self) -> [i32; 2] {
         let h = |at: usize| self.hierarchy.header.get(at..at + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
         [h(6), h(0xe)]
+    }
+
+    /// Its root keys' scale (0x80055904): its feet (hierarchy +0x4c)
+    /// << 12 over 0x800c41dc's -561.
+    pub fn root_scale(&self) -> i32 {
+        (self.feet() << 12) / ROOT_SCALE
+    }
+
+    /// Its tracks set up on the idle at once, not asked (0x80082478,
+    /// 0x80055f7c), and its root going on from there: an unsettled body
+    /// takes the set up's lift (0x80055170) into its place, which a
+    /// settled one's settling (0x800452f8) puts back on the floor.
+    pub fn set_up_idle(&mut self, s: i16, anims: &Anims) {
+        self.animator.set_up(s, anims);
+        let lift = self.animator.take_lift();
+        if self.unsettled {
+            self.pos[1] += lift;
+        }
+        self.root.set_up(&self.animator, anims, self.root_scale());
     }
 
     pub fn feet(&self) -> i32 {
@@ -568,7 +584,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         // 0x80082230).
         // Mode 1 at its animation's event 0x2000 (not for 1776): a wait of
         // 300 + (rand & 3) x 300 dt (+0x69c), with no body update.
-        if (matches!(n.mode, Mode::Follow(_)) && n.bite == Bite::Recover || matches!(n.mode, Mode::Act(_)))
+        if (matches!(n.mode, Mode::Follow(_) | Mode::Guard) && n.bite == Bite::Recover || matches!(n.mode, Mode::Act(_)))
             && n.animator.events & 0x2000 != 0
             && n.id != 1776
         {
@@ -589,7 +605,7 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 .is_some_and(|p| p.flags & post::WAIT != 0 && p.flags & post::END == 0 && n.dist(p.pos) <= n.post_reach),
             _ => false,
         };
-        let body = !(matches!(n.mode, Mode::Follow(_)) && matches!(n.bite, Bite::Strike | Bite::Resume))
+        let body = !(matches!(n.mode, Mode::Follow(_) | Mode::Guard) && matches!(n.bite, Bite::Strike | Bite::Resume))
             && !matches!(n.mode, Mode::Resume(_))
             && !enters_wait;
         let mut across = [0; 2];
@@ -597,8 +613,15 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         let lift_before = n.root.y;
         if body {
             n.animator.step(w.anims, w.trig);
-            let lo = (n.feet() << 12) / ROOT_SCALE;
-            n.root.step(&n.animator, w.anims, lo);
+            let lo = n.root_scale();
+            // (An unsettled body's keys start at the floor under it.)
+            let off = if n.unsettled {
+                let q = collide::query(w.col, n.pos);
+                if q.tile.is_some() && q.kind == 0 { q.floor + n.feet() - n.pos[1] } else { 0 }
+            } else {
+                0
+            };
+            n.root.step(&n.animator, w.anims, lo, off);
             // Across by the root (the stagger's step back), turned by the
             // heading as it was; the body takes it after its stick (the
             // steer reads the place before it, 0x8005a068).
@@ -608,18 +631,17 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                 across = [m[0], m[2]];
             }
         }
-        n.cooldown = (n.cooldown - DT).max(0);
         let base = n.run_speed.unwrap_or(SPEEDS[n.slow as usize][n.speed_index.min(5)]);
         let mode = n.mode.clone();
-        match mode {
-            Mode::Idle => n.speed = 0,
-            Mode::Ride { on, up, turn } => {
-                let Pose { pos: p, heading: h } = at(on);
-                n.pos = [p[0], p[1] - up, p[2]];
-                n.heading = (h + turn).rem_euclid(4096);
-                n.speed = 0;
-            }
-            Mode::Follow(t) => match n.bite {
+        // A bite under way (0x80084084's modes 5, 1 and 0), a follower's
+        // on its target, a guard's on the player.
+        let biting = match mode {
+            Mode::Follow(t) => Some(t),
+            Mode::Guard => Some(Target::Player),
+            _ => None,
+        };
+        if let Some(t) = biting {
+            match n.bite {
                 // Mode 5 (0x800846e4): state 19, the bite (37) asked at
                 // 4096, Damage to the target (0x800780ac); then mode 1.
                 Bite::Strike => {
@@ -643,51 +665,61 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     }
                     continue;
                 }
-                // Mode 0: mode 4 again (+0x69b).
+                // Mode 0: its mode again (+0x69b).
                 Bite::Resume => {
                     n.bite = Bite::Chase;
                     n.reenter = true;
                     continue;
                 }
+                Bite::Chase => {}
+            }
+        }
+        match mode {
+            Mode::Idle => n.speed = 0,
+            Mode::Ride { on, up, turn } => {
+                let Pose { pos: p, heading: h } = at(on);
+                n.pos = [p[0], p[1] - up, p[2]];
+                n.heading = (h + turn).rem_euclid(4096);
+                n.speed = 0;
+            }
+            Mode::Follow(t) => {
                 // Mode 4 (0x80084cd0): with the way to the target clear
                 // (0x8002cd7c), within half the range and the two bodies
                 // level (0x80083ff0, their boxes' heights overlapping) it
                 // stops, and with +0x688 bit 8 bites (mode 5). Its speed:
                 // twice the table's past twice the range, the table's past
                 // half of it, else as it was.
-                Bite::Chase => {
-                    let p = at(t).pos;
-                    n.goal = p;
-                    let d = n.dist(p);
-                    let (ty, tb) = match t {
-                        Target::Player => (w.player_y, w.player_box_y),
-                        Target::Npc(j) => heights.get(j).copied().unwrap_or((p[1], [0, 0])),
-                        Target::Point(p) => (p[1], [0, 0]),
-                    };
-                    let (my, mb) = (n.pos[1] + n.root.y, n.box_y());
-                    let level = !(ty + tb[1] < my + mb[0]) && !(my + mb[1] < ty + tb[0]);
-                    let mut seg = collide::Segment::default();
-                    let seen = collide::segment(w.col, n.pos, p, &mut seg) == 0;
-                    let mut speed = n.speed;
-                    if seen && d < n.range / 2 && level {
-                        speed = 0;
-                        if n.attacks {
-                            n.bite = Bite::Strike;
-                            n.rooted = false;
-                        }
+                let p = at(t).pos;
+                n.goal = p;
+                let d = n.dist(p);
+                let (ty, tb) = match t {
+                    Target::Player => (w.player_y, w.player_box_y),
+                    Target::Npc(j) => heights.get(j).copied().unwrap_or((p[1], [0, 0])),
+                    Target::Point(p) => (p[1], [0, 0]),
+                };
+                let (my, mb) = (n.pos[1] + n.root.y, n.box_y());
+                let level = !(ty + tb[1] < my + mb[0]) && !(my + mb[1] < ty + tb[0]);
+                let mut seg = collide::Segment::default();
+                let seen = collide::segment(w.col, n.pos, p, &mut seg) == 0;
+                let mut speed = n.speed;
+                if seen && d < n.range / 2 && level {
+                    speed = 0;
+                    if n.attacks {
+                        n.bite = Bite::Strike;
+                        n.rooted = false;
                     }
-                    if n.rooted && d >= n.range / 2 {
-                        // Still in its hurt state (19), which does not walk:
-                        // it waits for the target to come within a bite.
-                        speed = 0;
-                    } else if d > 2 * n.range {
-                        speed = 2 * base;
-                    } else if d >= n.range / 2 {
-                        speed = base;
-                    }
-                    n.go(k, p, speed, w);
                 }
-            },
+                if n.rooted && d >= n.range / 2 {
+                    // Still in its hurt state (19), which does not walk:
+                    // it waits for the target to come within a bite.
+                    speed = 0;
+                } else if d > 2 * n.range {
+                    speed = 2 * base;
+                } else if d >= n.range / 2 {
+                    speed = base;
+                }
+                n.go(k, p, speed, w);
+            }
             Mode::Posts { prev, cur } => {
                 let Some(post) = w.posts.get((cur as usize).wrapping_sub(1)).copied() else {
                     n.mode = Mode::Idle;
@@ -764,48 +796,54 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
             }
             Mode::Guard => {
                 let p = w.player;
-                let from_home = {
-                    let (dx, dz) = ((p[0] - n.home[0]) as f64, (p[2] - n.home[2]) as f64);
-                    (dx * dx + dz * dz).sqrt() as i32
+                // (0x80085220.) Its height is its place and its lift, as
+                // the original's +0x1c before the body's update; the
+                // distances the game's (0x8001f57c).
+                let my_y = n.pos[1] + lift_before;
+                let near = approx_dist(p, n.home) < n.range && (p[1] - my_y).abs() < 2800;
+                // The goal (+0x67c) and how far (+0x674): the player within
+                // the range of its home and height, at their distance; else
+                // its home when it is a reach or more away (+0x688 bit 2,
+                // set by 0x80083b4c); else the player, at none.
+                let (goal, away) = if near {
+                    (p, approx_dist(n.pos, p))
+                } else {
+                    let d = approx_dist(n.home, n.pos);
+                    if d < n.reach { (p, 0) } else { (n.home, d) }
                 };
-                if from_home < n.range && (p[1] - n.pos[1]).abs() < 2800 {
-                    // The attack (0x80084084 at 0x80085220): within reach
-                    // by the game's distance (+0x674, 0x8001f57c), the way
+                n.goal = goal;
+                if away < n.reach {
+                    // Stopped (+0x184 into +0x176), it still turns to its
+                    // goal: the stick's 512 and the body's 160. Turning so,
+                    // standing, 0x800820e0 sets +0x688 bit 0x10000 and the
+                    // stand asks the turn in place (logical 53, state 63,
+                    // 0x8005d11c).
+                    let was = n.heading;
+                    // (The turn alone: it stays where it is.)
+                    n.steer(k, goal, 0, w, false);
+                    if n.heading != was {
+                        n.hold = Some(TURN_IN_PLACE);
+                        n.animator.set(TURN_IN_PLACE, w.anims);
+                    } else if n.hold == Some(TURN_IN_PLACE) {
+                        n.hold = None;
+                    }
+                    n.speed = 0;
+                    // The attack (0x80084084 at 0x80085220): near, the way
                     // to the player clear, and the two bodies level
                     // (0x80083ff0: their boxes' heights overlapping).
-                    if approx_dist(n.pos, p) < n.reach {
-                        // Stopped (+0x184 into +0x176), it still turns to
-                        // the player: the stick's 512 and the body's 160.
-                        // Turning so, standing, 0x800820e0 sets +0x688 bit
-                        // 0x10000 and the stand asks the turn in place
-                        // (logical 53, state 63, 0x8005d11c).
-                        let was = n.heading;
-                        // (The turn alone: it stays where it is.)
-                        n.steer(k, p, 0, w, false);
-                        if n.heading != was {
-                            n.hold = Some(TURN_IN_PLACE);
-                            n.animator.set(TURN_IN_PLACE, w.anims);
-                        } else if n.hold == Some(TURN_IN_PLACE) {
-                            n.hold = None;
-                        }
-                        n.speed = 0;
+                    if near {
                         let (ty, tb) = (w.player_y, w.player_box_y);
-                        let (my, mb) = (n.pos[1] + n.root.y, n.box_y());
-                        let level = !(ty + tb[1] < my + mb[0]) && !(my + mb[1] < ty + tb[0]);
+                        let mb = n.box_y();
+                        let level = !(ty + tb[1] < my_y + mb[0]) && !(my_y + mb[1] < ty + tb[0]);
                         let mut seg = collide::Segment::default();
                         let seen = collide::segment(w.col, n.pos, p, &mut seg) == 0;
-                        if n.cooldown == 0 && level && seen {
-                            events.push(Event::Bite { by: k, target: Target::Player, amount: n.damage });
-                            n.cooldown = n.bite_wait;
+                        // (+0x688 bit 8: mode 5, the bite.)
+                        if level && seen {
+                            n.bite = Bite::Strike;
                         }
-                    } else {
-                        n.go(k, p, base, w);
                     }
-                } else if n.dist(n.home) > 600 {
-                    let home = n.home;
-                    n.go(k, home, base, w);
                 } else {
-                    n.speed = 0;
+                    n.go(k, goal, base, w);
                 }
             }
             Mode::Prowl { prev, cur } => {

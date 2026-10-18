@@ -22,6 +22,8 @@ const CHUCKIE: u16 = 1776;
 const GOOSE: u16 = 11;
 const SPIKE: u16 = 14;
 const GEESE: [u16; 5] = [900, 901, 902, 903, 904];
+/// The geese's reach (+0x690 = 2000, 0x8007914c).
+const GOOSE_REACH: i32 = 2000;
 /// A struck goose's or Spike's animation (0x800511a8: 8).
 const FLINCH: i16 = 8;
 /// A struck goose's lines (0x800b93f4).
@@ -123,6 +125,7 @@ impl GrandpasTeeth {
                 n.mode = Mode::Guard;
                 n.attacks = true;
                 n.health = 255;
+                n.reach = GOOSE_REACH;
             }
         }
         {
@@ -206,7 +209,6 @@ impl GrandpasTeeth {
                 home: g.player.pos,
                 hidden: false,
                 attacks: false,
-                cooldown: 0,
                 first_post: 0,
                 loops: (0, 0),
                 size: 0,
@@ -228,8 +230,7 @@ impl GrandpasTeeth {
                 waited: false,
                 passes: false,
                 bumped: false,
-                reach: 600,
-                bite_wait: 900,
+                reach: 1024,
                 run_speed: None,
                 post_reach: REACH,
                 hold: None,

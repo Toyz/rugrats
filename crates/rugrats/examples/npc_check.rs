@@ -236,6 +236,7 @@ fn main() -> Result<(), String> {
                 let fidget = (p.read_i16(o + 0xf0), p.read_i16(o + 0xf2) as i32);
                 let (cur, prev) = (p.read_u8(o + 0x695), p.read_u8(o + 0x694));
                 let n = &mut g.npcs[k];
+                let own_y = n.pos[1];
                 n.pos = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
                 n.heading = p.read_i16(o + 0x24) as i32 & 4095;
                 n.animator.load_record(t, speed, after, fidget, vec![None; 32], &g.anims);
@@ -250,7 +251,11 @@ fn main() -> Result<(), String> {
                 // (One never stepped keeps its own height there, and a thing that
                 // is no body has none.)
                 let floor = p.read_i32(o + 0x148);
-                if floor != n.pos[1] && (floor + n.feet() - n.pos[1]).abs() < 1000 {
+                if n.unsettled {
+                    // (Never settled, 0x800452f8: its place keeps its own
+                    // height, the lift its hover.)
+                    n.pos[1] = own_y;
+                } else if floor != n.pos[1] && (floor + n.feet() - n.pos[1]).abs() < 1000 {
                     n.pos[1] = floor + n.feet();
                 }
                 if let rugrats::actors::npc::Mode::Posts { .. } = n.mode {

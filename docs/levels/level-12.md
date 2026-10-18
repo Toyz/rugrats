@@ -477,7 +477,7 @@ code.
 | card | file | shown | text |
 |---|---|---|---|
 | HINT32 | 703 | after cine 66 (arg 6) | Tommy needs to get the light out of the refrigerator. Help him find the kitchen safely. Press @ to shine his flashlight on the Shadow monsters. Collect batteries to recharge the flashlight. |
-| HINT33 | 704 | no caller found | Press @ to try to open the refrigerator |
+| HINT33 | 704 | never (no call of 0x80044434 passes 704; see level 3) | Press @ to try to open the refrigerator |
 | HINT34 | 705 | after cine 67 (arg 3) | Search the house and backyard for Spike. Press @ to get him to help. Beware of the Shadow monsters! Don't forget your flashlight! |
 
 @ is Triangle. The port's card table (front.rs `card_after`) has 66 ->
@@ -601,7 +601,7 @@ order:
   doghouse?) and what template +0x24 means.
 - What rooms 32 and 44 are; why 510 and 511 copy the refrigerator doors.
 - Whether the battery's write to address 0x6d matters on hardware.
-- Card args 6 and 3; whether HINT33 (704) is ever shown.
+- Card args 6 and 3.
 - What 0x800e2b48 +0x1f8 (the grip) is for the flashlight given at the
   start (no grip computed).
 - Where cines 67 and 68 really leave Tommy, Spike and the flashlight from

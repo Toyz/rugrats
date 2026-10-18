@@ -949,13 +949,18 @@ fn sync_npc(b: &mut Both, id: u16) -> (usize, u32) {
     if let Some(a) = rugrats::actors::animator::logical_of(t[0][0]).filter(|&a| a != after.0 as i16) {
         n.animator.mark_asked(a);
     }
+    let own_y = n.pos[1];
     n.pos = [0, 4, 8].map(|i| b.hle.read_i32(o + 0x18 + i));
     // (The original's height has the root's lift in it; the port's place
     // is the floor (+0x148) and the feet, its lift added where drawn.)
     // (One never stepped keeps its own height there, and a thing that
     // is no body has none.)
     let floor = b.hle.read_i32(o + 0x148);
-    if floor != n.pos[1] && (floor + n.feet() - n.pos[1]).abs() < 1000 {
+    if n.unsettled {
+        // (Never settled, 0x800452f8: its place keeps its own height, the
+        // lift its hover.)
+        n.pos[1] = own_y;
+    } else if floor != n.pos[1] && (floor + n.feet() - n.pos[1]).abs() < 1000 {
         n.pos[1] = floor + n.feet();
     }
     n.heading = b.hle.read_i16(o + 0x24) as i32 & 4095;
@@ -1363,4 +1368,47 @@ fn hub_jump_mid_turn_as_the_original() {
     assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
+}
+
+/// Level 5 as Angelica (character 3), put 1200 short of the first TV
+/// robot (one the original holds still, +0x699 240), the game's rand and
+/// the ambience's countdown given the original's, left standing 2000
+/// frames. The ambience (0x80080ba8, last in the frame) says the
+/// original's lines on the original's frames: the floating and the other
+/// lines (no attack begun).
+#[test]
+#[ignore]
+fn level_5_ambience_as_the_original() {
+    let Some(mut b) = Both::open(Boot { level: 5, character: Some(3), ..Default::default() }) else { return };
+    for _ in 0..30 {
+        b.hle.frame(0).unwrap();
+    }
+    let k = b.game.npcs.iter().position(|n| n.character == 35 && !n.hidden).expect("a robot");
+    let id = b.game.npcs[k].id;
+    let (k, o) = sync_npc(&mut b, id);
+    let at = b.game.npcs[k].pos;
+    let floor = b.hle.read_i32(o + 0x148);
+    b.put([at[0], floor + b.game.player.feet(), at[2] - 1200], 0, 2);
+    sync_npc(&mut b, id);
+    b.game.rand.state = b.hle.read_u32(0x800c_3f94);
+    b.game.ambience = b.hle.read_i32(0x800c_4cc0);
+    let said: Rc<std::cell::RefCell<Vec<u16>>> = Rc::default();
+    {
+        use rrt::emu::Cpu;
+        let s = said.clone();
+        b.hle.hle.m.hook(0x8008_da4c, move |c| {
+            s.borrow_mut().push(c.cpu.reg(4) as u16);
+            rrt::emu::HookResult::Continue
+        });
+    }
+    let (mut mine, mut theirs) = (Vec::new(), Vec::new());
+    let mut f = 0;
+    let heard = said.clone();
+    b.script_with(&[(0, 2000)], |g, _| {
+        f += 1;
+        mine.extend(g.speech.iter().map(|&n| (f, n)));
+        theirs.extend(heard.borrow_mut().drain(..).map(|n| (f, n)));
+    });
+    eprintln!("lines: port {mine:?}\n       orig {theirs:?}");
+    assert!(theirs.len() >= 5 && mine == theirs, "the lines and their frames");
 }

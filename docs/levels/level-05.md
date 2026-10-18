@@ -446,7 +446,7 @@ shaft has no fall (she rides the elevator).
 |---|---|---|---|
 | HINT16 | 687 | after cine 37 (arg 6) | Guide Angelica through the alien spaceship to a shuttlecraft; zap the TV robots with @; collect batteries to recharge the remote; search for the elevator |
 | HINT22 | 693 | after cine 38 (arg 4) | Float through the twisting air ducts to the alien garage; % to float higher, # to float lower |
-| HINT17-21 | 688-692 | no caller found | "Alien baby's room", "Alien parent's room", "Holding area", "Control area", "This way to the elevator!" |
+| HINT17-21 | 688-692 | never (no call of 0x80044434 passes 688-692; see level 3) | "Alien baby's room", "Alien parent's room", "Holding area", "Control area", "This way to the elevator!" |
 
 HINT22 confirms % = Cross and # = Circle (the guess in
 [objectives](../engine/objectives.md)). The port's card table (front.rs
@@ -581,7 +581,15 @@ riders, `game.rs`). Level 5 needs, in order:
 - Why room 28 makes a floating Angelica cry (it is on the lower deck, far
   from the ducts; guess: a safety net).
 - Sound 64 heard 60 VSyncs after each robot hit (source not traced).
-- HINT17-21 (688-692): no caller found (guess: unused room signs).
+- A robot's attack timing. Seen (`level_5_ambience_as_the_original`'s
+  run, a guarding robot 1200 off): held still 4 frames, turned 672 a
+  frame to face Angelica (0 to 2048), then the attack (mode 5 shown a
+  frame after facing; +0x688 bit 512 snaps +0x24 to +0x2c and asks
+  animation 13 first), the damage two frames after, mode 1 for 20
+  frames (track state 49), mode 0, mode 11, and the next attack: one
+  every 23 frames. The port's guard attacks on reaching, without the
+  turn or the wait (the damage 3 frames early); its idle is track
+  state 0 where the original's is 63.
 - 8801 (template 1268): what it looks like; whether it blocks the way
   back to the lower deck (guess).
 - Who uses posts 10-15 (the robots do not).

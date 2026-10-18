@@ -761,9 +761,18 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                     (dx * dx + dz * dz).sqrt() as i32
                 };
                 if from_home < n.range && (p[1] - n.pos[1]).abs() < 2800 {
-                    if n.dist(p) < n.reach {
+                    // The attack (0x80084084 at 0x80085220): within reach
+                    // by the game's distance (+0x674, 0x8001f57c), the way
+                    // to the player clear, and the two bodies level
+                    // (0x80083ff0: their boxes' heights overlapping).
+                    if approx_dist(n.pos, p) < n.reach {
                         n.speed = 0;
-                        if n.cooldown == 0 && (p[1] - n.pos[1]).abs() < 1200.max(n.reach + 600) {
+                        let (ty, tb) = (w.player_y, w.player_box_y);
+                        let (my, mb) = (n.pos[1] + n.root.y, n.box_y());
+                        let level = !(ty + tb[1] < my + mb[0]) && !(my + mb[1] < ty + tb[0]);
+                        let mut seg = collide::Segment::default();
+                        let seen = collide::segment(w.col, n.pos, p, &mut seg) == 0;
+                        if n.cooldown == 0 && level && seen {
                             events.push(Event::Bite { by: k, target: Target::Player, amount: n.damage });
                             n.cooldown = n.bite_wait;
                         }

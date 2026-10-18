@@ -124,6 +124,17 @@ impl Both {
                 self.hle.write_i16(rugrats_hle::play::PLAYER + 4 + 2 * (3 * r + c) as u32, m[r][c] as i16);
             }
         }
+        // And the floor under it as the settling has it (0x800452f8:
+        // 0x8002b240 into +0x13c and +0x140, then +0x148), which a put
+        // would leave as it was: the next state's first frame takes its gap
+        // to that floor (0x80055904).
+        let q = rugrats::world::collide::query(&self.game.col, pos);
+        if q.tile.is_some() {
+            let pl = rugrats_hle::play::PLAYER;
+            self.hle.write_u32(pl + 0x13c, q.floor as u32);
+            self.hle.write_u32(pl + 0x140, q.ceiling as u32);
+            self.hle.write_u32(pl + 0x148, q.floor as u32);
+        }
         let p = &mut self.game.player;
         p.pos = pos;
         p.heading = heading;
@@ -1631,4 +1642,27 @@ fn level_5_door_opens_as_the_original() {
     });
     eprintln!("door in: port {mine:?} orig {theirs:?}");
     assert!(theirs.is_some() && mine.map(|f| f + 1) == theirs, "the door entered on the original's frame");
+}
+
+/// Level 3 as Tommy, put on a shelf top facing 0 with the camera along
+/// 2048, Up held: the stick asks a half turn exactly (2048), which the turn
+/// makes up through 1024 (0x8005bc80 keeps +2048's sign), playing the turn
+/// in place to the right (logical 52, state 64: 0x8005d11c with
+/// 0x80059204) and its root's bob. (From the run's first frame on the
+/// follow camera parts from the original's.)
+#[test]
+#[ignore]
+fn level_3_turn_in_place_as_the_original() {
+    use rugrats::input::{R1, UP};
+    let Some(mut b) = Both::open(Boot { level: 3, ..Default::default() }) else { return };
+    let feet = b.game.player.feet();
+    b.put([21000, feet, 2000], 0, 6);
+    b.script(&[(bits(&[R1]), 1), (0, 4)]);
+    let (port, orig) = b.script(&[(bits(&[UP]), 8)]);
+    let worst = report("turn", &port, &orig);
+    assert_eq!(camera_off(&port, &orig), 0, "the original's camera heading");
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
+    let turned = port.iter().zip(&orig).filter(|(p, o)| p.heading != o.heading).count();
+    assert_eq!((worst, turned), (0, 0), "the same as the original's, every frame");
 }

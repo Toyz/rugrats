@@ -74,6 +74,10 @@ pub mod anim {
     pub const SLIP: i16 = 33;
     /// The bump (state 9, 0x8005d030): run into a thing it cannot climb.
     pub const BUMP: i16 = 6;
+    /// The turn in place, to the right (state 64) and to the left (state
+    /// 63), which the stand asks while it turns (0x8005d11c).
+    pub const TURN_RIGHT: i16 = 52;
+    pub const TURN_LEFT: i16 = 53;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,6 +129,10 @@ pub struct Player {
     pub free_while_frozen: bool,
     /// The turn rate (0x800c41fc; 298 for chars 6 and 34).
     pub turn_rate: i32,
+    /// The stick's size this frame (+0x1b0, 0..4096), and the speed it set
+    /// (+0x184 as the state's handler finds it).
+    pub stick_size: i32,
+    stick_speed: i32,
     /// The highest step walked up (0x800c430c by +0x15e: 256, or 750).
     pub step_limit: i32,
     /// The slant under which a thing is met head-on, climbed or bumped
@@ -296,6 +304,8 @@ impl Player {
             script_aims: false,
             free_while_frozen: false,
             turn_rate: TURN,
+            stick_size: 0,
+            stick_speed: 0,
             head_on: 384,
             step_limit: 256,
             push: [0; 2],
@@ -472,6 +482,7 @@ impl Player {
                 }
             }
         }
+        self.stick_size = magnitude;
         if magnitude >= DEAD {
             let dir = (((sx as f64).atan2(sz as f64) / std::f64::consts::TAU) * 4096.0).round() as i32;
             let want = (dir + camera_heading).rem_euclid(4096);
@@ -531,11 +542,12 @@ impl Player {
         // The way (+0x178): the body's matrix (0x80020d10 of the heading,
         // MatrixNormal'd) applied to (0, 0, 4096), a little off unit
         // (0x8005c8d8).
+        self.stick_speed = self.speed;
         let way = trig.turn(self.heading, [0, 0, 4096]);
         self.launch_heading = self.way_heading;
         self.way_heading = self.heading;
-        let step = (self.turn_rate * DT) >> 6;
-        let d = wrap(self.target - self.heading);
+        let step = (self.rate() * DT) >> 6;
+        let d = fold(self.target - self.heading);
         self.heading = (self.heading + d.clamp(-step, step)).rem_euclid(4096);
         // The stick's push in the air (0x80061330), had there: the axes
         // as the pad gives them (4096 a full one, 8 times that raw).
@@ -1066,7 +1078,14 @@ impl Player {
             _ if self.hold.is_some() => self.hold.unwrap(),
             _ if self.action.is_some() && on_ground => self.action.unwrap(),
             State::Stand if self.carrying => anim::CARRY_IDLE,
-            State::Stand => anim::IDLE,
+            // Turning where it stands (0x8005d11c with 0x80059204): the
+            // turn in place to the left (53, state 63) or the right (52,
+            // state 64); still, the idle.
+            State::Stand => match self.turning_in_place() {
+                d if d < 0 => anim::TURN_LEFT,
+                d if d > 0 => anim::TURN_RIGHT,
+                _ => anim::IDLE,
+            },
             State::Walk => anim::STAND,
             State::Run => anim::RUN,
             State::Jump => {
@@ -1139,8 +1158,8 @@ impl Player {
         } else {
             self.speed = 0;
         }
-        let step = (self.turn_rate * DT) >> 6;
-        let d = wrap(self.target - self.heading);
+        let step = (self.rate() * DT) >> 6;
+        let d = fold(self.target - self.heading);
         self.heading = (self.heading + d.clamp(-step, step)).rem_euclid(4096);
         let (s, c) = (trig.sin(self.heading), trig.cos(self.heading));
         self.pos[0] += (s * self.speed * DT) >> 12;
@@ -2198,4 +2217,34 @@ impl Box3 {
 /// An angle difference in -2048..2048.
 fn wrap(a: i32) -> i32 {
     (a + 2048).rem_euclid(4096) - 2048
+}
+
+impl Player {
+    /// Whether it turns where it stands (0x80059204 for the player, which
+    /// the stand reaches only when the stick's speed is no walk or run,
+    /// 0x800590d4 and 0x80059008: both need one): the stick pushed (+0x1b0)
+    /// and no speed from it (+0x184), the turn left to make (folded as the
+    /// turn folds it); else 0.
+    fn turning_in_place(&self) -> i32 {
+        if self.stick_size != 0 && self.stick_speed == 0 { fold(self.target - self.heading) } else { 0 }
+    }
+
+    /// The turn rate this frame (0x8005bbf4): a slow body (Spike, 34)
+    /// turning in place turns half as fast again.
+    fn rate(&self) -> i32 {
+        if self.turn_rate == SLOW_TURN && self.turning_in_place() != 0 { (self.turn_rate * 3) >> 1 } else { self.turn_rate }
+    }
+}
+
+/// The turn's difference of two headings in 0..4096 (0x8005bc80): from
+/// 2049 less 4096, under -2048 plus 4096, so a half turn either way keeps
+/// its sign (a body facing 0 asked for 2048 turns up through 1024).
+fn fold(d: i32) -> i32 {
+    if d >= 2049 {
+        d - 4096
+    } else if d < -2048 {
+        d + 4096
+    } else {
+        d
+    }
 }

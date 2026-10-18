@@ -542,6 +542,20 @@ The stand handler (0x8005d11c), in order:
 - JUMP pressed, not in golf and 0x800c4290 = 0: state 5.
 - Else 0x800590d4 (run) / 0x80059008 (walk) with the move test 0x80064a34:
   state 2 / 1; 0x80058da4 and 0x80062cf4: state 6.
+- Standing, neither the run nor the walk test passing (both need the
+  speed the stick set, +0x184), the turn in place: 0x80059204 answers,
+  for the player, the wanted heading less the heading (folded as the turn
+  folds it) while the stick is pushed (+0x1b0) and that speed is 0; for a character
+  (+0x00 bit 0x4000), -1 with +0x688 bit 0x10000 (set by 0x800820e0). Under
+  0 it asks logical 53 (state 63, to the left), over 0 logical 52 (state
+  64, to the right), unless that state plays; at 0 it asks the stand
+  (0x80057274) unless the base plays state 0, 23, 24 or 60.
+
+The turn (0x8005bc80) moves the heading toward +0x2c by the turn rate
+(0x8005bbf4: 1025 dt >> 6; Spike's and 34's 298, half as fast again while
+turning in place). The difference is folded from 2049 by less 4096 and
+under -2048 by plus 4096, so a half turn (2048) goes up through 1024. The
+stick (0x8005be24) keeps both headings in 0..4096.
 
 Held by the probes in the walk and run (0x8005e1f4, 0x80064a34 answering
 1), a thing met at a slant under 384 (Spike 220):

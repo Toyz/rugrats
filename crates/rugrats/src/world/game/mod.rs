@@ -643,9 +643,9 @@ impl Game {
         let mut player = Player::new(disc, hierarchy.clone(), start, heading, &col, &anims)?;
         player.pickables = (0..set.templates.len()).filter(|&t| set.templates[t].pickable()).map(|t| t as u16).collect();
         if who != TOMMY {
-            // Another body (0x80059328): Spike turns slowly (0x80062eac).
+            // Another body (0x80059328): Spike and 34 turn slowly (0x8005bbf4).
             let a = Animator::load(disc, who as u16)?;
-            let turn = if matches!(who, 6 | 21) { SLOW_TURN } else { TURN };
+            let turn = if matches!(who, 6 | 34) { SLOW_TURN } else { TURN };
             player.set_body(hierarchy, a, turn, &anims);
             player.pos = start;
         }

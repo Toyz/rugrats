@@ -1072,3 +1072,109 @@ fn level_9_ball_at_friend_as_the_original() {
     assert_eq!(first, None, "Mr. Friend: tracks, place, health");
     assert_eq!(camera_off(&port, &orig), 0, "the camera's heading");
 }
+
+/// Level 12: the flashlight shone (Triangle held) where cine 66 leaves
+/// Tommy. Each frame's light is a shot (0x80091834, type 1) from hand
+/// slot 15 turned (0, 0, 350), stepped once along the facing (4096) and
+/// drawn (0x80090e70) from its start to its end: both the original's.
+#[test]
+#[ignore]
+fn level_12_light_shot_as_the_original() {
+    use rugrats::input::TRIANGLE;
+    let Some(mut b) = Both::open(Boot { level: 12, ..Default::default() }) else { return };
+    for _ in 0..30 {
+        b.hle.frame(0).unwrap();
+    }
+    b.put([29611, -5365, 15428], 1024, 4);
+    // (The flashlight is in hand as +0x1f0 alone: the stand's carry asked,
+    // which the sync forgets.)
+    b.sync_animation();
+    b.game.player.animator.mark_asked(rugrats::actors::player::anim::CARRY_IDLE);
+    b.tracks_off.clear();
+    let theirs: Rc<std::cell::RefCell<Vec<([i32; 3], [i32; 3])>>> = Rc::default();
+    {
+        use rrt::emu::{BusExt, Cpu};
+        let t = theirs.clone();
+        b.hle.hle.m.hook(0x8009_0e70, move |c| {
+            let r = c.cpu.reg(5) as u32;
+            let mut w = |a: u32| c.bus.read_u32(a).unwrap_or(0) as i32;
+            let (from, to) = ([w(r + 0x14), w(r + 0x18), w(r + 0x1c)], [w(r + 4), w(r + 8), w(r + 12)]);
+            t.borrow_mut().push((from, to));
+            rrt::emu::HookResult::Continue
+        });
+    }
+    let mut mine = Vec::new();
+    let drawn = theirs.clone();
+    // (The shot a frame takes, from the pose the frame before drew.)
+    let mut next = rugrats::levels::let_there_be_light::shot(&b.game);
+    b.script_with(&[(bits(&[TRIANGLE]), 20), (0, 4)], |g, _| {
+        // (On the frames the original drew one.)
+        if drawn.borrow().len() > mine.len() {
+            mine.extend(next);
+        }
+        next = rugrats::levels::let_there_be_light::shot(g);
+    });
+    let theirs = theirs.borrow().clone();
+    eprintln!("shots: port {} orig {}\n  port {:?}\n  orig {:?}", mine.len(), theirs.len(), mine.first(), theirs.first());
+    let off = mine.iter().zip(&theirs).filter(|(m, t)| m != t).count();
+    assert!(theirs.len() >= 18 && mine.len() == theirs.len() && off == 0, "the shots: {:?}", mine.iter().zip(&theirs).find(|(m, t)| m != t));
+    assert!(b.tracks_off.is_empty(), "Tommy's tracks, off at {:?}", b.tracks_off);
+}
+
+/// Level 12: a Shadow monster in the kitchen (3339) in the light. Tommy
+/// put on its floor 2000 short of it, the monster given the original's
+/// place; Triangle held. Tommy's aim target (+0x1f4, 0x80059b34) is the
+/// monster, so the light goes toward it (0x80075e4c) while it has a size
+/// (+0x36): the shot meets its box (0x80090554 -> 0x8006a9cc ->
+/// 0x8006a714) and strikes it (0x800511a8 case 41: mode 10, the box
+/// zeroed); it shrinks 250 a frame and comes back when its size is spent
+/// (0x80084314). Each shot, the size every frame and the frame it comes
+/// back are the original's.
+#[test]
+#[ignore]
+fn level_12_light_strikes_as_the_original() {
+    use rugrats::input::TRIANGLE;
+    let Some(mut b) = Both::open(Boot { level: 12, ..Default::default() }) else { return };
+    for _ in 0..30 {
+        b.hle.frame(0).unwrap();
+    }
+    let id: u16 = std::env::var("LIGHT_ID").ok().and_then(|v| v.parse().ok()).unwrap_or(3339);
+    let (k, o) = sync_npc(&mut b, id);
+    let at = b.game.npcs[k].pos;
+    let floor = b.hle.read_i32(o + 0x148);
+    let me = [at[0] - 2000, floor + b.game.player.feet(), at[2] + 300];
+    b.put(me, 1024, 4);
+    b.sync_animation();
+    b.game.player.animator.mark_asked(rugrats::actors::player::anim::CARRY_IDLE);
+    sync_npc(&mut b, id);
+    let theirs: Rc<std::cell::RefCell<Vec<([i32; 3], [i32; 3])>>> = Rc::default();
+    {
+        use rrt::emu::{BusExt, Cpu};
+        let t = theirs.clone();
+        b.hle.hle.m.hook(0x8009_0e70, move |c| {
+            let r = c.cpu.reg(5) as u32;
+            let mut w = |a: u32| c.bus.read_u32(a).unwrap_or(0) as i32;
+            t.borrow_mut().push(([w(r + 0x14), w(r + 0x18), w(r + 0x1c)], [w(r + 4), w(r + 8), w(r + 12)]));
+            rrt::emu::HookResult::Continue
+        });
+    }
+    let drawn = theirs.clone();
+    // (The game's rand as the original's has it: 0x800c3f94.)
+    b.game.rand.state = b.hle.read_u32(0x800c_3f94);
+    let (mut mine, mut sizes) = (Vec::new(), Vec::new());
+    let mut next = rugrats::levels::let_there_be_light::shot(&b.game);
+    b.script_with(&[(bits(&[TRIANGLE]), 24), (0, 2)], |g, h| {
+        if drawn.borrow().len() > mine.len() {
+            mine.extend(next);
+        }
+        next = rugrats::levels::let_there_be_light::shot(g);
+        let n = &g.npcs[k];
+        sizes.push(((n.scale, matches!(n.mode, rugrats::actors::npc::Mode::Idle)), (h.read_i16(o + 0x36) as i32, h.read_u8(o + 0x699) == 10)));
+    });
+    let theirs = theirs.borrow().clone();
+    eprintln!("shots {} / {}, sizes {sizes:?}", mine.len(), theirs.len());
+    let off = mine.iter().zip(&theirs).filter(|(m, t)| m != t).count();
+    assert!(theirs.len() >= 20 && mine.len() == theirs.len() && off == 0, "the shots: {:?}", mine.iter().zip(&theirs).enumerate().find(|(_, (m, t))| m != t));
+    assert!(sizes.iter().any(|s| s.1.1) && sizes.iter().any(|s| s.1.0 == 4096 && !s.1.1 && sizes.iter().position(|x| x.1.1).is_some()), "struck and back");
+    assert!(sizes.iter().all(|(m, t)| m == t), "the size and mode 10: {:?}", sizes.iter().enumerate().find(|(_, (m, t))| m != t));
+}

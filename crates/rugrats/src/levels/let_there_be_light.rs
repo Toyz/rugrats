@@ -9,6 +9,7 @@ use rugrats_render::Vtx;
 use crate::actors::npc::{Event, Mode, Target};
 use crate::disc::GameDisc;
 use crate::input::{self, Pads};
+use crate::world::collide;
 use crate::world::fx::{self, Mesh};
 use crate::world::game::{self, Effect, Game, Script};
 
@@ -18,17 +19,29 @@ const LIGHT: u16 = 933;
 const CHARGE: i32 = 120;
 const CHARGE_AGAIN: i32 = 100;
 const GAUGE: (i16, i16) = (-172, 73);
-/// The beam's reach (0x8009134c, read from code) and its half width
-/// (guess).
-const REACH: f32 = 4096.0;
-const WIDTH: f32 = 700.0;
+/// The light's shot (type 1, table 0x800bb28c entry 1): from hand slot
+/// 15 turned (0, 0, 350) (+0x24, 0x80091834), its speed 100 (0x8005f4cc)
+/// over the type's 100 (+0x18, 0x8009134c): the facing's unit, 4096, in
+/// its one frame.
+const SHOT_SLOT: usize = 15;
+/// The hand part (hierarchy +0x23, slot 15)'s model: the hand holding the
+/// light (cine 66's end, the pick-up 0x800602d8), or the bare hand (the
+/// put-down 0x80060910, cine 67 and 68's start, 0x80072ef0).
+const HAND_LIGHT: u32 = 1690;
+const HAND_BARE: u32 = 1310;
+const SHOT_FROM: i32 = 350;
+const SHOT_SPEED: i32 = 100;
+const SHOT_SCALE: i32 = 100;
 /// The light mesh's width (0x80090e70: scale 15000).
 const LIGHT_WIDTH: f32 = 15000.0;
 /// Shadow monsters (3333-3340, template 934): guard 10000, reach 1024,
-/// bite 20; light-struck, away for 18 frames, then a group 10 spot.
+/// bite 20; light-struck, mode 10: their box gone, shrinking 250 a frame
+/// (+0x36) while it has a size, then a group 10 spot.
 const SHADOWS: [u16; 8] = [3333, 3334, 3335, 3336, 3337, 3338, 3339, 3340];
 const SHADOW_REACH: i32 = 1024;
-const AWAY: i32 = 18;
+const SHRINK: i32 = 250;
+/// The hierarchy's box (+0x04..+0x10), zeroed while struck.
+const BOX: std::ops::Range<usize> = 4..0x12;
 const SPOTS: usize = 10;
 /// Batteries (kind 12): taken within 1000 by the trigger pass, +30.
 const BATTERY: u16 = 12;
@@ -46,11 +59,13 @@ const START: [i32; 3] = [29611, -5365, 15428];
 pub struct LetThereBeLight {
     charge: i32,
     max: i32,
-    /// Monsters gone and frames until they come back.
-    away: Vec<(usize, i32)>,
+    /// Monsters struck (mode 10) and their hierarchy's box to put back.
+    away: Vec<(usize, Vec<u8>)>,
     fridge_done: bool,
     spike_waiting: bool,
     shining: bool,
+    /// This frame's shot: the hand's point and where it got to.
+    shot: Option<([i32; 3], [i32; 3])>,
     mesh: Option<Mesh>,
 }
 
@@ -70,9 +85,12 @@ impl LetThereBeLight {
         g.player.heading = 1024;
         g.player.target = 1024;
         g.set_camera_yaw(1024.0);
+        // The flashlight in hand as +0x1f0 alone (0x8007b7c8): no grip, the
+        // arms as they were, the hand's model showing it.
         if let Some(k) = g.things.iter().position(|t| t.template == LIGHT) {
-            g.give(k);
+            g.hold(k);
         }
+        hand(g);
         for id in SHADOWS {
             if let Some(k) = find(g, id) {
                 let n = &mut g.npcs[k];
@@ -91,6 +109,7 @@ impl LetThereBeLight {
             fridge_done: false,
             spike_waiting: false,
             shining: false,
+            shot: None,
             mesh,
         })
     }
@@ -99,28 +118,61 @@ impl LetThereBeLight {
         g.carried().is_some_and(|k| g.things[k].template == LIGHT)
     }
 
-    /// The light (beam type 1): a monster near the line ahead of the hand
-    /// is struck (0x800511a8 case 41): sound 110, away.
+    /// The light (0x80059d3c -> 0x80091834, shot type 1): a shot from the
+    /// hand toward the aim target or along the facing (`shot`), stepped
+    /// once (0x8009134c) and freed after its draw. A Shadow
+    /// monster its step meets first is struck (its +0x58, 0x800511a8 case
+    /// 41): mode 10, its hierarchy's box zeroed, sound 110 at it.
     fn shine(&mut self, g: &mut Game) {
-        let p = g.player.pos;
-        let (s, c) = (g.trig.sin(g.player.heading) as f32 / 4096.0, g.trig.cos(g.player.heading) as f32 / 4096.0);
-        for k in 0..g.npcs.len() {
-            let n = &g.npcs[k];
-            if !SHADOWS.contains(&n.id) || n.hidden {
-                continue;
+        self.shot = shot(g);
+        let Some((from, to)) = self.shot else { return };
+        if let Some(k) = g.shot_meets(from, to)
+            && SHADOWS.contains(&g.npcs[k].id)
+        {
+            let n = &mut g.npcs[k];
+            n.mode = Mode::Idle;
+            let saved = n.hierarchy.header.get(BOX).map(<[u8]>::to_vec).unwrap_or_default();
+            if let Some(b) = n.hierarchy.header.get_mut(BOX) {
+                b.fill(0);
             }
-            let (dx, dz) = ((n.pos[0] - p[0]) as f32, (n.pos[2] - p[2]) as f32);
-            let along = dx * s + dz * c;
-            let across = (dx * c - dz * s).abs();
-            if along > 0.0 && along < REACH && across < WIDTH {
-                g.npcs[k].hidden = true;
-                g.npcs[k].mode = Mode::Idle;
-                let at = g.npcs[k].pos;
-                g.play_at(110, at);
-                self.away.push((k, AWAY));
-            }
+            let at = n.pos;
+            g.play_at(110, at);
+            self.away.push((k, saved));
         }
     }
+}
+
+/// The hand part's model and the flashlight's own draw (+0x40 0 while
+/// in hand: the hand's model shows it).
+fn hand(g: &mut Game) {
+    let held = g.carried().filter(|&k| g.things[k].template == LIGHT);
+    for t in g.things.iter_mut().filter(|t| t.template == LIGHT) {
+        t.hidden = held.is_some();
+    }
+    if let Some(k) = g.player.slot_part(SHOT_SLOT)
+        && let Some(p) = g.player.hierarchy.parts.get_mut(k)
+    {
+        p.model = if held.is_some() { HAND_LIGHT } else { HAND_BARE };
+    }
+}
+
+/// The light's shot: its start, hand slot 15's part as last drawn
+/// (+0x158, 0x80044fec) turning (0, 0, 350) (0x8009fbe8 by the part's
+/// matrix, transposed by 0x80010b54); its way (+0x200, 0x80059cdc), the
+/// unit toward the aim target (+0x1f4, 0x80075e4c) while it has a size
+/// (+0x36), else the facing's (0x80076040), made a unit again
+/// (0x8009f278); its end that unit times (speed << 10) / 100, >> 10.
+pub fn shot(g: &Game) -> Option<([i32; 3], [i32; 3])> {
+    let (posed, _) = g.drawn_pose();
+    let m = posed.get(g.player.slot_part(SHOT_SLOT)?)?;
+    let from = [0, 1, 2].map(|r| m.joint[r] + ((m.rot[2][r] * SHOT_FROM) >> 12));
+    let way = match g.aim_target.map(|t| &g.npcs[t]).filter(|n| !n.hidden && n.scale > 0) {
+        Some(n) => [0, 1, 2].map(|k| n.pos[k] - g.player.pos[k]),
+        None => [g.trig.sin(g.player.heading), 0, g.trig.cos(g.player.heading)],
+    };
+    let dir = collide::normalize(collide::unit(way));
+    let step = (SHOT_SPEED << 10) / SHOT_SCALE;
+    Some((from, [0, 1, 2].map(|k| from[k] + ((dir[k] * step) >> 10))))
 }
 
 impl Script for LetThereBeLight {
@@ -139,24 +191,27 @@ impl Script for LetThereBeLight {
         if holding && pads.pressed(0, input::TRIANGLE) {
             g.play(161);
         }
-        if self.shining {
-            self.charge -= 1;
-            self.shine(g);
-        }
-        // Monsters back (0x80083be0): a group 10 spot, not marked used.
+        // Mode 10 (0x80084314, +0x688 bit 0x8000): the size down 250 a
+        // frame while above 0; then speech 143 or 21 (rand & 1) and back
+        // (0x80083be0 case 43): size 4096, the box put back, guarding from
+        // a group 10 spot, not marked used.
         let mut back = Vec::new();
-        self.away.retain_mut(|(k, left)| {
-            *left -= 1;
-            if *left <= 0 {
-                back.push(*k);
-                false
-            } else {
-                true
+        self.away.retain(|(k, saved)| {
+            let n = &mut g.npcs[*k];
+            if n.scale > 0 {
+                n.scale -= SHRINK;
+                return true;
             }
+            back.push((*k, saved.clone()));
+            false
         });
-        for k in back {
-            // Mode 10's end (0x80084380): speech 143 or 21.
+        for (k, saved) in back {
             g.speech.push(if g.rand.next() & 1 == 0 { 143 } else { 21 });
+            let n = &mut g.npcs[k];
+            n.scale = 4096;
+            if let Some(b) = n.hierarchy.header.get_mut(BOX) {
+                b.copy_from_slice(&saved);
+            }
             if let Some(i) = game::spawn(&mut g.spots, SPOTS, &mut g.rand) {
                 g.spots[i].used = false;
                 let at = g.spots[i].pos;
@@ -164,8 +219,11 @@ impl Script for LetThereBeLight {
                 n.place(at, &g.col);
                 n.home = at;
             }
-            g.npcs[k].hidden = false;
             g.npcs[k].mode = Mode::Guard;
+        }
+        if self.shining {
+            self.charge -= 1;
+            self.shine(g);
         }
         // Batteries within 1000 (0x8004cf58): +30, clamped to the gauge.
         let me = rrt::glam::Vec3::new(g.player.pos[0] as f32, g.player.pos[1] as f32, g.player.pos[2] as f32);
@@ -201,6 +259,7 @@ impl Script for LetThereBeLight {
                 g.cine = Some(CINE_WON);
             }
         }
+        hand(g);
     }
 
     fn cine_finished(&mut self, g: &mut Game, n: usize) {
@@ -224,18 +283,12 @@ impl Script for LetThereBeLight {
     }
 
     fn draw(&self, g: &Game, moving: &mut Vec<Vtx>, overlay: &mut Vec<Vtx>) {
-        // The light (0x80090e70): this frame's ray from hand bone 15 +
-        // (0, 0, 350) (table 0x800bb28c entry 1), 4096 along the facing,
-        // the cone's point at the hand (guess: the code's axis was not
-        // traced).
-        if let (true, Some(mesh)) = (self.shining, &self.mesh) {
-            let parts = g.player.parts(&g.anims, &g.trig);
-            let rot = g.player.rotation(&g.trig);
-            if let Some(hand) = g.player.slot_part(15).and_then(|i| parts.get(i)) {
-                let from = hand.1 + rot * rrt::glam::Vec3::new(0.0, 0.0, 350.0);
-                let ahead = rot * rrt::glam::Vec3::new(0.0, 0.0, REACH);
-                mesh.along(from + ahead, from, LIGHT_WIDTH, moving);
-            }
+        // The light (0x80090e70): mesh 12/13 at the shot's midpoint, 15000
+        // across and its length along, turned by 0x8008e6c8 of the way
+        // (end less start), which sets its +z back at the hand.
+        if let (true, Some(mesh), Some((from, to))) = (self.shining, &self.mesh, self.shot) {
+            let v = |p: [i32; 3]| rrt::glam::Vec3::new(p[0] as f32, p[1] as f32, p[2] as f32);
+            mesh.along(v(to), v(from), LIGHT_WIDTH, moving);
         }
         // The gauge (0x8008c7f0: 360 over 361) while the light is held.
         if self.holding(g)

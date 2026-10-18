@@ -347,6 +347,10 @@ pub struct Game {
     pub ended: Vec<things::Ended>,
     /// Marks left by this frame's hits, drawn this frame only.
     pub marks: Vec<things::Mark>,
+    /// This frame's solids and the character each is (none for an
+    /// object), as the shots after the flights meet them.
+    solids: Vec<crate::world::boxhit::Exact>,
+    npc_of: Vec<Option<usize>>,
     /// A fixed camera (eye, look-at) a level sets (0x800291f8 kind 4).
     pub fixed: Option<(Vec3, Vec3)>,
     /// The follow camera's height (0x800c3f5c) and distance (0x800c4a4c),
@@ -914,6 +918,7 @@ impl Game {
                 size: 0,
                 posed: t.flags & 0x2000 != 0,
                 unsettled: t.flags & 0x1000_0000 != 0,
+                scale: 4096,
                 rooted: false,
                 bite: Default::default(),
                 goal: [0; 3],
@@ -1012,6 +1017,8 @@ impl Game {
             struck: Vec::new(),
             ended: Vec::new(),
             marks: Vec::new(),
+            solids: Vec::new(),
+            npc_of: Vec::new(),
             movers,
             pending_throw: None,
             pending_grab: None,
@@ -1697,6 +1704,7 @@ impl Game {
             }
         }
         self.fly(&solids, &npc_of);
+        (self.solids, self.npc_of) = (solids, npc_of);
         self.with_script(|s, g| s.frame(g, pads));
         self.flights.step(&self.col, self.sprites.as_ref(), DT);
         // Hazards (template flag 0x200000, their touch 0x8004e0f4): walking

@@ -211,6 +211,38 @@ impl Game {
         met.map(|(who, at, p, n)| (Some((who, at)), p, n))
     }
 
+    /// A shot's step from `from` to `to` (0x80090554, the shots after the
+    /// flights): the nearest of this frame's solids its segment crosses
+    /// (0x8006a9cc -> 0x8006a714: not the player, its owner, nor a
+    /// template of flag 16; the boxes not grown; the first of the
+    /// nearest, from the start on), unless the world's segment (0x8002cd7c)
+    /// is nearer on all three axes. The character met, if one was.
+    pub fn shot_meets(&self, from: [i32; 3], to: [i32; 3]) -> Option<usize> {
+        let mut met: Option<(Option<usize>, [i32; 3])> = None;
+        let mut best = i32::MAX;
+        for (e, npc) in self.solids.iter().zip(&self.npc_of) {
+            if npc.is_none() && self.set.templates.get(e.template as usize).is_some_and(|t| t.flags & 16 != 0) {
+                continue;
+            }
+            let mut n = [0; 3];
+            if let Some((_, h)) = e.solid.meet_grown(&self.trig, from, to, 0, &mut n)
+                && h.t >= 0
+                && (met.is_none() || h.t < best)
+            {
+                best = h.t;
+                met = Some((*npc, h.point));
+            }
+        }
+        let (npc, point) = met?;
+        let mut seg = collide::Segment::default();
+        if collide::segment(&self.col, from, to, &mut seg) != 0
+            && (0..3).all(|k| (from[k] - seg.point[k]).abs() < (from[k] - point[k]).abs())
+        {
+            return None;
+        }
+        npc
+    }
+
     /// One frame of a thrown thing's flight (0x80087c5c): gravity 13
     /// (flags 0x700) by 0x8004fbb4 (p += ((a dt dt >> 1) + v dt) >> 6, v
     /// += a dt), then 0x80087594: the step on by the radius (10 at least)
@@ -769,7 +801,7 @@ impl Game {
 
     /// The player's part matrices and matrix as the grip reads them: as
     /// last drawn (the original draws before it updates), else as now.
-    pub(super) fn drawn_pose(&self) -> (Vec<crate::actors::pose::PartMatrix>, [[i32; 3]; 3]) {
+    pub fn drawn_pose(&self) -> (Vec<crate::actors::pose::PartMatrix>, [[i32; 3]; 3]) {
         self.pose_before.clone().unwrap_or_else(|| self.pose_now())
     }
 

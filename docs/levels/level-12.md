@@ -114,8 +114,11 @@ mode 11, +0x688 0x800a, reach (+0x690) 1024, speed 8, health 150.
 | 3338 | 209 | (16479, -6992, 6945) | 7 |
 | 3340 | 206 | (37389, -6992, -2049) | 2 |
 
-They hover about 1500 above the floor (downstairs floor about 180-780,
-upstairs about -5365; seen). Four guard downstairs, four upstairs.
+They hover 1872 above the floor: their feet (hierarchy +0x4c) are -1872,
+and each is settled at the floor under its LP place plus that
+(0x800452f8: LP y -1872 over the downstairs floor 1024 is -848, -7919
+over the upper floor -5120 is -6992). Four guard downstairs, four
+upstairs.
 
 ### The refrigerator (templates 226, 227)
 
@@ -247,8 +250,14 @@ In the player update, carrying an object with +0x00 bit 0x1000000:
 
 0x80059d3c with charge (+0x6d) above 0 and template 933 (at 0x80059ef8):
 
-1. The direction player +0x200 from the facing (0x80059cdc ->
-   0x80076040; +0x1f4 is 0 in level 12).
+1. The direction player +0x200 (0x80059cdc): toward the aim target
+   +0x1f4 (0x80075e4c with 1: the target's +0x18 less the player's, made
+   a unit by 0x8007652c) while the target's size +0x36 is above 0, else
+   from the facing (0x80076040: the angles +0x24). The aim target is
+   kept by 0x80059b34 as in every level (the nearest character within
+   512 of the heading and 768 of the pitch; see
+   [objectives](../engine/objectives.md)), so a Shadow monster ahead
+   draws the light up toward it.
 2. The matrix of hand bone 15 (0x800bb2e2, 0x80044fec).
 3. 0x80091834(player, matrix, +0x200, 100 + the player's forward speed),
    beam type 1: start at bone 15 + (0, 0, 350) (table 0x800bb28c entry
@@ -264,15 +273,31 @@ Beam pool: 8 records of 92 bytes at 0x800e6ef0. The update loop 0x8009173c
 calls table 0x800baedc by the type's byte +0x09 (type 0 0x80090fac, type
 1 0x8009134c).
 
-- Move (0x8009134c): step = direction (unit 4096) x ((+0x44 << 10) / 100)
-  >> 10, so 4096 units when standing (guess from the code; not
-  measured). The segment from the old to the new position is tested
-  (0x80090860 -> 0x80090554). An object hit with a +0x58 callback (not a
-  character with health 0 or less) gets +0x58(object, hit point).
-  Objects without +0x58 do not stop it.
-- Draw (0x80091590 type 1): 0x80090e70 draws the light between the two
-  points, then the beam is freed (0x80090280). So the light is a new
-  4096 ray each game frame, drawn once.
+- Move (0x8009134c): step = direction (made a unit again, 0x8009f278) x
+  ((+0x44 << 10) / 100) >> 10: the unit, 4096 long, when standing. The
+  segment from the old to the new position is tested (0x80090860 ->
+  0x80090554): the nearest object or character it crosses in the rooms
+  along it (0x80090340 -> 0x8006a9cc over room lists +0x48 and +0x4c:
+  not the owner, nor a template of flag 16; flag 8 does not matter
+  here; the boxes as 0x8006a714 has them, not grown), unless the
+  world's segment (0x8002cd7c) is nearer on all three axes. The one
+  met, if it has a +0x58 callback (and is not a character with health
+  0 or less), gets +0x58(object, hit point). One without a callback
+  still stops the shot. The shot's place is not moved to the hit.
+- The start (0x80091834): hand slot 15's part matrix as last drawn
+  (+0x158 + 32 x part, 0x80044fec; transposed by 0x80010b54) turning
+  (0, 0, 350), plus the part's joint.
+- Draw (0x80091590 type 1): 0x80090e70 draws mesh 12/13 at the midpoint
+  of the two points, scaled 15000 across and the length along
+  (0x8002474c), turned by 0x8008e6c8 of the way (end less start), which
+  points its +z back at the hand; then the shot is freed (0x80090280).
+  So the light is a new 4096 shot each game frame, drawn once.
+
+Seen (the port against the oracle, `level_12_light_shot_as_the_original`,
+`level_12_light_strikes_as_the_original`): standing at the start, every
+shot's start and end are the original's for 20 frames; facing a kitchen
+monster 2000 off, the light goes up toward it and strikes it on the
+first shot.
 
 Seen: Triangle held 80 VSyncs: charge 120 -> 80 (40 game frames), sound
 161 once. Held 60 VSyncs: 120 -> 90.
@@ -282,15 +307,25 @@ Seen: Triangle held 80 VSyncs: charge 120 -> 80 (40 game frames), sound
 Char 43: mode 10 (dying), state 19, the hierarchy's first record +0x04
 ..+0x10 zeroed, sound 110 at the monster. Health is not touched.
 
+The zeroed hierarchy record +0x04..+0x10 is the box the collision tests
+read (0x8006a008), so a struck monster meets nothing.
+
 Mode 10 (0x80084084 at 0x80084314) with +0x688 bit 0x8000: +0x36 -= 250
-a frame while above 0 (guess: a scale shrinking to nothing); then speech
-143 or 21 (rand & 1, 0x8008da4c) and 0x80083be0 case 43:
+a frame while above 0 (4096: 17 frames, to -154); +0x36 is the draw
+scale (0x8003205c: each part's matrix times the scale's, the joints
+kept), so the monster shrinks to nothing where it was struck. The
+frame +0x36 is found at 0 or less: speech 143 or 21 (rand & 1,
+0x8008da4c) and 0x80083be0 case 43:
 
 1. Mode 0 (+0x699), +0x36 = 4096; 0x80083b4c (guard the player again),
    enter callback 0x80049e18, +0x188 |= 0x4000, +0x688 |= 8.
 2. The hierarchy record +0x04..+0x10 copied back from 0x800c4b70 +0xac.
 3. 0x8004fe14(&npc, 10, 1): a random group 10 spot (not marked used);
-   home (+0x648..+0x650) = the new position; scheduled; state 0.
+   home (+0x648..+0x650) = the new position; scheduled; state 0. The
+   spot is settled by 0x800452f8: the floor under the spot itself
+   (0x8002b240 at +0x18), and the height that floor plus the feet
+   (hierarchy +0x4c, -1872 for the monsters): spot (6145, -5518, 9110)
+   puts one at -6992 over the upper floor (-5120).
 
 Seen: a hit at 2443, speech 143 at 2479 (36 VSyncs), the monster at
 (31722, -6992, 12293) in room 3 (entry 28), mode 11 with its new home.
@@ -550,12 +585,13 @@ order:
 
 ## Unknown
 
-- The light's exact reach and the forward speed term (player +0xd8..+0xdc
-  turned by the angles); whether it aims up or down with the facing.
-- What +0x36 and the zeroed hierarchy record +0x04..+0x10 do to a dying
-  monster's look (guess: shrink to nothing).
-- Why the monsters' heights differ from their LP y (-1872 -> -848,
-  -7919 -> -6992 or -9791; a group 10 spot -5518 -> -6992).
+- The light's speed term while walking (player +0xd8..+0xdc turned by
+  the angles): standing it is 0 (the shots are the original's), moving
+  is not compared.
+- Which of the player's and a struck monster's updates comes first on
+  the frame its size runs out (the oracle's light aimed at it through
+  frame 17 and the port's matches, but no frame where the two orders
+  differ was seen).
 - What hierarchies 44 and 45 look like.
 - What templates 1070, 1271, 954, 678 and 960 are (the stairs? the
   doghouse?) and what template +0x24 means.

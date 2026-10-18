@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-205 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 105, render 30, save 4, test 27, tooling 18, ui 13, video 10.
+206 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 106, render 30, save 4, test 27, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -217,3 +217,4 @@ The [reference](docs/README.md) says what is true now.
 | 203 | [Level 3's brothers wait at height -384 and the step's lift, the toss's pies are the shared ones and its strikes are its own; a level 3 pie matches the original](worklog/0203-level-3-s-brothers-wait-at-height-384-and-the-step-s-lift.md) | 2026-10-17 | play |
 | 204 | [A first frame begun again takes its lift's gap anew, characters of template flag 0x10000000 are put unsettled; settled unknowns out of the docs](worklog/0204-a-first-frame-begun-again-takes-its-lift-s-gap-anew.md) | 2026-10-17 | play |
 | 205 | [A pie's hit flashes its mark for a frame as the original's does; COL tile byte +5 is the shade](worklog/0205-a-pie-s-hit-flashes-its-mark-for-a-frame-as-the-original-s.md) | 2026-10-17 | render |
+| 206 | [Level 12's flashlight is the original's shot, and a struck Shadow monster shrinks where it was hit](worklog/0206-level-12-s-flashlight-is-the-original-s-shot-and-a-struck.md) | 2026-10-17 | play |

@@ -210,6 +210,7 @@ impl GrandpasTeeth {
                 size: 0,
                 posed: false,
                 unsettled: false,
+                scale: 4096,
                 rooted: false,
                 bite: Default::default(),
                 goal: [0; 3],

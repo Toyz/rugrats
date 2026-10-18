@@ -156,6 +156,9 @@ pub struct Npc {
     /// put somewhere, it is not settled onto the floor there (0x800452f8:
     /// level 4's rats, level 15's Spike).
     pub unsettled: bool,
+    /// Its draw scale (+0x36, 4096 a whole): each part's model scaled
+    /// about its joint (0x8003205c: the part's matrix times the scale's).
+    pub scale: i32,
     /// Left in a state that does not walk (Mr. Friend's 19 after his
     /// return in level 9's phase 2): following, it stays put until the
     /// target is within a bite.
@@ -276,8 +279,11 @@ impl Npc {
         }
     }
 
+    /// Settled where it is put (0x800452f8): the floor under its place
+    /// (0x8002b240 at +0x18 itself), and its height that and its feet
+    /// (hierarchy +0x4c).
     fn snap(&mut self, col: &Col) {
-        let q = collide::query(col, [self.pos[0], self.pos[1] - self.feet() - 1, self.pos[2]]);
+        let q = collide::query(col, self.pos);
         if q.tile.is_some() && q.kind == 0 {
             self.pos[1] = q.floor + self.feet();
         }
@@ -911,11 +917,11 @@ fn next_post(p: &Post, prev: u8, rand: &mut Rand) -> u8 {
     p.next.iter().copied().find(|&n| n != 0 && n != prev).unwrap_or(p.next[0])
 }
 
-/// The NPC's triangles.
 /// The root motion's reference height (0x800c41dc, peeked in levels 1, 4
 /// and 6): a body other than the player's moves by its root offset over it.
 const ROOT_SCALE: i32 = -561;
 
+/// The NPC's triangles.
 pub fn triangles(n: &mut Npc, models: &Models, trig: &Trig, out: &mut Vec<Vtx>) {
     if n.hidden {
         return;
@@ -924,7 +930,7 @@ pub fn triangles(n: &mut Npc, models: &Models, trig: &Trig, out: &mut Vec<Vtx>) 
     for (part, p) in n.hierarchy.parts.iter().zip(&posed) {
         if let Some(m) = models.get(part.model) {
             let (rot, joint) = p.float();
-            models::model_triangles(m, rot, joint, out);
+            models::model_triangles(m, rot * (n.scale as f32 / 4096.0), joint, out);
         }
     }
     n.drawn = Some(posed);

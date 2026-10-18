@@ -54,7 +54,7 @@ The ones used here:
 | player +0x18e | s16 | carried y minus player y at the grab |
 | player +0x1ec | ptr | object being picked up |
 | player +0x1f0 | ptr | object carried |
-| player +0x1f4 | ptr | throw target (levels 9, 20, 21) |
+| player +0x1f4 | ptr | aim target: throws (levels 9, 20, 21), the flashlight (level 12) |
 | player +0x1f8 | s16[3] | grip offset, in the player's frame |
 | 0x800c4290 | s16 | jump lock after a throw: 300 (1 s) |
 

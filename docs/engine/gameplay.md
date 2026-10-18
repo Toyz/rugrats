@@ -403,7 +403,10 @@ turns +0x24 toward +0x2c by 0x8005bbf4: 1025 (0x800c41fc) * dt >> 6, or
 ### States (0x8005b2d8)
 
 Entering a state sets the handler and the animation (0x800572a8(player,
-anim, blend)). Names are guesses from the code that sets them.
+anim, blend)). Names are guesses from the code that sets them. The ground
+step (0x80064a34: the floor followed, a drop past the limit to state 4) is
+run by the stand (kind 1), the walk and run (0x8005e1f4) and the slides
+(0x8005dedc, kind 2) only.
 
 | state | handler | anim | guess |
 |---|---|---|---|
@@ -412,7 +415,7 @@ anim, blend)). Names are guesses from the code that sets them.
 | 2 | 0x8005ec7c | 2 | run |
 | 3 | 0x8005dedc | 10, sound 190 | |
 | 4 | 0x8005f1b4 | 15 | fall |
-| 5 | 0x8005ec9c | 28 (moving) or 3 | jump; on a floor flag 4: state 17 |
+| 5 | 0x8005ec9c | 28 (moving) or 3 | jump; on a floor flag 4: state 17; before +0xe0 bit 31 (the crouch) no ground step, the height kept |
 | 6 | 0x8005f310 | 5 | climb onto the touched object (+0xf8 = +0xf4) |
 | 7 | 0x800601e4 | 13 | pick up |
 | 8 | 0x80060910 | 14 | put down |

@@ -925,13 +925,11 @@ impl Player {
                 }
             }
         } else if self.pending_jump.is_some() {
-            // The crouch keeps the feet on the floor; its step carried past
-            // an edge (Cross at the edge, running), the height is kept and
-            // the jump goes off from it (guess: not snapped to a floor far
-            // below).
-            if self.floor - feet_y <= STEP_DOWN {
-                self.pos[1] = self.floor + self.feet;
-            }
+            // The crouch (the jump's state before +0xe0 bit 31): its state
+            // (0x8005ec9c) runs no step of the ground (0x80064a34, which
+            // only the stand, walk, run and slide states call), so the height is
+            // neither followed nor dropped, an edge passed or not; the jump
+            // goes off from it.
         } else if !exact_air && feet_y >= self.floor && self.v[1] >= 0 {
             self.pos[1] = self.floor + self.feet;
             self.v = [0; 3];

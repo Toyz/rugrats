@@ -618,6 +618,9 @@ impl Player {
                 self.pending_jump = Some([0, up, along]);
                 self.v = [0; 3];
                 self.state = State::Jump;
+                // The jump's state turns no more: the heading holds from
+                // here (seen standing, mid-turn: 1088 through the crouch).
+                self.target = self.heading;
             }
         } else if self.pending_jump.is_some() {
             // Crouching for the jump: still on the floor.

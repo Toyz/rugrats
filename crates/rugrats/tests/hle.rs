@@ -1346,3 +1346,21 @@ fn level_9_kick_as_the_original() {
         assert_eq!(mine, theirs, "the kick at {d}, heading {heading}");
     }
 }
+
+/// Level 1 from its start: Left held, then Cross mid-turn and Left held
+/// through the air, let go as he lands. The jump's state turns no more
+/// (its first frame has the turn, then the heading holds through the
+/// crouch and the air): every frame the original's.
+#[test]
+#[ignore]
+fn hub_jump_mid_turn_as_the_original() {
+    use rugrats::input::{CROSS, LEFT};
+    let Some(mut b) = Both::open(Boot { level: 1, ..Default::default() }) else { return };
+    let (port, orig) = b.script(&[(0, 3), (bits(&[LEFT]), 3), (bits(&[LEFT, CROSS]), 1), (bits(&[LEFT]), 12), (0, 20)]);
+    let worst = report("turn", &port, &orig);
+    assert!(port.iter().zip(&orig).all(|(p, o)| p.heading == o.heading), "the headings");
+    assert_eq!(camera_off(&port, &orig), 0, "the original's camera heading");
+    assert!(b.tracks_off.is_empty(), "the original's animation tracks, off at {:?}", b.tracks_off);
+    assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
+    assert_eq!(worst, 0, "the same as the original's, every frame");
+}

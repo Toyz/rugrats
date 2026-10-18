@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-210 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 110, render 30, save 4, test 27, tooling 18, ui 13, video 10.
+211 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 16, format 9, input 5, play 111, render 30, save 4, test 27, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -222,3 +222,4 @@ The [reference](docs/README.md) says what is true now.
 | 208 | [A jump's crouch keeps its height, as the original's runs no ground step](worklog/0208-a-jump-s-crouch-keeps-its-height-as-the-original-s-runs-no.md) | 2026-10-17 | play |
 | 209 | [The light walking, the carried thing in the body's box, ACTION's touched object, and running into things as the original](worklog/0209-the-light-walking-the-carried-thing-in-the-body-s-box.md) | 2026-10-17 | play |
 | 210 | [Levels 9, 10 and 15's uses are ACTION's touched object, a character in the nearby list by its size](worklog/0210-levels-9-10-and-15-s-uses-are-action-s-touched-object-a.md) | 2026-10-17 | play |
+| 211 | [A jump begun mid-turn turns no more, as the original's](worklog/0211-a-jump-begun-mid-turn-turns-no-more-as-the-original-s.md) | 2026-10-17 | play |

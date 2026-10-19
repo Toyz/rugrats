@@ -377,7 +377,7 @@ left in its frame, +0x24 the frame.
 | 0x80050140, 0x80050348 (via 0x800504a4..0x80050590), 0x800505b0, 0x80050b5c, 0x80054238, 0x8005444c, 0x800858d4 | kind 2 | model parts |
 | 0x80050770, 0x800509d8, 0x80050c48, 0x80050fd0, 0x80051db4, 0x800522ec, 0x80053ef8, 0x80054d5c | kind 5 | sprites (touches 8, 13, 15; not traced further) |
 | 0x80050900 | 0x508 | kind 8 |
-| 0x80052b60 | the caller's | a descriptor filled by the hit table 0x800b7eb0 (0x80053604 ...) |
+| 0x80052b60 | the caller's | bounce 2048, no delay, damage the object's +0x6d, for the class 10 callbacks of 0x800b7eb0 (gameplay.md, "Emitters") |
 | 0x8004a84c, 0x80060b44, 0x80062928, 0x80062ac4, 0x8004d1a8, 0x80058278 | kind 0 | thrown and dropped objects (world::game::things) |
 
 Uninitialised: 0x80053d28, 0x8005cd74, 0x8005282c and 0x8005202c leave
@@ -713,11 +713,11 @@ here (guess: dead, or left from an older menu).
   the posed parts for template flag 0x2000 (0x8006a318) or the boxes
   (0x8006a008, 0x80069c40), each box grown by the flight's radius with
   flag 0x40000000, the pies.)
-- What the hit callbacks 0x800b7eb0 (0x80053604 ...) and the kind 5
-  touches (8, 13, 15) throw; kinds 1, 2 and 4's drawing.
-- The +0x50 table 0x800b7eb0: its entries (0x80053604, 0x80052ba0,
-  0x80052ed8, 0x80053090, 0x80053170) read object +0x98 and spawn
-  particles; what +0x98 holds.
+- What the kind 5 touches (8, 13, 15) throw; kinds 1, 2 and 4's
+  drawing. (The +0x50 table 0x800b7eb0's class 10 entries, their
+  record +0x98 and launches: gameplay.md, "Emitters". Entries 1, 8, 11,
+  16 and 19, 0x80053604, 0x800537c4, 0x80053b88, 0x80054708 and
+  0x80054894, no class 10 template takes.)
 - Use callback 2's 0x8007d0f4 / 0x8007d02c (which level, what the six
   characters 207-212 are).
 - What posts cine 3 and cine 4 in level 2 (room events, LP +0x44 or

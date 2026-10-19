@@ -882,6 +882,64 @@ The original's pass runs after the oracle's frame boundary (0x80072bf0,
 then the boundary, then 0x80072d38), so what it does in a frame shows in
 the oracle a frame later (`level_5_door_opens_as_the_original`).
 
+### Emitters (class 10, 0x8004e0f4)
+
+Class 10 objects (0x80048400) are on the trigger list with enter
+0x8004cfd8 (record +0x00 = 1, scheduled) and leave 0x80049e5c
+(unscheduled): they think only while the player is within their trigger.
+The set-up (0x8004691c) gives each a 16-byte record (+0x98) from its
+template: +0x02 the period in VSyncs (+0x18), +0x04 and +0x06 the cone's
+least and most (+0x1a, +0x1c; 1 for 0), +0x08 how many (+0x1e), +0x0a a
+particle's life (+0x20), +0x0c its gravity flags (+0x22 << 8), +0x0e its
+speed (+0x24).
+
+The think: with record +0x00 set, +0x64 takes the VSync count
+(VSync(-1)) and +0x00 is cleared, so the clock starts at the first think
+after the enter or the last go; when the count is past +0x64 by more
+than the period, 969 and 982 hurt the player by +0x6d when within 3072
+or 2048 (squared 3D distance up to 0x900000 or 0x400000, 0x800780ac),
+the callback +0x50 (0x800b7eb0 by template +0x09) runs, and +0x00 is
+set. (Templates with flag 0x200000, set at run time by 0x8004e2ac for
+level 6's scary toys, would first take 0x80059570 and Damage; no class
+10 template has it.)
+
+Scheduling (0x80072b48) puts a node (period 136, +0x08; countdown
++0x0c; the object +0x10) at the head of the update list 0x800c43b8,
+which 0x80072bf0 walks from the head each frame (countdown less the
+frame's 0x800c3f20, the think when at 0 or under): the latest scheduled
+thinks first. Two emitters going in one frame draw their cones in that
+order (level 6's 969 entered after its 982s goes before them).
+
+The callbacks launch (0x8008864c) in a cone (0x80088bac) about +y turned
+by the object's matrix (+0x04), most through 0x80052b60 (bounce 2048, no
+delay, damage the object's +0x6d). Each has its own seed:
+
+| index | callback | templates (levels) | what |
+|---|---|---|---|
+| 2 | 0x80052ba0 | 577 (3) | the matrix's third row zeroed; +0x08 drops: flags +0x0c \| 0x20b0005, sprite 267, 50 across, speed rand % +0x0e (seed 0x800c41a8), mark 209 (300) |
+| 3 | 0x80052ed8 | 611 (3, 16) | sound 149 at it; a drop: flags \| 0x220f0005, sprite 264, 100 across and round, spin 3391, speed rand % +0x0e after the cone (0x800c41b0), sound 133 (177 in level 16) where it meets something, mark 263 |
+| 4 | 0x80053090 | 614 (1, 3) | model 931 (kind 2): flags \| 0x30002, its radius, spin 3391 |
+| 5 | 0x80053170 | 615 (3) | sprite 269, 270, 271, 273, 272 or 274 (rand % 6, 0x800c41b4): flags \| 0x70005, 50 across and round, spin 3391 |
+| 6 | 0x80053344 | 616 (1, 3, 7, 12, 15, 18, 29), 1139 (5) | none in level 12; the shared count 0x800c4ba0 less dt, at 0 or under a sound at it (level 29 rand % 3 of 134, 143, 140; else 151 + rand % 10; the game's rand) and back to 100; a bubble: flags \| 0x30005, sprite 266, face 0xd2800000, 150 across in levels 7 and 29, else 50 |
+| 7 | 0x800538bc | 706 (4) | model 1040 down (axis -y): flags \| 0x2010002, sound 147 where it meets something, mark 218, its hit callback (+0x4c) the object's +0x5c |
+| 9 | 0x80052d70 | 682 (3) | model 1016: flags \| 0x20b0002, speed rand % +0x0e after the cone (0x800c41ac), mark 212 |
+| 10 | 0x800539b4 | 982 (6) | sound 81 at it; as 2 with 150 across, no mark (0x800c41bc) |
+| 13 | 0x80053ef8 | 969 (6, 16) | sound 79 at it; six sprites 381-387 (rand % 7; 381-383 225 across and 150 round, else 150 and 35), flags \| 0x10005, spin 3391, speed rand % +0x0e, the cone's most rand % +0x06, delay the period's ms, three draws each (0x800c41c0) |
+| 14 | 0x80054238 | 905 (6) | sound 83 at it; model 1455, flags 0xb0602, 1000 ms, along (-4096, r, 0) turned by the matrix (0x8009f6f8), r = rand % 400 - 2048, speed 80 + rand % 40 (0x800c41c4) |
+| 15 | 0x8005444c | 906-908 (6) | sound 82 at it; as 14 with model 1454, 1452 or 1453 (rand % 3 first) along (0, r, 4096) (0x800c41c8) |
+| 18 | 0x80054d5c | 1215 (3) | model 1628: flags \| 0xb0002, bounce 2500, delay the period's ms, speed rand % +0x0e (0x800c41d8); not through 0x80052b60 |
+
+The launch's +0x64 is the sound (record +0x88) played where the flight
+meets something (0x80087594), and +0x46, +0x65..+0x68 its mark (record
++0x2a, +0x89..+0x8c: 0x8008652c's quad on the surface, the pies' too).
+The sliding doors' think also takes dt off the count 0x800c4ba0.
+
+The original's think reads VSync(-1) during the frame, one VSync before
+the count the oracle shows at the frame's end; the port's
+(`Game::emitter_thinks`) reads its count (`Game::vcount`, two a frame)
+less one the same way, so a gap of the period exactly waits a frame as
+the original's does.
+
 ### Doors (0x8004f78c)
 
 A placement with LP +0x42 (a level) gets use = 0x8004f78c: unless
@@ -1012,6 +1070,12 @@ A suggested order, each step checkable against the oracle:
   and the draws 0x8006f88c .. 0x80034a98 (NPCs, effects: guesses; the
   characters' shadows are 0x8003414c, above).
 - The HUD elements: which pool shows what.
+- The flights' marks (0x8008652c: record +0x2a, +0x89..+0x8c, drawn by
+  0x8008e72c / 0x8008e76c), what a flight meeting level 4's water calls
+  (the splash), and 706's flights' hit callback (+0x4c, its object's
+  +0x5c). Which VSync count the emitters' think reads on the hardware:
+  the oracle's frame-end count less one in one harness, the count itself
+  in another.
 - LP kinds 3 (0x8006fe04, sound?) and 7, record +0x46..+0x4a (template 835
   chains), and template bytes +0x07..+0x0b's tables.
 - Level-specific code in the player update (levels 4, 6, 7, 11, 20-31).

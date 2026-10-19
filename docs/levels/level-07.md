@@ -205,7 +205,7 @@ rubble of 1049 at (24576, -2048, 28670) blocked the avenue's south lane.
 | 401 | 2 | 0 | (30158, -167, 21532) room 7, (23628, -167, 19991) room 16; +0x00 bit 0x10000; taken by touch (below) |
 | 795 | 1 | 11 | (-3837, -2490, 42990) room 0; a mover (0x80048804: think 0x8004ee00, enter 0x8004f228, leave 0x8004f3a8); +0x00 0x30000; taken by touch (below) |
 | 512 | 6 | 2 | y -4217 / -5390 above room 9 and room 0; think 0x8004e2ac turns +0x24 by template +0x18 (16) a VSync; no damage (template flag 0x200000 clear); guess: the searchlights seen in the sky |
-| 616 | 1 | 10 | (-20246, -5091, 21126) room 3; think 0x8004e0f4, +0x50 0x80053344; no damage; not traced |
+| 616 | 1 | 10 | (-20246, -5091, 21126) room 3; think 0x8004e0f4, +0x50 0x80053344: bubbles 150 across every 20 VSyncs in reach, sounds 151-160 (gameplay.md, "Emitters"); no damage |
 | 688, 793, 872, 391, 403, 685 | 18, 17, 15, 1 each | 0 | +0x00 bit 0x10000 (pickable), but Circle is the fire in level 7, so nothing picks them up; they block (guess: stop signs and street furniture; a stop sign was seen) |
 | 800-809 | 2 each | 0 | high up (y -2752..-5792) at the avenue's edges (guess: signs) |
 | others | | 0 | scenery |
@@ -611,7 +611,7 @@ needs, in order:
   tail).
 - What templates 401 and 795 are (guess: a vehicle and a moving thing;
   795 is class 11, a mover, at the far north-west).
-- Template 616 (class 10, think 0x8004e0f4) and rooms 10 and 21.
+- Rooms 10 and 21.
 - Whether speech 161 in room 5 is the intended line (1185 was passed).
 - What 0x800c4ba0 = 100 is for in level 7 (it also changed to 10 during
   play; not traced).

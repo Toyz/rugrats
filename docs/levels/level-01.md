@@ -161,7 +161,7 @@ DB01.
 | 75, 76 | 226, 227 | 4 | (30720, -611, 14314), (30721, -82, 12293), room 19 | the refrigerator doors (as in [level 12](level-12.md)) |
 | 135, 137, 136 | 678, 679, 680 | 0, pickable | (-275, 1271, 31772) room 37, (3417, 1321, 32320) and (4053, 1354, 36462) room 38 | Spike's toys (models 1013-1015) |
 | 44, 149, 158 | 94, 708, 52 | 2 | (25674, -3527, 16021) room 19; (15303, 5239, -7222) and (21517, 6841, -14111) room 18 | spinners (0x80048364: think 0x8004e2ac); +0x6d 0 |
-| 132, 133 | 614, 616 | 10 | (25986, -1690, 7256) room 19; (24845, -490, 30217) room 40 | bursts (0x80048400: think 0x8004e0f4); damage is dropped in the hub anyway |
+| 132, 133 | 614, 616 | 10 | (25986, -1690, 7256) room 19; (24845, -490, 30217) room 40 | emitters (0x80048400: think 0x8004e0f4): spinning models 931 every 10 VSyncs, bubbles every 20 (gameplay.md, "Emitters"); damage is dropped in the hub anyway |
 | 1, 81, 172, 174, 181, 197 | 112, 130, 277, 180, 192 | 5 | | +0x00 = 0x400000 (0x80049754; not traced) |
 | 134, 169, 280, 281 | 613, 1164, 1032 | 0 | (24845, -46, 30215); (3190, 1132, 40862); (7172, 0, 25776); (17421, 0, 25703) | talkers: speech 194, 91, 195, 236 within the trigger in the player's room (0x8004d0f0) |
 | 168, 249-254 | 835 | 12 | spots below | seven Reptar bars, level 1's (+0x48[1]) |

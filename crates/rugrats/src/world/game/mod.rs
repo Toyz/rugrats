@@ -42,6 +42,7 @@ pub use crate::levels::Level;
 mod boxes;
 mod camera;
 mod doors;
+pub mod emitters;
 mod goodies;
 mod movers;
 mod pause;
@@ -364,7 +365,11 @@ pub struct Game {
     /// Which carried-over faces its VRAM has (the app's count).
     pub face_serial: u64,
     /// Touch 1's sound count (0x800c4ba0).
-    pub(super) shelf_sound: i32,
+    pub shelf_sound: i32,
+    /// The VSync count (VSync(-1)): two a frame.
+    pub vcount: u32,
+    /// The class 10 objects (0x8004e0f4).
+    pub emitters: Vec<emitters::Emitter>,
     /// The piano's last note (0x800c4358): the same one is not played
     /// again.
     pub(super) last_note: Option<u8>,
@@ -1114,6 +1119,8 @@ impl Game {
             player_id: None,
             face_serial: 0,
             shelf_sound: 0,
+            vcount: 0,
+            emitters: Vec::new(),
             last_note: None,
             crand: 0,
             dust_seeds: [Rand { state: 0xa8c0 }, Rand { state: 0x2fdd }],
@@ -1163,6 +1170,7 @@ impl Game {
             strokes: None,
         };
         g.talkers = talkers(&g.set, level);
+        g.emitters = Game::emitters_of(&g.set, g.vcount);
         g.triggers = g.trigger_list();
         g.player.free_while_frozen = level.is_box_toss();
         // A long fall hurts (0x8005b2d8) but in the hub, level 2 and the
@@ -1461,6 +1469,16 @@ impl Game {
     /// player in its room (0x8004d160 lets it out); a level's own objects
     /// are the level's (`Script::trigger`); the rest are in while within.
     fn trigger_called(&mut self, who: Trigger, entered: bool) -> bool {
+        // (A class 10 object's own enter and leave, 0x8004cfd8 and
+        // 0x80049e5c, set after the set-up's speech line: in while within.)
+        if let Trigger::Placement(k) = who
+            && self.emitters.iter().any(|e| e.placement == k)
+        {
+            if entered {
+                self.emitter_entered(k);
+            }
+            return entered;
+        }
         if let Trigger::Placement(k) = who
             && let Some(t) = self.talkers.iter().position(|t| t.placement == k)
         {
@@ -1530,6 +1548,8 @@ impl Game {
 
     pub fn frame(&mut self, pads: &Pads) {
         self.frames = self.frames.wrapping_add(1);
+        self.vcount = self.vcount.wrapping_add(2);
+        self.flights.launched.clear();
         self.effects.clear();
         self.shots.clear();
         self.speech.clear();
@@ -1667,6 +1687,7 @@ impl Game {
         }
         // Doors are solid where they are drawn (0x80069c40).
         self.door_thinks();
+        self.emitter_thinks();
         for d in &self.doors {
             if let Some(model) = self.set.models.get(d.shape) {
                 let (rot, pos) = d.pose(d.offset, &self.trig);
@@ -2006,6 +2027,9 @@ impl Game {
         (self.solids, self.npc_of) = (solids, npc_of);
         self.with_script(|s, g| s.frame(g, pads));
         self.flights.step(&self.col, self.sprites.as_ref(), DT);
+        for (sound, at) in std::mem::take(&mut self.flights.heard) {
+            self.play_at(sound, at);
+        }
         // Hazards (template flag 0x200000, their touch 0x8004e0f4): walking
         // into one costs its +0x6d and sets the player's +0x188 bit 256
         // (0x80059570), which no touch hurts through; leaving it (its

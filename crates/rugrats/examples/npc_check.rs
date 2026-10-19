@@ -359,6 +359,39 @@ fn main() -> Result<(), String> {
             });
         }
     }
+    // FLIGHTS=1: each launch (0x8008864c's record) on both sides, compared
+    // frame by frame as the sounds are: flags, place, radius, life,
+    // direction, speed, sprite (its TEXPOS entry), half size (neither for
+    // the model kinds 2 and 4, whose callers leave them unset), damage, and
+    // the sound (+0x64) and mark (+0x46, +0x68) where it meets something.
+    type Rec = (u32, [i32; 3], i32, i32, [i32; 3], i32, i32, [i16; 2], i16, (u8, u16, u16));
+    let model_kind = |flags: u32| matches!(flags & 15, 2 | 4);
+    let flown: Rc<std::cell::RefCell<Vec<Rec>>> = Rc::default();
+    let flights = std::env::var_os("FLIGHTS").is_some();
+    if flights {
+        let k = flown.clone();
+        p.hle.m.hook(0x8008_864c, move |c| {
+            let r = c.cpu.reg(4) as u32;
+            let mut rd = |a: u32| c.bus.read_u32(r + a).unwrap_or(0) as i32;
+            let flags = rd(0) as u32;
+            let at = [rd(4), rd(8), rd(0xc)];
+            let radius = rd(0x10);
+            let life = rd(0x28);
+            let dir = [rd(0x2c), rd(0x30), rd(0x34)];
+            let speed = rd(0x38);
+            let sprite_at = rd(0x58) as u32;
+            let size_w = rd(0x5c);
+            let damage = (rd(0x68) >> 16) as i16;
+            let met = (rd(0x64) as u8, (rd(0x44) >> 16) as u16, rd(0x68) as u16);
+            let texpos = c.bus.read_u32(0x800c_4484).unwrap_or(0);
+            let sprite = if sprite_at >= texpos && texpos != 0 && !model_kind(flags) { ((sprite_at - texpos) / 12) as i32 } else { -1 };
+            let size = if model_kind(flags) { [0; 2] } else { [size_w as i16, (size_w >> 16) as i16] };
+            k.borrow_mut().push((flags, at, radius, life, dir, speed, sprite, size, damage, met));
+            rrt::emu::HookResult::Continue
+        });
+    }
+    let mut flown_owed: Vec<(usize, Rec)> = Vec::new();
+    let (mut flight_off, mut flight_same) = (0, 0);
     let table = disc.exe_bytes(0x800b_84fc, 3 * 180)?;
     let mut owed: Vec<(usize, [u8; 3])> = Vec::new();
     let (mut sound_off, mut sound_same) = (0, 0);
@@ -383,7 +416,7 @@ fn main() -> Result<(), String> {
             g.rand.state = p.read_u32(0x800c_3f94);
             // (And each door where the original's is in its cycle: the
             // object of its template placed where it is.)
-            if f == 0 {
+            if sync_at == Some(f) {
                 for d in &mut g.doors {
                     let start = d.start();
                     let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 == d.template && [0, 4, 8].map(|i| p.read_i32(o + 0xc0 + i)) == start) else { continue };
@@ -391,11 +424,46 @@ fn main() -> Result<(), String> {
                     d.sync(offset, p.read_u32(o + 0x3c) & 2 != 0, p.read_u32(o + 0xcc) != 0, p.read_i16(o + 0xd2) as i32);
                 }
             }
+            // (And the class 10 objects' clocks, +0x64 against the VSync
+            // count, and whether each went last think, +0x98's +0x00; the
+            // direction seed, 0x800c445c, the callbacks' seeds and the shared
+            // sound count, 0x800c4ba0.)
+            if sync_at == Some(f) {
+                let now = p.read_u32(0x800b_cb60);
+                g.vcount = now;
+                // (The update list's order, 0x800c43b8 from its head, +0x10 the
+                // object: the newest scheduled first.)
+                let mut listed = Vec::new();
+                let mut node = p.read_u32(0x800c_43b8);
+                while node != 0 && listed.len() < 1000 {
+                    listed.push(p.read_u32(node + 0x10));
+                    node = p.read_u32(node);
+                }
+                let placements = g.set.placements.clone();
+                let mut scheduled = Vec::new();
+                for e in &mut g.emitters {
+                    let place = placements[e.placement];
+                    let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 as u32 == place.template && [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)) == place.pos) else { continue };
+                    e.last = p.read_u32(o + 0x64);
+                    let rec = p.read_u32(o + 0x98);
+                    e.gone = p.read_i16(rec) != 0;
+                    scheduled.push((e.placement, p.read_u32(o + 0x9c) != 0));
+                    e.scheduled = listed.iter().position(|&l| l == o).map_or(0, |i| (listed.len() - i) as u64);
+                }
+                for (k, on) in scheduled {
+                    g.trigger_set(rugrats::world::game::Trigger::Placement(k), on);
+                }
+                g.flights.seeds.direction = p.read_u32(0x800c_445c);
+                for (k, at) in [0x800c_41a8u32, 0x800c_41ac, 0x800c_41b0, 0x800c_41b4, 0x800c_41bc, 0x800c_41c0, 0x800c_41c4, 0x800c_41c8, 0x800c_41d8].into_iter().enumerate() {
+                    g.flights.seeds.emitters[k] = p.read_u32(at);
+                }
+                g.shelf_sound = p.read_i32(0x800c_4ba0);
+            }
             // (And the player's place: the characters aim at it.)
             g.player.pos = [0, 4, 8].map(|i| p.read_i32(0x800e_2b48 + 0x18 + i));
             // (And the trigger pass's place in its list, 0x800c4c20: the
             // entry after the node it stopped at.)
-            if f == 0 {
+            if sync_at == Some(f) {
                 let cursor = p.read_u32(0x800c_4c20);
                 let mut node = p.read_u32(0x800c_4c24);
                 let mut i = 0;
@@ -523,6 +591,25 @@ fn main() -> Result<(), String> {
             g.frame(&pads);
             p.frame(pad)?;
         }
+        // EMITDBG=1: each frame, the trigger cursor, the shared sound count
+        // and the direction seed on both sides, and each class 10 object's
+        // clock (+0x64, +0x98's +0x00) and whether it is scheduled.
+        if std::env::var_os("EMITDBG").is_some() {
+            let cursor = p.read_u32(0x800c_4c20);
+            let mut node = p.read_u32(0x800c_4c24);
+            let mut i = 0;
+            while node != 0 && node != cursor && i < 400 {
+                node = p.read_u32(node + 4);
+                i += 1;
+            }
+            println!("     CURSOR {f} orig {i} port next {} count orig {} port {} dir orig {:#x} port {:#x}", g.trigger_next, p.read_i32(0x800c_4ba0), g.shelf_sound, p.read_u32(0x800c_445c), g.flights.seeds.direction);
+            for e in &g.emitters {
+                let place = g.set.placements[e.placement];
+                let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 as u32 == place.template && [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)) == place.pos) else { continue };
+                let rec = p.read_u32(o + 0x98);
+                println!("     EMIT {f} k {} port {:?} last {} gone {} vc {} | orig sched {} last {} gone {} vc {}", e.placement, g.trigger_active(rugrats::world::game::Trigger::Placement(e.placement)), e.last, e.gone, g.vcount, p.read_u32(o + 0x9c) != 0, p.read_u32(o + 0x64), p.read_i16(rec), p.read_u32(0x800b_cb60));
+            }
+        }
         if sounds && std::env::var_os("SOUNDRA").is_some() {
             for e in &g.npc_events {
                 if let rugrats::actors::npc::Event::Footstep { k, note, .. } = e {
@@ -578,6 +665,32 @@ fn main() -> Result<(), String> {
                         d.state()
                     );
                 }
+            }
+        }
+        if flights {
+            let mine: Vec<Rec> = std::mem::take(&mut g.flights.launched)
+                .into_iter()
+                .map(|l| {
+                    let model = model_kind(l.flags);
+                    let met = (l.sound, l.mark.map_or(0, |m| m.sprite), l.mark.map_or(0, |m| m.size));
+                    (l.flags, l.at, l.radius, l.life, l.dir, l.speed, l.sprite.filter(|_| !model).map_or(-1, |s| s as i32), if model { [0; 2] } else { l.size }, l.damage, met)
+                })
+                .collect();
+            let mut theirs = std::mem::take(&mut *flown.borrow_mut());
+            for (from, r) in std::mem::take(&mut flown_owed).into_iter().chain(mine.into_iter().map(|r| (f, r))) {
+                if let Some(i) = theirs.iter().position(|t| *t == r) {
+                    theirs.remove(i);
+                    flight_same += 1;
+                } else if from == f {
+                    flown_owed.push((from, r));
+                } else {
+                    flight_off += 1;
+                    println!("{f:3} FLIGHT port {r:?} (frame {from}) not the original's");
+                }
+            }
+            for t in theirs {
+                flight_off += 1;
+                println!("{f:3} FLIGHT original {t:?} not the port's");
             }
         }
         // PLAYER=1: the player's base track beside the port's, each frame.
@@ -694,6 +807,9 @@ fn main() -> Result<(), String> {
         println!("npc {k} id {} char {} trigger {} mode {:?}: {n_off} off, original {}, port {}", g.npcs[k].id, g.npcs[k].character, g.npcs[k].trigger, g.npcs[k].mode, if o_moved { "animated" } else { "still" }, if p_moved { "animated" } else { "still" });
     }
     println!("{off} frames off");
+    if flights {
+        println!("{flight_off} flights off, {flight_same} the same");
+    }
     if sounds {
         println!("{sound_off} sounds off, {sound_same} the same");
     }

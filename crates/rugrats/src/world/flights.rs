@@ -46,6 +46,16 @@ fn lcg(x: &mut u32) -> u32 {
     *x
 }
 
+/// A draw of 15 bits from `seed`.
+pub fn draw15(seed: &mut u32) -> i32 {
+    ((lcg(seed) >> 16) & 0x7fff) as i32
+}
+
+/// `v` turned by `m` (ApplyMatrixLV, 0x8009f6f8).
+pub fn turned(m: &Matrix, v: [i32; 3]) -> [i32; 3] {
+    apply(m, v)
+}
+
 /// Flag bits of a launch (descriptor +0x00, record +0x08).
 pub mod flag {
     /// The kind: what is drawn (0x80088388) and how it is set up
@@ -112,6 +122,22 @@ pub struct Launch {
     pub damage: i16,
     /// +0x50: the model of kinds 2 and 4 (0x80044b74's shape number).
     pub model: Option<u32>,
+    /// +0x64: the sound played where it meets something (0 none).
+    pub sound: u8,
+    /// +0x46 and +0x65-+0x68: the mark it leaves on the world.
+    pub mark: Option<Mark>,
+}
+
+/// The mark a flight leaves where it meets the world (0x8008652c, by the
+/// record's +0x2a): a quad of the TEXPOS entry `sprite` (launch +0x46) and
+/// half size `size` (+0x68) on the surface, shaded by it. `flags` are
+/// launch +0x65 (face flag 0x2000000), +0x66 (0x8008e72c, else 0x8008e76c)
+/// and +0x67.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mark {
+    pub sprite: u16,
+    pub size: u16,
+    pub flags: [u8; 3],
 }
 
 /// What a record's quad shows (record +0x74).
@@ -158,6 +184,10 @@ pub struct Flight {
     pub sequence: Option<usize>,
     pub grow: i32,
     pub delay: i32,
+    /// +0x88 the sound where it meets something, +0x2a and +0x89-+0x8c
+    /// its mark.
+    pub sound: u8,
+    pub mark: Option<Mark>,
 }
 
 impl Flight {
@@ -292,6 +322,10 @@ pub struct Seeds {
     /// The floor touches' (0x800c4190 touch 12, 0x800c4198 touch 13,
     /// 0x800c41a0 the piano).
     pub floor: [u32; 3],
+    /// The class 10 callbacks' (0x800b7eb0): 0x800c41a8 (2), 0x800c41ac
+    /// (9), 0x800c41b0 (3), 0x800c41b4 (5), 0x800c41bc (10), 0x800c41c0
+    /// (13), 0x800c41c4 (14), 0x800c41c8 (15), 0x800c41d8 (18).
+    pub emitters: [u32; 9],
 }
 
 /// 0x800c41d0, 0x800c4188 and 0x800c418c as the executable has them.
@@ -312,6 +346,7 @@ impl Default for Seeds {
             toy: TOY_SEED,
             parts: [48732; 4],
             floor: [48732; 3],
+            emitters: [48732; 9],
         }
     }
 }
@@ -330,6 +365,11 @@ pub struct Flights {
     pub angles: Angles,
     trig: Trig,
     frame_ms: Vec<i32>,
+    /// What was launched this frame (for tools).
+    pub launched: Vec<Launch>,
+    /// The sounds of what met something this frame (+0x88, 0x8006f644)
+    /// and where.
+    pub heard: Vec<(u8, [i32; 3])>,
 }
 
 /// The broken buildings' debris sprites (0x8005202c, by rand mod 10).
@@ -356,6 +396,8 @@ pub const FLAME: Launch = Launch {
     face: 0,
     damage: 1000,
     model: None,
+    sound: 0,
+    mark: None,
 };
 
 impl Flights {
@@ -370,6 +412,8 @@ impl Flights {
             angles: Angles::load(disc)?,
             trig: Trig::load(disc)?,
             frame_ms: ms,
+            launched: Vec::new(),
+            heard: Vec::new(),
         })
     }
 
@@ -493,6 +537,7 @@ impl Flights {
     /// start kept inside its room's box; the callback (+0x4c), sound
     /// (+0x64) and the model (+0x50) of other kinds.
     pub fn launch(&mut self, l: &Launch, sprites: Option<&Sprites>) -> bool {
+        self.launched.push(*l);
         if self.len() >= POOL {
             return false;
         }
@@ -525,6 +570,8 @@ impl Flights {
             sequence: None,
             grow: 0,
             delay: l.delay,
+            sound: l.sound,
+            mark: l.mark,
         };
         // Kinds 3 and 8 share one running sequence (0x8008a2a4); 0x80086114
         // then forgets it, so it is never let go.
@@ -596,7 +643,12 @@ impl Flights {
         }
         let mut done = Vec::new();
         for (k, f) in self.flying.iter_mut().enumerate() {
-            if step_one(f, col, &self.angles, ms, dt) {
+            let (end, hit) = step_one(f, col, &self.angles, ms, dt);
+            // What met something sounds where it is (0x80087594).
+            if hit != 0 && f.sound != 0 {
+                self.heard.push((f.sound, f.pos));
+            }
+            if end {
                 done.push(k);
             }
         }
@@ -1147,8 +1199,10 @@ fn fade_rate(flags: u32) -> i32 {
 }
 
 /// One record's frame (0x80087c5c); true when it is done.
-fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32) -> bool {
+/// Whether it is done, and the hit bits of `collide_world`.
+fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32) -> (bool, u32) {
     let mut done = false;
+    let mut hit = 0;
     if f.grow != 0 {
         let s = (f.grow * dt) >> 6;
         f.size = f.size.map(|w| (w as i32 + s) as i16);
@@ -1169,7 +1223,7 @@ fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32) -> boo
         f.turn[1] = (f.turn[1] + ((s * f.spin_axis[2] as i32) >> 12)) & 4095;
     }
     if f.flags & flag::COLLIDE != 0 && f.flags & flag::OBJECTS == 0 {
-        let hit = collide_world(f, col, angles, before);
+        hit = collide_world(f, col, angles, before);
         let ends = (f.flags & flag::END_FLOOR != 0 && hit & 2 != 0)
             || (f.flags & flag::END_WALL != 0 && hit & 1 != 0)
             || (f.flags & flag::END_HIT != 0 && hit & 8 != 0);
@@ -1192,7 +1246,7 @@ fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32) -> boo
             done = true;
         }
     }
-    done
+    (done, hit)
 }
 
 /// The world part of 0x80087594 (with 0x80086668's segment, 0x8002cd7c):
@@ -1205,7 +1259,8 @@ fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32) -> boo
 /// its spin keeps bounce / 4096. Returns the hit bits.
 ///
 /// Not here: objects (flag 0x20000, 0x80086340), what the hit calls
-/// (+0x80, +0x88's sound, +0x2a's floor effect).
+/// (+0x80) and the mark (+0x2a, 0x8008652c). The sound (+0x88) is the
+/// caller's.
 fn collide_world(f: &mut Flight, col: &Col, angles: &Angles, before: [i32; 3]) -> u32 {
     if f.flags & flag::WORLD == 0 {
         return 0;

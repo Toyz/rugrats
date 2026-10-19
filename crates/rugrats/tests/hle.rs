@@ -1860,3 +1860,143 @@ fn level_5_robot_bites_as_the_original() {
     });
     assert!(off.is_empty(), "her health and place, off at {off:?}");
 }
+
+/// A launch (0x8008864c's record) as compared: flags, place, radius,
+/// life, direction, speed, sprite (TEXPOS entry; none for the model kinds
+/// 2 and 4, which leave it and the size unset), half size, damage, and the
+/// sound (+0x64) and mark (+0x46, +0x68) where it meets something.
+type Launched = (u32, [i32; 3], i32, i32, [i32; 3], i32, i32, [i16; 2], i16, (u8, u16, u16));
+
+fn model_kind(flags: u32) -> bool {
+    matches!(flags & 15, 2 | 4)
+}
+
+/// The class 10 objects (0x8004e0f4) near `put` (or the level's start) in
+/// `level` for `frames`: given the original's clocks (+0x64, +0x98's
+/// +0x00), schedules (+0x9c), trigger cursor, seeds and the shared sound
+/// count, every launch is the original's, frame for frame. Returns how
+/// many.
+fn emitters_as_the_original(level: u8, put: Option<[i32; 3]>, frames: usize) -> usize {
+    use rrt::emu::{BusExt, Cpu};
+    use rugrats::world::game::Trigger;
+    let Some(mut b) = Both::open(Boot { level, ..Default::default() }) else { return usize::MAX };
+    b.hle.hle.frame_steps = 1_200_000;
+    match put {
+        Some(at) => b.put(at, 0, 4),
+        None => {
+            b.script(&[(0, 4)]);
+        }
+    }
+    let objs = objects(&mut b.hle);
+    let h = &mut b.hle;
+    let g = &mut b.game;
+    g.vcount = h.read_u32(0x800b_cb60);
+    // (The update list's order, 0x800c43b8 from its head, +0x10 the
+    // object: the newest scheduled first.)
+    let mut listed = Vec::new();
+    let mut node = h.read_u32(0x800c_43b8);
+    while node != 0 && listed.len() < 1000 {
+        listed.push(h.read_u32(node + 0x10));
+        node = h.read_u32(node);
+    }
+    let placements = g.set.placements.clone();
+    let mut scheduled = Vec::new();
+    for e in &mut g.emitters {
+        let place = placements[e.placement];
+        let Some(&o) = objs.iter().find(|&&o| h.read_i16(o + 0x96) as u16 as u32 == place.template && [0, 4, 8].map(|i| h.read_i32(o + 0x18 + i)) == place.pos) else { continue };
+        e.last = h.read_u32(o + 0x64);
+        let rec = h.read_u32(o + 0x98);
+        e.gone = h.read_i16(rec) != 0;
+        scheduled.push((e.placement, h.read_u32(o + 0x9c) != 0));
+        e.scheduled = listed.iter().position(|&l| l == o).map_or(0, |i| (listed.len() - i) as u64);
+    }
+    for (k, on) in scheduled {
+        g.trigger_set(Trigger::Placement(k), on);
+    }
+    let cursor = h.read_u32(0x800c_4c20);
+    let mut node = h.read_u32(0x800c_4c24);
+    let mut i = 0;
+    while node != 0 && node != cursor && i < 400 {
+        node = h.read_u32(node + 4);
+        i += 1;
+    }
+    g.trigger_next = if node == cursor && node != 0 { i + 1 } else { 0 };
+    g.flights.seeds.direction = h.read_u32(0x800c_445c);
+    for (k, at) in [0x800c_41a8u32, 0x800c_41ac, 0x800c_41b0, 0x800c_41b4, 0x800c_41bc, 0x800c_41c0, 0x800c_41c4, 0x800c_41c8, 0x800c_41d8].into_iter().enumerate() {
+        g.flights.seeds.emitters[k] = h.read_u32(at);
+    }
+    g.shelf_sound = h.read_i32(0x800c_4ba0);
+    g.rand.state = h.read_u32(0x800c_3f94);
+    let flown: Rc<std::cell::RefCell<Vec<Launched>>> = Rc::default();
+    {
+        let k = flown.clone();
+        b.hle.hle.m.hook(0x8008_864c, move |c| {
+            let r = c.cpu.reg(4) as u32;
+            let mut rd = |a: u32| c.bus.read_u32(r + a).unwrap_or(0) as i32;
+            let flags = rd(0) as u32;
+            let (at, radius, life) = ([rd(4), rd(8), rd(0xc)], rd(0x10), rd(0x28));
+            let (dir, speed) = ([rd(0x2c), rd(0x30), rd(0x34)], rd(0x38));
+            let (sprite_at, size_w, damage) = (rd(0x58) as u32, rd(0x5c), (rd(0x68) >> 16) as i16);
+            let met = (rd(0x64) as u8, (rd(0x44) >> 16) as u16, rd(0x68) as u16);
+            let texpos = c.bus.read_u32(0x800c_4484).unwrap_or(0);
+            let model = model_kind(flags);
+            let sprite = if sprite_at >= texpos && texpos != 0 && !model { ((sprite_at - texpos) / 12) as i32 } else { -1 };
+            let size = if model { [0; 2] } else { [size_w as i16, (size_w >> 16) as i16] };
+            k.borrow_mut().push((flags, at, radius, life, dir, speed, sprite, size, damage, met));
+            rrt::emu::HookResult::Continue
+        });
+    }
+    // (The original's thinks run past the oracle's frame boundary, so
+    // what they launch shows there a frame after: the port's owed one.)
+    let (mut same, mut off) = (0, Vec::new());
+    let mut owed: Vec<Launched> = Vec::new();
+    let mut f = 0;
+    b.script_with(&[(0, frames)], |g, _| {
+        f += 1;
+        let mut theirs = std::mem::take(&mut *flown.borrow_mut());
+        let mine = g.flights.launched.iter().map(|l| {
+            let model = model_kind(l.flags);
+            let met = (l.sound, l.mark.map_or(0, |m| m.sprite), l.mark.map_or(0, |m| m.size));
+            (l.flags, l.at, l.radius, l.life, l.dir, l.speed, l.sprite.filter(|_| !model).map_or(-1, |s| s as i32), if model { [0; 2] } else { l.size }, l.damage, met)
+        });
+        let was = std::mem::take(&mut owed);
+        for (late, l) in was.into_iter().map(|l| (true, l)).chain(mine.map(|l| (false, l))) {
+            match theirs.iter().position(|t| *t == l) {
+                Some(i) => {
+                    theirs.remove(i);
+                    same += 1;
+                }
+                None if late => off.push((f, "port", l)),
+                None => owed.push(l),
+            }
+        }
+        off.extend(theirs.into_iter().map(|t| (f, "orig", t)));
+    });
+    off.extend(owed.into_iter().map(|l| (f, "port", l)));
+    assert!(off.is_empty(), "launches off: {off:?}");
+    same
+}
+
+/// Level 29's bubbles (616, callback 0x80053344, with the shared count's
+/// sounds), level 1's spinning models (614, 0x80053090), level 3's drops
+/// (611, 0x80052ed8: their sound and mark), level 6's bursts (969,
+/// 0x80053ef8: six sprites, a random cone, a delay) and toys (905,
+/// 0x80054238, along the object's matrix), as the original's.
+#[test]
+#[ignore]
+fn emitters_launch_as_the_original() {
+    if cue().is_none() {
+        return;
+    }
+    for (level, put, frames, least) in [
+        (29, None, 150, 10),
+        (1, Some([25986, -1690, 6756]), 120, 10),
+        (3, Some([103494, -1509, -18403]), 200, 20),
+        (6, Some([-29351, -2321, -15276]), 120, 6),
+        (6, Some([-51820, -2678, -4743]), 120, 3),
+    ] {
+        let n = emitters_as_the_original(level, put, frames);
+        eprintln!("level {level} at {put:?}: {n} launches the same");
+        assert!(n >= least, "level {level}: only {n} launches");
+    }
+}

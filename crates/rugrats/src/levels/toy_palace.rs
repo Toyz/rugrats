@@ -23,9 +23,6 @@ const START: [i32; 3] = [-4154, -1378, 9795];
 const START_HEADING: i32 = 3134;
 /// Scary toys (template flag 0x200000): template and damage.
 const SCARY: [(u32, i32); 6] = [(1227, 5), (1028, 5), (1029, 5), (1030, 5), (1031, 5), (1155, 2)];
-/// Timed bursts (class 10, 0x8004e0f4): template, period (frames), reach.
-const BURSTS: [(u32, i32, i64); 2] = [(969, 50, 3072), (982, 25, 2048)];
-const BURST_HURT: i32 = 18;
 /// Breakable toys (template 1102, flag 1024): sound 173, thrown up 2000,
 /// 5.
 const BREAKABLE: u32 = 1102;
@@ -40,14 +37,6 @@ struct Scary {
     pos: [i32; 3],
     radius: i64,
     damage: i32,
-}
-
-/// A timed burst placed: hurts every `period` frames within `reach`.
-#[derive(Clone, Copy, Debug)]
-struct Burst {
-    at: [i32; 3],
-    period: i32,
-    reach: i64,
 }
 
 /// The level's progress (0x800c4cd0).
@@ -66,8 +55,6 @@ pub struct ToyPalace {
     phase: Phase,
     scary: Vec<Scary>,
     scared: bool,
-    bursts: Vec<Burst>,
-    clock: i32,
     breakables: Vec<usize>,
     tommy: (Hierarchy, Animator),
     chuckie: (Hierarchy, Animator),
@@ -100,16 +87,12 @@ impl ToyPalace {
         }
         let template = |t: u32| g.set.templates.get(t as usize);
         let mut scary = Vec::new();
-        let mut bursts = Vec::new();
         let mut breakables = Vec::new();
         for (k, p) in g.set.placements.iter().enumerate().filter(|(_, p)| p.kind == 1) {
             if let Some(&(_, damage)) = SCARY.iter().find(|s| s.0 == p.template) {
                 let radius =
                     template(p.template).map_or(3000, |t| u16::from_le_bytes([t.raw[0x34], t.raw[0x35]]) as i64);
                 scary.push(Scary { placement: k, pos: p.pos, radius, damage });
-            }
-            if let Some(&(_, period, reach)) = BURSTS.iter().find(|b| b.0 == p.template) {
-                bursts.push(Burst { at: p.pos, period, reach });
             }
             if p.template == BREAKABLE {
                 breakables.push(k);
@@ -120,7 +103,7 @@ impl ToyPalace {
             Ok((h, Animator::load(disc, c as u16)?))
         };
         let (tommy, chuckie) = (body(1)?, body(2)?);
-        Ok(ToyPalace { phase: Phase::Chuckie, scary, scared: false, bursts, clock: 0, breakables, tommy, chuckie })
+        Ok(ToyPalace { phase: Phase::Chuckie, scary, scared: false, breakables, tommy, chuckie })
     }
 
     /// Cine 46's end (0x8007b670, 0x800585b0): the player becomes Tommy at
@@ -185,14 +168,6 @@ impl Script for ToyPalace {
             }
             Some(_) => {}
             None => self.scared = false,
-        }
-        // Timed bursts: every period, 18 within reach (3D).
-        self.clock += 1;
-        for &Burst { at, period, reach } in &self.bursts {
-            if self.clock % period == 0 && d2(at) <= reach * reach {
-                g.player.hurt(BURST_HURT);
-                g.play_at(79, at);
-            }
         }
         // Breaking toys (0x8005ac98): standing on one breaks it.
         let feet = p[1] - g.player.feet();

@@ -183,9 +183,9 @@ since the last burst: for templates 969 and 982, Damage(player, object,
 
 | template | LP | position | period | damage | effect (+0x50) |
 |---|---|---|---|---|---|
-| 969 | 160, 161, 162 | (-29351, -2321, -15776), (-21541, -2321, -16131), (-11634, -2321, -16098), room 4 | 100 | 18 within 3072 | 0x80053ef8: sound 79, particles (models 381-38x) |
-| 982 | 6, 7 | (-20228, -2453, -19569), (-25355, -2321, -19536), room 4 | 50 | 18 within 2048 | 0x800539b4: sound 81, particles |
-| 905-908 | 43-50 | x -45458..-56793, y -2440..-2680, rooms 2-3 | 50 | none | 0x80054238 / 0x8005444c (particles) |
+| 969 | 160, 161, 162 | (-29351, -2321, -15776), (-21541, -2321, -16131), (-11634, -2321, -16098), room 4 | 100 | 18 within 3072 | 0x80053ef8: sound 79, six sprites 381-387 |
+| 982 | 6, 7 | (-20228, -2453, -19569), (-25355, -2321, -19536), room 4 | 50 | 18 within 2048 | 0x800539b4: sound 81, drops (sprite 267) |
+| 905-908 | 43-51 | x -45458..-56793, y -2440..-2680, rooms 2-3 | 50 | none | 0x80054238 (905: sound 83, model 1455) / 0x8005444c (906-908: sound 82, model 1452-1454) |
 | 1048 | 127, 154-159 | ids 960-966 at (48021, -2987, -16832..-23154), room 12 | 0 | none | none (draw 0; the piano's note sources, below) |
 
 Template 900 (LP 129-131) sits under the three 969 emitters; the level 6
@@ -614,8 +614,9 @@ ForceCry with tries, cards, the result screens. Level 6 needs, in order:
    spinning toys (spin from template +0x18..+0x1c, sound 72), class 15
    post walker 1155 (speed LP +0x48 / 300, sound 72), class 17 approach
    sounds 79-81.
-6. Timed bursts (class 10, 0x8004e0f4): every template +0x18 VSyncs a
-   particle burst; 969 and 982 hurt 18 within 3072 / 2048 (3D).
+6. Timed bursts (class 10, 0x8004e0f4): the general emitters
+   (`world::game::emitters`, gameplay.md "Emitters"), 969 and 982
+   hurting 18 within 3072 / 2048 (3D) as they go.
 7. Breakable toys: standing on a template with flag 1024 in level 6:
    sound 173 (1102), break and debris, gone, state 16 bounce (-2000),
    Damage 5.
@@ -640,8 +641,7 @@ ForceCry with tries, cards, the result screens. Level 6 needs, in order:
   guess), and what posts 1-16 and their flag 0x200 are for.
 - The extra level 6 collision tests of the class 15 walker against ids
   1776 and 506 (0x8004dc4c..0x8004dccc).
-- The class 8 objects 990 / 991 and the class 10 objects 905-908: what
-  they look like.
+- The class 8 objects 990 / 991: what they look like.
 - How long cines 45, 46 and 47 really are (the oracle: 1513, 1211 and 44
   VSyncs).
 - Card arg 7 (HINT24) against arg 6.

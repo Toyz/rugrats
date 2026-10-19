@@ -216,6 +216,11 @@ pub trait Script {
     fn room(&mut self, _g: &mut Game, _room: usize) {}
     /// The level's own models and HUD.
     fn draw(&self, _g: &Game, _moving: &mut Vec<Vtx>, _overlay: &mut Vec<Vtx>) {}
+
+    /// Sets the level's own countdown 0x800c4ce4 (the hub's barks, level
+    /// 10's lines, level 26's roar), for tools starting the port where the
+    /// original stands.
+    fn set_countdown(&mut self, _v: i32) {}
     /// The level timer ran out (TimerExpired's level callback).
     fn timer_expired(&mut self, _g: &mut Game) {}
     /// The phase, for tools.
@@ -1494,6 +1499,11 @@ impl Game {
     /// player in its room (0x8004d160 lets it out); a level's own objects
     /// are the level's (`Script::trigger`); the rest are in while within.
     fn trigger_called(&mut self, who: Trigger, entered: bool) -> bool {
+        if let Trigger::Placement(k) = who
+            && let Some(now) = self.door_entered(k, entered)
+        {
+            return now;
+        }
         // (A class 10 object's own enter and leave, 0x8004cfd8 and
         // 0x80049e5c, set after the set-up's speech line: in while within.)
         if let Trigger::Placement(k) = who

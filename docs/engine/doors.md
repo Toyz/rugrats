@@ -216,8 +216,7 @@ Each think:
    - bit 2 toggles;
    - no bit 0x20000: +0xcc = 0, return -1;
    - bit 0x20000 (770): +0xd2 = 15 if (+0xbe & 8, after going shut) or
-     (+0xbe & 16, after going open); keep going (so 770 cycles while the
-     player is in range; leaving unschedules it where it is).
+     (+0xbe & 16, after going open); keep going (so 770 cycles).
 7. Return 0.
 
 The step does not use dt: 2 x +0xb0 a think. No sound at a stop.
@@ -226,8 +225,16 @@ Seen (back door 337, step 40, open end -2048, placed heading 2048):
 +0xa8 0, -80, -160 ... -2080 in 26 thinks (2418-2468); x 7155 to 5075;
 then shut: -2000 ... 0 in 26 thinks (2528-2728, with a block between).
 
-Template 770 by the arithmetic (not run): +0xaa moves by 64, so it is
-never 900 and sound 136 never plays; 135 plays on each way down.
+Template 770 in the oracle (level 24): sounds 136 and 135 both play on
+its cycle (the arithmetic above had +0xaa moving by 64; it is not).
+
+An automatic door's enter (0x8004f6d8) schedules it (+0xcc) and leaves
++0x00 bit 0 clear, so the trigger pass enters it again each time round
+and never calls its leave: once the player has come in range it cycles
+for good. A class 8 door is scheduled by its trigger (0x80049e18 in,
+0x80049e5c out; +0x9c), so it starts when the pass reaches it, not when
+the player crosses its radius (level 3's 160: eight frames later than a
+distance test). The port's `Game::door_entered` does both.
 
 ## Blocking (0x8006baa8)
 

@@ -141,14 +141,17 @@ impl Game {
     pub(super) fn door_thinks(&mut self) {
         let me = self.player.pos;
         for k in 0..self.doors.len() {
-            // Class 8 runs while the player is within its radius (enter
-            // 0x80049e18, leave 0x80049e5c).
+            // Class 8 and the automatic doors run while scheduled (their
+            // trigger entries' enters and leaves, `door_entered`); one off
+            // the list, while the player is within its radius.
             if let Some(s) = &mut self.doors[k].swing {
                 s.hurt = (s.hurt - DT).max(0);
                 let d = &self.doors[k];
-                let (dx, dz) = ((d.start[0] - me[0]) as i64, (d.start[2] - me[2]) as i64);
-                let near = dx * dx + dz * dz < (self.doors[k].swing.as_ref().map_or(0, |s| s.radius) as i64).pow(2);
-                self.doors[k].moving = near;
+                if self.trigger_active(Trigger::Placement(d.placement)).is_none() {
+                    let (dx, dz) = ((d.start[0] - me[0]) as i64, (d.start[2] - me[2]) as i64);
+                    let near = dx * dx + dz * dz < (self.doors[k].swing.as_ref().map_or(0, |s| s.radius) as i64).pow(2);
+                    self.doors[k].moving = near;
+                }
             }
             if !self.doors[k].moving {
                 continue;
@@ -251,6 +254,23 @@ impl Game {
                 }
             }
         }
+    }
+
+    /// A door's trigger enter or leave, if placement `k` is a door that
+    /// runs by them; whether its entry is in after. Class 8 (0x80049e18,
+    /// 0x80049e5c): scheduled while in. An automatic door (template flag
+    /// 0x40000000, enter 0x8004f6d8): scheduled on the enter, which leaves
+    /// +0x00 bit 0 clear, so it is entered again and never left: it goes
+    /// on cycling.
+    pub(super) fn door_entered(&mut self, k: usize, entered: bool) -> Option<bool> {
+        let d = self.doors.iter_mut().find(|d| d.placement == k && d.swing.is_some())?;
+        let automatic = !d.hinged;
+        if entered {
+            d.moving = true;
+        } else if !automatic {
+            d.moving = false;
+        }
+        Some(entered && !automatic)
     }
 
     /// Whether door `k` is touched: the last move's probes met it (+0xf4,

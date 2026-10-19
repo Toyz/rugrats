@@ -317,6 +317,10 @@ fn sign_damage(g: &Game, k: usize) -> i16 {
 }
 
 impl Script for Hub {
+    fn set_countdown(&mut self, v: i32) {
+        self.bark_wait = v;
+    }
+
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         g.npc_events.clear();
         // A toy that hits Spike (0x800511a8, char 6): a flinch, then on.

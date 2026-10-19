@@ -129,6 +129,10 @@ impl ChuckiesGlasses {
 }
 
 impl Script for ChuckiesGlasses {
+    fn set_countdown(&mut self, v: i32) {
+        self.talk_wait = v;
+    }
+
     fn frame(&mut self, g: &mut Game, pads: &Pads) {
         for e in std::mem::take(&mut g.npc_events) {
             // GoalPost (0x8007f150): a baby home first.

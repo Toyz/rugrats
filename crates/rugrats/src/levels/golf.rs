@@ -540,6 +540,10 @@ fn lip_out(v: [i32; 3], to_cup: [i32; 2], s: i32) -> [i32; 3] {
 }
 
 impl Script for Golf {
+    fn set_countdown(&mut self, v: i32) {
+        self.roar = v;
+    }
+
     /// State 15, the stroke.
     fn cue(&self) -> i32 {
         if matches!(self.stage, Stage::Stroke(..)) { 15 } else { 0 }

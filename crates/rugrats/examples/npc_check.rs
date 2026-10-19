@@ -428,9 +428,23 @@ fn main() -> Result<(), String> {
             if sync_at == Some(f) {
                 for d in &mut g.doors {
                     let start = d.start();
-                    let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 == d.template && [0, 4, 8].map(|i| p.read_i32(o + 0xc0 + i)) == start) else { continue };
+                    // (The object of its template nearest its start: +0xc0 is
+                    // not the start for every door.)
+                    let mut best: Option<(i64, u32)> = None;
+                    for &o in &objs {
+                        if p.read_i16(o + 0x96) as u16 == d.template {
+                            let dist = (0..3).map(|i| (p.read_i32(o + 0x18 + 4 * i as u32) - start[i]).abs() as i64).sum::<i64>();
+                            if best.is_none_or(|(b, _)| dist < b) {
+                                best = Some((dist, o));
+                            }
+                        }
+                    }
+                    let Some((_, o)) = best else { continue };
                     let offset = [0, 2, 4].map(|i| p.read_i16(o + 0xa8 + i) as i32);
-                    d.sync(offset, p.read_u32(o + 0x3c) & 2 != 0, p.read_u32(o + 0xcc) != 0, p.read_i16(o + 0xd2) as i32);
+                    // (Scheduled by a use or an automatic enter, +0xcc, or by class 8's
+                    // trigger, +0x9c.)
+                    let scheduled = p.read_u32(o + 0xcc) != 0 || p.read_u32(o + 0x9c) != 0;
+                    d.sync(offset, p.read_u32(o + 0x3c) & 2 != 0, scheduled, p.read_i16(o + 0xd2) as i32);
                 }
             }
             // (And the class 10 objects' clocks, +0x64 against the VSync
@@ -520,6 +534,9 @@ fn main() -> Result<(), String> {
                 }
                 // (And the ambience's count, 0x800c4cc0.)
                 g.ambience = p.read_i32(0x800c_4cc0);
+                // (And the level's own countdown, 0x800c4ce4.)
+                let v = p.read_i32(0x800c_4ce4);
+                g.with_script(|s, _| s.set_countdown(v));
             }
             // (And the player's place: the characters aim at it.)
             g.player.pos = [0, 4, 8].map(|i| p.read_i32(0x800e_2b48 + 0x18 + i));
@@ -805,7 +822,14 @@ fn main() -> Result<(), String> {
         if let Some(t) = std::env::var("DOORS").ok().and_then(|v| v.parse::<u16>().ok()) {
             for d in g.doors.iter().filter(|d| d.template == t) {
                 let start = d.start();
-                if let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 == t && [0, 4, 8].map(|i| p.read_i32(o + 0xc0 + i)) == start) {
+                let mut cands: Vec<(i64, u32)> = Vec::new();
+                for &o in &objs {
+                    if p.read_i16(o + 0x96) as u16 == t {
+                        let d = (0..3).map(|i| (p.read_i32(o + 0x18 + 4 * i as u32) - start[i]).abs() as i64).sum::<i64>();
+                        cands.push((d, o));
+                    }
+                }
+                if let Some(&(_, o)) = cands.iter().min() {
                     println!(
                         "{f:3} DOOR orig offset {:?} bit2 {} cc {:#x} d2 {} be {:#x} speed {:?} ends {} {} | port {}",
                         [0, 2, 4].map(|i| p.read_i16(o + 0xa8 + i)),

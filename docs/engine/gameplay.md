@@ -763,6 +763,54 @@ them from the LP record and the template (56 bytes at 0x800c4300 +
 The class table 0x800b7de8 (16 constructors, 0x800494d8 ..
 0x80049d54) is picked by template byte +0x04.
 
+### What the set-up changes beyond the object (0x8004691c)
+
+The generic init writes into the shared tables too: the templates (loaded
+once at boot, file 239) and the models (+0x88's boxes, +0x0a count, 16
+bytes each at +0x0c). The changes stay for the rest of the run. Every
+object of a loaded placement runs it, in the LP's order. The port applies
+them as it loads a level's set (`world/fixups.rs`), and `fixup_check
+LEVEL` compares the templates, the models and the objects' places with
+the oracle's.
+
+- **The object's flags.** They start as the LP's (+0x14), with 0x10000
+  for a template with a model and +0x28 set.
+- **Every level:**
+  - A pickable whose template has no +0x24 gives it 19. 1164 gets 20.
+  - 402 and 948 are not pickable and get the use 0x8004d53c.
+  - 527 and 125 get object flag 0x2000 and template flag 8 (no object
+    test).
+  - 613's line is 194.
+- **The level's switch (0x80046e5c):**
+
+| level | changes |
+|---|---|
+| 1 | 473's id 519; 381: box 4's low y -200, not climbed (flag 64 off); 1244: flag 8; 248: not climbed, box 0's low y -3000; 112 and 132 in room 1 at x 0x4268 and 0x4e20; 836 and 881 use the door only with +0x30 bit 16 |
+| 3 | 883 at x 0x1bd56: box 0's low z -2000; 336 at the origin (y -28): three blocking copies at (2368, -28, -14250), (0x5386, -500, 0x1abb), (0x5528, -200, 0x1abb), turned 1024; 98 and 674 at z -16000; the two 100s at (2549, 516, -13770) and (2547, 516, -14810) become 623 (+0x96 only: 100's model, 623's flags, not climbed); 624: a drawn copy at x 0x16f97; sound sources at 91 (4) and 614 (5) |
+| 4 | 203 at (-226738, _, 0x1334a) at y -400; 543 at (-244131, -1047, 0x17106): two drawn copies at (-281957, -2313, 0xfce3) and (-280950, -2318, 0xfa2c) ("Created 2 oildrums"); 1189: flag 8; 425 and 1185: box 0's low y -666; 653 and 1182-1184: -450 |
+| 5 | 826 (the TV robots): ids from 13000 (0x800c4170) in order; 1231: id 524; 855: +0x1a 60 |
+| 6 | 1028: box 0's low y -1000; 1102: no use; 900 at y -1750 |
+| 7 | 1138: a drawn copy at (52000, -279, -15500); 1128 and 795 pickable; 687: flag 8 |
+| 10 | 126: a blocking copy at (0x3c19, 512, 800); 527 at (0x3b50, _, -135) at x 0x3f38; 381 as level 1; 1244 and 61: flag 8; 248, 112, 132 as level 1 |
+| 11 | 204: two drawn copies at (0x38f9, 950, 0xbe4b) and (0x35f7, 852, 0xcaf8) |
+| 12 | 1070: box 1 (-900, -339, -1200)..(1500, 1463, 1200); 381 as level 1; 1271: drawn copies at (0x558c, -2380, z) and (0x3b60, -5550, 161); 960: not climbed, box 0's low y -3000; 954's +0x24 20, 678's 167 |
+| 13 | 112 and 132 as level 1 |
+| 15 | 223: six blocking copies at y 2443, z 0x1a90, x 0x4a9c to 0x65f4; 248: not climbed, blocking copies at (x, 2443, z) and (0x1a90, 2443, z); 54: blocking copies at (x, y, 3000) and (0x55f0, y, 3000) |
+| 16 | 381 as level 1; 1164's +0x24 175; a sound source at 227 |
+| 18 | no object's use; 248: not climbed, a blocking copy at y -800 |
+| 20 | 27 at (0x73f9, 152, 3088) at z 0x1400 |
+| 23 | 1264 (the ball's reset zone): one box (-4000, -2000, -1000)..(4000, 500, 1000); a sound source at 657 |
+| 24 | 770 (the automatic door): +0x1a 50 |
+| 27 | 232 and 712: box 0's low z -3100 |
+| 28 | 1191 at y 0; 1168: box 0's low x -2000; sound sources at 1191, 920 and 535 |
+| 30 | 1178: a sound source of (rand % 3) |
+| 31 | a sound source at 789 |
+
+A copy is the object's 168 bytes again (0x80021ba0) with a new place, +0x24
+and +0x2c set and its room found, linked into the room (0x8004a440). The
+blocking ones have their draw (+0x40) cleared. The collision test turns
+an object by its angles (+0x24), not by the matrix the copy kept.
+
 The scheduler (0x80072bf0(0x800c3f20)) walks a list at 0x800c43b8 of
 timers (+0x08 period, +0x0c countdown, +0x10 object): when one runs out it
 calls the object's +0x44; a negative result removes it.

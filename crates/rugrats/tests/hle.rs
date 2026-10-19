@@ -909,6 +909,16 @@ fn level_9_friend_bites_as_the_original() {
     assert_eq!(camera_off(&port, &orig), 0, "the camera's heading");
 }
 
+/// The id now (+0x38, as the object set-up gives it: level 5's TV robots
+/// are numbered from 13000) of the character placed with LP id `lp`.
+fn set_up_id(b: &Both, level: usize, lp: u16) -> u16 {
+    let disc = GameDisc::open(&cue().unwrap()).unwrap();
+    let file = disc.file(rugrats::media::cine::LP + level).unwrap();
+    let placed = rugrats_data::placement::parse_lp(&file);
+    let k = placed.iter().position(|p| p.kind == 1 && p.id == lp).expect("the placement");
+    b.game.npcs.iter().find(|n| n.placement == Some(k)).expect("its character").id
+}
+
 /// Mr. Friend (46) in level 9 given the original's place, heading,
 /// animation and mode; his object.
 fn sync_friend(b: &mut Both) -> (usize, u32) {
@@ -1384,26 +1394,20 @@ fn hub_jump_mid_turn_as_the_original() {
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
 
-/// Level 5 as Angelica (character 3), put 1200 short of the first TV
-/// robot (one the original holds still, +0x699 240), the game's rand and
-/// the ambience's countdown given the original's, left standing 2000
-/// frames. The ambience (0x80080ba8, last in the frame) says the
+/// Level 5 as Angelica (character 3) where she starts, no robot within
+/// reach, the game's rand and the ambience's countdown given the
+/// original's, left standing 2000 frames. The ambience (0x80080ba8, last in the frame) says the
 /// original's lines on the original's frames: the floating and the other
 /// lines (no attack begun).
 #[test]
 #[ignore]
 fn level_5_ambience_as_the_original() {
     let Some(mut b) = Both::open(Boot { level: 5, character: Some(3), ..Default::default() }) else { return };
-    for _ in 0..30 {
-        b.hle.frame(0).unwrap();
-    }
-    let k = b.game.npcs.iter().position(|n| n.character == 35 && !n.hidden).expect("a robot");
-    let id = b.game.npcs[k].id;
-    let (k, o) = sync_npc(&mut b, id);
-    let at = b.game.npcs[k].pos;
-    let floor = b.hle.read_i32(o + 0x148);
-    b.put([at[0], floor + b.game.player.feet(), at[2] - 1200], 0, 2);
-    sync_npc(&mut b, id);
+    // (A console fast enough for no lag frame; where she starts, no robot
+    // within reach of her; both played on from the start, the speech lines
+    // near her said on both.)
+    b.hle.hle.frame_steps = 1_200_000;
+    b.script(&[(0, 30)]);
     b.game.rand.state = b.hle.read_u32(0x800c_3f94);
     b.game.ambience = b.hle.read_i32(0x800c_4cc0);
     let said: Rc<std::cell::RefCell<Vec<u16>>> = Rc::default();
@@ -1471,11 +1475,12 @@ fn level_5_robot_wakes_as_the_original() {
     for _ in 0..30 {
         b.hle.frame(0).unwrap();
     }
-    let (k, o) = sync_npc(&mut b, 2000);
+    let robot = set_up_id(&b, 5, 2000);
+    let (k, o) = sync_npc(&mut b, robot);
     let at = b.game.npcs[k].pos;
     let floor = b.hle.read_i32(o + 0x148);
     b.put([at[0], floor + b.game.player.feet(), at[2] - 1200], 0, 2);
-    let (k, o) = sync_npc(&mut b, 2000);
+    let (k, o) = sync_npc(&mut b, robot);
     // The list's nodes, front to back, and the one the pass stopped at.
     let mut nodes = Vec::new();
     let mut node = b.hle.read_u32(0x800c_4c24);

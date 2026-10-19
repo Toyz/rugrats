@@ -340,6 +340,17 @@ fn main() -> Result<(), String> {
             rrt::emu::HookResult::Continue
         });
     }
+    // HOOKRA=addr: each call of addr, its caller and its a0's template
+    // (+0x96) and place.
+    if let Some(at) = std::env::var("HOOKRA").ok().and_then(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()) {
+        p.hle.m.hook(at, move |c| {
+            let o = c.cpu.reg(4) as u32;
+            let t = c.bus.read_u16(o + 0x96).unwrap_or(0);
+            let pos = [0, 4, 8].map(|i| c.bus.read_u32(o + 0x18 + i).unwrap_or(0) as i32);
+            println!("     HOOK {at:#x} ra {:#x} a0 {o:#x} template {t} at {pos:?} a1 {:#x}", c.cpu.reg(31), c.cpu.reg(5));
+            rrt::emu::HookResult::Continue
+        });
+    }
     if sounds && std::env::var_os("SOUNDRA").is_some() {
         for (at, name) in [(0x8006_f26cu32, "PLAY"), (0x8006_f644, "PLAYAT")] {
             p.hle.m.hook(at, move |c| {

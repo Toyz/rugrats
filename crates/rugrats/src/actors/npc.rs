@@ -582,6 +582,34 @@ impl Npc {
         best.is_some_and(|b| b.2 & 72 == 0)
     }
 
+    /// The line test (0x80090554) from `from` to `to` with no flags: the
+    /// nearest object it meets (not itself, nor of template flag 16;
+    /// characters and the player too), unless the world's segment is
+    /// nearer on all three axes.
+    fn line_test(&self, me: usize, from: [i32; 3], to: [i32; 3], w: &World) -> Line {
+        let mut best: Option<(i32, [i32; 3], u16)> = None;
+        for o in w.obstacles {
+            if o.flags & 16 != 0 || o.npc == Some(me) {
+                continue;
+            }
+            let mut n = [0; 3];
+            if let Some((_, hit)) = o.solid.meet(w.trig, from, to, &mut n)
+                && hit.t >= 0
+                && best.is_none_or(|b| hit.t < b.0)
+            {
+                best = Some((hit.t, hit.point, o.template));
+            }
+        }
+        let mut seg = collide::Segment::default();
+        if collide::segment(w.col, from, to, &mut seg) != 0 {
+            let nearer = |p: [i32; 3]| (0..3).all(|k| (from[k] - seg.point[k]).abs() < (from[k] - p[k]).abs());
+            if best.is_none_or(|b| nearer(b.1)) {
+                return Line::World;
+            }
+        }
+        best.map_or(Line::Clear, |b| Line::Met(b.2))
+    }
+
     fn dist(&self, p: [i32; 3]) -> i32 {
         approx_dist(self.pos, p)
     }
@@ -634,6 +662,17 @@ pub struct Obstacle {
     pub flags: u32,
     /// The NPC it is, if one.
     pub npc: Option<usize>,
+    /// Its template (+0x96).
+    pub template: u16,
+}
+
+/// What the line test (0x80090554) met: nothing (0), the world (1), or an
+/// object, by its template.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Line {
+    Clear,
+    World,
+    Met(u16),
 }
 
 /// A prowler's bite to its next (the oracle's lobster, level 16).
@@ -1017,15 +1056,16 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
                         n.hold = None;
                     }
                     n.speed = 0;
-                    // The attack (0x80084084 at 0x80085220): near, the way
-                    // to the player clear, and the two bodies level
+                    // The attack (0x80084084 at 0x80085220): near, the line
+                    // test from its place (+0x18, the lift in it) to the
+                    // player meeting an object, not the world, nor nothing,
+                    // nor 1177 or 843, and the two bodies level
                     // (0x80083ff0: their boxes' heights overlapping).
                     if near {
                         let (ty, tb) = (w.player_y, w.player_box_y);
                         let mb = n.box_y();
                         let level = !(ty + tb[1] < my_y + mb[0]) && !(my_y + mb[1] < ty + tb[0]);
-                        let mut seg = collide::Segment::default();
-                        let seen = collide::segment(w.col, n.pos, p, &mut seg) == 0;
+                        let seen = matches!(n.line_test(k, [n.pos[0], my_y, n.pos[2]], p, w), Line::Met(t) if t != 1177 && t != 843);
                         // (+0x688 bit 8: mode 5, the bite. Bit 512's snap
                         // and mode 1 is never set by any code.)
                         if level && seen && n.attacks {

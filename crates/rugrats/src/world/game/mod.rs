@@ -648,7 +648,12 @@ impl Game {
         rrt::tracing::info!("level {level}: the player starts at {start:?}, heading {heading}");
         let hierarchy = set.hierarchies.get(body).cloned().flatten().ok_or("no hierarchy for the player")?;
         let mut player = Player::new(disc, hierarchy.clone(), start, heading, &col, &anims)?;
-        player.pickables = (0..set.templates.len()).filter(|&t| set.templates[t].pickable()).map(|t| t as u16).collect();
+        // (The templates of the objects made pickable, +0x00 0x10000: the
+        // LP's flags, the template's +0x28, the set-up's changes.)
+        player.pickables = (0..set.templates.len())
+            .filter(|&t| set.placements.iter().any(|p| p.kind == 1 && p.template as usize == t && p.flags & 0x10000 != 0))
+            .map(|t| t as u16)
+            .collect();
         if who != TOMMY {
             // Another body (0x80059328): Spike and 34 turn slowly (0x8005bbf4).
             let a = Animator::load(disc, who as u16)?;
@@ -671,7 +676,7 @@ impl Game {
                 && set
                     .templates
                     .get(p.template as usize)
-                    .is_some_and(|t| t.pickable() && t.hierarchy().is_none() && set.models.has(t.shape as u32))
+                    .is_some_and(|t| p.flags & 0x10000 != 0 && t.hierarchy().is_none() && set.models.has(t.shape as u32))
         };
         let things: Vec<Thing> = (0..set.placements.len())
             .filter(|&k| pickable(k))
@@ -1915,13 +1920,18 @@ impl Game {
                 solid: e.solid.clone(),
                 flags: if n.is_some() { 0 } else { self.set.templates.get(e.template as usize).map_or(0, |t| t.flags) },
                 npc: *n,
+                template: match n {
+                    Some(k) => self.npcs[*k].template,
+                    None => e.template,
+                },
             })
             .collect();
         {
             let h = |at: usize| self.player.hierarchy.header.get(at..at + 2).map_or(0, |v| i16::from_le_bytes([v[0], v[1]]) as i32);
             let shape = crate::world::boxhit::Shape::Body([h(4), h(6), h(8)], [h(0xc), h(0xe), h(0x10)]);
             let solid = crate::world::boxhit::Solid { pos: self.player.pos, angles: [self.player.heading as i16, 0, 0], bound: 1773, size: 8192, shape };
-            obstacles.push(npc::Obstacle { solid, flags: 0, npc: None });
+            // (Its template only matters as not 1177 or 843.)
+            obstacles.push(npc::Obstacle { solid, flags: 0, npc: None, template: 0 });
         }
         // A thing in flight is in its room's list again (a throw puts it
         // back): what the characters' tests meet too (level 21's ball
@@ -1932,7 +1942,7 @@ impl Game {
             let shape = crate::world::boxhit::Shape::Model(m.boxes.iter().map(|(lo, hi)| (lo.map(|v| v as i32), hi.map(|v| v as i32))).collect());
             let solid = crate::world::boxhit::Solid { pos: boxes::ipos(t.pos), angles: boxes::angles_of(&self.trig, t.rot), bound: r, size: r, shape };
             let flags = self.set.templates.get(t.template as usize).map_or(0, |tp| tp.flags);
-            obstacles.push(npc::Obstacle { solid, flags, npc: None });
+            obstacles.push(npc::Obstacle { solid, flags, npc: None, template: t.template });
         }
         let thing_places: Vec<[i32; 3]> = self.things.iter().map(|t| [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32]).collect();
         let world = World {

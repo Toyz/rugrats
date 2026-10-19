@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-230 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 27, format 9, input 5, play 115, render 33, save 4, test 28, tooling 18, ui 13, video 10.
+231 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 27, format 9, input 5, play 116, render 33, save 4, test 28, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -242,3 +242,4 @@ The [reference](docs/README.md) says what is true now.
 | 228 | [The cines' characters cast the original's shadows](worklog/0228-the-cines-characters-cast-the-original-s-shadows.md) | 2026-10-18 | render |
 | 229 | [Reptar's fire and chomp match the original frame for frame without lag frames](worklog/0229-reptar-s-fire-and-chomp-match-the-original-frame-for-frame.md) | 2026-10-18 | test |
 | 230 | [Every body's steps sound as the original's and the frames' events are the set-up's; the sweep compares the sounds](worklog/0230-every-body-s-steps-sound-as-the-original-s-and-the-frames.md) | 2026-10-18 | play |
+| 231 | [The object set-up's changes to templates, models, places and copies; golf's ball and the guards' bite by the full line test](worklog/0231-the-object-set-up-s-changes-to-templates-models-places-and.md) | 2026-10-18 | play |

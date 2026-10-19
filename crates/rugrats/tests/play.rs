@@ -1746,8 +1746,15 @@ fn solve_hole(disc: &GameDisc, level: u8, par: usize, fan: i32) -> Option<(usize
 fn golf_course_search() {
     let Some(disc) = disc() else { return };
     let pars = [4usize, 5, 4, 5, 5, 5, 4, 5, 3];
+    // GOLF_HOLES=23,30: those holes only.
+    let only: Vec<u8> = std::env::var("GOLF_HOLES").ok().map(|v| v.split(',').filter_map(|s| s.parse().ok()).collect()).unwrap_or_default();
     for (k, level) in [25u8, 28, 24, 29, 23, 30, 26, 31, 27].into_iter().enumerate() {
-        let r = solve_hole(&disc, level, pars[k], 2048);
+        if !only.is_empty() && !only.contains(&level) {
+            continue;
+        }
+        // (GOLF_PAR_EXTRA=n: n strokes over par allowed.)
+        let extra: usize = std::env::var("GOLF_PAR_EXTRA").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+        let r = solve_hole(&disc, level, pars[k] + extra, 2048);
         eprintln!(
             "SEARCH {level}: {:?}",
             r.map(|(r, s)| (r, s.iter().map(|s| (s.offset, s.power)).collect::<Vec<_>>()))

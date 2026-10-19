@@ -4,6 +4,7 @@
 pub mod boxhit;
 pub mod collide;
 pub mod flights;
+pub mod fixups;
 pub mod fx;
 pub mod game;
 pub mod shards;

@@ -42,6 +42,9 @@ pub struct Placement {
     pub speech: u16,
     /// +0x4a as a number (a post walker's post reach, 0x80048974).
     pub word_4a: u16,
+    /// Drawn (+0x40 set): the object set-up's copies that only block
+    /// (0x8004691c) are not.
+    pub drawn: bool,
 }
 
 /// A spawn spot (LP kind 7, kept 16 bytes each at 0x800c4bac): x in the
@@ -87,6 +90,7 @@ pub fn parse_lp(b: &[u8]) -> Vec<Placement> {
                 placed_at_load: w(r + 0x48)? >> 16 != 0,
                 speech: w(r + 0x4c)? as u16,
                 word_4a: (w(r + 0x48)? >> 16) as u16,
+                drawn: true,
             })
         })
         .collect()

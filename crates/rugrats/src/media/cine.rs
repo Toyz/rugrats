@@ -32,7 +32,7 @@ const MOD: usize = 242;
 const LEVEL: usize = 434;
 const A_RAW: usize = 499;
 const HIE: usize = 370;
-const LP: usize = 402;
+pub const LP: usize = 402;
 /// Shared by every database.
 const CHARACTR_RAW: usize = 498;
 const TEMPLATE: usize = 239;
@@ -98,6 +98,8 @@ pub struct Set {
     /// (corner 1's flags, quad +0x0e), those with corner 0's flag 2 left
     /// out, as the room lookup 0x8002b660 walks them.
     pub neighbours: Vec<Vec<usize>>,
+    /// The sound sources the object set-up starts (0x8006fe04).
+    pub sound_sources: Vec<crate::world::fixups::SoundSource>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -185,6 +187,7 @@ impl Set {
                     }
                 })
                 .collect(),
+            sound_sources: Vec::new(),
         })
         .map(|mut set: Set| {
             // LP kind 6 (0x800454dc): room properties, the record's data
@@ -215,6 +218,8 @@ impl Set {
                     }
                 }
             }
+            // The object set-up's changes (0x8004691c).
+            set.fix_up(db as u8);
             set
         })
     }
@@ -265,7 +270,7 @@ impl Set {
             .placements
             .iter()
             .enumerate()
-            .filter(|(k, p)| p.kind == 1 && !SKIPPED.contains(&p.template) && !skip(*k))
+            .filter(|(k, p)| p.kind == 1 && p.drawn && !SKIPPED.contains(&p.template) && !skip(*k))
         {
             let Some(t) = self.templates.get(place.template as usize) else { continue };
             // A placed object's rotation is LP's quaternion inverted

@@ -243,6 +243,16 @@ impl Game {
         met.map(|(who, at, p, n)| (Some((who, at)), p, n))
     }
 
+    /// A rolling ball's step from `from` to `to` (0x80086668 with flags
+    /// 0x30000, its boxes not grown): what the objects and the world give,
+    /// as [`Self::flight_meets`] does; the point and the normal. Objects
+    /// of template `own` (the ball itself) are passed over.
+    pub(crate) fn ball_meets(&self, from: [i32; 3], to: [i32; 3], own: u16) -> Option<([i32; 3], [i32; 3])> {
+        let targets: Vec<_> =
+            self.flight_targets(&self.solids, &self.npc_of).into_iter().filter(|(_, m)| *m != Met::Object(own)).collect();
+        self.flight_meets(from, to, true, 0, &targets).map(|(_, p, n)| (p, n))
+    }
+
     /// A shot's step from `from` to `to` (0x80090554, the shots after the
     /// flights): the nearest of this frame's solids its segment crosses
     /// (0x8006a9cc -> 0x8006a714: not the player, its owner, nor a

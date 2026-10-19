@@ -191,6 +191,12 @@ impl Models {
         self.by_offset.get(&self.find(id))
     }
 
+    /// [`Self::get`], to change (the object set-up's box fixes, 0x8004691c).
+    pub fn get_mut(&mut self, id: u32) -> Option<&mut Model> {
+        let at = self.find(id);
+        self.by_offset.get_mut(&at)
+    }
+
     /// The offset `model(id)` gives (0, the first model stored, for an id
     /// it misses).
     pub fn find(&self, id: u32) -> u32 {

@@ -347,35 +347,18 @@ impl Golf {
         };
         let bend = collide::along_plane(v.map(|c| -c), collide::floor_normal(&g.col, start));
         let end = [0, 1, 2].map(|k| start[k] + collide::fix(bend[k], d));
-        // The world along it (0x80086668 through 0x8002cd7c): a hit bounces
-        // the ball off its normal (0x8007666c), times 3000 / 4096.
-        let mut hit = collide::Segment::default();
-        if collide::segment(&g.col, start, end, &mut hit) == 1 {
+        // The objects and the world along it (0x80086668: objects first,
+        // the world kept only when nearer on all three axes; the boxes not
+        // grown): a hit bounces the ball off its normal (0x8007666c), times
+        // 3000 / 4096.
+        if let Some((point, n)) = g.ball_meets(start, end, BALL) {
             g.play_at(137, self.ball);
-            let n = hit.normal;
             let c = collide::fix(n[0], u[0]) + collide::fix(n[1], u[1]) + collide::fix(n[2], u[2]);
             if c < 0 {
                 let out = [0, 1, 2].map(|k| u[k] - ((c.wrapping_mul(n[k])) >> 11));
-                p = [0, 1, 2].map(|k| hit.point[k] - collide::fix(u[k], r));
+                p = [0, 1, 2].map(|k| point[k] - collide::fix(u[k], r));
                 let speed = collide::length(v);
                 v = out.map(|o| collide::fix(o, (speed * BOUNCE) >> 12));
-            }
-        } else if let Some(b) = g
-            .boxes
-            .iter()
-            .find(|b| b.covers(edge, RADIUS) && b.min_y < edge[1] + RADIUS && b.max_y > edge[1] - RADIUS)
-            .cloned()
-        {
-            // An object (0x80086340, not ported): the axis that ran into
-            // its box turns back.
-            g.play_at(137, self.ball);
-            for k in [0, 2] {
-                let mut q = start;
-                q[k] = edge[k];
-                if b.covers(q, RADIUS) {
-                    v[k] = -((v[k] * BOUNCE) >> 12);
-                    p[k] = start[k];
-                }
             }
         }
         self.ball = p;

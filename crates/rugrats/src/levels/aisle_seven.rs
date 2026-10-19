@@ -336,9 +336,11 @@ impl Script for AisleSeven {
                 n.hurt(amount);
                 if n.health == 0 {
                     // 0x8007ebd4: sparks with the lobster's +0x6d and
-                    // sound 48 (0x80050fd0), then gone.
+                    // sound 48 (0x80050fd0), about its body's matrix
+                    // (0x80020d10 of its heading), then gone.
                     n.mode = Mode::Idle;
-                    g.flights.sign_sparks(at, BITE as i16, g.sprites.as_ref());
+                    let frame = g.trig.rotation([n.heading as i16, 0, 0]);
+                    g.flights.sign_sparks(at, &frame, BITE as i16, g.sprites.as_ref());
                     g.play(48);
                     g.hide(id, true);
                 } else {

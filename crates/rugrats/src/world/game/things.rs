@@ -110,6 +110,13 @@ pub struct Ended {
 /// ratan2(-nx, -nz)) of the normal (0x8008e6c8), grey the COL tile's
 /// shade there (+5) or 128. A pool entry without +0x08 bit 1
 /// (0x8008e36c), it is drawn the frame it is made and freed (0x8008e694).
+///
+/// The pool (0x800c4d98 free, 0x800c4da0 in use, newest first) holds 8
+/// (0x8008e824's 128, no more than 8); a mark made with the pool full
+/// takes the oldest's place. One made through 0x8008e72c (launch +0x66
+/// set) has +0x08 bit 1 and lasts until so taken; marks 209, 212 and 218
+/// show sequences 0x1019, 0x101a and 0x101c (0x8008e36c); +0x65 makes it
+/// semi-transparent (face flag 0x2000000).
 #[derive(Clone, Copy, Debug)]
 pub struct Mark {
     pub sprite: u32,
@@ -117,7 +124,13 @@ pub struct Mark {
     pub angles: [i16; 3],
     pub size: i32,
     pub grey: u8,
+    pub lasting: bool,
+    pub semi: bool,
+    pub sequence: Option<usize>,
 }
+
+/// The mark pool's size.
+const MARKS: usize = 8;
 
 /// A character's size (+0x86): the radius the nearby list (0x8006abbc)
 /// and the collision screens take it by.
@@ -757,6 +770,32 @@ impl Game {
         }
     }
 
+    /// A mark made where a flight met something (0x8008652c): laid by
+    /// the normal (0x8008e6c8: x -asin(-ny), y ratan2(-nx, -nz)), grey the
+    /// COL tile's shade there on the world (else 128), put in the pool.
+    pub(super) fn put_mark(&mut self, spec: &crate::world::flights::Mark, point: [i32; 3], n: [i32; 3], world: bool) {
+        let angles = [self.trig.ratan2(-n[0], -n[2]) as i16, (-self.trig.asin(-n[1])) as i16, 0];
+        let grey = if world { self.shade_at(point).unwrap_or(128) } else { 128 };
+        if self.marks.len() >= MARKS
+            && let Some(old) = self.marks.pop()
+            && let Some(slot) = old.sequence
+        {
+            self.flights.sequences.release(slot);
+        }
+        let id = match spec.sprite {
+            209 => Some(0x1019),
+            212 => Some(0x101a),
+            218 => Some(0x101c),
+            _ => None,
+        };
+        let sequence = id.and_then(|id| self.flights.sequences.start(id, self.sprites.as_ref()));
+        if let Some(slot) = sequence {
+            self.flights.sequences.activate(slot);
+        }
+        let [semi, lasting, _] = spec.flags.map(|f| f != 0);
+        self.marks.insert(0, Mark { sprite: spec.sprite as u32, at: point, angles, size: spec.size as i32, grey, lasting, semi, sequence });
+    }
+
     /// The shade of the COL tile at `p` (its byte +5, which 0x800869cc
     /// reads for a mark; the player's brightness eases toward it).
     fn shade_at(&self, p: [i32; 3]) -> Option<u8> {
@@ -1386,7 +1425,14 @@ impl Game {
     pub(super) fn fly(&mut self, solids: &[crate::world::boxhit::Exact], npc_of: &[Option<usize>]) {
         self.struck.clear();
         self.ended.clear();
-        self.marks.clear();
+        // (Those not lasting are drawn once and freed, 0x8008e60c.)
+        for m in std::mem::take(&mut self.marks) {
+            if m.lasting {
+                self.marks.push(m);
+            } else if let Some(slot) = m.sequence {
+                self.flights.sequences.release(slot);
+            }
+        }
         let mut touched = Vec::new();
         if self.things.iter().any(|t| t.flown.is_some()) {
             let targets = self.flight_targets(solids, npc_of);
@@ -1407,10 +1453,8 @@ impl Game {
             if template == PIE {
                 let me = self.player.pos;
                 self.play_at(46, me);
-                let n = e.normal;
-                let angles = [self.trig.ratan2(-n[0], -n[2]) as i16, (-self.trig.asin(-n[1])) as i16, 0];
-                let grey = if e.world { self.shade_at(e.point).unwrap_or(128) } else { 128 };
-                self.marks.push(Mark { sprite: PIE_MARK, at: e.point, angles, size: PIE_MARK_SIZE, grey });
+                let spec = crate::world::flights::Mark { sprite: PIE_MARK as u16, size: PIE_MARK_SIZE as u16, flags: [0; 3] };
+                self.put_mark(&spec, e.point, e.normal, e.world);
             }
         }
         // Touch 1's sound at the object, once its count runs out

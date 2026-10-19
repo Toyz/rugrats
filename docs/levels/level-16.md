@@ -173,9 +173,14 @@ at y about -1024 (Tommy's origin at -1269). Measured from the file:
 
 Templates 111 and 441 in level 16 get trigger radius 2500, enter
 0x80049e18, leave 0x80049e5c and think 0x80049eec (0x8004691c at
-0x800469a4). In the player's room the think only sparkles (0x80050fd0
-with 0x800c416c cleared, so no sound); the hub's labels are drawn only in
-level 1.
+0x800469a4); the template's own radius (+0x34, 15000) is then put over
+the 2500 later in the set-up. In the player's room the think only
+sparkles (0x80050fd0 with 0x800c416c cleared, so no sound), in a sphere
+about the object's matrix (+0x04); the hub's labels are drawn only in
+level 1. The spinners 526 run hit callback 1 (0x80053604) each think
+while drawn: model 932 thrown along their turning angle, and sound 178
+off the shared count. Character 23 sounds 51 at its animation event
+0x8000000 unless biting (0x80084084).
 
 ### Spawn spots (LP kind 7)
 

@@ -242,6 +242,9 @@ pub struct Npc {
 pub enum Event {
     /// Its step's sound effect (0x8005e1f4, 0x8006f644).
     Step(usize, u8),
+    /// Its think begun (0x80084084): its hit callback (+0x50) runs, the
+    /// character where it was then (+0x18, its lift in it).
+    Think(usize, [i32; 3]),
     /// Its step in level 4's water as the player's Spike (sound 57 each
     /// fifth step).
     Wade(usize),
@@ -701,6 +704,13 @@ pub fn step(npcs: &mut [Npc], w: &World, rand: &mut Rand) -> Vec<Event> {
         if !runs {
             continue;
         }
+        // Each think (0x80084084): character 23 sounds 51 at its
+        // animation's event 0x8000000 unless biting (mode 5); then the hit
+        // callback.
+        if n.character == 23 && !(matches!(n.mode, Mode::Follow(_)) && n.bite == Bite::Strike) && n.animator.events & 0x800_0000 != 0 {
+            events.push(Event::Step(k, 51));
+        }
+        events.push(Event::Think(k, [n.pos[0], n.pos[1] + n.root.y, n.pos[2]]));
         // The animation steps first and its root with it (0x8005a068),
         // then the mode asks for what plays from the next step. A bite's
         // modes 5 and 0 have no body update (0x80084084 leaves without

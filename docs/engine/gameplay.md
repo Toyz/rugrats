@@ -882,7 +882,13 @@ The original's pass runs after the oracle's frame boundary (0x80072bf0,
 then the boundary, then 0x80072d38), so what it does in a frame shows in
 the oracle a frame later (`level_5_door_opens_as_the_original`).
 
-### Emitters (class 10, 0x8004e0f4)
+### Emitters and hit callbacks (+0x50, 0x800b7eb0)
+
+Any object whose template has a hit callback (+0x09) gets +0x50 from the
+table 0x800b7eb0 and a 16-byte record (+0x98, 0x8004691c) from its
+template; the class 10 objects (below), the spinners (class 2: 0x8004e2ac
+calls +0x50 each think) and the characters (0x80084084 calls it at the
+start of each think, where the character then is) run it.
 
 Class 10 objects (0x80048400) are on the trigger list with enter
 0x8004cfd8 (record +0x00 = 1, scheduled) and leave 0x80049e5c
@@ -916,11 +922,14 @@ delay, damage the object's +0x6d). Each has its own seed:
 
 | index | callback | templates (levels) | what |
 |---|---|---|---|
+| 1 | 0x80053604 | spinners 526 (3, 16), 738 (3) | the shared count less dt, at 0 or under sound 150 (178 in level 16) at it and back to 1000; model 932: flags (+0x0c \| 2) \| 0xb0000, 500 ms, its radius, in a cone about +z turned by 0x80020bc0 of -(+0x24) (its turning angle), speed rand % +0x0e (0x800c41b8) |
 | 2 | 0x80052ba0 | 577 (3) | the matrix's third row zeroed; +0x08 drops: flags +0x0c \| 0x20b0005, sprite 267, 50 across, speed rand % +0x0e (seed 0x800c41a8), mark 209 (300) |
 | 3 | 0x80052ed8 | 611 (3, 16) | sound 149 at it; a drop: flags \| 0x220f0005, sprite 264, 100 across and round, spin 3391, speed rand % +0x0e after the cone (0x800c41b0), sound 133 (177 in level 16) where it meets something, mark 263 |
 | 4 | 0x80053090 | 614 (1, 3) | model 931 (kind 2): flags \| 0x30002, its radius, spin 3391 |
 | 5 | 0x80053170 | 615 (3) | sprite 269, 270, 271, 273, 272 or 274 (rand % 6, 0x800c41b4): flags \| 0x70005, 50 across and round, spin 3391 |
 | 6 | 0x80053344 | 616 (1, 3, 7, 12, 15, 18, 29), 1139 (5) | none in level 12; the shared count 0x800c4ba0 less dt, at 0 or under a sound at it (level 29 rand % 3 of 134, 143, 140; else 151 + rand % 10; the game's rand) and back to 100; a bubble: flags \| 0x30005, sprite 266, face 0xd2800000, 150 across in levels 7 and 29, else 50 |
+| 8 | 0x800537c4 | 20 (2, a character) | a drop: flags 0x505, sprite 276, 50 by 200, 50 round, face 0xd0800000, 1000 ms, spin 3391, speed 50, about +y up to 2048 |
+| 11 | 0x80053b88 | robots 826 (5) | a glow: flags 0x2010705, sprite 374, 200 across and round, face 0xd2800000, 1000 ms, straight up at 146 (its own LCG from 0x55fe7, % 250) |
 | 7 | 0x800538bc | 706 (4) | model 1040 down (axis -y): flags \| 0x2010002, sound 147 where it meets something, mark 218, its hit callback (+0x4c) the object's +0x5c |
 | 9 | 0x80052d70 | 682 (3) | model 1016: flags \| 0x20b0002, speed rand % +0x0e after the cone (0x800c41ac), mark 212 |
 | 10 | 0x800539b4 | 982 (6) | sound 81 at it; as 2 with 150 across, no mark (0x800c41bc) |
@@ -929,16 +938,65 @@ delay, damage the object's +0x6d). Each has its own seed:
 | 15 | 0x8005444c | 906-908 (6) | sound 82 at it; as 14 with model 1454, 1452 or 1453 (rand % 3 first) along (0, r, 4096) (0x800c41c8) |
 | 18 | 0x80054d5c | 1215 (3) | model 1628: flags \| 0xb0002, bounce 2500, delay the period's ms, speed rand % +0x0e (0x800c41d8); not through 0x80052b60 |
 
-The launch's +0x64 is the sound (record +0x88) played where the flight
-meets something (0x80087594), and +0x46, +0x65..+0x68 its mark (record
-+0x2a, +0x89..+0x8c: 0x8008652c's quad on the surface, the pies' too).
-The sliding doors' think also takes dt off the count 0x800c4ba0.
+A flight meeting the world (0x80087594, 0x80086668):
+- calls its +0x80 (launch +0x4c; for 706's drops the object's +0x5c, the
+  table 0x800b7ea4 by template +0x0b: 1 the pie's splat 0x8005282c, 2 the
+  drop's splash 0x800529cc: five sprites 275, 100 across, 500 ms, in a
+  cone of 1024 about the surface's normal, speeds rand % 500 from an LCG
+  started at 0xb0a5 each call);
+- then plays its sound (launch +0x64);
+- and makes its mark (launch +0x46, +0x65..+0x68 into record +0x2a,
+  +0x89..+0x8c; 0x8008652c): laid by the normal, grey the COL tile's shade.
+  The mark pool holds 8 (0x8008e824's 128, at most 8), newest first; a new
+  mark with the pool full takes the oldest's place. One made through
+  0x8008e72c (+0x66 set) lasts until so taken, else it is drawn once and
+  freed; marks 209, 212 and 218 run sequences 0x1019, 0x101a, 0x101c; +0x65
+  makes it semi-transparent. The world test runs per room (0x80086668
+  recurses into the next room along the segment), so a drop crossing rooms
+  can mark twice.
 
-The original's think reads VSync(-1) during the frame, one VSync before
-the count the oracle shows at the frame's end; the port's
-(`Game::emitter_thinks`) reads its count (`Game::vcount`, two a frame)
-less one the same way, so a gap of the period exactly waits a frame as
-the original's does.
+The shared count 0x800c4ba0: callbacks 1 and 6, touch 1 (0x80050140), the
+collectibles of kind 16 (0x8004d570, sound 146, back to 500) and each
+sliding door's think (0x8004e458) take dt off it; the level starts set it
+(levels 1, 7 and 29 100; 3 and 24 1000; 4 and 23 500: 0x80078e7c,
+0x8007b748, 0x8007a584 by level - 23, 0x800793c8, 0x8007e058).
+
+The thinks read VSync(-1) during the frame. On the oracle that is the count
+the frame began at, two before its end, or in some runs one before
+(`Game::vsync_lag`, 2; tools copy 1 when an emitter's or spinner's +0x64
+is odd).
+
+### Drawn rooms, and the thinks the draw runs (0x80034058)
+
+The render walks the rooms from the camera's room (camera +0x80) through
+their portals (the level's quads, +0x30/+0x34 of a room: corners about
+the room's centre, corner 1's flags the room it leads to, corner 0's flag
+2 shut), breadth first (0x80033ac4):
+- an entry's portal stamped this frame is passed over (each is stamped as
+  its entry is taken, and those of a room reached that lead back are
+  stamped as it is put on);
+- a room 65000 or more ahead (0x8001f0ac: the camera's z of its centre,
+  the camera's row 0 scaled by 512 / 320 by 0x8001e0f4) is neither drawn
+  nor walked through;
+- each portal not shut, to a room the first room's list (+0x5e, +0x60)
+  allows: with the eye within 2048 of its box it shows the whole
+  rectangle (0x800307f8); else its corners are taken to the camera, cut at
+  z 0 (0x8003311c), projected ((x h + z / 2) / z), and it shows where they
+  fall within the rectangle, unless all fall off one side, or the whole
+  rectangle when one is at z 0 (0x80033278; its back-face test is off,
+  0x800c3fd9 = 0);
+- the rooms are drawn by their depth's 4096 band, farthest first, each
+  band the last put on first (0x80033f80).
+
+Each room's objects are drawn into its rectangle (0x80033818). An object's
+draw (0x80031b84) stamps +0x60 with the frame when it passes: between the
+projection distance and 65000 deep, and its model's radius on the screen
+within the rectangle (0x80031834, the radius scaled 512 / 320 across). A
+spinner thinks only drawn in the last six frames. A collectible's draw
+(0x800324a0) runs its think: kind 16's sound off the shared count.
+`world::game::visible` walks the same way; npc_check VISDBG=1 compares the
+rooms and rectangles (all frames the same in 24 levels with the camera
+synced).
 
 ### Doors (0x8004f78c)
 
@@ -1070,12 +1128,10 @@ A suggested order, each step checkable against the oracle:
   and the draws 0x8006f88c .. 0x80034a98 (NPCs, effects: guesses; the
   characters' shadows are 0x8003414c, above).
 - The HUD elements: which pool shows what.
-- The flights' marks (0x8008652c: record +0x2a, +0x89..+0x8c, drawn by
-  0x8008e72c / 0x8008e76c), what a flight meeting level 4's water calls
-  (the splash), and 706's flights' hit callback (+0x4c, its object's
-  +0x5c). Which VSync count the emitters' think reads on the hardware:
-  the oracle's frame-end count less one in one harness, the count itself
-  in another.
+- The marks' face bits (0xc080be00 or 0xc0802e00 by the tile's +4) and
+  their drawing (0x8008e508); the port lays them as the pies'.
+- Which VSync count the thinks read on the hardware (the oracle reads the
+  frame's start in one harness, one later in another).
 - LP kinds 3 (0x8006fe04, sound?) and 7, record +0x46..+0x4a (template 835
   chains), and template bytes +0x07..+0x0b's tables.
 - Level-specific code in the player update (levels 4, 6, 7, 11, 20-31).

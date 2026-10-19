@@ -28,8 +28,8 @@ const LOOK_UP: f32 = 1570.0;
 const TOSS_HEALTH: i32 = 250;
 const PIE_DAMAGE: i32 = 50;
 /// Templates 111 and 441 think 0x80049eec while their trigger entry has
-/// them in (within 2500, 0x8004691c at 0x800469a4): in the player's room
-/// they sparkle, silent.
+/// them in (0x8004691c at 0x800469a4: within 2500, then their template's
+/// 15000 over it): in the player's room they sparkle, silent.
 const SPARKLERS: [u32; 2] = [111, 441];
 const CLOCK: i32 = 30 * 300;
 /// The end (0x8007e904): Tommy just off the counter's edge.
@@ -153,17 +153,17 @@ impl Training {
 impl Script for Training {
     fn frame(&mut self, g: &mut Game, _pads: &Pads) {
         let room = g.current_room();
-        let sparkling: Vec<([i32; 3], i16)> = g
+        let sparkling: Vec<([i32; 3], crate::world::flights::Matrix, i16)> = g
             .set
             .placements
             .iter()
             .enumerate()
             .filter(|(_, p)| p.kind == 1 && SPARKLERS.contains(&p.template) && !g.is_hidden(p.id))
             .filter(|&(k, p)| g.trigger_active(Trigger::Placement(k)) == Some(true) && room.is_some() && g.room_of(p.pos) == room)
-            .map(|(_, p)| (p.pos, g.set.templates.get(p.template as usize).map_or(0, |t| t.raw[0x32] as i16)))
+            .map(|(k, p)| (p.pos, g.placed_matrix(k), g.set.templates.get(p.template as usize).map_or(0, |t| t.raw[0x32] as i16)))
             .collect();
-        for (at, damage) in sparkling {
-            g.flights.sign_sparks(at, damage, g.sprites.as_ref());
+        for (at, frame, damage) in sparkling {
+            g.flights.sign_sparks(at, &frame, damage, g.sprites.as_ref());
         }
         for e in std::mem::take(&mut g.npc_events) {
             // Angelica waiting at a post (0x80083e2c, level 16: 0x800b96e4).

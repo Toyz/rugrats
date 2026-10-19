@@ -134,8 +134,11 @@ Template class 10 (template 706, LP 82-90) is 0x80048400 (think
 0x8004e0f4): every 50 VSyncs while the player is within its trigger, a
 drop of model 1040 straight down (callback 0x800538bc) that sounds 147
 and leaves mark 218 where it meets something (gameplay.md, "Emitters").
-Where it meets the water (y 0) the original splashes (kind 5, sprite
-275, 500 ms), which the port's flights do not yet.
+Where it meets the water (y 0) its hit callback, the object's +0x5c
+(template +0x0b 2: 0x800529cc), splashes: five sprites 275 about the
+surface's normal. The template 1141 pools (collectibles of kind 16, LP
+73-81) sound 146 off the shared count as they are drawn (0x800324a0 ->
+0x8004d570).
 
 ### Level 4 setup in the generic object init (0x8004691c case 3)
 
@@ -531,9 +534,7 @@ gauges and the meter, ForceCry with tries. Level 4 needs, in order:
 - Why walking into LP 111 (template 661) gave state 9 and no Damage.
 - Object bit 0x20000 and +0xbe bits 64 / 128 / 256 of the movers;
   whether Spike rides them.
-- Template 1141 (kind 16): what it looks like and does. What a flight
-  meeting level 4's water calls (the splash the drops of 706 make), and
-  706's flights' hit callback (+0x4c, the object's +0x5c).
+- Template 1141 (kind 16): what it looks like.
 - The sprite 287 position formula (0x800c4a06 is 0 in the EXE).
 - How long cine 28 and cine 48 really are (the oracle may cut them short:
   191 and 100 VSyncs).

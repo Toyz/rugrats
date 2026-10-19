@@ -98,8 +98,24 @@ pub struct Set {
     /// (corner 1's flags, quad +0x0e), those with corner 0's flag 2 left
     /// out, as the room lookup 0x8002b660 walks them.
     pub neighbours: Vec<Vec<usize>>,
+    /// Each room's portals whole (the render's walk, 0x80033ac4), its
+    /// centre (+0x00) and the rooms it may draw through them (+0x5e, +0x60;
+    /// empty for any).
+    pub portals: Vec<Vec<Portal>>,
+    pub centres: Vec<[i32; 3]>,
+    pub room_lists: Vec<Vec<u8>>,
     /// The sound sources the object set-up starts (0x8006fe04).
     pub sound_sources: Vec<crate::world::fixups::SoundSource>,
+}
+
+/// A room's portal (a 48-byte quad): its corners about the room's centre,
+/// the room it leads to (corner 1's flags, +0x0e) and whether it is shut
+/// (corner 0's flag 2, +0x06).
+#[derive(Clone, Copy, Debug)]
+pub struct Portal {
+    pub corners: [[i32; 3]; 4],
+    pub to: i16,
+    pub shut: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -169,6 +185,25 @@ impl Set {
                     })
                     .collect()
             },
+            portals: {
+                let mut quads = level.quads.iter();
+                level
+                    .rooms
+                    .iter()
+                    .map(|r| {
+                        (&mut quads)
+                            .take(r.quads() as usize)
+                            .map(|q| Portal {
+                                corners: q.corners.map(|c| [c.x as i32, c.y as i32, c.z as i32]),
+                                to: q.corners[1].flags as i16,
+                                shut: q.corners[0].flags & 2 != 0,
+                            })
+                            .collect()
+                    })
+                    .collect()
+            },
+            centres: level.rooms.iter().map(|r| r.centre()).collect(),
+            room_lists: level.rooms.iter().map(|r| r.list.iter().map(|&v| v as u8).collect()).collect(),
             room_info: level
                 .rooms
                 .iter()

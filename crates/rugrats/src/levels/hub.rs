@@ -333,7 +333,8 @@ impl Script for Hub {
         // sound off).
         for (k, _, at) in signs(g) {
             let damage = sign_damage(g, k);
-            g.flights.sign_sparks(at, damage, g.sprites.as_ref());
+            let frame = g.placed_matrix(k);
+            g.flights.sign_sparks(at, &frame, damage, g.sprites.as_ref());
         }
     }
 

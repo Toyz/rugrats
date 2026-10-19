@@ -124,6 +124,10 @@ pub struct Launch {
     pub model: Option<u32>,
     /// +0x64: the sound played where it meets something (0 none).
     pub sound: u8,
+    /// +0x4c: what it calls where it meets the world, an entry of the
+    /// table 0x800b7ea4 (0 none, 1 the pie's splat 0x8005282c, 2 a drop's
+    /// splash 0x800529cc).
+    pub on_hit: u8,
     /// +0x46 and +0x65-+0x68: the mark it leaves on the world.
     pub mark: Option<Mark>,
 }
@@ -188,6 +192,8 @@ pub struct Flight {
     /// its mark.
     pub sound: u8,
     pub mark: Option<Mark>,
+    /// +0x80: its hit callback (`Launch::on_hit`).
+    pub on_hit: u8,
 }
 
 impl Flight {
@@ -324,8 +330,9 @@ pub struct Seeds {
     pub floor: [u32; 3],
     /// The class 10 callbacks' (0x800b7eb0): 0x800c41a8 (2), 0x800c41ac
     /// (9), 0x800c41b0 (3), 0x800c41b4 (5), 0x800c41bc (10), 0x800c41c0
-    /// (13), 0x800c41c4 (14), 0x800c41c8 (15), 0x800c41d8 (18).
-    pub emitters: [u32; 9],
+    /// (13), 0x800c41c4 (14), 0x800c41c8 (15), 0x800c41d8 (18), 0x800c41b8
+    /// (1).
+    pub emitters: [u32; 10],
 }
 
 /// 0x800c41d0, 0x800c4188 and 0x800c418c as the executable has them.
@@ -346,7 +353,7 @@ impl Default for Seeds {
             toy: TOY_SEED,
             parts: [48732; 4],
             floor: [48732; 3],
-            emitters: [48732; 9],
+            emitters: [48732; 10],
         }
     }
 }
@@ -370,6 +377,8 @@ pub struct Flights {
     /// The sounds of what met something this frame (+0x88, 0x8006f644)
     /// and where.
     pub heard: Vec<(u8, [i32; 3])>,
+    /// The marks of what met the world this frame, where and its normal.
+    pub marked: Vec<(Mark, [i32; 3], [i32; 3])>,
 }
 
 /// The broken buildings' debris sprites (0x8005202c, by rand mod 10).
@@ -397,6 +406,7 @@ pub const FLAME: Launch = Launch {
     damage: 1000,
     model: None,
     sound: 0,
+    on_hit: 0,
     mark: None,
 };
 
@@ -414,6 +424,7 @@ impl Flights {
             frame_ms: ms,
             launched: Vec::new(),
             heard: Vec::new(),
+            marked: Vec::new(),
         })
     }
 
@@ -572,6 +583,7 @@ impl Flights {
             delay: l.delay,
             sound: l.sound,
             mark: l.mark,
+            on_hit: l.on_hit,
         };
         // Kinds 3 and 8 share one running sequence (0x8008a2a4); 0x80086114
         // then forgets it, so it is never let go.
@@ -642,14 +654,31 @@ impl Flights {
             }
         }
         let mut done = Vec::new();
+        let mut calls = Vec::new();
         for (k, f) in self.flying.iter_mut().enumerate() {
-            let (end, hit) = step_one(f, col, &self.angles, ms, dt);
-            // What met something sounds where it is (0x80087594).
+            let mut met = None;
+            let (end, hit) = step_one(f, col, &self.angles, ms, dt, &mut met);
+            // What met the world calls its +0x80, then sounds where it is
+            // (0x80087594).
+            if let (Some((point, normal)), 1..) = (met, f.on_hit) {
+                calls.push((f.on_hit, point, normal));
+            }
+            // The world met: its mark (0x8008652c, record +0x2a).
+            if let (Some((point, normal)), Some(m)) = (met, f.mark) {
+                self.marked.push((m, point, normal));
+            }
             if hit != 0 && f.sound != 0 {
                 self.heard.push((f.sound, f.pos));
             }
             if end {
                 done.push(k);
+            }
+        }
+        for (call, point, normal) in calls {
+            match call {
+                1 => self.splat(normal, point, sprites),
+                2 => self.drop_splash(normal, point, sprites),
+                _ => {}
             }
         }
         for k in done.into_iter().rev() {
@@ -847,17 +876,45 @@ impl Flights {
         self.launch(&l, sprites);
     }
 
+    /// A drop's splash where it meets the world (0x800529cc, flight hit
+    /// callback 2): five kind 5, flags 0x10705, sprite 275 (TEXPOS +
+    /// 3300), half-size 100, 50 round, face 0xd0800000, 500 ms, bounce
+    /// 2048, at the point in a cone of 1024 about the surface's normal; the
+    /// speeds rand % 500 from its own LCG started at 0xb0a5 each call.
+    pub fn drop_splash(&mut self, normal: [i32; 3], at: [i32; 3], sprites: Option<&Sprites>) {
+        let mut seed = 0xb0a5;
+        for _ in 0..5 {
+            let speed = (((lcg(&mut seed) >> 16) & 0x7fff) % 500) as i32;
+            let dir = self.cone(normal, &IDENTITY, 0, 1024);
+            let l = Launch {
+                flags: 0x10705,
+                at,
+                radius: 50,
+                life: 500,
+                dir,
+                speed,
+                bounce: 2048,
+                sprite: Some(275),
+                size: [100, 100],
+                face: 0xd080_0000,
+                ..Launch::default()
+            };
+            self.launch(&l, sprites);
+        }
+    }
+
     /// A sign's sparks (0x80050fd0: the hub's door signs and level 16's
     /// templates 111 and 441, each frame they show; the lobster's end in
     /// level 3): three kind 5, flags 0x30305, sprite 296 (TEXPOS + 3552),
     /// half-size 200, face 0xd2800000, 500 ms, bounce 2048, the object's
-    /// damage, anywhere in the sphere. Each call starts its own LCG at
-    /// 0xbe5c, so the three speeds (rand % 100) are the same every time.
-    pub fn sign_sparks(&mut self, at: [i32; 3], damage: i16, sprites: Option<&Sprites>) {
+    /// damage, anywhere in the sphere about the object's +y (its matrix
+    /// `frame`, +0x04). Each call starts its own LCG at 0xbe5c, so the
+    /// three speeds (rand % 100) are the same every time.
+    pub fn sign_sparks(&mut self, at: [i32; 3], frame: &Matrix, damage: i16, sprites: Option<&Sprites>) {
         let mut seed = 0xbe5c;
         for _ in 0..3 {
             let speed = (((lcg(&mut seed) >> 16) & 0x7fff) % 100) as i32;
-            let dir = self.cone([0, 4096, 0], &IDENTITY, 0, 4096);
+            let dir = self.cone([0, 4096, 0], frame, 0, 4096);
             let l = Launch {
                 flags: 0x30305,
                 at,
@@ -1200,7 +1257,7 @@ fn fade_rate(flags: u32) -> i32 {
 
 /// One record's frame (0x80087c5c); true when it is done.
 /// Whether it is done, and the hit bits of `collide_world`.
-fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32) -> (bool, u32) {
+fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32, met: &mut Option<([i32; 3], [i32; 3])>) -> (bool, u32) {
     let mut done = false;
     let mut hit = 0;
     if f.grow != 0 {
@@ -1223,7 +1280,7 @@ fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32) -> (bo
         f.turn[1] = (f.turn[1] + ((s * f.spin_axis[2] as i32) >> 12)) & 4095;
     }
     if f.flags & flag::COLLIDE != 0 && f.flags & flag::OBJECTS == 0 {
-        hit = collide_world(f, col, angles, before);
+        hit = collide_world(f, col, angles, before, met);
         let ends = (f.flags & flag::END_FLOOR != 0 && hit & 2 != 0)
             || (f.flags & flag::END_WALL != 0 && hit & 1 != 0)
             || (f.flags & flag::END_HIT != 0 && hit & 8 != 0);
@@ -1261,7 +1318,7 @@ fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32) -> (bo
 /// Not here: objects (flag 0x20000, 0x80086340), what the hit calls
 /// (+0x80) and the mark (+0x2a, 0x8008652c). The sound (+0x88) is the
 /// caller's.
-fn collide_world(f: &mut Flight, col: &Col, angles: &Angles, before: [i32; 3]) -> u32 {
+fn collide_world(f: &mut Flight, col: &Col, angles: &Angles, before: [i32; 3], met: &mut Option<([i32; 3], [i32; 3])>) -> u32 {
     if f.flags & flag::WORLD == 0 {
         return 0;
     }
@@ -1273,6 +1330,7 @@ fn collide_world(f: &mut Flight, col: &Col, angles: &Angles, before: [i32; 3]) -
         return 0;
     }
     let mut bits = 1 | 8;
+    *met = Some((hit.point, hit.normal));
     let (c, r) = reflect(angles, f.v, hit.normal);
     if c < 1025 {
         return bits & !1;

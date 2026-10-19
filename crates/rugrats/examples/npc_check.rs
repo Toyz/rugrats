@@ -170,6 +170,15 @@ fn main() -> Result<(), String> {
         let v: Vec<i32> = at.split(',').filter_map(|s| s.parse().ok()).collect();
         if let [x, y, z] = v[..] {
             p.put([x, y, z], 0);
+            // (And the floor under it, +0x13c, +0x140 and +0x148, which a
+            // put leaves as it was, as the oracle tests' put.)
+            let q = rugrats::world::collide::query(&g.col, [x, y, z]);
+            if q.tile.is_some() {
+                let pl = rugrats_hle::play::PLAYER;
+                p.write_u32(pl + 0x13c, q.floor as u32);
+                p.write_u32(pl + 0x140, q.ceiling as u32);
+                p.write_u32(pl + 0x148, q.floor as u32);
+            }
             g.player.pos = [x, y, z];
             g.player.heading = 0;
             g.player.target = 0;
@@ -453,11 +462,64 @@ fn main() -> Result<(), String> {
                 for (k, on) in scheduled {
                     g.trigger_set(rugrats::world::game::Trigger::Placement(k), on);
                 }
-                g.flights.seeds.direction = p.read_u32(0x800c_445c);
-                for (k, at) in [0x800c_41a8u32, 0x800c_41ac, 0x800c_41b0, 0x800c_41b4, 0x800c_41bc, 0x800c_41c0, 0x800c_41c4, 0x800c_41c8, 0x800c_41d8].into_iter().enumerate() {
+                // (And every other placement's entry: in after its enter,
+                // the object's +0x00 bit 0.)
+                let others: Vec<usize> = g.triggers.iter().filter_map(|e| match e.who {
+                    rugrats::world::game::Trigger::Placement(k) if !g.emitters.iter().any(|e| e.placement == k) => Some(k),
+                    _ => None,
+                }).collect();
+                for k in others {
+                    let place = placements[k];
+                    if let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 as u32 == place.template && [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)) == place.pos) {
+                        g.trigger_set(rugrats::world::game::Trigger::Placement(k), p.read_u32(o) & 1 != 0);
+                    }
+                }
+                // (And the spinners: their turn, +0x24.. less their
+                // placement's, their last think, +0x64, and their last
+                // draw, +0x60 against the frame count 0x800c3f24.)
+                let count = p.read_u32(0x800c_3f24);
+                let frames = g.frames;
+                for sp in &mut g.spinners {
+                    let place = placements[sp.placement];
+                    let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 as u32 == place.template && [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)) == place.pos) else { continue };
+                    let base = sp.angles();
+                    for i in 0..3 {
+                        sp.angle[i] = (sp.angle[i] + p.read_i16(o + 0x24 + 2 * i as u32) as i32 - base[i] as i32).rem_euclid(4096);
+                    }
+                    sp.last = p.read_u32(o + 0x64);
+                    let ago = count.wrapping_sub(p.read_u32(o + 0x60));
+                    sp.drawn = (ago < 100).then(|| frames.wrapping_sub(ago));
+                }
+                // (When the original's thinks read the count: an object's last
+    // read, +0x64, odd against the frame's even count is one early.)
+    let thinker = |t: i16| g.set.templates.get(t as u16 as usize).is_some_and(|t| matches!(t.raw[4], 2 | 10));
+    let lag = objs.iter().any(|&o| thinker(p.read_i16(o + 0x96)) && p.read_u32(o + 0x9c) != 0 && p.read_u32(o + 0x64) & 1 != 0) as u32;
+    g.vsync_lag = if lag == 1 { 1 } else { 2 };
+    g.flights.seeds.direction = p.read_u32(0x800c_445c);
+                for (k, at) in [0x800c_41a8u32, 0x800c_41ac, 0x800c_41b0, 0x800c_41b4, 0x800c_41bc, 0x800c_41c0, 0x800c_41c4, 0x800c_41c8, 0x800c_41d8, 0x800c_41b8].into_iter().enumerate() {
                     g.flights.seeds.emitters[k] = p.read_u32(at);
                 }
                 g.shelf_sound = p.read_i32(0x800c_4ba0);
+                // (And the follow camera's state: eye 0x800de530, its
+                // velocity camera +0x98, look-at 0x800de454, bits
+                // 0x800c4a3c, swing 0x800c4a58, look-ahead 0x800c4a5c and
+                // its speed 0x800c4a38; CAMSYNC=0 leaves it.)
+                if std::env::var("CAMSYNC").map_or(true, |v| v != "0") {
+                    let m = p.read_u32(0x800e_2b48 + 0x224);
+                    let r3 = |p: &mut rugrats_hle::play::Play, a: u32| [0, 4, 8].map(|k| p.read_i32(a + k));
+                    let state = (
+                        r3(&mut p, 0x800d_e530),
+                        r3(&mut p, m + 0x98),
+                        r3(&mut p, 0x800d_e454),
+                        p.read_u32(0x800c_4a3c),
+                        p.read_i32(0x800c_4a58),
+                        p.read_i32(0x800c_4a5c),
+                        p.read_i32(0x800c_4a38),
+                    );
+                    g.sync_follow(state);
+                }
+                // (And the ambience's count, 0x800c4cc0.)
+                g.ambience = p.read_i32(0x800c_4cc0);
             }
             // (And the player's place: the characters aim at it.)
             g.player.pos = [0, 4, 8].map(|i| p.read_i32(0x800e_2b48 + 0x18 + i));
@@ -472,6 +534,24 @@ fn main() -> Result<(), String> {
                     i += 1;
                 }
                 g.trigger_next = if node == cursor && node != 0 { i + 1 } else { 0 };
+                if std::env::var_os("TRIGLIST").is_some() {
+                    let mut node = p.read_u32(0x800c_4c24);
+                    let mut theirs = Vec::new();
+                    while node != 0 && theirs.len() < 400 {
+                        let o = p.read_u32(node + 8);
+                        theirs.push((p.read_i16(o + 0x96), p.read_i16(o + 0x38)));
+                        node = p.read_u32(node + 4);
+                    }
+                    let mine: Vec<(u32, i32)> = g.triggers.iter().map(|e| (match e.who {
+                        rugrats::world::game::Trigger::Placement(k) => g.set.placements[k].template,
+                        rugrats::world::game::Trigger::Npc(n) | rugrats::world::game::Trigger::Watch(n) => 10000 + g.npcs[n].character as u32,
+                        rugrats::world::game::Trigger::Goodie(_) => 20000,
+                    }, match e.who {
+                        rugrats::world::game::Trigger::Npc(n) | rugrats::world::game::Trigger::Watch(n) => g.npcs[n].id as i32,
+                        _ => 0,
+                    })).collect();
+                    println!("TRIGLIST orig {theirs:?}\nTRIGLIST port {mine:?}");
+                }
             }
             for &(k, o) in &pairs {
                 let t = tracks(&mut p, o);
@@ -594,6 +674,62 @@ fn main() -> Result<(), String> {
         // EMITDBG=1: each frame, the trigger cursor, the shared sound count
         // and the direction seed on both sides, and each class 10 object's
         // clock (+0x64, +0x98's +0x00) and whether it is scheduled.
+        // VISDBG=1: the rooms the render drew and their rectangles
+        // (0x800e00c0, 12 bytes each, 0x800c4052 of them) on both sides.
+        if std::env::var_os("VISDBG").is_some() {
+            let n = p.read_i16(0x800c_4052).max(0) as u32;
+            let mut theirs: Vec<(usize, [i32; 4])> = (0..n.min(64))
+                .map(|i| {
+                    let e = 0x800e_00c0 + 12 * i;
+                    let r = p.read_u32(e + 8);
+                    (p.read_u8(e) as usize, [0, 2, 4, 6].map(|k| p.read_i16(r + k) as i32))
+                })
+                .collect();
+            let mut mine: Vec<(usize, [i32; 4])> = g.drawn.iter().map(|d| (d.room, d.rect)).collect();
+            theirs.sort();
+            mine.sort();
+            if std::env::var_os("PORTALS").is_some() {
+                let rooms = p.read_u32(0x800c_4a8c);
+                let frame = p.read_u32(0x800c_3f24);
+                let cam = p.read_u32(0x800e_2b48 + 0x224);
+                let m: Vec<i16> = (0..9).map(|k| p.read_i16(cam + 2 * k)).collect();
+                let e = g.render_eye();
+                println!("     CAM {f} orig m {m:?} eye {:?} room {} look {:?} | port rows {:?} eye {:?} h {} view {:?} follow {:?}", [0x14, 0x18, 0x1c].map(|k| p.read_i32(cam + k)), p.read_u8(cam + 0x80) as i8, [0, 4, 8].map(|k| p.read_i32(0x800d_e454 + k)), e.rows, e.at, e.h, g.view_eye_target(), g.follow_camera());
+                for r in [3u32, 2, 4] {
+                    let n = p.read_u32(rooms + 112 * r + 0x30);
+                    let at = p.read_u32(rooms + 112 * r + 0x34);
+                    let list: Vec<(i16, u16, u32, i16)> = (0..n.min(8)).map(|j| { let q = at + 48 * j; (p.read_i16(q + 0xe), p.read_i16(q + 6) as u16, frame.wrapping_sub(p.read_u32(q + 0x20)), p.read_i16(q + 0x2c)) }).collect();
+                    println!("     PORTAL {f} room {r} {list:?} centre {:?}", [0, 4, 8].map(|k| p.read_i32(rooms + 112 * r + k)));
+                }
+            }
+            if theirs != mine {
+                println!("     VIS {f} orig {theirs:?}\n     VIS {f} port {mine:?} camera room {:?}", g.camera_room);
+            } else {
+                println!("     VIS {f} same {}", mine.len());
+            }
+        }
+        // MARKDBG=1: the mark pool in use (0x800c4da0, newest first: +0x08
+        // bit 1 lasting, +0x0a its size) on both sides.
+        if std::env::var_os("MARKDBG").is_some() {
+            let mut node = p.read_u32(0x800c_4da0);
+            let mut theirs = Vec::new();
+            while node != 0 && theirs.len() < 16 {
+                theirs.push((p.read_i16(node + 8) as u16 & 1 != 0, [0x20, 0x24, 0x28].map(|k| p.read_i32(node + k))));
+                node = p.read_u32(node);
+            }
+            let mine: Vec<(bool, [i32; 3])> = g.marks.iter().map(|m| (m.lasting, m.at)).collect();
+            println!("     MARKS {f} orig {theirs:?} port {mine:?}");
+        }
+        // SPINDBG=1: each spinner's angles, last think and frames since
+        // drawn on both sides.
+        if std::env::var_os("SPINDBG").is_some() {
+            let count = p.read_u32(0x800c_3f24);
+            for sp in &g.spinners {
+                let place = g.set.placements[sp.placement];
+                let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 as u32 == place.template && [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)) == place.pos) else { continue };
+                println!("     SPIN {f} k {} port {:?} {:?} last {} ago {:?} | orig {} {:?} last {} ago {}", sp.placement, g.trigger_active(rugrats::world::game::Trigger::Placement(sp.placement)), sp.angles(), sp.last, sp.drawn.map(|d| g.frames.wrapping_sub(d)), p.read_u32(o + 0x9c) != 0, [0, 2, 4].map(|i| p.read_i16(o + 0x24 + i)), p.read_u32(o + 0x64), count.wrapping_sub(p.read_u32(o + 0x60)));
+            }
+        }
         if std::env::var_os("EMITDBG").is_some() {
             let cursor = p.read_u32(0x800c_4c20);
             let mut node = p.read_u32(0x800c_4c24);
@@ -602,7 +738,22 @@ fn main() -> Result<(), String> {
                 node = p.read_u32(node + 4);
                 i += 1;
             }
-            println!("     CURSOR {f} orig {i} port next {} count orig {} port {} dir orig {:#x} port {:#x}", g.trigger_next, p.read_i32(0x800c_4ba0), g.shelf_sound, p.read_u32(0x800c_445c), g.flights.seeds.direction);
+            for (i, e) in g.triggers.iter().enumerate() {
+                if let rugrats::world::game::Trigger::Npc(n) = e.who
+                    && let Some(&(_, o)) = pairs.iter().find(|&&(k, _)| k == n)
+                    && (p.read_u32(o + 0x9c) != 0) != g.npcs[n].scheduled
+                {
+                    let me = g.player.pos;
+                    println!("     TRIGGER {f} npc {n} id {} at list {i} port {} orig {} dist {} radius {}", g.npcs[n].id, g.npcs[n].scheduled, p.read_u32(o + 0x9c) != 0, rugrats::actors::npc::approx_dist(me, g.npcs[n].pos), e.radius);
+                }
+                let rugrats::world::game::Trigger::Placement(k) = e.who else { continue };
+                let place = g.set.placements[k];
+                let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 as u32 == place.template && [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)) == place.pos) else { continue };
+                if (p.read_u32(o) & 1 != 0) != e.active {
+                    println!("     TRIGGER {f} k {k} template {} port {} orig {}", place.template, e.active, p.read_u32(o) & 1 != 0);
+                }
+            }
+            println!("     CURSOR {f} orig {i} port next {} count orig {} port {} dir orig {:#x} port {:#x} rand orig {:#x} port {:#x}", g.trigger_next, p.read_i32(0x800c_4ba0), g.shelf_sound, p.read_u32(0x800c_445c), g.flights.seeds.direction, p.read_u32(0x800c_3f94), g.rand.state);
             for e in &g.emitters {
                 let place = g.set.placements[e.placement];
                 let Some(&o) = objs.iter().find(|&&o| p.read_i16(o + 0x96) as u16 as u32 == place.template && [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)) == place.pos) else { continue };
@@ -615,6 +766,9 @@ fn main() -> Result<(), String> {
                 if let rugrats::actors::npc::Event::Footstep { k, note, .. } = e {
                     println!("     PORT STEP npc {k} id {} char {} note {note} at {:?}", g.npcs[*k].id, g.npcs[*k].character, g.npcs[*k].pos);
                 }
+            }
+            for e in &g.effects {
+                println!("     PORT EFFECT {} key {:?} at {:?}", e.sound, e.key, e.at);
             }
         }
         if sounds {

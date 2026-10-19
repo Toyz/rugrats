@@ -51,6 +51,7 @@ pub mod shadow;
 mod story;
 mod things;
 mod toys;
+pub mod visible;
 
 pub use doors::Door;
 pub use goodies::{Collected, Goodie, goodie, spawn};
@@ -364,10 +365,20 @@ pub struct Game {
     pub player_id: Option<i16>,
     /// Which carried-over faces its VRAM has (the app's count).
     pub face_serial: u64,
-    /// Touch 1's sound count (0x800c4ba0).
+    /// The shared sound count (0x800c4ba0): touch 1's, the emitters'
+    /// (callbacks 1 and 6), the collectibles' kind 16, and the sliding
+    /// doors' thinks take dt off it.
     pub shelf_sound: i32,
     /// The VSync count (VSync(-1)): two a frame.
     pub vcount: u32,
+    /// How far before the frame's end the thinks read it: 2, the count the
+    /// frame began at (the oracle's emulated timing reads one later in
+    /// some runs, which tools copy).
+    pub vsync_lag: u32,
+    /// The camera's room (+0x80) and the rooms the render drew this frame
+    /// (`visible`).
+    pub camera_room: Option<usize>,
+    pub drawn: Vec<visible::Drawn>,
     /// The class 10 objects (0x8004e0f4).
     pub emitters: Vec<emitters::Emitter>,
     /// The piano's last note (0x800c4358): the same one is not played
@@ -910,7 +921,8 @@ impl Game {
                     placed: models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
                     speed: [h(0x18), h(0x1a), h(0x1c)],
                     angle: [0; 3],
-                    radius: radius_of(t),
+                    last: 0,
+                    drawn: None,
                 }
             })
             .collect();
@@ -1118,8 +1130,19 @@ impl Game {
             bodies: Vec::new(),
             player_id: None,
             face_serial: 0,
-            shelf_sound: 0,
+            // The shared count as the level's EpisodeStart leaves it
+            // (0x80078e7c, 0x800793c8, 0x8007e058, 0x8007b748, 0x8007a584
+            // by level - 23).
+            shelf_sound: match level.0 {
+                1 | 7 | 29 => 100,
+                3 | 24 => 1000,
+                4 | 23 => 500,
+                _ => 0,
+            },
             vcount: 0,
+            vsync_lag: 2,
+            camera_room: None,
+            drawn: Vec::new(),
             emitters: Vec::new(),
             last_note: None,
             crand: 0,
@@ -1363,7 +1386,9 @@ impl Game {
                 15 => (!(level == 4 && q.template == 1189), radius),
                 11 => (t.flags & 0x4000_0000 == 0, radius),
                 1 if matches!(character, 23..=26 | 33 | 35 | 39) => (true, radius),
-                _ if level == 16 && matches!(q.template, 111 | 441) => (true, 2500),
+                // (Level 16's sparklers: 2500 at 0x800469a4, then the
+                // template's own radius, +0x34, over it when it has one.)
+                _ if level == 16 && matches!(q.template, 111 | 441) => (true, if r != 0 { r } else { 2500 }),
                 _ if level == 1 && q.level != 0 => (true, 2500),
                 _ if level == 4 && q.id == 34 => (true, 2000),
                 _ => (q.speech != 0 || q.template == 613, radius),
@@ -1999,6 +2024,7 @@ impl Game {
         self.npc_events = npc::step(&mut self.npcs, &world, &mut self.rand);
         self.npcs_before = before;
         self.npc_steps();
+        self.npc_hits();
         // (A character's landing sets the same frame, 0x8005b2d8.)
         if self.npcs.iter_mut().filter_map(|n| n.body.as_mut()).any(|b| std::mem::take(&mut b.landed)) {
             animator::landing_events(&mut self.anims);
@@ -2029,6 +2055,9 @@ impl Game {
         self.flights.step(&self.col, self.sprites.as_ref(), DT);
         for (sound, at) in std::mem::take(&mut self.flights.heard) {
             self.play_at(sound, at);
+        }
+        for (m, point, normal) in std::mem::take(&mut self.flights.marked) {
+            self.put_mark(&m, point, normal, true);
         }
         // Hazards (template flag 0x200000, their touch 0x8004e0f4): walking
         // into one costs its +0x6d and sets the player's +0x188 bit 256
@@ -2236,8 +2265,11 @@ impl Game {
                     Vec3::new(w[0] as f32, w[1] as f32, w[2] as f32)
                 };
                 let at = Vec3::new(m.at[0] as f32, m.at[1] as f32, m.at[2] as f32);
-                let look = crate::ui::hud::Look { grey: m.grey, semi: false };
-                s.quad(m.sprite, at, (axis([m.size, 0, 0]), axis([0, m.size, 0])), look, &mut moving);
+                let (u, v) = (axis([m.size, 0, 0]), axis([0, m.size, 0]));
+                match m.sequence.and_then(|slot| self.flights.sequences.texture(slot)) {
+                    Some(t) => hud::face(t, at, (u, v), [m.grey; 3], 0xc080_0000 | if m.semi { 0x200_0000 } else { 0 }, &mut moving),
+                    None => s.quad(m.sprite, at, (u, v), crate::ui::hud::Look { grey: m.grey, semi: m.semi }, &mut moving),
+                }
             }
         }
         let mut overlay = Vec::new();
@@ -2335,6 +2367,7 @@ impl Game {
         let rows = Mat3::from_cols(x, y, f).transpose();
         self.view = (eye, rows);
         self.stage.camera = crate::stage::view(eye, rows, self.focal);
+        self.draw_thinks();
     }
 }
 

@@ -93,6 +93,9 @@ case 37); the end of cine 38 hides 131, 142, 134 (case 38). Chars 1-4,
 
 ### The TV robots (template 826, char 35)
 
+Each think (0x80084084) first runs their hit callback 11 (0x80053b88):
+a glow (sprite 374) straight up from where the robot is then.
+
 Template 826: health 255, range 8000 (+0x1a), speed index 2 (8), +0x32 =
 42 (bite), flags 0x10002001. The generic init gives each a running id
 (0x8004691c level 5 case, 0x80046e90: +0x38 = 0x800c4170++, from 13000)

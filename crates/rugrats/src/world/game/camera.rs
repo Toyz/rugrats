@@ -251,6 +251,13 @@ impl Game {
         (f.eye, f.vel, f.look, f.flags, f.swing, f.ahead, f.ahead_speed)
     }
 
+    /// Gives the follow camera the original's whole state (for tools):
+    /// as `follow_state` returns it.
+    pub fn sync_follow(&mut self, state: ([i32; 3], [i32; 3], [i32; 3], u32, i32, i32, i32)) {
+        let f = &mut self.follow;
+        (f.eye, f.vel, f.look, f.flags, f.swing, f.ahead, f.ahead_speed) = state;
+    }
+
     /// Puts the follow camera behind heading `yaw` at once, as the follow
     /// setup does for the player's (0x80025e90: straight behind, then the
     /// reset 0x80026ddc); for levels and tools.

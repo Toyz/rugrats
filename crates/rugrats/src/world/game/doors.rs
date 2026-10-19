@@ -155,6 +155,11 @@ impl Game {
             }
             // The wait at an end (+0xd2, 136 a think).
             let hinged = self.doors[k].hinged;
+            // A sliding door's think (0x8004e458) first takes dt off the
+            // shared sound count (0x800c4ba0).
+            if !hinged {
+                self.shelf_sound -= DT;
+            }
             if let Some(s) = &mut self.doors[k].swing
                 && s.wait > 0
             {

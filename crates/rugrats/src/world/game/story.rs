@@ -101,7 +101,7 @@ impl Game {
         // 0x8007f920: 0x800572a8(player, 16, 2560), and the body's update
         // after it (0x8005a068) steps it once before the loop's first.
         self.player.act_at(CRY, 2560, &self.anims);
-        self.player.animator.step(&self.anims, &self.trig);
+        self.player.step_animation(&self.anims, &self.col, &self.trig);
         // 0x8007f920: characters 1-5 say 2040 + character at once
         // (0x8008df78).
         if (1..=5).contains(&self.character) {
@@ -115,6 +115,9 @@ impl Game {
     pub(super) fn cried(&mut self) {
         self.player.health = 255;
         self.player.action = None;
+        // The loop's end asks the stand (0x800572a8(player, 0, 4096)): the
+        // frame's body update plays it.
+        self.player.animator.start_at(0, 4096, &self.anims);
         // The cry's camera hold ends (0x8002953c, +0x188 bit 64): the
         // follow camera again (0x800290a4, the level's height), but levels
         // 9, 20 and 21 set the camera's own kind again (0x800291f8 with
@@ -136,6 +139,8 @@ impl Game {
             }
         }
         if let Some(Pose { pos: at, heading }) = self.checkpoint {
+            // (+0x18..+0x20 written whole: the height with no lift left.)
+            self.player.root_y = 0;
             self.player.pos = at;
             self.player.heading = heading;
             self.player.target = heading;

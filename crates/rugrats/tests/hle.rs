@@ -1815,3 +1815,48 @@ fn level_7_chomp_as_the_original() {
     assert_eq!(height_off(&port, &orig), 0, "the original's height, root and all");
     assert_eq!(worst, 0, "the same as the original's, every frame");
 }
+
+/// Level 5 as Angelica put 1200 short of the first TV robot (13000), on its
+/// floor, the console fast enough for no lag frame: it sinks to her and
+/// bites (mode 5) until she cries and starts again at the respawn. Her
+/// health each frame and her place as the original's.
+#[test]
+#[ignore]
+fn level_5_robot_bites_as_the_original() {
+    // (With its cinematics: cine 36's end sets the respawn, 0x8007b280.)
+    let Some(mut b) = Both::open(Boot { level: 5, character: Some(3), cinematics: true }) else { return };
+    b.hle.hle.frame_steps = 1_200_000;
+    b.script(&[(0, 30)]);
+    let (k, o) = sync_npc(&mut b, 13000);
+    let at = b.game.npcs[k].pos;
+    let floor = b.hle.read_i32(o + 0x148);
+    b.put([at[0], floor + b.game.player.feet(), at[2] - 1200], 0, 2);
+    let (k, o) = sync_npc(&mut b, 13000);
+    b.game.rand.state = b.hle.read_u32(0x800c_3f94);
+    // (Whether it runs, +0x9c, and the trigger pass's place in its list.)
+    b.game.npcs[k].scheduled = b.hle.read_u32(o + 0x9c) != 0;
+    let mut nodes = Vec::new();
+    let mut node = b.hle.read_u32(0x800c_4c24);
+    while node != 0 && nodes.len() < 400 {
+        nodes.push(node);
+        node = b.hle.read_u32(node + 4);
+    }
+    let cursor = b.hle.read_u32(0x800c_4c20);
+    b.game.trigger_next = nodes.iter().position(|&n| n == cursor).map_or(0, |i| i + 1);
+    let mut off = Vec::new();
+    let mut f = 0;
+    b.script_with(&[(0, 400)], |g, h| {
+        f += 1;
+        let theirs = h.read_i16(0x800e_2b48 + 0x1a4) as i32;
+        let place = [0, 4, 8].map(|i| h.read_i32(0x800e_2b48 + 0x18 + i));
+        // (Its height with its lift, as +0x1c has it.)
+        let mine = [g.player.pos[0], g.player.pos[1] + g.player.root_y, g.player.pos[2]];
+        if g.player.health != theirs || mine != place {
+            if off.len() < 12 {
+                eprintln!("{f}: health port {} orig {theirs} place port {mine:?} orig {place:?} crying {}", g.player.health, g.crying());
+            }
+            off.push(f);
+        }
+    });
+    assert!(off.is_empty(), "her health and place, off at {off:?}");
+}

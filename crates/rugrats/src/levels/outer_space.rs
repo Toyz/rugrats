@@ -144,6 +144,8 @@ impl OuterSpace {
     }
 
     fn put(g: &mut Game, at: [i32; 3], heading: i32) {
+        // (The place written whole, 0x80078d60: no lift left.)
+        g.player.root_y = 0;
         g.player.pos = at;
         g.player.heading = heading;
         g.player.target = heading;

@@ -422,6 +422,14 @@ impl Player {
 
     /// One frame of play. `camera_heading` is the camera's (4096 a turn).
     #[allow(clippy::too_many_arguments)]
+    /// The animation's step and its root's (0x8005a068's 0x80056834 and
+    /// 0x80055904), without the state's handler: the body's update a
+    /// cry's start runs once (0x8007f920).
+    pub fn step_animation(&mut self, anims: &Anims, col: &Col, trig: &Trig) {
+        self.animator.step(anims, trig);
+        self.root_step(anims, col, trig);
+    }
+
     pub fn frame(&mut self, pads: &Pads, camera_heading: i32, col: &Col, boxes: &[Box3], solids: &[Exact], anims: &Anims, trig: &Trig) {
         if self.float.is_some() {
             self.float_frame(pads, camera_heading, col, anims, trig);
@@ -1487,8 +1495,23 @@ impl Player {
         let (state, first, count, cur, _) = self.animator.track();
         let (done, total) = self.animator.root_progress(anims).map_or((0, 0), |r| (r.0[1], r.1[1]));
         let was = self.root_seen;
-        // An animation that ran to its last frame gives the rest of it.
-        let rest = if was.cur + 1 == was.first + was.count && !was.air { was.total - was.done } else { 0 };
+        // A state left gives what this step spent on it (0x80055904 adds a
+        // frame's key by the time spent): run out, its rest; asked anew
+        // between steps, none (a cry held on its last frame, timed out).
+        // A loop's next round gives the rest of the round.
+        let left = (was.state, was.first) != (state, first) || self.animator.began();
+        let rest = if was.air {
+            0
+        } else if left {
+            match self.animator.left_from() {
+                Some((s, at, l)) if s == was.state => self.animator.root_height_at(anims, None, s, at, l).map_or(0, |h| h - was.done),
+                _ => 0,
+            }
+        } else if was.cur + 1 == was.first + was.count {
+            was.total - was.done
+        } else {
+            0
+        };
         let dy = match (was.state, was.first) == (state, first) {
             // Round again: the rest of the loop, then this pass's part.
             true if cur < was.cur => rest + done,

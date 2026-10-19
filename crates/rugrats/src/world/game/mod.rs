@@ -268,6 +268,9 @@ pub struct Game {
     /// the cry's time left (0x8007f920: up to 2100 dt).
     pub tries: i32,
     crying: i32,
+    /// The cry's loop ran out: the respawn and the rest of the frame come
+    /// in the next (0x8007f920 returns after its last VSync wait).
+    cry_over: bool,
     /// The level's own play, and how a level ended (0x80076d6c's won).
     pub script: Option<Box<dyn Script>>,
     pub won: Option<bool>,
@@ -1054,6 +1057,7 @@ impl Game {
             checkpoint: None,
             tries: disc.exe_bytes(TRIES + db as u32, 1).map_or(3, |b| b[0] as i8 as i32),
             crying: 0,
+            cry_over: false,
             script: None,
             won: None,
             sprites: Sprites::load(disc, db).ok(),
@@ -1575,6 +1579,9 @@ impl Game {
         if std::mem::take(&mut self.player.hurt_out) {
             self.cry();
         }
+        if std::mem::take(&mut self.cry_over) {
+            self.cried();
+        }
         if self.crying > 0 {
             // The cry runs on its own (0x8007f920's loop): the world waits.
             self.crying -= DT;
@@ -1583,7 +1590,7 @@ impl Game {
             // held on its last frame waits for the time.)
             if self.crying <= 0 || self.player.animator.events & 0x800_0000 != 0 {
                 self.crying = 0;
-                self.cried();
+                self.cry_over = true;
             }
             self.draw();
             return;

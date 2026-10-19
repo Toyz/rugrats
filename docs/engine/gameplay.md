@@ -811,6 +811,30 @@ and +0x2c set and its room found, linked into the room (0x8004a440). The
 blocking ones have their draw (+0x40) cleared. The collision test turns
 an object by its angles (+0x24), not by the matrix the copy kept.
 
+### The cry (ForceCry's loop, 0x8007f920)
+
+Health at 0 (Damage, 0x80077864) runs ForceCry (0x8007fd0c), whose cry
+(not in level 1) goes as follows:
+- **Its start.** It says 2040 + the character for characters 1-5, and
+  sets state 0, the across and the lift sums (+0xd8..+0xdc) 0, speed 0,
+  +0x2c = +0x24, +0x188 bit 64 and +0x30 bit 32. Then the body's update
+  (0x8005a068) runs, it asks animation 16 at 2560, and the body's update
+  runs again. The second update puts that step's lift into +0x1c: level
+  5's Angelica sinks 18 as she starts to cry.
+- **Its loop.** Each frame takes dt off 2100 and steps the animation
+  (0x80056834, no handler, no lift), then the camera, the draw and a
+  VSync wait. It ends at 0 or when the animation's base completes. The
+  first frame runs in the frame the cry began.
+- **Its end.** It clears bits 64 and 32 and asks the stand
+  (0x800572a8(player, 0, 4096)). It returns after its last VSync wait,
+  so the level's respawn (0x80078d60, +0x18..+0x20 written whole) and
+  the rest of that frame come in the frame after, the stand's first
+  frame played by that frame's body update.
+
+`level_5_robot_bites_as_the_original` follows Angelica through a robot's
+bites, the cry and the respawn: her health and her height (lift and all)
+are the original's on every frame.
+
 The scheduler (0x80072bf0(0x800c3f20)) walks a list at 0x800c43b8 of
 timers (+0x08 period, +0x0c countdown, +0x10 object): when one runs out it
 calls the object's +0x44; a negative result removes it.

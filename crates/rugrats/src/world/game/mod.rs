@@ -1864,6 +1864,7 @@ impl Game {
             b.solid = Some(((solids.len() - 1) as u16, 0));
         }
         self.player.carry_box = self.carry_box();
+        self.player.touchable = self.touchable();
         self.player.frame(pads, self.camera_heading(), &self.col, &boxes, &solids, &self.anims, &self.trig);
         // A thing run into with a +0x6d hurts by it (Damage, 0x800780ac).
         if let Some(t) = self.player.bumped.take() {

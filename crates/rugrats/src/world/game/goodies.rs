@@ -81,6 +81,35 @@ pub struct Collected {
 }
 
 impl Game {
+    /// The collectibles the walk's probes meet (0x80063d3c over the nearby
+    /// list): each not taken, not kind 16, its model's boxes (its first
+    /// the cube of 375, 0x80048a44; kind 12's model 0) turned by its
+    /// angles, sized as its set-up left it.
+    pub(super) fn touchable(&self) -> Vec<crate::world::boxhit::Exact> {
+        self.goodies
+            .iter()
+            .filter(|g| !g.taken && g.kind != 16)
+            .filter_map(|g| {
+                let shape = if g.kind == 12 { 0 } else { g.shape };
+                let m = self.set.models.get(shape)?;
+                let boxes = m.boxes.iter().map(|(a, b)| (a.map(|v| v as i32), b.map(|v| v as i32))).collect();
+                let size = self.size_of(g.placement, shape);
+                let solid = crate::world::boxhit::Solid { pos: boxes::ipos(g.pos), angles: boxes::angles_of(&self.trig, g.rot), bound: size, size, shape: crate::world::boxhit::Shape::Model(boxes) };
+                Some(crate::world::boxhit::Exact { solid, climb: false, template: g.template })
+            })
+            .collect()
+    }
+
+    /// The collectible the `k`th of [`Self::touchable`] is.
+    fn touchable_of(&self, k: usize) -> Option<usize> {
+        self.goodies
+            .iter()
+            .enumerate()
+            .filter(|(_, g)| !g.taken && g.kind != 16 && self.set.models.get(if g.kind == 12 { 0 } else { g.shape }).is_some())
+            .nth(k)
+            .map(|(i, _)| i)
+    }
+
     /// Touching collectibles (0x800514b0): taken, with their kind's sound.
     pub(super) fn touch(&mut self) {
         self.found.clear();
@@ -91,11 +120,19 @@ impl Game {
         // air is skipped while 0x800c4bc4 is 1 (0x8005ed2c).
         let airborne = matches!(self.player.state, State::Jump | State::Fall);
         let no_bone = self.level == Level::CIRCUS && airborne && self.player.standing_jump;
+        // On the ground the walk's probes touch it (`touchable`).
+        let walked = self.player.touched.and_then(|k| self.touchable_of(k));
         // Kind 16 has no touch (0x80049244): decoration.
-        for g in self.goodies.iter_mut().filter(|g| !g.taken && g.kind != 16 && !(no_bone && g.kind == goodie::BONE)) {
+        for (i, g) in self.goodies.iter_mut().enumerate().filter(|(_, g)| !g.taken && g.kind != 16 && !(no_bone && g.kind == goodie::BONE)) {
             let r = self.set.models.get(g.shape).map_or(256.0, |m| m.radius as f32) + RADIUS as f32;
             let d = g.pos - me;
-            if Vec3::new(d.x, 0.0, d.z).length() < r && d.y.abs() < 1200.0 {
+            let touched = if airborne {
+                // (In the air, as near as the body's radius across.)
+                Vec3::new(d.x, 0.0, d.z).length() < r && d.y.abs() < 1200.0
+            } else {
+                walked == Some(i)
+            };
+            if touched {
                 g.taken = true;
                 // Three sparks where it was (0x800514b0).
                 let at = [g.pos.x as i32, g.pos.y as i32, g.pos.z as i32];

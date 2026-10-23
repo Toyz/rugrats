@@ -173,6 +173,12 @@ pub struct Player {
     /// its place less the body's turned into that frame (0x80067ba4: the
     /// matrix +4 transposed), as one box.
     pub carry_box: Option<([i32; 3], [i32; 3])>,
+    /// This frame's collectibles as the walk's probes meet them (after
+    /// the other objects in the nearby list), and the one the walk was
+    /// held by (0x8005e1f4: +0xf4 of class 11 after 0x80064a34 answers 1,
+    /// its +0x58 run and no step taken).
+    pub touchable: Vec<Exact>,
+    pub touched: Option<usize>,
     /// The templates that can be picked up (template +0x28, object +0x00
     /// bit 0x10000): run into without a ledge, they stand him, no bump.
     pub pickables: Vec<u16>,
@@ -208,7 +214,7 @@ pub struct Player {
     /// The probes' record kept between frames (+0xf4 .. +0x11c), and the
     /// thing stood on as its object (+0xf8, +0xfd), found again in each
     /// frame's solids.
-    probes: ground::Probes,
+    pub(crate) probes: ground::Probes,
     below: Option<Obj>,
     /// Where the jump began (+0x670 .. +0x678, set at the launch), and
     /// whether the flight has met something (D_800c4bc4 flag 2).
@@ -322,6 +328,8 @@ impl Player {
             float: None,
             carrying: false,
             carry_box: None,
+            touchable: Vec::new(),
+            touched: None,
             pickables: Vec::new(),
             carry_climbs: false,
             jump_lock: 0,
@@ -437,6 +445,8 @@ impl Player {
         }
         self.effects.clear();
         self.hints.clear();
+        self.probes.ntried = 0;
+        self.touched = None;
         // The animation steps first and its root with it (0x8005a068:
         // 0x80056834, then the state's handler, which asks for what plays
         // from the next step).
@@ -1222,6 +1232,12 @@ impl Player {
         probe_height(b, at, lo, hi)
     }
 
+    /// The object probes (0x80063d3c) made this frame: from where and how
+    /// far ahead.
+    pub fn object_probes(&self) -> &[([i32; 3], [i32; 3])] {
+        &self.probes.tried[..self.probes.ntried as usize]
+    }
+
     /// The body's box (0x80067ba4): the hierarchy header's (+4..+0x10: lo
     /// x, y, z, hi x, y, z), grown to take in the carried thing's boxes
     /// (`carry_box`).
@@ -1277,7 +1293,8 @@ impl Player {
 
     fn ground_move(&mut self, col: &Col, trig: &Trig, way: [i32; 3], len: i32, solids: &[Exact], reflect: bool) -> ((i32, i32), Option<ground::Record>, bool) {
         let (lo, hi) = self.body_box();
-        let near: Vec<ground::Near> = solids.iter().map(|e| ground::Near { solid: &e.solid, skip: false }).collect();
+        let near: Vec<ground::Near> =
+            solids.iter().chain(self.touchable.iter()).map(|e| ground::Near { solid: &e.solid, skip: false }).collect();
         let g = ground::Ground {
             col,
             trig,
@@ -1328,6 +1345,19 @@ impl Player {
                 }
             }
         };
+        // Held by a collectible: it is touched and no step is taken, as
+        // nothing held it (0x8005e1f4 at 0x8005e31c).
+        let out = match out.1.and_then(|r| r.hit) {
+            Some((k, _)) if k >= solids.len() => {
+                self.touched = Some(k - solids.len());
+                st.met.hit = None;
+                ((0, 0), None, false)
+            }
+            _ => out,
+        };
+        if st.met.hit.is_some_and(|(k, _)| k >= solids.len()) {
+            st.met.hit = None;
+        }
         self.probes = st;
         out
     }

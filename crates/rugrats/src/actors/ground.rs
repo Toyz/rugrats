@@ -213,6 +213,10 @@ pub struct Probes {
     pub met: Met,
     /// The way turned off the last wall and its slant (+0x124, +0x130).
     pub turned: ([i32; 3], i32),
+    /// The object probes (0x80063d3c) made since the frame began: from
+    /// where and how far ahead (for tools).
+    pub tried: [([i32; 3], [i32; 3]); 8],
+    pub ntried: u8,
 }
 
 /// What the run's probe of its own step (0x800645d8) does.
@@ -265,6 +269,10 @@ impl Ground<'_> {
     /// 0x80064178 in turn, each writing the player's record).
     fn one(&self, pos: [i32; 3], floor: i32, off: [i32; 3], point: [i32; 3], st: &mut Probes) -> Record {
         let top_y = pos[1] + self.body.lo[1];
+        if let Some(slot) = st.tried.get_mut(st.ntried as usize) {
+            *slot = (pos, off);
+            st.ntried += 1;
+        }
         objects(self.col, self.trig, pos, self.body, st.below, off, self.near, &mut st.met);
         let delta = self.height_at(pos, floor, point, st);
         // The wall on the way: an object met keeps its face; going down,

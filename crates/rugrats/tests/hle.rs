@@ -2232,3 +2232,90 @@ fn things_put_down_as_the_original() {
     }
     assert_eq!(bad, 0, "put-downs off");
 }
+
+/// Collectible `k` (the port's index) of `level`: both players put `away`
+/// from it facing it along `heading`, then Up held `frames`, side by side
+/// by `side` across. The frame each takes it on (the original's touch
+/// callback 0x800514b0 on its object; the port's `collected`), or None.
+fn goodie_taken(level: u8, k: usize, away: i32, side: i32, heading: i32, frames: usize) -> (Option<usize>, Option<usize>) {
+    use rrt::emu::Cpu;
+    use rugrats::input::UP;
+    let mut b = Both::open(Boot { level, ..Default::default() }).unwrap();
+    let g = &b.game.goodies[k];
+    let at = [g.pos.x as i32, g.pos.y as i32, g.pos.z as i32];
+    let r = heading as f64 * std::f64::consts::TAU / 4096.0;
+    let (s, c) = (r.sin(), r.cos());
+    let (x, z) = (at[0] - (s * away as f64) as i32 + (c * side as f64) as i32, at[2] - (c * away as f64) as i32 - (s * side as f64) as i32);
+    let q = rugrats::world::collide::query(&b.game.col, [x, at[1] - 400, z]);
+    let pos = [x, q.floor + b.game.player.feet(), z];
+    let touched = Rc::new(std::cell::Cell::new(None::<usize>));
+    let frame = Rc::new(std::cell::Cell::new(0usize));
+    {
+        let (t, f) = (touched.clone(), frame.clone());
+        b.hle.hle.m.hook(0x8005_14b0, move |c| {
+            if std::env::var_os("GDBG").is_some() {
+                println!("    orig {} touch from {:#x}", f.get(), c.cpu.reg(31));
+            }
+            if t.get().is_none() {
+                t.set(Some(f.get()));
+            }
+            rrt::emu::HookResult::Continue
+        });
+    }
+    // (GDBG=1: the original's object probes, 0x80063d3c's place and way,
+    // and the port's, each frame.)
+    if std::env::var_os("GDBG").is_some() {
+        let f = frame.clone();
+        b.hle.hle.m.hook(0x8006_3d3c, move |c| {
+            use rrt::emu::BusExt;
+            let (o, w) = (c.arg32(0), c.arg32(1));
+            let mut r = |a: u32| c.bus.read_u32(a).unwrap_or(0) as i32;
+            println!("    orig {} probe from {:?} off {:?}", f.get(), [r(o + 0x18), r(o + 0x1c), r(o + 0x20)], [r(w), r(w + 4), r(w + 8)]);
+            rrt::emu::HookResult::Continue
+        });
+    }
+    b.put(pos, heading, 6);
+    // (R1: the camera behind, so Up is ahead on both.)
+    b.script(&[(bits(&[rugrats::input::R1]), 1), (0, 40)]);
+    let mut port = None;
+    let (mut ps, mut os) = (Vec::new(), Vec::new());
+    for n in 0..frames {
+        frame.set(n);
+        let (p, o) = b.script(&[(bits(&[UP]), 1)]);
+        ps.extend(p);
+        os.extend(o);
+        if std::env::var_os("GDBG").is_some() {
+            println!("    port {n} at {:?} probes {:?}", b.game.player.pos, b.game.player.object_probes());
+        }
+        if port.is_none() && !b.game.collected.is_empty() {
+            port = Some(n);
+        }
+    }
+    eprintln!("  goodie at {at:?}; put at {pos:?}; port {:?} original {:?}", b.game.player.pos, b.hle.player().pos);
+    if std::env::var_os("GREPORT").is_some() {
+        report("goodie", &ps, &os);
+    }
+    eprintln!("  camera off on {} frames", camera_off(&ps, &os));
+    (port, touched.get())
+}
+
+/// A tool for now (GOODIE=level,k,away,side,heading,frames): where it was
+/// tried (level 1's goodie 3 from 1500 at 1024) the original's camera
+/// swings off the player's back as he runs and the port's does not, so
+/// the original's probes turn with him and meet it a frame sooner.
+#[test]
+#[ignore]
+fn goodies_taken_as_the_original() {
+    if cue().is_none() {
+        return;
+    }
+    let one = std::env::var("GOODIE").ok().map(|v| v.split(',').filter_map(|x| x.parse::<i32>().ok()).collect::<Vec<_>>());
+    let cases: Vec<Vec<i32>> = one.into_iter().collect();
+    let mut bad = 0;
+    for c in cases {
+        let (port, orig) = goodie_taken(c[0] as u8, c[1] as usize, c[2], c[3], c[4], c[5] as usize);
+        eprintln!("level {} goodie {} from {} across {}: port {port:?} original {orig:?}", c[0], c[1], c[2], c[3]);
+        bad += (port != orig) as usize;
+    }
+    assert_eq!(bad, 0, "goodies taken off");
+}

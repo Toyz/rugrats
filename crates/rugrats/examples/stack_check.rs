@@ -116,6 +116,9 @@ fn main() -> Result<(), String> {
             let boxes = g.set.models.get(t.shape).map(|m| m.boxes.clone()).unwrap_or_default();
             println!("thing {i}: template {} at {:?} id {} hidden {} state {:?} boxes {boxes:?}", t.template, t.pos, t.id, t.hidden, t.state);
         }
+        for (i, gd) in g.goodies.iter().enumerate() {
+            println!("goodie {i}: template {} flags {:#x} kind {} at {:?} taken {}", gd.template, g.set.templates[gd.template as usize].flags, gd.kind, gd.pos, gd.taken);
+        }
         return Ok(());
     }
     let character = Some(g.character as u32).filter(|&c| c != 1);

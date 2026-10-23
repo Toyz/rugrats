@@ -793,6 +793,11 @@ here (guess: dead, or left from an older menu).
   size (level 6's first 1028, 1167; level 3's 883 before the one at
   0x1bd56, 5930). The port keeps each placement's (`Set::sizes`); checked
   against every object of levels 1, 3, 6, 12 and 16 but the characters.
+- A collectible in the air (0x8005ee78: 0x80066014's object met, a class
+  11 touched by 0x8005ed2c and the move then not held): the port keeps the
+  radius test there. On the ground it is the walk's probes (0x8005e1f4 at
+  0x8005e31c: 0x80064a34 held by +0xf4 of class 11, its +0x58 run, no step
+  that frame), as the port has it.
 - The nearby list's order. 0x80062ed4 rebuilds it (+0x100, count +0xff)
   each frame through 0x8006add8: the player's room's lists +0x48 and
   +0x4c, then each portal's room (room +0x30 portals of 48 bytes at

@@ -579,6 +579,19 @@ fn collect(g: &mut Game, want: impl Fn(&rugrats::world::game::Goodie) -> bool) -
                 && !(walking() && walk_to(g, |s| (s.0 - key.0).abs() <= 1 && (s.1 - key.1).abs() <= 1 && (s.2 - land).abs() < 300, None))
             {
                 put(g, at, 0);
+                // Put inside it, the walk's probes start in its box and
+                // never meet it (0x80063d3c): off it the way he came, then
+                // at it again.
+                let back = [from[0] - at[0], from[2] - at[2]];
+                let len = ((back[0] as f32).hypot(back[1] as f32)).max(1.0);
+                let off = [at[0] + (back[0] as f32 * 900.0 / len) as i32, at[2] + (back[1] as f32 * 900.0 / len) as i32];
+                for _ in 0..30 {
+                    let me = g.player.pos;
+                    if ((me[0] - at[0]) as f32).hypot((me[2] - at[2]) as f32) > 700.0 || g.goodies[k].taken {
+                        break;
+                    }
+                    stride(g, off[0], off[1], false);
+                }
             }
             // At it with the stick until taken. (Put down 100 up, he lands
             // first: the landing plays out, 0x8005cba8 does not move him.)

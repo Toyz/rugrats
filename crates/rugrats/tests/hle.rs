@@ -2157,3 +2157,78 @@ fn things_stack_as_the_original() {
     }
     assert_eq!(bad, 0, "levels with stackings off");
 }
+
+/// Thing `a` of level 3 picked up and put down `away` from thing `b`
+/// facing it along `heading`, on the port and on the original: where it
+/// comes to rest on each (0x80062ac4: the way ahead tested, 0x80060810,
+/// then the drop flight).
+fn put_down_of(a: usize, b: usize, away: i32, heading: i32) -> ([i32; 3], [i32; 3]) {
+    use rugrats::input::{self, Pads};
+    use rugrats_hle::play::PLAYER;
+    let cue = cue().unwrap();
+    let disc = GameDisc::open(&cue).unwrap();
+    let mut g = Game::open_from(&disc, Level(3), None, &Progress::default()).unwrap();
+    let mut p = Play::boot(Rc::new(rrt::disc::Image::open(&cue).unwrap()), Boot { level: 3, character: None, cinematics: false }).unwrap();
+    let ipos = |v: rrt::glam::Vec3| [v.x as i32, v.y as i32, v.z as i32];
+    // Both players `away` from `at` along `heading`, facing it, on the
+    // floor there; what is carried moving with them.
+    let put = |g: &mut Game, p: &mut Play, at: [i32; 3], heading: i32, away: i32| {
+        let r = heading as f64 * std::f64::consts::TAU / 4096.0;
+        let (x, z) = (at[0] - (r.sin() * away as f64) as i32, at[2] - (r.cos() * away as f64) as i32);
+        let floor = rugrats::world::collide::query(&g.col, [x, at[1] - 64, z]).floor;
+        let pos = [x, floor + g.player.feet(), z];
+        let d = [0, 1, 2].map(|i| pos[i] - g.player.pos[i]);
+        let o = p.read_u32(PLAYER + 0x1f0);
+        if o != 0 {
+            for i in 0..3u32 {
+                let v = p.read_i32(o + 0x18 + 4 * i);
+                p.write_u32(o + 0x18 + 4 * i, (v + d[i as usize]) as u32);
+            }
+        }
+        if let Some(k) = g.carried() {
+            g.things[k].pos += rrt::glam::Vec3::new(d[0] as f32, d[1] as f32, d[2] as f32);
+        }
+        p.put(pos, heading as i16);
+        g.player.pos = pos;
+        g.player.heading = heading;
+        g.player.target = heading;
+        g.player.speed = 0;
+        g.set_camera_yaw(heading as f32);
+    };
+    let run = |g: &mut Game, p: &mut Play, pads: &mut Pads, script: &[(u16, usize)]| {
+        for &(bits, n) in script {
+            for _ in 0..n {
+                pads.push_bits(0, bits);
+                p.frame(bits).unwrap();
+                g.frame(pads);
+            }
+        }
+    };
+    let mut pads = Pads::default();
+    let (pa, pb) = (ipos(g.things[a].pos), ipos(g.things[b].pos));
+    put(&mut g, &mut p, pa, 0, 700);
+    run(&mut g, &mut p, &mut pads, &[(0, 6), (1 << input::CIRCLE, 1), (0, 40)]);
+    let o = p.read_u32(PLAYER + 0x1f0);
+    assert!(o != 0 && g.carried() == Some(a), "picked up on both");
+    put(&mut g, &mut p, pb, heading, away);
+    run(&mut g, &mut p, &mut pads, &[(0, 24), (1 << input::CIRCLE, 1), (0, 90)]);
+    (ipos(g.things[a].pos), [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)))
+}
+
+#[test]
+#[ignore]
+fn things_put_down_as_the_original() {
+    if cue().is_none() {
+        return;
+    }
+    let mut bad = 0;
+    // A tipped pillar (650) put down before a plank (651): the way ahead
+    // meets the plank and the pillar comes back (700, 800); in the open
+    // (1500) it drops ahead.
+    for away in [700, 800, 1500] {
+        let (port, orig) = put_down_of(10, 7, away, 0);
+        eprintln!("put down {away} before the plank: port {port:?} original {orig:?}");
+        bad += (port != orig) as usize;
+    }
+    assert_eq!(bad, 0, "put-downs off");
+}

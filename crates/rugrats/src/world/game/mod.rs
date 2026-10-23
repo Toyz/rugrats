@@ -337,7 +337,8 @@ pub struct Game {
     pub loaded: Option<Box<[u8; STATE_SIZE]>>,
     carried: Option<usize>,
     /// The objects resting on each that bears any (+0x74, in the order
-    /// they came: 0x8001a1c0's ring, read from its oldest).
+    /// they came; 0x8001a1c0 puts each at the list's head, so the
+    /// original goes down them from the last).
     loads: Vec<(Held, Vec<Held>)>,
     grip: [i32; 3],
     /// The player's parts and rotation as last drawn (+0x158 and +4, the

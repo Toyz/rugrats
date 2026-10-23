@@ -738,16 +738,11 @@ impl Game {
         let (k, v) = match throw {
             PendingThrow::Given(k, v) => (k, v),
             PendingThrow::Down(k) => {
-                // The drop flight (0x80062ac4): (0, 0, 4096) turned by the
-                // player's angles and made a unit, at speed 10 (0x80061f88,
-                // 0x8008864c).
                 if self.things[k].template == HIGH_BOX {
                     // Put down (0x80060910): message 8.
                     self.training.show(8);
                 }
-                let dir = collide::unit(self.trig.turn_by([self.player.heading as i16, 0, 0], [0, 0, 4096]));
-                let speed = (10 << 16) / 6000;
-                (k, dir.map(|d| (d * speed) >> 12))
+                (k, self.put_down(k, false))
             }
             // (0, -384, 1024) (D_800b7fe0) turned by the player's angles
             // (0x80075ee8) and made a unit (0x8007652c), or level 9's aim, at
@@ -1008,16 +1003,70 @@ impl Game {
         self.player.animator.mark_asked(crate::actors::player::anim::CARRY_IDLE);
     }
 
-    /// Puts the carried thing down where the player stands (a cine's
-    /// drop).
+    /// Lets go of the carried thing as a cine or a level's script does
+    /// (0x80072ef0, 0x8007fd0c: 0x80062ac4(player, 1)): from where the
+    /// hand holds it, the way ahead tested, a drop flight.
     pub fn drop_carried(&mut self) {
-        if let Some(k) = self.carried.take() {
-            let p = self.player.pos;
-            self.things[k].pos = Vec3::new(p[0] as f32, (p[1] - self.player.feet()) as f32 - 100.0, p[2] as f32);
-            self.things[k].state = ThingState::Rest;
-            self.things[k].flown = None;
+        if let Some(k) = self.carried {
+            self.carry_place();
+            let v = self.put_down(k, true);
+            self.start_flight(k, v);
+            self.carried = None;
             self.player.carrying = false;
             self.player.animator.set_after(17, false);
+        }
+    }
+
+    /// The put-down (0x80062ac4(player, thrown)) up to its flight: the way
+    /// ahead tested ([`Self::put_way`]); Spike's, not thrown, let go of
+    /// 1024 further ahead with line 190; the drop's velocity, (0, 0, 4096)
+    /// turned by the player's angles and made a unit, at speed 10
+    /// (0x80061f88, 0x8008864c).
+    fn put_down(&mut self, k: usize, thrown: bool) -> [i32; 3] {
+        self.put_way(k);
+        let turn = [self.player.heading as i16, 0, 0];
+        if !thrown && self.character == 6 {
+            let a = self.trig.turn_by(turn, [0, 0, 1024]);
+            self.things[k].pos += Vec3::new(a[0] as f32, 0.0, a[2] as f32);
+            self.speech.push(190);
+        }
+        let dir = collide::unit(self.trig.turn_by(turn, [0, 0, 4096]));
+        let speed = (10 << 16) / 6000;
+        dir.map(|d| (d * speed) >> 12)
+    }
+
+    /// The way ahead at a put-down (0x80060810): from the player (his
+    /// place with the animation's root) to the far end of his body's box
+    /// with the carried thing's (0x80060594) straight ahead, against the
+    /// world (0x8002cd7c) and the first object of his nearby list the way
+    /// crosses (0x8006c334: not a template of flag 8, the player or the
+    /// thing; 0x8006a714), the object's point kept when nearer
+    /// (0x8006c438). Met, the thing moves back across by what the way
+    /// overshoots.
+    fn put_way(&mut self, k: usize) {
+        self.player.carry_box = self.carry_box();
+        let p = &self.player;
+        let far = p.body_box().1[2];
+        let from = [p.pos[0], p.pos[1] + p.root_y, p.pos[2]];
+        let a = self.trig.turn_by([p.heading as i16, 0, 0], [0, 0, far]);
+        let to = [0, 1, 2].map(|i| from[i] + a[i]);
+        let met = self.solids.iter().find_map(|e| {
+            if self.set.templates.get(e.template as usize).is_some_and(|t| t.flags & 8 != 0) || !self.nearby(e.solid.pos, e.solid.size) {
+                return None;
+            }
+            let mut n = [0; 3];
+            e.solid.meet_grown(&self.trig, from, to, 0, &mut n).filter(|(_, h)| h.t > 0).map(|(_, h)| h.point)
+        });
+        let mut seg = collide::Segment::default();
+        let world = (collide::segment(&self.col, from, to, &mut seg) == 1).then_some(seg.point);
+        let d2 = |q: [i32; 3]| (0..3).map(|i| from[i].wrapping_sub(q[i])).map(|v| v.wrapping_mul(v) as u32).fold(0u32, u32::wrapping_add);
+        let hit = match (world, met) {
+            (Some(w), Some(o)) if d2(o) < d2(w) => Some(o),
+            (Some(w), _) => Some(w),
+            (None, o) => o,
+        };
+        if let Some(h) = hit {
+            self.things[k].pos += Vec3::new((h[0] - to[0]) as f32, 0.0, (h[2] - to[2]) as f32);
         }
     }
 
@@ -1493,12 +1542,12 @@ impl Game {
     /// where the hands are now.
     fn grab(&mut self, k: usize) {
         // Off what it rested on, and what rested on it dropped (0x800601e4:
-        // 0x8001a810, then 0x80062928 each, oldest first: (0, 0, 4096) at
-        // speed 10 from where it is).
+        // 0x8001a810, then 0x80062928 each as 0x8001a534 pops the list's
+        // head, newest first: (0, 0, 4096) at speed 10 from where it is).
         if let Some(on) = self.things[k].on.take() {
             self.load_mut(on).retain(|&h| h != Held::Thing(k));
         }
-        for h in std::mem::take(self.load_mut(Held::Thing(k))) {
+        for h in std::mem::take(self.load_mut(Held::Thing(k))).into_iter().rev() {
             if let Held::Thing(j) = h {
                 let speed = (10 << 16) / 6000;
                 self.start_flight(j, [0, 0, (4096 * speed) >> 12]);
@@ -1579,8 +1628,9 @@ impl Game {
     /// 0x10000000): with an object met (+0x98), 0x8006c7a0 judges which
     /// rests on which. On it, it rests on the object (+0x70) and joins its
     /// load; under it, the object's load is made the thing's with the
-    /// object put in (0x8001a1c0 on the thing's +0x74, stored in the
-    /// object's: the object then bears itself and is never touched) and
+    /// object put at its head (0x8001a1c0 on the thing's +0x74, stored in
+    /// the object's, the thing's own unchanged: the object then bears
+    /// itself and is never touched) and
     /// the object rests on what the thing rested on.
     fn come_to_rest(&mut self, k: usize) {
         let Some(m) = self.things[k].met.take() else { return };
@@ -1592,9 +1642,6 @@ impl Game {
             }
             2 => {
                 let mut l = self.load(Held::Thing(k)).to_vec();
-                if !l.is_empty() {
-                    self.load_mut(Held::Thing(k)).push(m);
-                }
                 l.push(m);
                 *self.load_mut(m) = l;
                 if let Held::Thing(j) = m {

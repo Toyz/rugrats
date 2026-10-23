@@ -42,29 +42,38 @@ fn nearest(p: &mut Play, at: [i32; 3]) -> u32 {
     objs.into_iter().map(|o| ((0..3).map(|i| (p.read_i32(o + 0x18 + 4 * i as u32) - at[i]).abs() as i64).sum::<i64>(), o)).min().map_or(0, |(_, o)| o)
 }
 
-/// The items of a 0x8001a1c0 ring from its oldest.
+/// The items of a 0x8001a1c0 list from its head (newest first: the
+/// nexts at +4, the items at +8).
 fn ring(p: &mut Play, list: u32) -> Vec<u32> {
     let mut out = Vec::new();
-    if list == 0 {
-        return out;
-    }
-    let mut node = p.read_u32(list);
-    loop {
+    let mut node = list;
+    while node != 0 && out.len() < 16 {
         out.push(p.read_u32(node + 8));
-        if node == list || out.len() > 16 {
-            break;
-        }
-        node = p.read_u32(node);
+        node = p.read_u32(node + 4);
     }
     out
 }
 
-/// Both players `away` from `at` along `heading`, facing it, at the
-/// height they are.
+/// Both players `away` from `at` along `heading`, facing it, on the
+/// floor there.
 fn put(g: &mut Game, p: &mut Play, at: [i32; 3], heading: i32, away: i32) {
     let a = heading as f64 * std::f64::consts::TAU / 4096.0;
     let (x, z) = (at[0] - (a.sin() * away as f64) as i32, at[2] - (a.cos() * away as f64) as i32);
-    let pos = [x, g.player.pos[1], z];
+    let floor = rugrats::world::collide::query(&g.col, [x, at[1] - 64, z]).floor;
+    let pos = [x, floor + g.player.feet(), z];
+    // What is carried moves with the player (the original's +0x18 is
+    // otherwise left behind until its draw, stretching the carry box).
+    let d = [0, 1, 2].map(|i| pos[i] - g.player.pos[i]);
+    let o = p.read_u32(PLAYER + 0x1f0);
+    if o != 0 {
+        for i in 0..3u32 {
+            let v = p.read_i32(o + 0x18 + 4 * i);
+            p.write_u32(o + 0x18 + 4 * i, (v + d[i as usize]) as u32);
+        }
+    }
+    if let Some(k) = g.carried() {
+        g.things[k].pos += rrt::glam::Vec3::new(d[0] as f32, d[1] as f32, d[2] as f32);
+    }
     p.put(pos, heading as i16);
     g.player.pos = pos;
     g.player.heading = heading;
@@ -81,7 +90,7 @@ fn run(g: &mut Game, p: &mut Play, pads: &mut Pads, script: &[(u16, usize)], a: 
             g.frame(pads);
             if std::env::var_os("TRACE").is_some() {
                 let me = p.player();
-                println!("  player port {:?} st {:?} act {:?} | orig {:?} st {} speed {}", g.player.pos, g.player.state, g.player.action, me.pos, me.state, me.speed);
+                println!("  player port {:?} st {:?} act {:?} on {:?} box {:?} | orig {:?} st {} speed {}", g.player.pos, g.player.state, g.player.action, g.player.support.map(|b| g.bodies[b].template), g.player.body_box(), me.pos, me.state, me.speed);
                 if oa != 0 {
                     let t = &g.things[a];
                     println!("    A port {:?} {:?} | orig {:?}", [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32], t.state, [0, 4, 8].map(|i| p.read_i32(oa + 0x18 + i)));
@@ -128,6 +137,17 @@ fn main() -> Result<(), String> {
         p.hle.m.hook(0x8004_e030, |c| {
             println!("     STACKED 2");
             let _ = c;
+            rrt::emu::HookResult::Continue
+        });
+        p.hle.m.hook(0x8006_08b0, |c| {
+            let sp = c.cpu.reg(29) as u32;
+            let v0 = c.cpu.reg(2) as u32;
+            let mut w = |a: u32| c.bus.read_u32(a).unwrap_or(0) as i32;
+            let from = [w(sp + 24), w(sp + 28), w(sp + 32)];
+            let ahead = [w(sp + 40), w(sp + 44), w(sp + 48)];
+            let hit = [w(sp + 56), w(sp + 60), w(sp + 64)];
+            let what = if v0 > 1 { c.bus.read_u16(v0 + 0x96).unwrap_or(0) as i32 } else { -1 };
+            println!("     PUTWAY {v0:#x} template {what} from {from:?} ahead {ahead:?} hit {hit:?}");
             rrt::emu::HookResult::Continue
         });
         p.hle.m.hook(0x8004_df94, |c| {

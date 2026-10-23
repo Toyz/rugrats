@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-240 entries: audio 21, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 30, format 9, input 5, play 120, render 34, save 4, test 28, tooling 18, ui 13, video 10.
+241 entries: audio 21, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 30, format 9, input 5, play 121, render 34, save 4, test 28, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -252,3 +252,4 @@ The [reference](docs/README.md) says what is true now.
 | 238 | [Particle flights meet objects and hurt characters; class 17's enter sound](worklog/0238-particle-flights-meet-objects-and-hurt-characters-class-17.md) | 2026-10-22 | play |
 | 239 | [A launch's room, and the particles' object touches](worklog/0239-a-launch-s-room-and-the-particles-object-touches.md) | 2026-10-22 | play |
 | 240 | [Which rests on which, and GRAB's choice, as the original's](worklog/0240-which-rests-on-which-and-grab-s-choice-as-the-original-s.md) | 2026-10-23 | play |
+| 241 | [The put-down's way ahead, and the object lists' order](worklog/0241-the-put-down-s-way-ahead-and-the-object-lists-order.md) | 2026-10-23 | play |

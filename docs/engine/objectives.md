@@ -159,8 +159,18 @@ message 8. Template 933 frees its gauge and restores hand model 1310.
 
 0x80062ac4(player, thrown):
 
-1. 0x80060810: a wall test from the player to the object (0x8006c438);
-   if blocked, the object is moved back by the hit's offset.
+1. 0x80060810: the way ahead. From the player's place (+0x18, the
+   animation's root and all) to the far end of his body's box with the
+   carried object's boxes (0x80060594: the object's offset in the
+   player's frame, each box moved by it, the greatest z of all) straight
+   ahead (0x80075ee8). 0x8006c438 tests it against the world
+   (0x8002cd7c) and the first object of the nearby list it crosses
+   (0x8006c334: not a template of flag 8, the player or the carried
+   object; 0x8006a714 with t > 0, list order, not the nearest). The
+   object's point wins when nearer (squared, unsigned). Met, the object
+   moves by the hit less the far end, in x and z only. Checked:
+   things_put_down_as_the_original (level 3, a tipped pillar put down
+   before a plank and in the open, its resting place the same).
 2. Character 6, not thrown: part slot 0x24 back to model 79, the object
    pushed 1024 ahead (or 0 when +0x699 is 14), speech 190.
 3. Room from the object's position (0x8002b660; -1 keeps the player's),
@@ -277,15 +287,18 @@ a grid, 5460 answers not 0 the same, none off).
 
 The think on its answer (0x8004e018, 0x8004e030):
 
-- 1: a +0x70 = b; a put in b's +0x74 (0x8001a1c0: a ring of nodes
-  {next, prev, item}; the list word is the newest node, its next the
-  oldest).
-- 2: b's +0x74 = 0x8001a1c0(a's +0x74, b) and b's +0x70 = a's +0x70. a's
-  list is empty (what rested on it fell when it was picked up), so b is
-  left bearing itself: never touched again (0x800631d8 skips it).
+- 1: a +0x70 = b; a put in b's +0x74. (0x8001a1c0 puts a node {prev,
+  next, item} at a list's head and returns it as the new head, the
+  head's prev the tail; 0x8001a640 and 0x8001a698 go down the nexts from
+  the head, newest first; 0x8001a534 pops the head. The room lists and
+  the nearby list are these lists too.)
+- 2: b's +0x74 = 0x8001a1c0(a's +0x74, b) and b's +0x70 = a's +0x70: b's
+  list is b put before a's (a's own word unchanged). a's list is empty
+  (what rested on it fell when it was picked up), so b is left bearing
+  itself: never touched again (0x800631d8 skips it).
 
 The pick-up (0x800601e4) takes the object off its +0x70's list
-(0x8001a810) and drops each on its own list, oldest first (0x8001a534,
+(0x8001a810) and drops each on its own list, newest first (0x8001a534,
 0x80062928: 0x80061f88 with (0, 0, 4096) unturned at speed 10 and no
 thrower, its think 0x8004df94 again, its +0x48 and +0x50).
 
@@ -763,9 +776,21 @@ here (guess: dead, or left from an older menu).
 - The hand slots' real names (12, 15). (+0xe0 bits 2048 and 16 are the
   animation frames' events: FRM +0x00, or'd in as a frame ends,
   0x80055d40.)
-- The nearby list's order (0x8006add8 over the rooms' lists): the port
-  goes down its things in their order, which decides 0x800631d8's ties
-  and its stacking preference.
+- A put-down's object outside every room (0x8008864c: no room, no
+  flight; 0x80062ac4 then sets it on the floor through 0x8005fdb4 and
+  +0x148): the port flies it anyway. Spike's put-down (1024 ahead, line
+  190) is ported unchecked; his part slot 0x24 back to model 79 is not.
+- The nearby list's order. 0x80062ed4 rebuilds it (+0x100, count +0xff)
+  each frame through 0x8006add8: the player's room's lists +0x48 and
+  +0x4c, then each portal's room (room +0x30 portals of 48 bytes at
+  +0x34, the room at +0xe), each object not the player and without flag
+  0x80000 that 0x8006abbc passes put at the head (so the list runs from
+  the last found). 0x8006abbc: the object's bound box middle (+0x78..
+  +0x84, turned by its angles, plus its place) within +0x86 plus the
+  cylinder's radius across (squared, unsigned) and within +0x86 of the
+  cylinder's height. The port goes down its things in their own order
+  and measures from their place with the farthest box corner, which
+  decides 0x800631d8's ties and its stacking preference.
 - What the kind 5 touches (8, 13, 15) throw; kinds 1, 2 and 4's
   drawing. (The +0x50 table 0x800b7eb0's class 10 entries, their
   record +0x98 and launches: gameplay.md, "Emitters". Entries 1, 8, 11,

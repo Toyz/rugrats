@@ -1223,6 +1223,7 @@ impl Game {
         };
         g.talkers = talkers(&g.set, level);
         g.emitters = Game::emitters_of(&g.set, g.vcount);
+        g.flights.rooms = g.set.room_info.iter().map(|r| (r.min, r.max)).collect();
         g.triggers = g.trigger_list();
         g.player.free_while_frozen = level.is_box_toss();
         // A long fall hurts (0x8005b2d8) but in the hub, level 2 and the
@@ -2103,25 +2104,38 @@ impl Game {
         let (trig, col) = (&self.trig, &self.col);
         let meet = |a: [i32; 3], b: [i32; 3], grow: i32| {
             things::meets(trig, col, a, b, true, grow, &targets).map(|(w, p, n)| {
-                let hit = w.map(|(m, _)| match m {
+                let hit = w.map(|(m, at)| match m {
                     things::Met::Player => crate::world::flights::Hit::Player,
                     things::Met::Npc(n) => crate::world::flights::Hit::Npc(n),
-                    things::Met::Object(t) => crate::world::flights::Hit::Object(t),
+                    things::Met::Object(t) => crate::world::flights::Hit::Object(t, at),
                 });
                 (hit, p, n)
             })
         };
         self.flights.step(col, Some(&meet), self.sprites.as_ref(), DT);
-        // A character met by a flight of flag 0x80000 takes its damage
-        // (0x80087594: 0x800780ac with the record's +0x8e).
-        for (who, damage, flags) in std::mem::take(&mut self.flights.struck) {
-            if flags & 0x8_0000 == 0 || damage == 0 {
-                continue;
-            }
+        // What a flight met (0x80087594): an object's touch (+0x58) with
+        // flag 0x40000; a character's damage with 0x80000 (0x800780ac with
+        // the record's +0x8e).
+        for (who, point, damage, flags) in std::mem::take(&mut self.flights.struck) {
             match who {
-                crate::world::flights::Hit::Player => self.post_damage(damage as i32),
-                crate::world::flights::Hit::Npc(n) => self.post_npc_damage(n, damage as i32),
-                crate::world::flights::Hit::Object(_) => {}
+                crate::world::flights::Hit::Object(template, at) if flags & 0x4_0000 != 0 => {
+                    let touch = self.set.templates.get(template as usize).map_or(0, |t| t.raw[0x0a]);
+                    if (1..=7).contains(&touch) {
+                        let models = &self.set.models;
+                        let radius_of = |m: u32| models.get(m).map_or(0, |m| m.radius as i32);
+                        if self.flights.touch_parts(touch, at, point, radius_of, self.sprites.as_ref()) {
+                            // (Touch 1's sound off the shared count.)
+                            self.shelf_sound -= DT;
+                            if self.shelf_sound <= 0 {
+                                self.play_at(50, at);
+                                self.shelf_sound = 100;
+                            }
+                        }
+                    }
+                }
+                crate::world::flights::Hit::Player if flags & 0x8_0000 != 0 && damage != 0 => self.post_damage(damage as i32),
+                crate::world::flights::Hit::Npc(n) if flags & 0x8_0000 != 0 && damage != 0 => self.post_npc_damage(n, damage as i32),
+                _ => {}
             }
         }
         for (sound, at) in std::mem::take(&mut self.flights.heard) {

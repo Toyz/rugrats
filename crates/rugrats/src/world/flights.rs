@@ -138,7 +138,8 @@ pub struct Launch {
 pub enum Hit {
     Player,
     Npc(usize),
-    Object(u16),
+    /// An object: its template and place.
+    Object(u16, [i32; 3]),
 }
 
 /// A segment test against the objects and the world (0x80086668), the
@@ -395,9 +396,12 @@ pub struct Flights {
     pub heard: Vec<(u8, [i32; 3])>,
     /// The marks of what met the world this frame, where and its normal.
     pub marked: Vec<(Mark, [i32; 3], [i32; 3])>,
-    /// What flights met besides the world this frame: what, their damage
-    /// and flags.
-    pub struck: Vec<(Hit, i16, u32)>,
+    /// What flights met besides the world this frame: what, where, their
+    /// damage and flags.
+    pub struck: Vec<(Hit, [i32; 3], i16, u32)>,
+    /// The rooms' boxes (+0x10, +0x20): a launch's room is the first that
+    /// holds its start (0x8002b660 with no hint).
+    pub rooms: Vec<([i32; 3], [i32; 3])>,
 }
 
 /// The broken buildings' debris sprites (0x8005202c, by rand mod 10).
@@ -445,6 +449,7 @@ impl Flights {
             heard: Vec::new(),
             marked: Vec::new(),
             struck: Vec::new(),
+            rooms: Vec::new(),
         })
     }
 
@@ -564,11 +569,19 @@ impl Flights {
     /// Makes a flight from `l` (0x8008864c, then 0x80086114 by kind).
     /// Returns false when the pool is full.
     ///
-    /// Not here: the room lookup (0x8002b660: no room, no flight) and the
-    /// start kept inside its room's box; the callback (+0x4c), sound
-    /// (+0x64) and the model (+0x50) of other kinds.
+    /// Not here: the model (+0x50) of other kinds.
     pub fn launch(&mut self, l: &Launch, sprites: Option<&Sprites>) -> bool {
         self.launched.push(*l);
+        // Its room: none, no flight (with no rooms known, anywhere); the
+        // start kept inside the room's box.
+        let at = if self.rooms.is_empty() {
+            l.at
+        } else {
+            let Some((lo, hi)) = self.rooms.iter().find(|(lo, hi)| (0..3).all(|k| lo[k] <= l.at[k] && l.at[k] <= hi[k])) else {
+                return false;
+            };
+            [0, 1, 2].map(|k| l.at[k].max(lo[k]).min(hi[k]))
+        };
         if self.len() >= POOL {
             return false;
         }
@@ -586,7 +599,7 @@ impl Flights {
         let mut f = Flight {
             flags,
             life: l.life,
-            pos: l.at,
+            pos: at,
             radius: l.radius.max(0),
             roll: l.roll as i32,
             turn: [0; 2],
@@ -680,8 +693,8 @@ impl Flights {
             let mut met = Vec::new();
             let mut who = None;
             let (end, hit) = step_one(f, col, meets, &self.angles, ms, dt, &mut met, &mut who);
-            if let Some(w) = who {
-                self.struck.push((w, f.damage, f.flags));
+            if let Some((w, point)) = who {
+                self.struck.push((w, point, f.damage, f.flags));
             }
             // What met the world calls its +0x80, then sounds where it is
             // (0x80087594).
@@ -1295,7 +1308,7 @@ fn step_one(
     ms: i32,
     dt: i32,
     met: &mut Vec<([i32; 3], [i32; 3])>,
-    who: &mut Option<Hit>,
+    who: &mut Option<(Hit, [i32; 3])>,
 ) -> (bool, u32) {
     let mut done = false;
     let mut hit = 0;
@@ -1366,7 +1379,7 @@ fn collide_world(
     angles: &Angles,
     before: [i32; 3],
     met: &mut Vec<([i32; 3], [i32; 3])>,
-    who: &mut Option<Hit>,
+    who: &mut Option<(Hit, [i32; 3])>,
 ) -> u32 {
     if f.flags & flag::WORLD == 0 {
         return 0;
@@ -1386,7 +1399,7 @@ fn collide_world(
     let mut bits = 1 | 8;
     match what {
         None => met.push((point, normal)),
-        Some(w) => *who = Some(w),
+        Some(w) => *who = Some((w, point)),
     }
     let hit = Segment { point, normal, ..Segment::default() };
     let (c, r) = reflect(angles, f.v, hit.normal);

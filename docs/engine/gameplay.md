@@ -941,10 +941,13 @@ delay, damage the object's +0x6d). Each has its own seed:
 A flight of flag 0x20000 meets the objects too (0x80086340 over its
 room's two object lists, as a thrown thing's flight: the nearest crossed,
 the world kept over it only when nearer on all three axes; the boxes
-grown by its radius with flag 0x40000000). Meeting a character (object
-flag 0x4000, the player too) with flag 0x80000, it does its damage
-(+0x8e, launch +0x6a; 0x800780ac); it bounces off what it met as off the
-world. Level 6's 905 throw model 1455 into the player for 35 (the oracle
+grown by its radius with flag 0x40000000). Meeting an object with flag
+0x40000 it runs the object's touch (+0x58: the touches' parts, touch 1's
+sound off the shared count); meeting a character (object flag 0x4000,
+the player too) with flag 0x80000, it does its damage (+0x8e, launch
++0x6a; 0x800780ac); it bounces off what it met as off the world. A
+launch finds its room first (0x8002b660 with no hint): none, no flight;
+its start is kept inside the room's box. Level 6's 905 throw model 1455 into the player for 35 (the oracle
 and the port on the same frames).
 
 A flight meeting the world (0x80087594, 0x80086668):

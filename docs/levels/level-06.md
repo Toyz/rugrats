@@ -144,7 +144,7 @@ Which objects:
   and turns by at most 512 a think.
 - Class 17 (0x80049d98): enter 0x8004d174 (sound template +0x24 = 79, 80
   or 81 at the object, +0x00 |= 1), leave 0x80049e5c (clears the scare).
-  No think, so no scare and no damage.
+  No think, so no scare and no damage. (The port's enter plays it too.)
 
 ### The breakable toys (template 1102, flag 1024)
 

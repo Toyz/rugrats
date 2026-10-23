@@ -1528,6 +1528,17 @@ impl Game {
         {
             return now;
         }
+        // A class 17 object's enter (0x8004d174): its sound (template
+        // +0x24, kept in +0x94) at it; in while within.
+        if let Trigger::Placement(k) = who
+            && let Some(t) = self.set.templates.get(self.set.placements[k].template as usize).filter(|t| t.raw[4] == 17)
+        {
+            if entered {
+                let (sound, at) = (t.raw[0x24], self.set.placements[k].pos);
+                self.play_at(sound, at);
+            }
+            return entered;
+        }
         // (A class 10 object's own enter and leave, 0x8004cfd8 and
         // 0x80049e5c, set after the set-up's speech line: in while within.)
         if let Trigger::Placement(k) = who
@@ -2086,7 +2097,33 @@ impl Game {
         self.fly(&solids, &npc_of);
         (self.solids, self.npc_of) = (solids, npc_of);
         self.with_script(|s, g| s.frame(g, pads));
-        self.flights.step(&self.col, self.sprites.as_ref(), DT);
+        // (The particles with flag 0x20000 meet the objects and the
+        // characters too, as the thrown things do.)
+        let targets = self.flight_targets(&self.solids, &self.npc_of);
+        let (trig, col) = (&self.trig, &self.col);
+        let meet = |a: [i32; 3], b: [i32; 3], grow: i32| {
+            things::meets(trig, col, a, b, true, grow, &targets).map(|(w, p, n)| {
+                let hit = w.map(|(m, _)| match m {
+                    things::Met::Player => crate::world::flights::Hit::Player,
+                    things::Met::Npc(n) => crate::world::flights::Hit::Npc(n),
+                    things::Met::Object(t) => crate::world::flights::Hit::Object(t),
+                });
+                (hit, p, n)
+            })
+        };
+        self.flights.step(col, Some(&meet), self.sprites.as_ref(), DT);
+        // A character met by a flight of flag 0x80000 takes its damage
+        // (0x80087594: 0x800780ac with the record's +0x8e).
+        for (who, damage, flags) in std::mem::take(&mut self.flights.struck) {
+            if flags & 0x8_0000 == 0 || damage == 0 {
+                continue;
+            }
+            match who {
+                crate::world::flights::Hit::Player => self.post_damage(damage as i32),
+                crate::world::flights::Hit::Npc(n) => self.post_npc_damage(n, damage as i32),
+                crate::world::flights::Hit::Object(_) => {}
+            }
+        }
         for (sound, at) in std::mem::take(&mut self.flights.heard) {
             self.play_at(sound, at);
         }

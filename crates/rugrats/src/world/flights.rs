@@ -132,6 +132,20 @@ pub struct Launch {
     pub mark: Option<Mark>,
 }
 
+/// What a flight met besides the world (0x80086340 over the rooms'
+/// object lists).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hit {
+    Player,
+    Npc(usize),
+    Object(u16),
+}
+
+/// A segment test against the objects and the world (0x80086668), the
+/// objects' boxes grown by the given radius: what was met (none for the
+/// world), the point and the normal.
+pub type Meets<'a> = &'a dyn Fn([i32; 3], [i32; 3], i32) -> Option<(Option<Hit>, [i32; 3], [i32; 3])>;
+
 /// The mark a flight leaves where it meets the world (0x8008652c, by the
 /// record's +0x2a): a quad of the TEXPOS entry `sprite` (launch +0x46) and
 /// half size `size` (+0x68) on the surface, shaded by it. `flags` are
@@ -194,6 +208,8 @@ pub struct Flight {
     pub mark: Option<Mark>,
     /// +0x80: its hit callback (`Launch::on_hit`).
     pub on_hit: u8,
+    /// +0x8e: the damage it does a character it meets (launch +0x6a).
+    pub damage: i16,
 }
 
 impl Flight {
@@ -379,6 +395,9 @@ pub struct Flights {
     pub heard: Vec<(u8, [i32; 3])>,
     /// The marks of what met the world this frame, where and its normal.
     pub marked: Vec<(Mark, [i32; 3], [i32; 3])>,
+    /// What flights met besides the world this frame: what, their damage
+    /// and flags.
+    pub struck: Vec<(Hit, i16, u32)>,
 }
 
 /// The broken buildings' debris sprites (0x8005202c, by rand mod 10).
@@ -425,6 +444,7 @@ impl Flights {
             launched: Vec::new(),
             heard: Vec::new(),
             marked: Vec::new(),
+            struck: Vec::new(),
         })
     }
 
@@ -584,6 +604,7 @@ impl Flights {
             sound: l.sound,
             mark: l.mark,
             on_hit: l.on_hit,
+            damage: l.damage,
         };
         // Kinds 3 and 8 share one running sequence (0x8008a2a4); 0x80086114
         // then forgets it, so it is never let go.
@@ -640,7 +661,7 @@ impl Flights {
     /// One frame of `dt` (0x8008851c): the waiting count down and join the
     /// flying; each flying one moves (0x80087c5c) and those done are let
     /// go; then the sequences step (0x8008a358).
-    pub fn step(&mut self, col: &Col, sprites: Option<&Sprites>, dt: i32) {
+    pub fn step(&mut self, col: &Col, meets: Option<Meets>, sprites: Option<&Sprites>, dt: i32) {
         let ms = self.ms(dt);
         // 0x80088310: the list head first, each started one to the front
         // of the flying.
@@ -657,7 +678,11 @@ impl Flights {
         let mut calls = Vec::new();
         for (k, f) in self.flying.iter_mut().enumerate() {
             let mut met = Vec::new();
-            let (end, hit) = step_one(f, col, &self.angles, ms, dt, &mut met);
+            let mut who = None;
+            let (end, hit) = step_one(f, col, meets, &self.angles, ms, dt, &mut met, &mut who);
+            if let Some(w) = who {
+                self.struck.push((w, f.damage, f.flags));
+            }
             // What met the world calls its +0x80, then sounds where it is
             // (0x80087594).
             if let (Some(&(point, normal)), 1..) = (met.first(), f.on_hit) {
@@ -1261,7 +1286,17 @@ fn fade_rate(flags: u32) -> i32 {
 
 /// One record's frame (0x80087c5c); true when it is done.
 /// Whether it is done, and the hit bits of `collide_world`.
-fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32, met: &mut Vec<([i32; 3], [i32; 3])>) -> (bool, u32) {
+#[allow(clippy::too_many_arguments)]
+fn step_one(
+    f: &mut Flight,
+    col: &Col,
+    meets: Option<Meets>,
+    angles: &Angles,
+    ms: i32,
+    dt: i32,
+    met: &mut Vec<([i32; 3], [i32; 3])>,
+    who: &mut Option<Hit>,
+) -> (bool, u32) {
     let mut done = false;
     let mut hit = 0;
     if f.grow != 0 {
@@ -1284,7 +1319,7 @@ fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32, met: &
         f.turn[1] = (f.turn[1] + ((s * f.spin_axis[2] as i32) >> 12)) & 4095;
     }
     if f.flags & flag::COLLIDE != 0 && f.flags & flag::OBJECTS == 0 {
-        hit = collide_world(f, col, angles, before, met);
+        hit = collide_world(f, col, meets, angles, before, met, who);
         let ends = (f.flags & flag::END_FLOOR != 0 && hit & 2 != 0)
             || (f.flags & flag::END_WALL != 0 && hit & 1 != 0)
             || (f.flags & flag::END_HIT != 0 && hit & 8 != 0);
@@ -1319,22 +1354,41 @@ fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32, met: &
 /// else goes back along the reflection at (|v| - 95) * bounce >> 12 and
 /// its spin keeps bounce / 4096. Returns the hit bits.
 ///
-/// Not here: objects (flag 0x20000, 0x80086340), what the hit calls
-/// (+0x80) and the mark (+0x2a, 0x8008652c). The sound (+0x88) is the
-/// caller's.
-fn collide_world(f: &mut Flight, col: &Col, angles: &Angles, before: [i32; 3], met: &mut Vec<([i32; 3], [i32; 3])>) -> u32 {
+/// With flag 0x20000 the objects are met too (0x80086340 through
+/// `meets`, their boxes grown by the radius with flag 0x40000000): what
+/// was met goes in `who`, and only the world's hits are marked. What the
+/// hit calls (+0x80) and the sound (+0x88) are the caller's.
+#[allow(clippy::too_many_arguments)]
+fn collide_world(
+    f: &mut Flight,
+    col: &Col,
+    meets: Option<Meets>,
+    angles: &Angles,
+    before: [i32; 3],
+    met: &mut Vec<([i32; 3], [i32; 3])>,
+    who: &mut Option<Hit>,
+) -> u32 {
     if f.flags & flag::WORLD == 0 {
         return 0;
     }
     let reach = f.radius.max(10);
     let u = collide::unit(f.v);
     let to = [0, 1, 2].map(|k| f.pos[k] + ((u[k] * reach) >> 12));
-    let mut hit = Segment::default();
-    if collide::segment(col, before, to, &mut hit) == 0 {
-        return 0;
-    }
+    let grow = if f.flags & 0x4000_0000 != 0 { f.radius } else { 0 };
+    let test = |a: [i32; 3], b: [i32; 3]| match meets.filter(|_| f.flags & 0x2_0000 != 0) {
+        Some(m) => m(a, b, grow),
+        None => {
+            let mut seg = Segment::default();
+            (collide::segment(col, a, b, &mut seg) != 0).then_some((None, seg.point, seg.normal))
+        }
+    };
+    let Some((what, point, normal)) = test(before, to) else { return 0 };
     let mut bits = 1 | 8;
-    met.push((hit.point, hit.normal));
+    match what {
+        None => met.push((point, normal)),
+        Some(w) => *who = Some(w),
+    }
+    let hit = Segment { point, normal, ..Segment::default() };
     let (c, r) = reflect(angles, f.v, hit.normal);
     if c < 1025 {
         return bits & !1;
@@ -1342,10 +1396,10 @@ fn collide_world(f: &mut Flight, col: &Col, angles: &Angles, before: [i32; 3], m
     let back = [0, 1, 2].map(|k| hit.point[k] - ((u[k] * reach) >> 12));
     let speed = collide::length(f.v) - 95;
     let below = [back[0], back[1] + f.radius, back[2]];
-    let mut under = Segment::default();
-    let floor = collide::segment(col, back, below, &mut under) != 0;
-    if floor {
-        met.push((under.point, under.normal));
+    let under = test(back, below);
+    let floor = under.is_some();
+    if let Some((None, point, normal)) = under {
+        met.push((point, normal));
     }
     if floor && speed < 382 {
         f.v = [0; 3];

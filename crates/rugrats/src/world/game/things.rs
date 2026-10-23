@@ -167,7 +167,7 @@ fn corner_radius(boxes: &[([i16; 3], [i16; 3])]) -> i32 {
 /// Who a flight's segment can meet (0x80086340's room lists): an object
 /// by its template, a character, or the player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Met {
+pub(super) enum Met {
     Object(u16),
     Npc(usize),
     Player,
@@ -209,7 +209,7 @@ impl Game {
     /// rooms' lists): the objects and characters as the player's probes
     /// see them, but those of type flag 8, and the player by its
     /// hierarchy's box.
-    fn flight_targets(&self, solids: &[crate::world::boxhit::Exact], npc_of: &[Option<usize>]) -> Vec<(crate::world::boxhit::Solid, Met)> {
+    pub(super) fn flight_targets(&self, solids: &[crate::world::boxhit::Exact], npc_of: &[Option<usize>]) -> Vec<(crate::world::boxhit::Solid, Met)> {
         let mut out: Vec<_> = solids
             .iter()
             .enumerate()
@@ -232,28 +232,7 @@ impl Game {
     /// (0x8002cd7c), kept over the target only when nearer on all three
     /// axes. What was met, the point and the normal.
     fn flight_meets(&self, from: [i32; 3], to: [i32; 3], objects: bool, grow: i32, targets: &[(crate::world::boxhit::Solid, Met)]) -> Option<(Option<(Met, [i32; 3])>, [i32; 3], [i32; 3])> {
-        let mut met: Option<(Met, [i32; 3], [i32; 3], [i32; 3])> = None;
-        if objects {
-            let mut best = 0x1001;
-            for (solid, who) in targets {
-                let mut n = [0; 3];
-                if let Some((_, h)) = solid.meet_grown(&self.trig, from, to, grow, &mut n)
-                    && h.t > 0
-                    && h.t < best
-                {
-                    best = h.t;
-                    met = Some((*who, solid.pos, h.point, n));
-                }
-            }
-        }
-        let mut seg = collide::Segment::default();
-        if collide::segment(&self.col, from, to, &mut seg) != 0 {
-            let nearer = |p: [i32; 3]| (0..3).all(|k| (from[k] - seg.point[k]).abs() < (from[k] - p[k]).abs());
-            if met.is_none_or(|m| nearer(m.2)) {
-                return Some((None, seg.point, seg.normal));
-            }
-        }
-        met.map(|(who, at, p, n)| (Some((who, at)), p, n))
+        meets(&self.trig, &self.col, from, to, objects, grow, targets)
     }
 
     /// A rolling ball's step from `from` to `to` (0x80086668 with flags
@@ -1467,4 +1446,40 @@ impl Game {
             }
         }
     }
+}
+
+/// The step from `from` to `to` against the targets and the world
+/// (0x80086668), for a thrown thing's flight and the particles'.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn meets(
+trig: &Trig,
+col: &Col,
+from: [i32; 3],
+to: [i32; 3],
+objects: bool,
+grow: i32,
+targets: &[(crate::world::boxhit::Solid, Met)],
+) -> Option<(Option<(Met, [i32; 3])>, [i32; 3], [i32; 3])> {
+    let mut met: Option<(Met, [i32; 3], [i32; 3], [i32; 3])> = None;
+    if objects {
+        let mut best = 0x1001;
+        for (solid, who) in targets {
+            let mut n = [0; 3];
+            if let Some((_, h)) = solid.meet_grown(trig, from, to, grow, &mut n)
+                && h.t > 0
+                && h.t < best
+            {
+                best = h.t;
+                met = Some((*who, solid.pos, h.point, n));
+            }
+        }
+    }
+    let mut seg = collide::Segment::default();
+    if collide::segment(col, from, to, &mut seg) != 0 {
+        let nearer = |p: [i32; 3]| (0..3).all(|k| (from[k] - seg.point[k]).abs() < (from[k] - p[k]).abs());
+        if met.is_none_or(|m| nearer(m.2)) {
+            return Some((None, seg.point, seg.normal));
+        }
+    }
+    met.map(|(who, at, p, n)| (Some((who, at)), p, n))
 }

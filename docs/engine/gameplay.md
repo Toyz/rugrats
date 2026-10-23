@@ -938,6 +938,15 @@ delay, damage the object's +0x6d). Each has its own seed:
 | 15 | 0x8005444c | 906-908 (6) | sound 82 at it; as 14 with model 1454, 1452 or 1453 (rand % 3 first) along (0, r, 4096) (0x800c41c8) |
 | 18 | 0x80054d5c | 1215 (3) | model 1628: flags \| 0xb0002, bounce 2500, delay the period's ms, speed rand % +0x0e (0x800c41d8); not through 0x80052b60 |
 
+A flight of flag 0x20000 meets the objects too (0x80086340 over its
+room's two object lists, as a thrown thing's flight: the nearest crossed,
+the world kept over it only when nearer on all three axes; the boxes
+grown by its radius with flag 0x40000000). Meeting a character (object
+flag 0x4000, the player too) with flag 0x80000, it does its damage
+(+0x8e, launch +0x6a; 0x800780ac); it bounces off what it met as off the
+world. Level 6's 905 throw model 1455 into the player for 35 (the oracle
+and the port on the same frames).
+
 A flight meeting the world (0x80087594, 0x80086668):
 - calls its +0x80 (launch +0x4c; for 706's drops the object's +0x5c, the
   table 0x800b7ea4 by template +0x0b: 1 the pie's splat 0x8005282c, 2 the

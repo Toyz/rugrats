@@ -695,6 +695,16 @@ position), flags in 0x800c4a3c.
   (0x80025e90 / the room's fixed camera); the room's camera byte (room
   +0x5c, from LP kind 6) picks a fixed camera (LP kind 2, 28 bytes each at
   0x800c4b9c) through 0x800259a0.
+- CameraSwitch (0x80077c88, a room's entry with flag 4) acts only on a
+  camera byte other than the last switched to (D_800c4410: 1 at a level's
+  start, 0x80077070, and after a cine, 0x8007737c). Bytes 1 and 6 to 13
+  are kind 1 with the height (6: 200, 7 and 11: 500, 8: 1600, 9: 2000,
+  else the level's), byte 13 with a fifth argument of -1. Kind 1 sets the
+  height (D_800c3f5c), then, unless the camera is in mode 1 (just set up)
+  or the argument is -1, runs the follow setup 0x80025e90: the eye 4096
+  behind the player, at his height less 768 and the height, mode 1, the
+  reset 0x80026ddc. So a new room camera snaps behind the player, but the
+  start room's at a level's start sets the height alone.
 - The camera's room is found from its position with the old room as hint
   (0x8002b660); outside every room it is clamped into the player's room.
 - 0x800290a4 resets it: room = the player's, field of view 612, 0x800c3f5c

@@ -135,6 +135,9 @@ impl Game {
         } else if r.flags & 4 != 0
             && (!matches!(self.level, Level::NO_MORE_COOKIES | Level::TOUCHDOWN_TOMMY) || r.camera == 3)
         {
+            // A camera byte other than the last (D_800c4410).
+            let changed = self.camera_byte != Some(r.camera);
+            self.camera_byte = Some(r.camera);
             // The follow setup lets go of a level 5 hold (0x80025e90).
             if r.camera != 3 {
                 self.cam_hold = false;
@@ -156,6 +159,15 @@ impl Game {
                             _ => default_eye_up(self.level),
                         }
                     };
+                    // A new byte runs the follow setup (0x800291f8 kind 1,
+                    // its fifth argument not -1 but for byte 13:
+                    // 0x80025e90): the camera behind the player at once;
+                    // not while it was just set up (mode 1: a level's
+                    // start, its height alone).
+                    if changed && r.camera != 13 && !self.camera_set {
+                        self.set_camera_yaw(self.player.heading as f32);
+                        self.camera_set = true;
+                    }
                 }
                 _ => {}
             }

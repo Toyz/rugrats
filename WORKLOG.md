@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-245 entries: audio 21, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 30, format 9, input 5, play 125, render 34, save 4, test 28, tooling 18, ui 13, video 10.
+246 entries: audio 21, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 30, format 9, input 5, play 126, render 34, save 4, test 28, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -257,3 +257,4 @@ The [reference](docs/README.md) says what is true now.
 | 243 | [An object's size and bound as 0x80046570 makes them](worklog/0243-an-object-s-size-and-bound-as-0x80046570-makes-them.md) | 2026-10-23 | play |
 | 244 | [Sizes in set-up order, and the collectibles' box](worklog/0244-sizes-in-set-up-order-and-the-collectibles-box.md) | 2026-10-23 | play |
 | 245 | [Collectibles met by the walk's probes](worklog/0245-collectibles-met-by-the-walk-s-probes.md) | 2026-10-23 | play |
+| 246 | [A room's follow camera snaps as the original's switch](worklog/0246-a-room-s-follow-camera-snaps-as-the-original-s-switch.md) | 2026-10-23 | play |

@@ -2241,6 +2241,9 @@ fn goodie_taken(level: u8, k: usize, away: i32, side: i32, heading: i32, frames:
     use rrt::emu::Cpu;
     use rugrats::input::UP;
     let mut b = Both::open(Boot { level, ..Default::default() }).unwrap();
+    // (Two frames first: the original's boot has run its own in the
+    // start room, its camera past the start's setup.)
+    b.script(&[(0, 2)]);
     let g = &b.game.goodies[k];
     let at = [g.pos.x as i32, g.pos.y as i32, g.pos.z as i32];
     let r = heading as f64 * std::f64::consts::TAU / 4096.0;
@@ -2275,6 +2278,11 @@ fn goodie_taken(level: u8, k: usize, away: i32, side: i32, heading: i32, frames:
         });
     }
     b.put(pos, heading, 6);
+    if std::env::var_os("GDBG").is_some() {
+        let r = b.game.current_room();
+        let info = r.and_then(|k| b.game.set.room_info.get(k)).map(|i| (i.flags, i.camera));
+        eprintln!("  port room {r:?} info {info:?} original room {}", b.hle.read_u8(rugrats_hle::play::PLAYER + 0x3b));
+    }
     // (R1: the camera behind, so Up is ahead on both.)
     b.script(&[(bits(&[rugrats::input::R1]), 1), (0, 40)]);
     let mut port = None;

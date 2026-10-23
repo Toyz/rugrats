@@ -153,6 +153,8 @@ impl Game {
     /// endings, and the level's own reaction.
     pub fn cine_finished(&mut self, n: usize) {
         self.room = None;
+        // (0x8007737c: the room camera byte back to 1.)
+        self.camera_byte = Some(1);
         let heading = self.player.heading;
         self.set_camera_yaw(heading as f32);
         rrt::tracing::info!("level {}: cine {n} finished", self.level);

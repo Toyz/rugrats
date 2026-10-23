@@ -511,6 +511,11 @@ pub struct Game {
     /// Level 5's camera hold while floating (0x800c4a50) and its shaft
     /// camera (kind 3 walking, rooms 15 and 40).
     cam_hold: bool,
+    /// The room camera byte last switched to (D_800c4410: 1 at a level's
+    /// start and after a cine, 0x80077070, 0x8007737c), and whether the
+    /// camera was just set up (mode 1, +0x4a: until its next update).
+    camera_byte: Option<u8>,
+    camera_set: bool,
     shaft: bool,
     /// Damage events are dropped (level 1, 0x800780d8).
     pub no_damage: bool,
@@ -1221,6 +1226,8 @@ impl Game {
             // Damage is dropped in levels 1, 11, 17 and 23-31 (0x800780d8).
             no_damage: level.no_damage(),
             cam_hold: false,
+            camera_byte: Some(1),
+            camera_set: true,
             shaft: false,
             won_levels: (0..32).map(Level).filter(|&l| progress.won(l)).fold(0, |a, l| a | l.bit()),
             pieces: progress.pieces(),
@@ -2229,12 +2236,14 @@ impl Game {
         // camera's end sets the follow camera up behind the player again
         // (0x800291f8 into 0x80025e90).
         let follows = self.fixed.is_none() && self.post_camera.is_none() && !self.shaft;
+        self.camera_set = false;
         if self.shaft {
             let t = self.target();
             self.eye = t + Vec3::new(0.0, -self.eye_up as f32, 5800.0);
         } else if follows && !self.following {
             let heading = self.player.heading;
             self.set_camera_yaw(heading as f32);
+            self.camera_set = true;
         } else if follows && !self.cam_hold {
             self.follow(moved);
         } else if self.fixed.is_none() && self.post_camera.is_some() && !self.cam_hold {

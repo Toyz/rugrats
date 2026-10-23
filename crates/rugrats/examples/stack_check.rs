@@ -114,7 +114,7 @@ fn main() -> Result<(), String> {
     if std::env::var_os("LIST").is_some() {
         for (i, t) in g.things.iter().enumerate() {
             let boxes = g.set.models.get(t.shape).map(|m| m.boxes.clone()).unwrap_or_default();
-            println!("thing {i}: template {} at {:?} boxes {boxes:?}", t.template, t.pos);
+            println!("thing {i}: template {} at {:?} id {} hidden {} state {:?} boxes {boxes:?}", t.template, t.pos, t.id, t.hidden, t.state);
         }
         return Ok(());
     }
@@ -122,6 +122,38 @@ fn main() -> Result<(), String> {
     let mut p = Play::boot(Rc::new(rrt::disc::Image::open(&cue).map_err(|e| e.to_string())?), Boot { level, character, cinematics: false })?;
     let ipos = |v: rrt::glam::Vec3| [v.x as i32, v.y as i32, v.z as i32];
     let (pa, pb) = (ipos(g.things[a].pos), ipos(g.things[b].pos));
+    // OBJBOUNDS=1: every object's +0x78 box and +0x86 against its
+    // template's model radius on the port, those that differ.
+    if std::env::var_os("OBJBOUNDS").is_some() {
+        let (mut same, mut off) = (0, 0);
+        for o in objects(&mut p) {
+            let t = p.read_i16(o + 0x96) as u16 as usize;
+            let b: Vec<i16> = (0..7).map(|i| p.read_i16(o + 0x78 + 2 * i)).collect();
+            let size = p.read_i16(o + 0x86);
+            let r = g.set.templates.get(t).and_then(|tp| g.set.models.get(tp.shape as u32)).map(|m| m.radius as i16);
+            let cube = r.is_some_and(|r| b[0] == -r && b[1] == -r && b[2] == -r && b[4] == r && b[5] == r && b[6] == r && size == r);
+            if cube {
+                same += 1;
+            } else {
+                off += 1;
+                println!("template {t} class {} +0x78 {b:?} +0x86 {size} | radius {r:?}", p.read_u8(o + 0xa6));
+            }
+        }
+        println!("{same} cubes of the model's radius, {off} not");
+        return Ok(());
+    }
+    // BOUNDS=1: each thing's +0x78 box and +0x86 on the original, its
+    // model's radius and boxes on the port.
+    if std::env::var_os("BOUNDS").is_some() {
+        for k in 0..g.things.len() {
+            let at = ipos(g.things[k].pos);
+            let o = nearest(&mut p, at);
+            let b: Vec<i16> = (0..7).map(|i| p.read_i16(o + 0x78 + 2 * i)).collect();
+            let m = g.set.models.get(g.things[k].shape);
+            println!("thing {k} template {} obj {o:#x} at {:?} +0x78 {b:?} +0x86 {} | radius {:?} boxes {:?}", g.things[k].template, [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)), p.read_i16(o + 0x86), m.map(|m| m.radius), m.map(|m| m.boxes.clone()));
+        }
+        return Ok(());
+    }
     let ob = nearest(&mut p, pb);
     // HOOKS=1: the original's stacking judged (0x8006c7a0) and its answer.
     if std::env::var_os("HOOKS").is_some() {

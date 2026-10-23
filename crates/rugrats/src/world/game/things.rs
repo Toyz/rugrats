@@ -148,23 +148,6 @@ pub enum Touched {
     Placement(usize),
 }
 
-/// The farthest corner of boxes (lo, hi) from their origin.
-fn corner_radius(boxes: &[([i16; 3], [i16; 3])]) -> i32 {
-    boxes
-        .iter()
-        .flat_map(|(lo, hi)| {
-            (0..8).map(move |c| {
-                Vec3::new(
-                    if c & 1 == 0 { lo[0] } else { hi[0] } as f32,
-                    if c & 2 == 0 { lo[1] } else { hi[1] } as f32,
-                    if c & 4 == 0 { lo[2] } else { hi[2] } as f32,
-                )
-                .length()
-            })
-        })
-        .fold(0.0f32, f32::max) as i32
-}
-
 /// Who a flight's segment can meet (0x80086340's room lists): an object
 /// by its template, a character, or the player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -709,8 +692,18 @@ impl Game {
     /// throw builds it (0x80061f88, 0x8008864c): its radius, the larger of
     /// its first box's y extents; its template's bounce; objects met
     /// unless it meets the world only; rolling when its template says so.
-    pub fn start_flight(&mut self, k: usize, v: [i32; 3]) {
+    /// Only from inside a room (0x8002b660 with no hint, the first room
+    /// holding it; with no rooms known, anywhere): outside every one there
+    /// is no flight and it stays where it is, at rest. Whether it flies.
+    pub fn start_flight(&mut self, k: usize, v: [i32; 3]) -> bool {
         let t = &self.things[k];
+        let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
+        let rooms = &self.flights.rooms;
+        if !rooms.is_empty() && !rooms.iter().any(|(lo, hi)| (0..3).all(|i| lo[i] <= at[i] && at[i] <= hi[i])) {
+            self.things[k].state = ThingState::Rest;
+            self.things[k].flown = None;
+            return false;
+        }
         let radius = self.set.models.get(t.shape).and_then(|m| m.boxes.first()).map_or(10, |b| (b.0[1] as i32).abs().max((b.1[1] as i32).abs()));
         let rolls = !hurts_player(&self.set.templates, t.template);
         let f = Flown {
@@ -726,6 +719,7 @@ impl Game {
         self.things[k].flown = Some(f);
         self.things[k].met = None;
         self.things[k].state = ThingState::Flying(v);
+        true
     }
 
     /// Lets go of a thrown thing (0x80060b44's release): the direction
@@ -776,7 +770,10 @@ impl Game {
         // A throw, a lob or a put-down flies as the original's record
         // (0x80087594's path, or 0x80086ef0's roll for template +0x30 of 1).
         if self.carried == Some(k) {
-            self.start_flight(k, v);
+            let flies = self.start_flight(k, v);
+            if matches!(throw, PendingThrow::Down(_)) && !flies {
+                self.set_on_floor(k);
+            }
             if self.pie_toss.is_some()
                 && self.things[k].template == PIE
                 && let Some(f) = &mut self.things[k].flown
@@ -1010,11 +1007,21 @@ impl Game {
         if let Some(k) = self.carried {
             self.carry_place();
             let v = self.put_down(k, true);
-            self.start_flight(k, v);
+            if !self.start_flight(k, v) {
+                self.set_on_floor(k);
+            }
             self.carried = None;
             self.player.carrying = false;
             self.player.animator.set_after(17, false);
         }
+    }
+
+    /// A put-down with no flight (0x80062ac4 at 0x80062c64): the thing's
+    /// y the player's floor (+0x148) plus the least top of its boxes
+    /// (0x8005fdb4).
+    fn set_on_floor(&mut self, k: usize) {
+        let top = self.set.models.get(self.things[k].shape).and_then(|m| m.boxes.iter().map(|b| b.0[1] as i32).min()).unwrap_or(0);
+        self.things[k].pos.y = (self.player.floor + top) as f32;
     }
 
     /// The put-down (0x80062ac4(player, thrown)) up to its flight: the way
@@ -1176,11 +1183,9 @@ impl Game {
     }
 
     /// The thing GRAB takes (0x800631d8, oracle-checked in level 6): of
-    /// those in the player's nearby list (0x80062ed4 / 0x8006abbc: his
-    /// cylinder, 3 x his body box's larger half-extent across and 3 x its
-    /// height's, meets the thing's, its farthest model box corner
-    /// round its place; a box of level 6, 577, is taken from 1324 straight
-    /// ahead and not from 1330), not the one he stands on nor one bearing
+    /// those in the player's nearby list ([`Self::nearby`]; a box of
+    /// level 6, 577, is taken from 1324 straight ahead and not from 1330),
+    /// not the one he stands on nor one bearing
     /// a load (+0x74), within 511 below to 4095 above him, his box's depth
     /// + 1800 off, and strictly within a quarter turn of his heading
     /// (D_800c430a; none from behind), the nearest. One resting on the
@@ -1192,7 +1197,7 @@ impl Game {
         let me = p.pos;
         let (mut best, mut nearest) = (None::<usize>, i32::MAX);
         for (k, t) in self.things.iter().enumerate().filter(|(_, t)| t.state == ThingState::Rest && !t.hidden) {
-            let radius = self.set.models.get(t.shape).map_or(0, |m| corner_radius(&m.boxes));
+            let radius = self.set.models.get(t.shape).map_or(0, |m| m.radius as i32);
             let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
             if !self.nearby(at, radius) {
                 continue;
@@ -1227,17 +1232,22 @@ impl Game {
         best
     }
 
-    /// Whether an object at `at` whose farthest box corner is `radius`
-    /// out is in the player's nearby list (0x80062ed4, see `touched`).
-    fn nearby(&self, at: [i32; 3], radius: i32) -> bool {
+    /// Whether an object at `at` of size `size` (+0x86: a model's radius,
+    /// its bound box +0x78 the cube of it about its place) is in the
+    /// player's nearby list (0x80062ed4 / 0x8006abbc): his cylinder, 3 x
+    /// his body box's larger half-extent across and 3 x its height's
+    /// (0x80067ba4, with what he carries), meets the object's ball across
+    /// (squared, unsigned) and up and down.
+    fn nearby(&self, at: [i32; 3], size: i32) -> bool {
         let p = &self.player;
         let (lo, hi) = p.body_box();
         let half = |i: usize| lo[i].abs().max(hi[i].abs());
-        let (across, tall) = (3 * half(0).max(half(2)), 3 * half(1));
+        let (across, tall) = ((3 * half(0).max(half(2))) as i16 as i32, (3 * half(1)) as i16 as i32);
         let me = p.pos;
-        let (dx, dy, dz) = (at[0] - me[0], at[1] - me[1], at[2] - me[2]);
-        let d = ((dx as f32).hypot(dz as f32)) as i32;
-        d <= across + radius && dy.abs() <= tall + radius
+        let (dx, dz) = (at[0].wrapping_sub(me[0]), at[2].wrapping_sub(me[2]));
+        let reach = size.wrapping_add(across);
+        let d2 = dx.wrapping_mul(dx).wrapping_add(dz.wrapping_mul(dz)) as u32;
+        (d2 <= reach.wrapping_mul(reach) as u32) && at[1] + size >= me[1] - tall && me[1] + tall >= at[1] - size
     }
 
     /// Whether the player reaches an object at `at` (0x800631d8, see
@@ -1298,7 +1308,7 @@ impl Game {
             keep(Touched::Npc(k), self.reaches(n.pos, CHARACTER_SIZE));
         }
         for (k, door) in self.doors.iter().enumerate() {
-            let radius = self.set.models.get(door.shape).map_or(0, |m| corner_radius(&m.boxes));
+            let radius = self.set.models.get(door.shape).map_or(0, |m| m.radius as i32);
             let Some(q) = self.set.placements.get(door.placement) else { continue };
             if !self.load(Held::Object(q.template as u16, q.pos)).is_empty() {
                 continue;
@@ -1322,7 +1332,7 @@ impl Game {
             if !self.load(Held::Object(q.template as u16, q.pos)).is_empty() {
                 continue;
             }
-            keep(Touched::Placement(k), self.reaches(q.pos, corner_radius(&m.boxes)));
+            keep(Touched::Placement(k), self.reaches(q.pos, m.radius as i32));
         }
         best.map(|(t, _)| t)
     }

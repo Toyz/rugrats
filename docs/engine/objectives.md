@@ -776,10 +776,17 @@ here (guess: dead, or left from an older menu).
 - The hand slots' real names (12, 15). (+0xe0 bits 2048 and 16 are the
   animation frames' events: FRM +0x00, or'd in as a frame ends,
   0x80055d40.)
-- A put-down's object outside every room (0x8008864c: no room, no
-  flight; 0x80062ac4 then sets it on the floor through 0x8005fdb4 and
-  +0x148): the port flies it anyway. Spike's put-down (1024 ahead, line
-  190) is ported unchecked; his part slot 0x24 back to model 79 is not.
+- A flight from outside every room (0x8008864c: no room, no flight; a
+  put-down then sets the object at the player's floor +0x148 plus the
+  least top of its boxes, 0x8005fdb4; a throw leaves it where it is) is
+  ported but never seen on the original. Spike's put-down (1024 ahead,
+  line 190) is ported unchecked; his part slot 0x24 back to model 79 is
+  not.
+- Objects whose +0x78 bound is not the cube of their model's radius:
+  characters (1773, +0x86 8192), collectibles (class 11, 649) and a few
+  big ones (level 1's 140, 185, 231, 573; level 3's 494, 623, 883; level
+  6's 1028). The port's nearby test takes the model's radius for all but
+  the characters.
 - The nearby list's order. 0x80062ed4 rebuilds it (+0x100, count +0xff)
   each frame through 0x8006add8: the player's room's lists +0x48 and
   +0x4c, then each portal's room (room +0x30 portals of 48 bytes at
@@ -788,9 +795,10 @@ here (guess: dead, or left from an older menu).
   the last found). 0x8006abbc: the object's bound box middle (+0x78..
   +0x84, turned by its angles, plus its place) within +0x86 plus the
   cylinder's radius across (squared, unsigned) and within +0x86 of the
-  cylinder's height. The port goes down its things in their own order
-  and measures from their place with the farthest box corner, which
-  decides 0x800631d8's ties and its stacking preference.
+  cylinder's height. The port measures as 0x8006abbc does (a model's
+  radius, its place the bound's middle) but goes down its things in their
+  own order, from every room, which decides 0x800631d8's ties and its
+  stacking preference.
 - What the kind 5 touches (8, 13, 15) throw; kinds 1, 2 and 4's
   drawing. (The +0x50 table 0x800b7eb0's class 10 entries, their
   record +0x98 and launches: gameplay.md, "Emitters". Entries 1, 8, 11,

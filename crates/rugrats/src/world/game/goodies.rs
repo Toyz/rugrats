@@ -3,7 +3,7 @@
 use rugrats_data::placement::Spot;
 
 use super::*;
-use crate::actors::player::{DT, RADIUS};
+use crate::actors::player::DT;
 use crate::rand::Rand;
 
 /// A collectible (0x80048a44, touched by 0x800514b0).
@@ -115,23 +115,16 @@ impl Game {
         self.found.clear();
         self.collected.clear();
         self.bar_shown = (self.bar_shown - DT).max(0);
-        let me = Vec3::new(self.player.pos[0] as f32, self.player.pos[1] as f32, self.player.pos[2] as f32);
         // A standing jump never eats a bone in level 11: the touch in the
         // air is skipped while 0x800c4bc4 is 1 (0x8005ed2c).
         let airborne = matches!(self.player.state, State::Jump | State::Fall);
         let no_bone = self.level == Level::CIRCUS && airborne && self.player.standing_jump;
-        // On the ground the walk's probes touch it (`touchable`).
+        // The walk's probes on the ground (0x8005e1f4) and the air's move
+        // test (0x8005ee78) touch it (`touchable`).
         let walked = self.player.touched.and_then(|k| self.touchable_of(k));
         // Kind 16 has no touch (0x80049244): decoration.
         for (i, g) in self.goodies.iter_mut().enumerate().filter(|(_, g)| !g.taken && g.kind != 16 && !(no_bone && g.kind == goodie::BONE)) {
-            let r = self.set.models.get(g.shape).map_or(256.0, |m| m.radius as f32) + RADIUS as f32;
-            let d = g.pos - me;
-            let touched = if airborne {
-                // (In the air, as near as the body's radius across.)
-                Vec3::new(d.x, 0.0, d.z).length() < r && d.y.abs() < 1200.0
-            } else {
-                walked == Some(i)
-            };
+            let touched = walked == Some(i);
             if touched {
                 g.taken = true;
                 // Three sparks where it was (0x800514b0).

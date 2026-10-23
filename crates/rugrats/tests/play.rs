@@ -580,17 +580,22 @@ fn collect(g: &mut Game, want: impl Fn(&rugrats::world::game::Goodie) -> bool) -
             {
                 put(g, at, 0);
                 // Put inside it, the walk's probes start in its box and
-                // never meet it (0x80063d3c): off it the way he came, then
-                // at it again.
-                let back = [from[0] - at[0], from[2] - at[2]];
-                let len = ((back[0] as f32).hypot(back[1] as f32)).max(1.0);
-                let off = [at[0] + (back[0] as f32 * 900.0 / len) as i32, at[2] + (back[1] as f32 * 900.0 / len) as i32];
-                for _ in 0..30 {
-                    let me = g.player.pos;
-                    if ((me[0] - at[0]) as f32).hypot((me[2] - at[2]) as f32) > 700.0 || g.goodies[k].taken {
-                        break;
-                    }
-                    stride(g, off[0], off[1], false);
+                // never meet it (0x80063d3c): off it, then at it again.
+                // (The first of eight ways, the way he came first, whose
+                // floor 600 out is his own.)
+                let here = g.player.pos;
+                let feet = floor_under(g, here[0], here[2], here[1], 0).unwrap_or(here[1] - g.player.feet());
+                let back = ((from[0] - at[0]) as f32).atan2((from[2] - at[2]) as f32);
+                let off = (0..8)
+                    .map(|i| back + i as f32 * std::f32::consts::FRAC_PI_4)
+                    .map(|a| [here[0] + (a.sin() * 600.0) as i32, here[2] + (a.cos() * 600.0) as i32])
+                    .find(|o| floor_under(g, o[0], o[1], feet - 300, 0).is_some_and(|f| (f - feet).abs() < 100));
+                if let Some(off) = off
+                    && !g.goodies[k].taken
+                {
+                    g.player.pos = [off[0], feet + g.player.feet(), off[1]];
+                    g.player.speed = 0;
+                    run(g, &[(&[], 2)], |g, _| cine = cine.or(g.cine.take()));
                 }
             }
             // At it with the stick until taken. (Put down 100 up, he lands

@@ -1318,7 +1318,18 @@ impl Player {
                 r => r,
             }
         };
-        let out = match probe(way) {
+        let first = probe(way);
+        // Held by a collectible: it is touched and no step is taken, as
+        // nothing held it, before any slide (0x8005e1f4 at 0x8005e31c).
+        if let ground::Probed::Held { record: ground::Record { hit: Some((k, _)), .. }, .. } = first
+            && k >= solids.len()
+        {
+            self.touched = Some(k - solids.len());
+            st.met.hit = None;
+            self.probes = st;
+            return ((0, 0), None, false);
+        }
+        let out = match first {
             ground::Probed::Clear(_) => (along(way, len, trig), None, false),
             p @ ground::Probed::Held { record, slide } => {
                 let a = p.slant().abs();
@@ -1344,16 +1355,6 @@ impl Player {
                     _ => ((0, 0), Some(record), true),
                 }
             }
-        };
-        // Held by a collectible: it is touched and no step is taken, as
-        // nothing held it (0x8005e1f4 at 0x8005e31c).
-        let out = match out.1.and_then(|r| r.hit) {
-            Some((k, _)) if k >= solids.len() => {
-                self.touched = Some(k - solids.len());
-                st.met.hit = None;
-                ((0, 0), None, false)
-            }
-            _ => out,
         };
         if st.met.hit.is_some_and(|(k, _)| k >= solids.len()) {
             st.met.hit = None;
@@ -1793,14 +1794,31 @@ impl Player {
                 landed = true;
             }
         }
-        let near: Vec<ground::Near> = solids.iter().map(|e| ground::Near { solid: &e.solid, skip: false }).collect();
+        let touchable = self.touchable.clone();
+        let near: Vec<ground::Near> =
+            solids.iter().chain(touchable.iter()).map(|e| ground::Near { solid: &e.solid, skip: false }).collect();
         let (lo, hi) = self.body_box();
         let low = self.lowest_joint(anims, trig);
         let mut st = self.probes;
         st.below = None;
+        // A collectible met (+0xf4 of class 11): touched (0x8005ed2c), and
+        // the move had as if nothing was (0x8005ee78).
+        let mut touched = None;
+        let mut touch = |r: ground::Air, st: &mut ground::Probes| match st.met.hit {
+            Some((k, _)) if k >= solids.len() => {
+                st.met.hit = None;
+                if r != ground::Air::Clear && r != ground::Air::Land {
+                    touched = touched.or(Some(k - solids.len()));
+                    return ground::Air::Clear;
+                }
+                r
+            }
+            _ => r,
+        };
         if d[0] != 0 || d[2] != 0 {
             let g = ground::Ground { col, trig, near: &near, body: ground::Body { lo, hi }, limit: self.step_limit, angles: [self.heading as i16, 0, 0], reflect: false, low };
             let r = g.air(self.pos, [d[0], 0, d[2]], plane, &mut self.floor, &mut st);
+            let r = touch(r, &mut st);
             self.probes = st;
             let (moved, land) = self.air_react(r, [d[0], 0, d[2]], saved, lift, col, trig, solids, anims, again);
             st = self.probes;
@@ -1812,12 +1830,16 @@ impl Player {
             let low = self.lowest_joint(anims, trig);
             let g = ground::Ground { col, trig, near: &near, body: ground::Body { lo, hi }, limit: self.step_limit, angles: [self.heading as i16, 0, 0], reflect: false, low };
             let r = g.air(self.pos, [0, d[1], 0], plane, &mut self.floor, &mut st);
+            let r = touch(r, &mut st);
             self.probes = st;
             let (moved, land) = self.air_react(r, [0, d[1], 0], saved, lift, col, trig, solids, anims, again);
             landed |= land;
             self.pos[1] += moved[1];
         } else {
             self.probes = st;
+        }
+        if touched.is_some() {
+            self.touched = touched;
         }
         landed
     }

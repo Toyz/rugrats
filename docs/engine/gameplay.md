@@ -969,6 +969,23 @@ A flight meeting the world (0x80087594, 0x80086668):
 - then plays its sound (launch +0x64);
 - and makes its mark (launch +0x46, +0x65..+0x68 into record +0x2a,
   +0x89..+0x8c; 0x8008652c): laid by the normal, grey the COL tile's shade.
+  Its face word (record +0x2c) is 0xc080be00 on a wall (the normal's y 0)
+  and 0xc0802e00 else, with 0x2000000 (semi) for +0x89. The words are
+  0x800243c4's (0x80023c2c): the top two bits the primitive (3 a quad),
+  0x800000 textured, 0x2000000 and 0x1000000 the POLY's semi and raw bits
+  (0x800233f4: code 0x2c), 0x600000 the page's blend; 0x200 a screen test,
+  0x400 skip a face with a corner clipped (vertex +6 & 48), 0x800 skip one
+  wholly off one side; 32, 64, 128, 256 keep the flag word, the corners,
+  the texture and the colour for the next face; 0x7000 the ordering
+  table's depth (0x800221cc: 0 the first corner's, 0x1000 the last's,
+  0x2000 their mean, 0x3000 the nearest, 0x4000 the farthest) and 0x8000
+  64 nearer. So a wall's mark goes in at its nearest corner pulled 64
+  forward, a floor's at its mean. Drawn (0x8008e508): one quad, or with
+  +0x2c bit 0x8000000 a 3 x 3 grid of four (D_800b6d98, the word | 416);
+  grey 128 when its flight's launch room (+0x38 into the mark's +0x0a) has
+  flag 8 (room +0x0c), else its own. The port has a depth buffer: its
+  decals pass equal depths and are pulled forward by a bias, and it keeps
+  the room's flag 8.
   The mark pool holds 8 (0x8008e824's 128, at most 8), newest first; a new
   mark with the pool full takes the oldest's place. One made through
   0x8008e72c (+0x66 set) lasts until so taken, else it is drawn once and
@@ -1150,8 +1167,6 @@ A suggested order, each step checkable against the oracle:
   and the draws 0x8006f88c .. 0x80034a98 (NPCs, effects: guesses; the
   characters' shadows are 0x8003414c, above).
 - The HUD elements: which pool shows what.
-- The marks' face bits (0xc080be00 or 0xc0802e00 by the tile's +4) and
-  their drawing (0x8008e508); the port lays them as the pies'.
 - Which VSync count the thinks read on the hardware (the oracle reads the
   frame's start in one harness, one later in another).
 - LP kind 7, record +0x46..+0x4a (template 835 chains), and template

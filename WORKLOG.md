@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-247 entries: audio 21, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 30, format 9, input 5, play 127, render 34, save 4, test 28, tooling 18, ui 13, video 10.
+248 entries: audio 21, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 30, format 9, input 5, play 127, render 35, save 4, test 28, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -259,3 +259,4 @@ The [reference](docs/README.md) says what is true now.
 | 245 | [Collectibles met by the walk's probes](worklog/0245-collectibles-met-by-the-walk-s-probes.md) | 2026-10-23 | play |
 | 246 | [A room's follow camera snaps as the original's switch](worklog/0246-a-room-s-follow-camera-snaps-as-the-original-s-switch.md) | 2026-10-23 | play |
 | 247 | [Collectibles in the air, and before the slide](worklog/0247-collectibles-in-the-air-and-before-the-slide.md) | 2026-10-23 | play |
+| 248 | [The marks' face word, and the flight quads' screen test](worklog/0248-the-marks-face-word-and-the-flight-quads-screen-test.md) | 2026-10-23 | render |

@@ -178,6 +178,8 @@ pub enum Skin {
 pub struct Flight {
     /// +0x08 flags, +0x0c lifetime left (ms).
     pub flags: u32,
+    /// +0x38: the room it was launched in (its marks' room).
+    pub room: Option<usize>,
     pub life: i32,
     /// +0x10 position, +0x1c radius, +0x24 the quad's roll; +0x20 and
     /// +0x22 the model's other two angles (0x80020ee0 takes +0x20, +0x22,
@@ -395,7 +397,7 @@ pub struct Flights {
     /// and where.
     pub heard: Vec<(u8, [i32; 3])>,
     /// The marks of what met the world this frame, where and its normal.
-    pub marked: Vec<(Mark, [i32; 3], [i32; 3])>,
+    pub marked: Vec<(Mark, [i32; 3], [i32; 3], Option<usize>)>,
     /// What flights met besides the world this frame: what, where, their
     /// damage and flags.
     pub struck: Vec<(Hit, [i32; 3], i16, u32)>,
@@ -574,13 +576,14 @@ impl Flights {
         self.launched.push(*l);
         // Its room: none, no flight (with no rooms known, anywhere); the
         // start kept inside the room's box.
-        let at = if self.rooms.is_empty() {
-            l.at
+        let (at, room) = if self.rooms.is_empty() {
+            (l.at, None)
         } else {
-            let Some((lo, hi)) = self.rooms.iter().find(|(lo, hi)| (0..3).all(|k| lo[k] <= l.at[k] && l.at[k] <= hi[k])) else {
+            let Some(k) = self.rooms.iter().position(|(lo, hi)| (0..3).all(|k| lo[k] <= l.at[k] && l.at[k] <= hi[k])) else {
                 return false;
             };
-            [0, 1, 2].map(|k| l.at[k].max(lo[k]).min(hi[k]))
+            let (lo, hi) = self.rooms[k];
+            ([0, 1, 2].map(|k| l.at[k].max(lo[k]).min(hi[k])), Some(k))
         };
         if self.len() >= POOL {
             return false;
@@ -598,6 +601,7 @@ impl Flights {
         };
         let mut f = Flight {
             flags,
+            room,
             life: l.life,
             pos: at,
             radius: l.radius.max(0),
@@ -706,7 +710,7 @@ impl Flights {
             // test (0x80087414) found.
             if let Some(m) = f.mark {
                 for &(point, normal) in &met {
-                    self.marked.push((m, point, normal));
+                    self.marked.push((m, point, normal, f.room));
                 }
             }
             if hit != 0 && f.sound != 0 {
@@ -744,14 +748,18 @@ impl Flights {
     /// Not here: the screen-edge cull (0x8008a954 draws a quad only when
     /// one of its first three corners is near the screen) and the split
     /// into four quads with face flag 0x8000000.
-    pub fn draw(&self, view: (Vec3, Mat3), sprites: Option<&Sprites>, out: &mut Vec<Vtx>) {
+    /// `seen` is the screen test 0x8008a954 makes of each (its place, roll
+    /// and half size): in the camera between 0 and 65535 ahead, and one of
+    /// its corners (-w, -h), (w, -h), (-w, h) on the screen within 167 /
+    /// 128 of its extents.
+    pub fn draw(&self, view: (Vec3, Mat3), seen: impl Fn([i32; 3], i32, [i32; 2]) -> bool, sprites: Option<&Sprites>, out: &mut Vec<Vtx>) {
         let (eye, rows) = view;
         let (right, down, ahead) = (rows.row(0), rows.row(1), rows.row(2));
         let quads = self.iter().filter(|f| matches!(f.kind(), 3 | 5..=11)).take(QUADS);
         for f in quads {
             let at = Vec3::new(f.pos[0] as f32, f.pos[1] as f32, f.pos[2] as f32);
             let z = ahead.dot(at - eye);
-            if !(0.0..65536.0).contains(&z) {
+            if !(0.0..65536.0).contains(&z) || !seen(f.pos, f.roll, [f.size[0] as i32, f.size[1] as i32]) {
                 continue;
             }
             let texture = match f.skin {

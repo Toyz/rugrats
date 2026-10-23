@@ -72,6 +72,8 @@ pub struct Flown {
     /// What it meets is met by a segment of its reach's radius (flag
     /// 0x40000000: the pies).
     pub grows: bool,
+    /// The room it was launched in (+0x38, 0x8008864c).
+    pub room: Option<usize>,
 }
 
 /// The pies' mark (0x80061c98: desc +0x46 284, +0x68 900).
@@ -103,6 +105,8 @@ pub struct Ended {
     /// The point it met, and the tile there if it was the world.
     pub point: [i32; 3],
     pub world: bool,
+    /// The room its flight was launched in (+0x38).
+    pub room: Option<usize>,
 }
 
 /// The mark a flight leaves where it hits (0x8008652c with record +0x2a,
@@ -414,7 +418,7 @@ impl Game {
             t.state = ThingState::Rest;
             t.flown = None;
             t.hidden = true;
-            self.ended.push(Ended { thing: k, at: f.pos, normal, point, world: met_world });
+            self.ended.push(Ended { thing: k, at: f.pos, normal, point, world: met_world, room: f.room });
             return touched;
         }
         if bits & 2 != 0 {
@@ -699,7 +703,8 @@ impl Game {
         let t = &self.things[k];
         let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
         let rooms = &self.flights.rooms;
-        if !rooms.is_empty() && !rooms.iter().any(|(lo, hi)| (0..3).all(|i| lo[i] <= at[i] && at[i] <= hi[i])) {
+        let room = rooms.iter().position(|(lo, hi)| (0..3).all(|i| lo[i] <= at[i] && at[i] <= hi[i]));
+        if !rooms.is_empty() && room.is_none() {
             self.things[k].state = ThingState::Rest;
             self.things[k].flown = None;
             return false;
@@ -708,6 +713,7 @@ impl Game {
         let rolls = !hurts_player(&self.set.templates, t.template);
         let f = Flown {
             pos: [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32],
+            room,
             radius,
             bounce: bounce_of(&self.set.templates, t.template),
             objects: !t.world_only,
@@ -798,9 +804,12 @@ impl Game {
     /// A mark made where a flight met something (0x8008652c): laid by
     /// the normal (0x8008e6c8: x -asin(-ny), y ratan2(-nx, -nz)), grey the
     /// COL tile's shade there on the world (else 128), put in the pool.
-    pub(super) fn put_mark(&mut self, spec: &crate::world::flights::Mark, point: [i32; 3], n: [i32; 3], world: bool) {
+    pub(super) fn put_mark(&mut self, spec: &crate::world::flights::Mark, point: [i32; 3], n: [i32; 3], world: bool, room: Option<usize>) {
         let angles = [self.trig.ratan2(-n[0], -n[2]) as i16, (-self.trig.asin(-n[1])) as i16, 0];
-        let grey = if world { self.shade_at(point).unwrap_or(128) } else { 128 };
+        // (Drawn grey 128 when its flight's room, +0x38 into the mark's
+        // +0x0a, has flag 8, room +0x0c: 0x8008e508.)
+        let lit = room.and_then(|k| self.set.room_info.get(k)).is_some_and(|r| r.flags & 8 != 0);
+        let grey = if world && !lit { self.shade_at(point).unwrap_or(128) } else { 128 };
         if self.marks.len() >= MARKS
             && let Some(old) = self.marks.pop()
             && let Some(slot) = old.sequence
@@ -1705,7 +1714,7 @@ impl Game {
                 let me = self.player.pos;
                 self.play_at(46, me);
                 let spec = crate::world::flights::Mark { sprite: PIE_MARK as u16, size: PIE_MARK_SIZE as u16, flags: [0; 3] };
-                self.put_mark(&spec, e.point, e.normal, e.world);
+                self.put_mark(&spec, e.point, e.normal, e.world, e.room);
             }
         }
         // Touch 1's sound at the object, once its count runs out

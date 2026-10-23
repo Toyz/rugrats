@@ -389,7 +389,11 @@ texture; 64 a frame, 0x8008b088(64)). 0x8008a954 takes each into the
 camera (skipped unless 0 <= z < 65536), builds the corners (-w, -h), (w,
 -h), (-w, h), (w, h) turned by the roll (rcos, -rsin; rsin, rcos) and
 scaled as the view is (0x8001e0f4), and draws it through 0x8002390c
-(face 0x8000000: as four quads). The FT4 (0x800233f4) takes the colour,
+(face 0x8000000: as four quads about the centre, the corners' and the
+edges' midpoints made by three more RTPTs). Before that it projects the
+corners (-w, -h), (w, -h) and (-w, h) and draws the quad only when one of
+them is on the screen within 167 / 128 of its extents (0x800c4a00 +4 and
++6, 512 and 240: |sx| < 668 and |sy| < 313). The FT4 (0x800233f4) takes the colour,
 the semi-transparency bit 25 (0x02000000) and the tpage | (flags &
 0x600000), so 0xd2a00000 and 0xc2a00000 blend additively (mode 1) and
 0xd0800000 / 0xc0800000 are opaque.

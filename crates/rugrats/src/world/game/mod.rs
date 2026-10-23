@@ -2156,8 +2156,8 @@ impl Game {
         for (sound, at) in std::mem::take(&mut self.flights.heard) {
             self.play_at(sound, at);
         }
-        for (m, point, normal) in std::mem::take(&mut self.flights.marked) {
-            self.put_mark(&m, point, normal, true);
+        for (m, point, normal, room) in std::mem::take(&mut self.flights.marked) {
+            self.put_mark(&m, point, normal, true, room);
         }
         // Hazards (template flag 0x200000, their touch 0x8004e0f4): walking
         // into one costs its +0x6d and sets the player's +0x188 bit 256
@@ -2358,7 +2358,29 @@ impl Game {
             let at = Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32);
             models::model_triangles(&shard.model, shard.base * spin, at, &mut moving);
         }
-        self.flights.draw(self.view, self.sprites.as_ref(), &mut moving);
+        let eye = self.render_eye();
+        let trig = &self.trig;
+        let seen = |at: [i32; 3], roll: i32, [w, h]: [i32; 2]| {
+            let c = eye.camera([0, 1, 2].map(|k| at[k].wrapping_sub(eye.at[k])));
+            if !(0..65536).contains(&c[2]) {
+                return false;
+            }
+            if c[2] == 0 {
+                return true;
+            }
+            // The corners turned by the roll (rcos, -rsin; rsin, rcos), x
+            // scaled as the view (0x8001e0f4), projected (RTPT).
+            let (s, co) = (trig.sin(roll), trig.cos(roll));
+            let [sw, sh] = [visible::SCREEN[2] * 167 >> 7, visible::SCREEN[3] * 167 >> 7];
+            [(-w, -h), (w, -h), (-w, h)].iter().any(|&(x, y)| {
+                let rx = (((co * x - s * y) >> 12) * 512) / 320;
+                let ry = (s * x + co * y) >> 12;
+                let sx = ((c[0] + rx) as i64 * eye.h as i64 / c[2] as i64) as i32;
+                let sy = ((c[1] + ry) as i64 * eye.h as i64 / c[2] as i64) as i32;
+                sx.abs() < sw && sy.abs() < sh
+            })
+        };
+        self.flights.draw(self.view, seen, self.sprites.as_ref(), &mut moving);
         if let Some(s) = &self.sprites {
             for m in &self.marks {
                 let r = self.trig.rotation(m.angles);

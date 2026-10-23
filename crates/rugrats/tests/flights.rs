@@ -217,7 +217,7 @@ fn a_flame_flies_as_in_the_original() {
         ([26954, -4017, -5937], 690, 1730, (4, 190)),
     ];
     for (k, (&dt, w)) in STEPS.iter().zip(want).enumerate() {
-        f.step(&col, Some(&sprites), dt);
+        f.step(&col, None, Some(&sprites), dt);
         let fl = f.iter().next().unwrap();
         assert_eq!((fl.pos, fl.life, fl.size[0], fl.size[1]), (w.0, w.1, w.2, w.2), "step {k}");
         assert_eq!(fl.radius, w.2 as i32);
@@ -228,10 +228,10 @@ fn a_flame_flies_as_in_the_original() {
     // At dt 10 (33 ms a frame) it lives 690 / 33 more frames, then lets its
     // sequence go.
     for _ in 0..20 {
-        f.step(&col, Some(&sprites), 10);
+        f.step(&col, None, Some(&sprites), 10);
     }
     assert_eq!(f.len(), 1);
-    f.step(&col, Some(&sprites), 10);
+    f.step(&col, None, Some(&sprites), 10);
     assert!(f.is_empty());
     assert_eq!(f.sequences.running(), 0);
 }
@@ -250,7 +250,7 @@ fn an_explosion_stands_as_in_the_original() {
     );
     let Skin::Sequence(slot) = fl.skin else { panic!("no sequence") };
     for (dt, life, frame) in [(15, 4950, (0, 100)), (20, 4884, (0, 34)), (20, 4818, (1, 118)), (15, 4768, (1, 68))] {
-        f.step(&col, Some(&sprites), dt);
+        f.step(&col, None, Some(&sprites), dt);
         assert_eq!(f.iter().next().unwrap().life, life);
         assert_eq!(f.sequences.frame(slot), Some(frame));
     }
@@ -288,10 +288,10 @@ fn debris_flies_and_ends() {
         assert!(fl.v.iter().all(|c| c.abs() <= 100 * 65536 / 6000), "{:?}", fl.v);
     }
     for _ in 0..30 {
-        f.step(&col, Some(&sprites), 10);
+        f.step(&col, None, Some(&sprites), 10);
     }
     assert_eq!(f.len(), 10);
-    f.step(&col, Some(&sprites), 10);
+    f.step(&col, None, Some(&sprites), 10);
     assert!(f.is_empty());
 }
 
@@ -466,7 +466,6 @@ fn a_door_sign_sparkles() {
 #[test]
 fn a_thrown_thing_knocks_parts_off() {
     use rugrats::input::Pads;
-    use rugrats::world::game::ThingState;
     let Some(disc) = disc() else { return };
     let mut g = rugrats::world::game::Game::open(&disc, rugrats::levels::Level(3)).unwrap();
     let pads = Pads::default();
@@ -483,7 +482,7 @@ fn a_thrown_thing_knocks_parts_off() {
     let shape = g.things[k].shape;
     let bottom = g.set.models.get(shape).and_then(|m| m.boxes.iter().map(|x| x.1[1]).max()).unwrap_or(0);
     g.things[k].pos = rrt::glam::Vec3::new((x - 200) as f32, (y - bottom as i32) as f32, b.pos.z);
-    g.things[k].state = ThingState::Flying([600, 0, 0]);
+    g.start_flight(k, [600, 0, 0]);
     let mut parts = 0;
     for _ in 0..20 {
         g.frame(&pads);

@@ -69,7 +69,15 @@ GRAB:
 1. Carrying, not in levels 5, 20, 21 and not a pie (template 564): if
    0x80063888 says there is room, state 8 (put down).
 2. Else 0x800631d8 finds the touched object (+0xf4), skipping the one
-   stood on (+0xf8).
+   stood on (+0xf8) and any bearing a load (+0x74). Going down the
+   nearby list (+0x100), one whose first box rests on the nearest so far
+   (0x8006c7a0's test) is taken over it at any distance (the nearest
+   forgotten even when the new one is out of reach) unless that one is a
+   character (+0xa6 1) or has a use (+0x54); one under it is passed over.
+   The reach: 4095 above to 511 below, the floor square root across
+   (0x8001f4ec, the height zeroed) within the body box's depth + 1800
+   (D_800c4308), the way's ratan2 (0x8009f278, 0x800760f4) less the
+   heading, brought within half a turn, strictly within D_800c430a.
 3. Touched object with bit 0x10000, outside golf (23-31): with a use
    callback (+0x54) call it as (obj, player, 0); a result of -1 means
    "pick me up". Without one, and with empty hands, pick it up. Pick up =
@@ -228,10 +236,58 @@ full; a magnitude of 1856). Each frame (0x8008851c(dt), list 0x800c4ce8,
 
 The thrown object's think 0x8004df94: while +0x6b is not 255 it only
 keeps its room up to date (0x8004a34c). At 255: clears the flight flag;
-if the flight hit an object (+0x98), 0x8006c7a0 decides which rests on
-which (+0x70 / +0x74); +0x90 = 0, +0x6b = 0, +0x44 = 0, returns -1 (off
-the scheduler). In training (state +0x30 bit 64) it posts ForceCry and
-clears bit 64.
+if the flight met an object (+0x98), 0x8006c7a0 decides which rests on
+which (+0x70 / +0x74, below); +0x90 = 0, +0x6b = 0, +0x44 = 0, returns -1
+(off the scheduler). In training (state +0x30 bit 64) it posts ForceCry
+and clears bit 64.
+
+A flight's object meet: 0x80086668 with flag 0x20000 runs 0x80086340
+over the rooms' lists, 0x8006a824 each object's 0x8006a714 (template
+flag 8 skipped): the bound's cube, then the posed parts for template
+flag 0x2000 (0x8006a318) or the boxes (0x8006a008, 0x80069c40), each box
+grown by the flight's radius with flag 0x40000000, the pies.
+
+A flight's +0x98 is the last object it met that is not a character
+(object flag 0x4000), set at each meet by 0x80087594 and 0x80086ef0 and
+0 when the record is made (0x80086114): the object bounced off last, even
+far from where it comes to rest.
+
+### Which rests on which (0x8006c7a0)
+
+0x8006c7a0(a, b), a the thrown object, b the one met. Each of a's boxes
+(+0x88's list, +0xc, 16 bytes: x0 y0 z0 . x1 y1 z1 .; a count of 0 takes
+the object's own +0x78 box, no +0x88 the hierarchy's +0x154 + 4) in turn:
+
+1. Its middle ((lo + hi) / 2, toward zero) turned by a's angles
+   (0x80075ee8) plus a's place; less b's place, turned into b's frame
+   (0x80020ee0's matrix of b's angles, 0x8009f6f8).
+2. Grown across by the larger of the box's half-width and half-depth,
+   and up and down by 3/4 of its height: the first of b's boxes holding
+   that point (inclusive) marks a inside. The box of b tested last is
+   kept, found or not, and inside stays marked for a's later boxes (a
+   later box held by none is judged by b's last box).
+3. Inside: with h = half the box's height and n the smaller of h and
+   b's box's half-height, the box's top (point y - h) below b's top: 2
+   (b rests on a) if |b's bottom - top| < n; else 1 (a rests on b) if
+   |b's top - (point y + h)| < n. Else on to a's next box.
+
+None says: 0. Checked against the original (things_stack_as_the_original:
+level 3's planks and tipped pillars, level 6's boxes, a moved about b on
+a grid, 5460 answers not 0 the same, none off).
+
+The think on its answer (0x8004e018, 0x8004e030):
+
+- 1: a +0x70 = b; a put in b's +0x74 (0x8001a1c0: a ring of nodes
+  {next, prev, item}; the list word is the newest node, its next the
+  oldest).
+- 2: b's +0x74 = 0x8001a1c0(a's +0x74, b) and b's +0x70 = a's +0x70. a's
+  list is empty (what rested on it fell when it was picked up), so b is
+  left bearing itself: never touched again (0x800631d8 skips it).
+
+The pick-up (0x800601e4) takes the object off its +0x70's list
+(0x8001a810) and drops each on its own list, oldest first (0x8001a534,
+0x80062928: 0x80061f88 with (0, 0, 4096) unturned at speed 10 and no
+thrower, its think 0x8004df94 again, its +0x48 and +0x50).
 
 ### Effect flights (0x8008864c, 0x80086114, 0x80087c5c, 0x80088388)
 
@@ -707,12 +763,9 @@ here (guess: dead, or left from an older menu).
 - The hand slots' real names (12, 15). (+0xe0 bits 2048 and 16 are the
   animation frames' events: FRM +0x00, or'd in as a frame ends,
   0x80055d40.)
-- 0x8006c7a0's stacking rule. (A flight's object meet: 0x80086668 with
-  flag 0x20000 runs 0x80086340 over the rooms' lists, 0x8006a824 each
-  object's 0x8006a714 (template flag 8 skipped): the bound's cube, then
-  the posed parts for template flag 0x2000 (0x8006a318) or the boxes
-  (0x8006a008, 0x80069c40), each box grown by the flight's radius with
-  flag 0x40000000, the pies.)
+- The nearby list's order (0x8006add8 over the rooms' lists): the port
+  goes down its things in their order, which decides 0x800631d8's ties
+  and its stacking preference.
 - What the kind 5 touches (8, 13, 15) throw; kinds 1, 2 and 4's
   drawing. (The +0x50 table 0x800b7eb0's class 10 entries, their
   record +0x98 and launches: gameplay.md, "Emitters". Entries 1, 8, 11,

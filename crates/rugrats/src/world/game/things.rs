@@ -40,10 +40,11 @@ pub struct Thing {
     pub pos: Vec3,
     pub rot: Mat3,
     pub state: ThingState,
-    /// What its flight last hit (record +0x98): an NPC, or the player as
-    /// `PLAYER_HIT`; and whether it has bounced off anything.
-    pub last_hit: Option<usize>,
-    pub bounced: bool,
+    /// The object its flight last met, not a character (the record's
+    /// +0x98, 0x80087594 and 0x80086ef0); and the object it rests on
+    /// (+0x70), as its flight's end judged ([`stacking`]).
+    pub met: Option<Held>,
+    pub on: Option<Held>,
     /// Its flight as the original's record keeps it (0x8008864c): a throw,
     /// a lob or a put-down.
     pub flown: Option<Flown>,
@@ -173,6 +174,67 @@ pub(super) enum Met {
     Player,
 }
 
+/// An object resting on another, or borne (+0x70, +0x74): a thing, or
+/// another object by its template and place.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Held {
+    Thing(usize),
+    Object(u16, [i32; 3]),
+}
+
+/// An object as the stacking tests see it: its place (+0x18), angles
+/// (+0x24) and model boxes (+0x88's, each (lo, hi) in its own frame).
+pub(super) struct Stacked {
+    pub pos: [i32; 3],
+    pub angles: [i16; 3],
+    pub boxes: Vec<([i32; 3], [i32; 3])>,
+}
+
+/// Box `lo`..`hi` of `a` against `b` (a step of 0x8006c7a0; 0x800631d8's
+/// test): the box's middle turned into the world (0x80075ee8) and into
+/// `b`'s frame (0x80020ee0, 0x8009f6f8); the first of `b`'s boxes holding
+/// it, each grown by the larger of the box's half-width and half-depth
+/// across and three quarters of its height up and down, sets `inside`;
+/// `last` is the box of `b` tested last, found or not. Then, `inside`, by
+/// `last`: the box's top within the smaller of the two half-heights of
+/// `last`'s bottom says 2 (`b` on `a`), else its bottom of `last`'s top 1
+/// (`a` on `b`).
+fn stack_box(trig: &Trig, (lo, hi): ([i32; 3], [i32; 3]), a: &Stacked, b: &Stacked, inside: &mut bool, last: &mut Option<([i32; 3], [i32; 3])>) -> u8 {
+    let mid = trig.turn_by(a.angles, [0, 1, 2].map(|i| (lo[i] + hi[i]) / 2));
+    let w = [0, 1, 2].map(|i| mid[i] + a.pos[i]);
+    let across = (((hi[0] - lo[0]) / 2) as i16).max(((hi[2] - lo[2]) / 2) as i16) as i32;
+    let tall = (3 * (hi[1] - lo[1]) / 4) as i16 as i32;
+    let p = trig.apply(&crate::world::boxhit::matrix(trig, b.angles), [0, 1, 2].map(|i| w[i] - b.pos[i]));
+    for &(blo, bhi) in &b.boxes {
+        *last = Some((blo, bhi));
+        let within = |i: usize, g: i32| p[i] >= blo[i] - g && p[i] <= bhi[i] + g;
+        if within(0, across) && within(1, tall) && within(2, across) {
+            *inside = true;
+            break;
+        }
+    }
+    let Some((blo, bhi)) = last.filter(|_| *inside) else { return 0 };
+    let half = (hi[1] - lo[1]) / 2;
+    let near = half.min((bhi[1] - blo[1]) / 2);
+    let top = p[1] - half;
+    if blo[1] < top {
+        if (bhi[1] - top).abs() < near { 2 } else { 0 }
+    } else if (blo[1] - (p[1] + half)).abs() < near {
+        1
+    } else {
+        0
+    }
+}
+
+/// Which of `a` and `b` rests on the other (0x8006c7a0): 1 `a` on `b`, 2
+/// `b` on `a`, 0 neither; by `a`'s boxes in turn ([`stack_box`]), the
+/// first to say. (A box held by none of `b`'s, after one that was, is
+/// judged by `b`'s last box, as the original's.)
+pub(super) fn stacking(trig: &Trig, a: &Stacked, b: &Stacked) -> u8 {
+    let (mut inside, mut last) = (false, None);
+    a.boxes.iter().map(|&ab| stack_box(trig, ab, a, b, &mut inside, &mut last)).find(|&r| r != 0).unwrap_or(0)
+}
+
 /// A throw asked for, waiting for its release: the carried thing, aimed
 /// at release as a plain or level 9 throw, or with a level's velocity.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -188,9 +250,6 @@ pub enum PendingThrow {
 /// The throw's animation speed (0x8005d11c: 0x800572a8(player, 18,
 /// 0x2000)).
 pub const THROW_ANIM_SPEED: i32 = 0x2000;
-
-/// [`Thing::last_hit`] for the player.
-pub(super) const PLAYER_HIT: usize = usize::MAX;
 
 /// A template's bounce (+0x36, into the object's +0xa2, clamped to 4095).
 fn bounce_of(templates: &[Template], template: u16) -> i32 {
@@ -317,8 +376,9 @@ impl Game {
                     let damage = self.things[k].damage;
                     match who {
                         // Its touch (+0x58, flag 0x40000): what it knocks
-                        // off.
+                        // off. Kept as the last met (+0x98).
                         Met::Object(template) => {
+                            self.things[k].met = Some(self.held_at(template, at, k));
                             let touch = self.set.templates.get(template as usize).map_or(0, |tp| tp.raw[0x0a]);
                             if (1..=7).contains(&touch) {
                                 let models = &self.set.models;
@@ -335,14 +395,12 @@ impl Game {
                             let c = self.npcs[n].character;
                             let r = self.rand.next() & 1;
                             self.speech.extend(hit_line(c, self.level, r));
-                            self.things[k].last_hit = Some(n);
                         }
                         // Damage(player, player, +0x8e), posted (0x800780ac).
                         Met::Player => {
                             if damage > 0 && !self.no_damage {
                                 self.post_damage(damage);
                             }
-                            self.things[k].last_hit = Some(PLAYER_HIT);
                         }
                     }
                 }
@@ -363,7 +421,6 @@ impl Game {
                     let s = (speed * f.bounce) >> 12;
                     v = r.map(|r| (r * s) >> 12);
                 }
-                self.things[k].bounced = true;
             }
         }
         let t = &mut self.things[k];
@@ -373,8 +430,6 @@ impl Game {
         if bits & 1 != 0 && f.ends_on_hit {
             t.state = ThingState::Rest;
             t.flown = None;
-            t.last_hit = None;
-            t.bounced = false;
             t.hidden = true;
             self.ended.push(Ended { thing: k, at: f.pos, normal, point, world: met_world });
             return touched;
@@ -382,8 +437,7 @@ impl Game {
         if bits & 2 != 0 {
             t.state = ThingState::Rest;
             t.flown = None;
-            t.last_hit = None;
-            t.bounced = false;
+            self.come_to_rest(k);
         } else {
             t.state = ThingState::Flying(v);
             t.flown = Some(f);
@@ -432,6 +486,7 @@ impl Game {
                 let damage = self.things[k].damage;
                 match who {
                     Met::Object(template) => {
+                        self.things[k].met = Some(self.held_at(template, at, k));
                         let touch = self.set.templates.get(template as usize).map_or(0, |tp| tp.raw[0x0a]);
                         if (1..=7).contains(&touch) {
                             let models = &self.set.models;
@@ -442,7 +497,7 @@ impl Game {
                         }
                     }
                     // A character (object flag 0x4000) is struck
-                    // (0x800780ac), and not kept as the last hit.
+                    // (0x800780ac), and not kept as the last met.
                     Met::Npc(n) => {
                         self.struck.push(Strike { npc: n, thing: k, damage });
                         let c = self.npcs[n].character;
@@ -459,7 +514,6 @@ impl Game {
                 f.pos = [0, 1, 2].map(|i| point[i] - ((u[i] * reach) >> 12));
                 let s = (collide::length(v) * f.bounce) >> 12;
                 v = r.map(|r| (r * s) >> 12);
-                self.things[k].bounced = true;
             }
         }
         let rolling = self.roll_on(&mut f.pos, &mut v, reach, dt);
@@ -471,8 +525,7 @@ impl Game {
         } else {
             t.state = ThingState::Rest;
             t.flown = None;
-            t.last_hit = None;
-            t.bounced = false;
+            self.come_to_rest(k);
         }
         touched
     }
@@ -671,6 +724,7 @@ impl Game {
             grows: false,
         };
         self.things[k].flown = Some(f);
+        self.things[k].met = None;
         self.things[k].state = ThingState::Flying(v);
     }
 
@@ -1077,48 +1131,99 @@ impl Game {
     /// cylinder, 3 x his body box's larger half-extent across and 3 x its
     /// height's, meets the thing's, its farthest model box corner
     /// round its place; a box of level 6, 577, is taken from 1324 straight
-    /// ahead and not from 1330), within 511 below to 4095 above him, his
-    /// box's depth + 1800 off, and strictly within a quarter turn of his
-    /// heading (D_800c430a; none from behind), the nearest; not the one he
-    /// stands on.
+    /// ahead and not from 1330), not the one he stands on nor one bearing
+    /// a load (+0x74), within 511 below to 4095 above him, his box's depth
+    /// + 1800 off, and strictly within a quarter turn of his heading
+    /// (D_800c430a; none from behind), the nearest. One resting on the
+    /// nearest so far (its first box by [`stack_box`]) is taken over it
+    /// at any distance, the nearest forgotten even if it is not in reach;
+    /// one under it is passed over.
     pub(super) fn touched(&self) -> Option<usize> {
         let p = &self.player;
         let me = p.pos;
-        self.things
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| t.state == ThingState::Rest && !t.hidden)
-            .filter_map(|(k, t)| {
-                let radius = self.set.models.get(t.shape).map_or(0, |m| corner_radius(&m.boxes));
-                let stood = p.support.is_some_and(|b| self.bodies.get(b).is_some_and(|b| b.template == t.template && b.covers(me, 0)));
-                let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
-                self.reaches(at, radius).filter(|_| !stood).map(|d| (k, d))
-            })
-            .min_by_key(|&(_, d)| d)
-            .map(|(k, _)| k)
+        let (mut best, mut nearest) = (None::<usize>, i32::MAX);
+        for (k, t) in self.things.iter().enumerate().filter(|(_, t)| t.state == ThingState::Rest && !t.hidden) {
+            let radius = self.set.models.get(t.shape).map_or(0, |m| corner_radius(&m.boxes));
+            let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
+            if !self.nearby(at, radius) {
+                continue;
+            }
+            let stood = p.support.is_some_and(|b| self.bodies.get(b).is_some_and(|b| b.template == t.template && b.covers(me, 0)));
+            if stood || !self.load(Held::Thing(k)).is_empty() {
+                continue;
+            }
+            let mut over = false;
+            if let Some(b) = best
+                && let (Some(mut a), Some(b)) = (self.stacked(Held::Thing(k)), self.stacked(Held::Thing(b)))
+            {
+                a.boxes.truncate(1);
+                match stacking(&self.trig, &a, &b) {
+                    2 => continue,
+                    // (Taken over unless the nearest is a character or
+                    // has a use, +0xa6 1 or +0x54: never a thing.)
+                    1 => {
+                        best = None;
+                        over = true;
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(d) = self.in_reach(at)
+                && (d < nearest || over)
+            {
+                nearest = d;
+                best = Some(k);
+            }
+        }
+        best
     }
 
-    /// Whether the player reaches an object at `at` whose farthest box
-    /// corner is `radius` out, as 0x800631d8 has it (see `touched`): its
-    /// distance across if so.
-    fn reaches(&self, at: [i32; 3], radius: i32) -> Option<i32> {
+    /// Whether an object at `at` whose farthest box corner is `radius`
+    /// out is in the player's nearby list (0x80062ed4, see `touched`).
+    fn nearby(&self, at: [i32; 3], radius: i32) -> bool {
         let p = &self.player;
         let (lo, hi) = p.body_box();
         let half = |i: usize| lo[i].abs().max(hi[i].abs());
-        let across = 3 * half(0).max(half(2));
-        let tall = 3 * half(1);
-        let reach = half(2) + 1800;
+        let (across, tall) = (3 * half(0).max(half(2)), 3 * half(1));
         let me = p.pos;
-        let off = |a: i32| (a + 2048).rem_euclid(4096) - 2048;
         let (dx, dy, dz) = (at[0] - me[0], at[1] - me[1], at[2] - me[2]);
         let d = ((dx as f32).hypot(dz as f32)) as i32;
-        let bearing = ((dx as f32).atan2(dz as f32) * 4096.0 / std::f32::consts::TAU) as i32;
-        (d <= across + radius
-            && dy.abs() <= tall + radius
-            && (-4095..512).contains(&dy)
-            && d <= reach
-            && off(bearing - p.heading).abs() < 1024)
-            .then_some(d)
+        d <= across + radius && dy.abs() <= tall + radius
+    }
+
+    /// Whether the player reaches an object at `at` (0x800631d8, see
+    /// `touched`): 4095 above to 511 below him, the floor square root
+    /// across (0x8001f4ec) within his box's depth + 1800 (D_800c4308), its
+    /// bearing (the way made a unit, 0x8009f278, and its ratan2,
+    /// 0x800760f4) strictly within D_800c430a of his heading. Its distance
+    /// across if so.
+    fn in_reach(&self, at: [i32; 3]) -> Option<i32> {
+        let p = &self.player;
+        let (lo, hi) = p.body_box();
+        let reach = lo[2].abs().max(hi[2].abs()) + 1800;
+        let me = p.pos;
+        let (dx, dy, dz) = (at[0].wrapping_sub(me[0]), at[1].wrapping_sub(me[1]), at[2].wrapping_sub(me[2]));
+        if !(-4095..512).contains(&dy) {
+            return None;
+        }
+        let d = (dx.wrapping_mul(dx).wrapping_add(dz.wrapping_mul(dz)) as u32).isqrt() as i16 as i32;
+        if reach < d {
+            return None;
+        }
+        let n = self.trig.normal([dx, 0, dz]);
+        let mut off = (self.trig.ratan2(n[0], n[2]) as i16 as i32) - (p.heading as i16 as i32);
+        while off < -2048 {
+            off += 4096;
+        }
+        while off >= 2049 {
+            off -= 4096;
+        }
+        (off.abs() < 1024).then_some(d)
+    }
+
+    /// [`Self::nearby`] and [`Self::in_reach`] together.
+    fn reaches(&self, at: [i32; 3], radius: i32) -> Option<i32> {
+        self.in_reach(at).filter(|_| self.nearby(at, radius))
     }
 
     /// What ACTION's use takes (0x800631d8 into +0xf4, then its +0x54):
@@ -1136,7 +1241,7 @@ impl Game {
         };
         if let Some(k) = self.touched() {
             let t = &self.things[k];
-            keep(Touched::Thing(k), Some(((t.pos.x as i32 - self.player.pos[0]) as f32).hypot((t.pos.z as i32 - self.player.pos[2]) as f32) as i32));
+            keep(Touched::Thing(k), self.in_reach([t.pos.x as i32, t.pos.y as i32, t.pos.z as i32]));
         }
         // (A character's +0x86, the nearby list's radius, 0x8006abbc, is
         // 8192, about the middle of its bound cube of 1773.)
@@ -1145,8 +1250,11 @@ impl Game {
         }
         for (k, door) in self.doors.iter().enumerate() {
             let radius = self.set.models.get(door.shape).map_or(0, |m| corner_radius(&m.boxes));
-            let at = self.set.placements.get(door.placement).map_or([0; 3], |q| q.pos);
-            keep(Touched::Door(k), self.reaches(at, radius));
+            let Some(q) = self.set.placements.get(door.placement) else { continue };
+            if !self.load(Held::Object(q.template as u16, q.pos)).is_empty() {
+                continue;
+            }
+            keep(Touched::Door(k), self.reaches(q.pos, radius));
         }
         for (k, q) in self.set.placements.iter().enumerate() {
             if q.kind != 1
@@ -1161,6 +1269,10 @@ impl Game {
                 continue;
             }
             let Some(m) = self.set.models.get(t.shape as u32) else { continue };
+            // (Not one bearing a load, +0x74.)
+            if !self.load(Held::Object(q.template as u16, q.pos)).is_empty() {
+                continue;
+            }
             keep(Touched::Placement(k), self.reaches(q.pos, corner_radius(&m.boxes)));
         }
         best.map(|(t, _)| t)
@@ -1380,6 +1492,19 @@ impl Game {
     /// The grab (0x800601e4 at +0xe0 bit 2048): the object in hand, held
     /// where the hands are now.
     fn grab(&mut self, k: usize) {
+        // Off what it rested on, and what rested on it dropped (0x800601e4:
+        // 0x8001a810, then 0x80062928 each, oldest first: (0, 0, 4096) at
+        // speed 10 from where it is).
+        if let Some(on) = self.things[k].on.take() {
+            self.load_mut(on).retain(|&h| h != Held::Thing(k));
+        }
+        for h in std::mem::take(self.load_mut(Held::Thing(k))) {
+            if let Held::Thing(j) = h {
+                let speed = (10 << 16) / 6000;
+                self.start_flight(j, [0, 0, (4096 * speed) >> 12]);
+            }
+        }
+        self.loads.retain(|(_, l)| !l.is_empty());
         let depth =
             self.set.models.get(self.things[k].shape).map_or(0, |m| m.boxes.iter().map(|b| b.1[2] as i32 - b.0[2] as i32).fold(0, i32::max));
         self.grip = self.grip_of(depth);
@@ -1397,6 +1522,87 @@ impl Game {
         }
         // The grab (0x800601e4): message 5.
         self.training.show(5);
+    }
+
+    /// The object a thing's flight met at `at` with `template`: a thing
+    /// resting there (not `k` itself), else the placed object.
+    fn held_at(&self, template: u16, at: [i32; 3], k: usize) -> Held {
+        self.things
+            .iter()
+            .enumerate()
+            .position(|(j, t)| j != k && t.template == template && t.state == ThingState::Rest && !t.hidden && boxes::ipos(t.pos) == at)
+            .map_or(Held::Object(template, at), Held::Thing)
+    }
+
+    /// `h` as the stacking tests see it: a thing's place, angles and
+    /// model boxes; another object's as this frame's solids have it.
+    fn stacked(&self, h: Held) -> Option<Stacked> {
+        let model = |shape: u32| self.set.models.get(shape).map(|m| m.boxes.iter().map(|(lo, hi)| (lo.map(|v| v as i32), hi.map(|v| v as i32))).collect());
+        match h {
+            Held::Thing(j) => {
+                let t = self.things.get(j)?;
+                Some(Stacked { pos: boxes::ipos(t.pos), angles: boxes::angles_of(&self.trig, t.rot), boxes: model(t.shape)? })
+            }
+            Held::Object(template, at) => self.solids.iter().find(|e| e.template == template && e.solid.pos == at).and_then(|e| match &e.solid.shape {
+                crate::world::boxhit::Shape::Model(b) => Some(Stacked { pos: at, angles: e.solid.angles, boxes: b.clone() }),
+                _ => None,
+            }),
+        }
+    }
+
+    /// Which of things `a` and `b`, where they are, rests on the other
+    /// ([`stacking`], 0x8006c7a0): 1 `a` on `b`, 2 `b` on `a`, 0 neither.
+    pub fn stacks(&self, a: usize, b: usize) -> u8 {
+        match (self.stacked(Held::Thing(a)), self.stacked(Held::Thing(b))) {
+            (Some(a), Some(b)) => stacking(&self.trig, &a, &b),
+            _ => 0,
+        }
+    }
+
+    /// The objects resting on `h` (+0x74).
+    pub fn load(&self, h: Held) -> &[Held] {
+        self.loads.iter().find(|(o, _)| *o == h).map_or(&[], |(_, l)| l.as_slice())
+    }
+
+    fn load_mut(&mut self, h: Held) -> &mut Vec<Held> {
+        let at = match self.loads.iter().position(|(o, _)| *o == h) {
+            Some(at) => at,
+            None => {
+                self.loads.push((h, Vec::new()));
+                self.loads.len() - 1
+            }
+        };
+        &mut self.loads[at].1
+    }
+
+    /// A thing's flight done (0x8004df94 at +0x6b 255, object flag
+    /// 0x10000000): with an object met (+0x98), 0x8006c7a0 judges which
+    /// rests on which. On it, it rests on the object (+0x70) and joins its
+    /// load; under it, the object's load is made the thing's with the
+    /// object put in (0x8001a1c0 on the thing's +0x74, stored in the
+    /// object's: the object then bears itself and is never touched) and
+    /// the object rests on what the thing rested on.
+    fn come_to_rest(&mut self, k: usize) {
+        let Some(m) = self.things[k].met.take() else { return };
+        let (Some(a), Some(b)) = (self.stacked(Held::Thing(k)), self.stacked(m)) else { return };
+        match stacking(&self.trig, &a, &b) {
+            1 => {
+                self.things[k].on = Some(m);
+                self.load_mut(m).push(Held::Thing(k));
+            }
+            2 => {
+                let mut l = self.load(Held::Thing(k)).to_vec();
+                if !l.is_empty() {
+                    self.load_mut(Held::Thing(k)).push(m);
+                }
+                l.push(m);
+                *self.load_mut(m) = l;
+                if let Held::Thing(j) = m {
+                    self.things[j].on = self.things[k].on;
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Flights (0x80087c5c): each thrown, lobbed or put down thing flown as

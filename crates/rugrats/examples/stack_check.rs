@@ -1,0 +1,173 @@
+//! One thing put down onto another, on the port and on the original:
+//! what each says rests on what (+0x70, +0x74, 0x8006c7a0), and what GRAB
+//! takes after.
+//!
+//! `stack_check LEVEL A B [AWAY] [HEADING]`
+//!
+//! Both players are put 700 from thing A (the port's index) facing it,
+//! Circle picks it up; then put AWAY (default 400) from thing B facing it
+//! along HEADING, Circle puts A down. Then Circle again (GRAB), and the
+//! thing each takes is printed. LIST=1 lists the things.
+use std::path::Path;
+use std::rc::Rc;
+
+use rugrats::disc::GameDisc;
+use rugrats::input::{self, Pads};
+use rugrats::levels::Level;
+use rugrats::save::progress::Progress;
+use rugrats::world::game::{Game, Held};
+use rrt::emu::{BusExt, Cpu};
+use rugrats_hle::play::{Boot, PLAYER, Play};
+
+/// The original's objects in the rooms' lists (0x800c4a8c).
+fn objects(p: &mut Play) -> Vec<u32> {
+    let rooms = p.read_u32(0x800c_4a8c);
+    let count = p.read_i32(0x800c_4a9c);
+    let mut out = Vec::new();
+    for r in 0..count.max(0) as u32 {
+        for list in [0x48u32, 0x4c] {
+            let mut node = p.read_u32(rooms + 112 * r + list);
+            while node != 0 {
+                out.push(p.read_u32(node + 8));
+                node = p.read_u32(node + 4);
+            }
+        }
+    }
+    out
+}
+
+/// The original's object nearest `at`.
+fn nearest(p: &mut Play, at: [i32; 3]) -> u32 {
+    let objs = objects(p);
+    objs.into_iter().map(|o| ((0..3).map(|i| (p.read_i32(o + 0x18 + 4 * i as u32) - at[i]).abs() as i64).sum::<i64>(), o)).min().map_or(0, |(_, o)| o)
+}
+
+/// The items of a 0x8001a1c0 ring from its oldest.
+fn ring(p: &mut Play, list: u32) -> Vec<u32> {
+    let mut out = Vec::new();
+    if list == 0 {
+        return out;
+    }
+    let mut node = p.read_u32(list);
+    loop {
+        out.push(p.read_u32(node + 8));
+        if node == list || out.len() > 16 {
+            break;
+        }
+        node = p.read_u32(node);
+    }
+    out
+}
+
+/// Both players `away` from `at` along `heading`, facing it, at the
+/// height they are.
+fn put(g: &mut Game, p: &mut Play, at: [i32; 3], heading: i32, away: i32) {
+    let a = heading as f64 * std::f64::consts::TAU / 4096.0;
+    let (x, z) = (at[0] - (a.sin() * away as f64) as i32, at[2] - (a.cos() * away as f64) as i32);
+    let pos = [x, g.player.pos[1], z];
+    p.put(pos, heading as i16);
+    g.player.pos = pos;
+    g.player.heading = heading;
+    g.player.target = heading;
+    g.player.speed = 0;
+    g.set_camera_yaw(heading as f32);
+}
+
+fn run(g: &mut Game, p: &mut Play, pads: &mut Pads, script: &[(u16, usize)], a: usize, oa: u32) -> Result<(), String> {
+    for &(bits, n) in script {
+        for _ in 0..n {
+            pads.push_bits(0, bits);
+            p.frame(bits)?;
+            g.frame(pads);
+            if std::env::var_os("TRACE").is_some() {
+                let me = p.player();
+                println!("  player port {:?} st {:?} act {:?} | orig {:?} st {} speed {}", g.player.pos, g.player.state, g.player.action, me.pos, me.state, me.speed);
+                if oa != 0 {
+                    let t = &g.things[a];
+                    println!("    A port {:?} {:?} | orig {:?}", [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32], t.state, [0, 4, 8].map(|i| p.read_i32(oa + 0x18 + i)));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn main() -> Result<(), String> {
+    let mut args = std::env::args().skip(1).map(|s| s.parse::<i32>().unwrap_or(0));
+    let level = args.next().unwrap_or(6) as u8;
+    let a = args.next().unwrap_or(0) as usize;
+    let b = args.next().unwrap_or(1) as usize;
+    let away = args.next().filter(|&a| a != 0).unwrap_or(400);
+    let heading = args.next().unwrap_or(0) & 4095;
+    let cue = rrt::disc::Image::find(Path::new("work/disc")).map_err(|e| e.to_string())?;
+    let disc = GameDisc::open(&cue)?;
+    let mut g = Game::open_from(&disc, Level(level), None, &Progress::default())?;
+    if std::env::var_os("LIST").is_some() {
+        for (i, t) in g.things.iter().enumerate() {
+            let boxes = g.set.models.get(t.shape).map(|m| m.boxes.clone()).unwrap_or_default();
+            println!("thing {i}: template {} at {:?} boxes {boxes:?}", t.template, t.pos);
+        }
+        return Ok(());
+    }
+    let character = Some(g.character as u32).filter(|&c| c != 1);
+    let mut p = Play::boot(Rc::new(rrt::disc::Image::open(&cue).map_err(|e| e.to_string())?), Boot { level, character, cinematics: false })?;
+    let ipos = |v: rrt::glam::Vec3| [v.x as i32, v.y as i32, v.z as i32];
+    let (pa, pb) = (ipos(g.things[a].pos), ipos(g.things[b].pos));
+    let ob = nearest(&mut p, pb);
+    // HOOKS=1: the original's stacking judged (0x8006c7a0) and its answer.
+    if std::env::var_os("HOOKS").is_some() {
+        p.hle.m.hook(0x8006_c7a0, |c| {
+            println!("     STACK {:#x} {:#x} ra {:#x}", c.arg32(0), c.arg32(1), c.cpu.reg(31));
+            rrt::emu::HookResult::Continue
+        });
+        p.hle.m.hook(0x8004_e018, |c| {
+            println!("     STACKED 1");
+            let _ = c;
+            rrt::emu::HookResult::Continue
+        });
+        p.hle.m.hook(0x8004_e030, |c| {
+            println!("     STACKED 2");
+            let _ = c;
+            rrt::emu::HookResult::Continue
+        });
+        p.hle.m.hook(0x8004_df94, |c| {
+            let o = c.arg32(0);
+            let fl = c.bus.read_u32(o + 0x90).unwrap_or(0);
+            let done = c.bus.read_u8(o + 0x6b).unwrap_or(0);
+            let flags = c.bus.read_u32(o).unwrap_or(0);
+            let met = if fl != 0 { c.bus.read_u32(fl + 0x98).unwrap_or(0) } else { 0 };
+            if std::env::var_os("THINKS").is_some() || done == 255 {
+                println!("     THINK {o:#x} flight {fl:#x} +0x6b {done} flags {flags:#x} met {met:#x}");
+            }
+            rrt::emu::HookResult::Continue
+        });
+        p.hle.m.hook(0x8004_dfd0, |c| {
+            println!("     DONE {:#x} flags {:#x}", c.cpu.reg(17), c.cpu.reg(3));
+            rrt::emu::HookResult::Continue
+        });
+        p.hle.m.hook(0x8004_dff0, |c| {
+            println!("     MET {:#x}", c.cpu.reg(2));
+            rrt::emu::HookResult::Continue
+        });
+    }
+    let mut pads = Pads::default();
+    put(&mut g, &mut p, pa, 0, 700);
+    run(&mut g, &mut p, &mut pads, &[(0, 6), (1 << input::CIRCLE, 1), (0, 40)], a, 0)?;
+    let oa = p.read_u32(PLAYER + 0x1f0);
+    println!("carried: port {:?} orig {oa:#x}", g.carried());
+    put(&mut g, &mut p, pb, heading, away);
+    // WALK=n: Up held n frames first.
+    let walk = std::env::var("WALK").ok().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+    run(&mut g, &mut p, &mut pads, &[(0, 4), (1 << input::UP, walk), (0, 20), (1 << input::CIRCLE, 1), (0, 90)], a, oa)?;
+    let me = p.player();
+    println!("player: port {:?} heading {} carried {:?} | orig {:?} heading {} carried {:#x}", g.player.pos, g.player.heading, g.carried(), me.pos, p.read_i16(PLAYER + 0x24), p.read_u32(PLAYER + 0x1f0));
+    let (oa_at, ob_at) = ([0, 4, 8].map(|i| p.read_i32(oa + 0x18 + i)), [0, 4, 8].map(|i| p.read_i32(ob + 0x18 + i)));
+    println!("A: port at {:?} on {:?} | orig {oa:#x} at {oa_at:?} on {:#x}", ipos(g.things[a].pos), g.things[a].on, p.read_u32(oa + 0x70));
+    let (ra, rb) = (p.read_u32(oa + 0x74), p.read_u32(ob + 0x74));
+    let (la, lb) = (ring(&mut p, ra), ring(&mut p, rb));
+    println!("B: port at {pb:?} load {:?} | orig {ob:#x} at {ob_at:?} load {lb:x?}", g.load(Held::Thing(b)));
+    println!("A load: port {:?} | orig {la:x?}", g.load(Held::Thing(a)));
+    run(&mut g, &mut p, &mut pads, &[(1 << input::CIRCLE, 1), (0, 40)], a, 0)?;
+    println!("GRAB: port {:?} orig {:#x}", g.carried(), p.read_u32(PLAYER + 0x1f0));
+    Ok(())
+}

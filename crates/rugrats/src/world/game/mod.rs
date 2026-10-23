@@ -60,7 +60,7 @@ pub use movers::Mover;
 pub use pause::PauseEnd;
 pub use shadow::Quad;
 pub use story::{hit_line, start_cine};
-pub use things::{Breakable, Ended, PieToss, Strike, THROW_ANIM_SPEED, Thing, ThingState, Touched};
+pub use things::{Breakable, Ended, Held, PieToss, Strike, THROW_ANIM_SPEED, Thing, ThingState, Touched};
 
 /// The trigger list's default radius (+0xa0 when the template's +0x34 is
 /// 0) and the entries its pass tests a frame (0x80072d38).
@@ -336,6 +336,9 @@ pub struct Game {
     pub state_block: [u8; STATE_SIZE],
     pub loaded: Option<Box<[u8; STATE_SIZE]>>,
     carried: Option<usize>,
+    /// The objects resting on each that bears any (+0x74, in the order
+    /// they came: 0x8001a1c0's ring, read from its oldest).
+    loads: Vec<(Held, Vec<Held>)>,
     grip: [i32; 3],
     /// The player's parts and rotation as last drawn (+0x158 and +4, the
     /// matrices an update reads: the frame's update runs before its draw,
@@ -739,8 +742,8 @@ impl Game {
                     pos: Vec3::new(p.pos[0] as f32, p.pos[1] as f32, p.pos[2] as f32),
                     rot: models::quat_matrix(p.rotation.map(|v| v as i16)).transpose(),
                     state: ThingState::Rest,
-                    last_hit: None,
-                    bounced: false,
+                    met: None,
+                    on: None,
                     flown: None,
                 }
             })
@@ -1130,6 +1133,7 @@ impl Game {
             state_block: progress.block,
             loaded: None,
             carried: None,
+            loads: Vec::new(),
             grip: [0; 3],
             pose_before: None,
             hidden: Default::default(),

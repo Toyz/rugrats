@@ -155,7 +155,7 @@ fn slab_into(a: [i32; 3], b: [i32; 3], size: [i32; 3], normal: &mut [i32; 3]) ->
 
 /// The rows' matrix of angles `a` as 0x80020ee0 builds it, MatrixNormal'd
 /// (row r, column c).
-fn matrix(trig: &Trig, a: [i16; 3]) -> [[i32; 3]; 3] {
+pub(crate) fn matrix(trig: &Trig, a: [i16; 3]) -> [[i32; 3]; 3] {
     trig.matrix_normal(trig.euler(a))
 }
 

@@ -2075,3 +2075,85 @@ fn emitters_launch_as_the_original() {
     }
     assert_eq!(bad, 0, "places with launches off");
 }
+
+/// Which of two things rests on the other (0x8006c7a0, a thrown thing's
+/// flight done against what it last met): thing `a` moved about thing
+/// `b` on a grid, on the port and on the original (its object's +0x18
+/// written, the function called), each answer compared. The count of
+/// answers the same and not 0, and of those off.
+fn stacking_as_the_original(level: u8, pairs: &[(usize, usize)]) -> (usize, usize) {
+    let cue = cue().unwrap();
+    let disc = GameDisc::open(&cue).unwrap();
+    let mut g = Game::open_from(&disc, Level(level), None, &Progress::default()).unwrap();
+    let character = Some(g.character as u32).filter(|&c| c != 1);
+    let mut p = Play::boot(Rc::new(rrt::disc::Image::open(&cue).unwrap()), Boot { level, character, cinematics: false }).unwrap();
+    let rooms = p.read_u32(0x800c_4a8c);
+    let count = p.read_i32(0x800c_4a9c);
+    let mut objects = Vec::new();
+    for r in 0..count.max(0) as u32 {
+        for list in [0x48u32, 0x4c] {
+            let mut node = p.read_u32(rooms + 112 * r + list);
+            while node != 0 {
+                objects.push(p.read_u32(node + 8));
+                node = p.read_u32(node + 4);
+            }
+        }
+    }
+    let ipos = |v: rrt::glam::Vec3| [v.x as i32, v.y as i32, v.z as i32];
+    let (mut same, mut off) = (0, 0);
+    for &(a, b) in pairs {
+        let of = |p: &mut Play, k: usize| {
+            let at = ipos(g.things[k].pos);
+            objects
+                .iter()
+                .map(|&o| ((0..3).map(|i| (p.read_i32(o + 0x18 + 4 * i as u32) - at[i]).abs() as i64).sum::<i64>(), o))
+                .min()
+                .map_or(0, |(_, o)| o)
+        };
+        let (oa, ob) = (of(&mut p, a), of(&mut p, b));
+        let (start, home) = (g.things[a].pos, ipos(g.things[b].pos));
+        let saved = [0, 4, 8].map(|i| p.read_i32(oa + 0x18 + i));
+        for dx in (-600..=600).step_by(150) {
+            for dz in (-600..=600).step_by(150) {
+                for dy in (-1200..=1200).step_by(40) {
+                    let at = [home[0] + dx, home[1] + dy, home[2] + dz];
+                    g.things[a].pos = rrt::glam::Vec3::new(at[0] as f32, at[1] as f32, at[2] as f32);
+                    for i in 0..3 {
+                        p.write_u32(oa + 0x18 + 4 * i as u32, at[i] as u32);
+                    }
+                    let theirs = p.hle.call_nested(0x8006_c7a0, &[oa, ob]).unwrap();
+                    let mine = g.stacks(a, b) as u32;
+                    if mine == theirs {
+                        same += (mine != 0) as usize;
+                    } else {
+                        off += 1;
+                        if off <= 10 {
+                            eprintln!("level {level} things {a} on {b} at {:?}: port {mine} original {theirs}", [dx, dy, dz]);
+                        }
+                    }
+                }
+            }
+        }
+        g.things[a].pos = start;
+        for i in 0..3 {
+            p.write_u32(oa + 0x18 + 4 * i as u32, saved[i] as u32);
+        }
+    }
+    (same, off)
+}
+
+#[test]
+#[ignore]
+fn things_stack_as_the_original() {
+    if cue().is_none() {
+        return;
+    }
+    let mut bad = 0;
+    // Level 3's planks (651) and tipped pillars (650); level 6's boxes.
+    for (level, pairs) in [(3u8, vec![(7, 10), (10, 7), (7, 6), (10, 11), (9, 12)]), (6, vec![(0, 1), (8, 9)])] {
+        let (same, off) = stacking_as_the_original(level, &pairs);
+        eprintln!("level {level}: {same} stackings the same, {off} answers off");
+        bad += (off != 0 || same < 20) as usize;
+    }
+    assert_eq!(bad, 0, "levels with stackings off");
+}

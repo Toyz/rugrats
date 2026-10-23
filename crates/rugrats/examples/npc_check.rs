@@ -169,19 +169,29 @@ fn main() -> Result<(), String> {
     if let Ok(at) = std::env::var("PUT") {
         let v: Vec<i32> = at.split(',').filter_map(|s| s.parse().ok()).collect();
         if let [x, y, z] = v[..] {
+            // (On the floor there, so neither falls: PUTAIR=1 keeps y.)
+            let q = rugrats::world::collide::query(&g.col, [x, y, z]);
+            let y = if q.tile.is_some() && std::env::var_os("PUTAIR").is_none() { q.floor } else { y };
             p.put([x, y, z], 0);
             // (And the floor under it, +0x13c, +0x140 and +0x148, which a
-            // put leaves as it was, as the oracle tests' put.)
-            let q = rugrats::world::collide::query(&g.col, [x, y, z]);
+            // put leaves as it was, and the body's matrix, +0x04, as the
+            // oracle tests' put.)
+            let pl = rugrats_hle::play::PLAYER;
             if q.tile.is_some() {
-                let pl = rugrats_hle::play::PLAYER;
                 p.write_u32(pl + 0x13c, q.floor as u32);
                 p.write_u32(pl + 0x140, q.ceiling as u32);
                 p.write_u32(pl + 0x148, q.floor as u32);
             }
+            let m = g.trig.rotation([0, 0, 0]);
+            for r in 0..3 {
+                for c in 0..3 {
+                    p.write_i16(pl + 4 + 2 * (3 * r + c) as u32, m[r][c] as i16);
+                }
+            }
             g.player.pos = [x, y, z];
             g.player.heading = 0;
             g.player.target = 0;
+            g.player.speed = 0;
         }
     }
     // CASTS=1: the original characters' look-ahead casts (0x80082b60):

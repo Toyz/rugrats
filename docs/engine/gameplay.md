@@ -951,9 +951,9 @@ A flight meeting the world (0x80087594, 0x80086668):
   mark with the pool full takes the oldest's place. One made through
   0x8008e72c (+0x66 set) lasts until so taken, else it is drawn once and
   freed; marks 209, 212 and 218 run sequences 0x1019, 0x101a, 0x101c; +0x65
-  makes it semi-transparent. The world test runs per room (0x80086668
-  recurses into the next room along the segment), so a drop crossing rooms
-  can mark twice.
+  makes it semi-transparent. The stop test (0x80087414: the floor within
+  the radius under the backed-off place) goes through 0x80086668 too, so
+  a hit with a floor under it marks twice: the hit, then the floor.
 
 The shared count 0x800c4ba0: callbacks 1 and 6, touch 1 (0x80050140), the
 collectibles of kind 16 (0x8004d570, sound 146, back to 500) and each

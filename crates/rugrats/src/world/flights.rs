@@ -656,16 +656,20 @@ impl Flights {
         let mut done = Vec::new();
         let mut calls = Vec::new();
         for (k, f) in self.flying.iter_mut().enumerate() {
-            let mut met = None;
+            let mut met = Vec::new();
             let (end, hit) = step_one(f, col, &self.angles, ms, dt, &mut met);
             // What met the world calls its +0x80, then sounds where it is
             // (0x80087594).
-            if let (Some((point, normal)), 1..) = (met, f.on_hit) {
+            if let (Some(&(point, normal)), 1..) = (met.first(), f.on_hit) {
                 calls.push((f.on_hit, point, normal));
             }
-            // The world met: its mark (0x8008652c, record +0x2a).
-            if let (Some((point, normal)), Some(m)) = (met, f.mark) {
-                self.marked.push((m, point, normal));
+            // The world met: its mark (0x8008652c, record +0x2a), each time
+            // 0x80086668 met it: the hit, and the floor under it the stop
+            // test (0x80087414) found.
+            if let Some(m) = f.mark {
+                for &(point, normal) in &met {
+                    self.marked.push((m, point, normal));
+                }
             }
             if hit != 0 && f.sound != 0 {
                 self.heard.push((f.sound, f.pos));
@@ -1257,7 +1261,7 @@ fn fade_rate(flags: u32) -> i32 {
 
 /// One record's frame (0x80087c5c); true when it is done.
 /// Whether it is done, and the hit bits of `collide_world`.
-fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32, met: &mut Option<([i32; 3], [i32; 3])>) -> (bool, u32) {
+fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32, met: &mut Vec<([i32; 3], [i32; 3])>) -> (bool, u32) {
     let mut done = false;
     let mut hit = 0;
     if f.grow != 0 {
@@ -1318,7 +1322,7 @@ fn step_one(f: &mut Flight, col: &Col, angles: &Angles, ms: i32, dt: i32, met: &
 /// Not here: objects (flag 0x20000, 0x80086340), what the hit calls
 /// (+0x80) and the mark (+0x2a, 0x8008652c). The sound (+0x88) is the
 /// caller's.
-fn collide_world(f: &mut Flight, col: &Col, angles: &Angles, before: [i32; 3], met: &mut Option<([i32; 3], [i32; 3])>) -> u32 {
+fn collide_world(f: &mut Flight, col: &Col, angles: &Angles, before: [i32; 3], met: &mut Vec<([i32; 3], [i32; 3])>) -> u32 {
     if f.flags & flag::WORLD == 0 {
         return 0;
     }
@@ -1330,7 +1334,7 @@ fn collide_world(f: &mut Flight, col: &Col, angles: &Angles, before: [i32; 3], m
         return 0;
     }
     let mut bits = 1 | 8;
-    *met = Some((hit.point, hit.normal));
+    met.push((hit.point, hit.normal));
     let (c, r) = reflect(angles, f.v, hit.normal);
     if c < 1025 {
         return bits & !1;
@@ -1338,7 +1342,11 @@ fn collide_world(f: &mut Flight, col: &Col, angles: &Angles, before: [i32; 3], m
     let back = [0, 1, 2].map(|k| hit.point[k] - ((u[k] * reach) >> 12));
     let speed = collide::length(f.v) - 95;
     let below = [back[0], back[1] + f.radius, back[2]];
-    let floor = collide::segment(col, back, below, &mut Segment::default()) != 0;
+    let mut under = Segment::default();
+    let floor = collide::segment(col, back, below, &mut under) != 0;
+    if floor {
+        met.push((under.point, under.normal));
+    }
     if floor && speed < 382 {
         f.v = [0; 3];
         bits |= 2;

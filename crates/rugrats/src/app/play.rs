@@ -54,6 +54,10 @@ impl Rugrats {
         game.state_block = self.progress.block;
         game.frame(&self.pads);
         self.play_effects(game.effects.iter().copied());
+        self.play_voices(&game.voice_cmds);
+        if game.loaded.is_some() || game.ending || game.quit || game.exit.is_some() {
+            self.silence_sources(&game);
+        }
         if let Some(n) = game.say_now.take() {
             self.say_now(&mut game.lines, n);
         }

@@ -368,6 +368,16 @@ fn main() -> Result<(), String> {
             });
         }
     }
+    // SRCDBG=1: the sources' voice turns (0x800b0788: voice, left << 7,
+    // right << 7), compared each frame.
+    let turned: Rc<std::cell::RefCell<Vec<(usize, (i32, i32))>>> = Rc::default();
+    if std::env::var_os("SRCDBG").is_some() {
+        let t = turned.clone();
+        p.hle.m.hook(0x800b_0788, move |c| {
+            t.borrow_mut().push((c.cpu.reg(4) as usize, (c.cpu.reg(5) as i32 >> 7, c.cpu.reg(6) as i32 >> 7)));
+            rrt::emu::HookResult::Continue
+        });
+    }
     // FLIGHTS=1: each launch (0x8008864c's record) on both sides, compared
     // frame by frame as the sounds are: flags, place, radius, life,
     // direction, speed, sprite (its TEXPOS entry), half size (neither for
@@ -534,6 +544,15 @@ fn main() -> Result<(), String> {
                 }
                 // (And the ambience's count, 0x800c4cc0.)
                 g.ambience = p.read_i32(0x800c_4cc0);
+                // (And the sound sources' voices and on flags, 0x800e3218
+                // +0x04 and +0x08, in their order.)
+                for (i, src) in g.sources.iter_mut().enumerate() {
+                    let r = 0x800e_3218 + 40 * i as u32;
+                    let voice = p.read_i32(r + 4);
+                    src.voice = (voice != 0).then_some(voice as usize);
+                    src.on = p.read_i16(r + 8) != 0;
+                }
+                g.sync_source_voices();
                 // (And the level's own countdown, 0x800c4ce4.)
                 let v = p.read_i32(0x800c_4ce4);
                 g.with_script(|s, _| s.set_countdown(v));
@@ -691,6 +710,21 @@ fn main() -> Result<(), String> {
         // EMITDBG=1: each frame, the trigger cursor, the shared sound count
         // and the direction seed on both sides, and each class 10 object's
         // clock (+0x64, +0x98's +0x00) and whether it is scheduled.
+        // THINGDBG=template: that template's things on both sides.
+        if let Some(t) = std::env::var("THINGDBG").ok().and_then(|v| v.parse::<u16>().ok()) {
+            let mut theirs: Vec<[i32; 3]> = Vec::new();
+            let held = p.read_u32(0x800e_2b48 + 0x1f0);
+            if held != 0 && p.read_i16(held + 0x96) as u16 == t {
+                theirs.push([0, 4, 8].map(|i| p.read_i32(held + 0x18 + i)));
+            }
+            for &o in &objs {
+                if p.read_i16(o + 0x96) as u16 == t {
+                    theirs.push([0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)));
+                }
+            }
+            let mine: Vec<[i32; 3]> = g.things.iter().filter(|th| th.template == t).map(|th| [th.pos.x as i32, th.pos.y as i32, th.pos.z as i32]).collect();
+            println!("     THING {f} orig {theirs:?} port {mine:?}");
+        }
         // VISDBG=1: the rooms the render drew and their rectangles
         // (0x800e00c0, 12 bytes each, 0x800c4052 of them) on both sides.
         if std::env::var_os("VISDBG").is_some() {
@@ -736,6 +770,29 @@ fn main() -> Result<(), String> {
             }
             let mine: Vec<(bool, [i32; 3])> = g.marks.iter().map(|m| (m.lasting, m.at)).collect();
             println!("     MARKS {f} orig {theirs:?} port {mine:?}");
+        }
+        // SRCDBG=1: the sound sources on both sides (0x800e3218, 40 bytes,
+        // 0x800c434b of them).
+        if std::env::var_os("SRCDBG").is_some() {
+            let n = p.read_u8(0x800c_434b) as u32;
+            let theirs: Vec<(i32, i32, i16, [i32; 3])> = (0..n).map(|i| {
+                let r = 0x800e_3218 + 40 * i;
+                (p.read_i32(r), p.read_i32(r + 4), p.read_i16(r + 8), [0xc, 0x10, 0x14].map(|k| p.read_i32(r + k)))
+            }).collect();
+            let mine: Vec<_> = g.sources.iter().map(|s| (s.key, s.voice, s.on, s.pos)).collect();
+            let theirs_turns = std::mem::take(&mut *turned.borrow_mut());
+            let mine_turns: Vec<(usize, (i32, i32))> = g.voice_cmds.iter().filter_map(|c| match *c {
+                rugrats::world::game::sources::VoiceCmd::Turn { voice, at } => Some((voice, at)),
+                _ => None,
+            }).collect();
+            if theirs_turns != mine_turns {
+                println!("     TURN {f} orig {theirs_turns:?} port {mine_turns:?}");
+            } else if !mine_turns.is_empty() {
+                println!("     TURN {f} same {mine_turns:?}");
+            }
+            if std::env::var_os("SRCALL").is_some() {
+                println!("     SRC {f} orig {theirs:?} port {mine:?} cmds {:?}", g.voice_cmds);
+            }
         }
         // SPINDBG=1: each spinner's angles, last think and frames since
         // drawn on both sides.
@@ -799,6 +856,11 @@ fn main() -> Result<(), String> {
                         [t[0], t[1], t[2]]
                     }
                 })
+                // (And the sound sources keyed on, 0x8006f88c.)
+                .chain(g.voice_cmds.iter().filter_map(|c| match *c {
+                    rugrats::world::game::sources::VoiceCmd::On { key, .. } => Some(key),
+                    _ => None,
+                }))
                 .collect();
             let mut theirs = std::mem::take(&mut *keyed.borrow_mut());
             // The port's owed from the frame before, then this frame's.

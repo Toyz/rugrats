@@ -12,7 +12,8 @@ use crate::media::cine::Set;
 
 /// A sound source (0x8006fe04: a 40-byte record at 0x800e3218): the
 /// effect, its place, the distance it is heard full and the one it fades
-/// out by, and its volume.
+/// out by, and its volume; `random`: its sound drawn at load, the game's
+/// rand % 3 (template 1178).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SoundSource {
     pub sound: u8,
@@ -20,6 +21,7 @@ pub struct SoundSource {
     pub near: i32,
     pub far: i32,
     pub volume: u8,
+    pub random: bool,
 }
 
 /// The template's sound or line word (+0x24) a pickable gets when it has
@@ -70,6 +72,21 @@ impl Set {
         let mut copies: Vec<Placement> = Vec::new();
         for k in 0..self.placements.len() {
             let p = self.placements[k];
+            // An LP kind 3 record is a sound source (the loader, 0x800454dc
+            // at 0x80045b24): its sound the template word's high half,
+            // near and far the rotation's first two words, its volume the
+            // third's low half.
+            if p.kind == 3 {
+                self.sound_sources.push(SoundSource {
+                    sound: (p.template >> 16) as u8,
+                    pos: p.pos,
+                    near: p.rotation[0],
+                    far: p.rotation[1],
+                    volume: p.rotation[2] as u8,
+                    random: false,
+                });
+                continue;
+            }
             if p.kind != 1 {
                 continue;
             }
@@ -329,7 +346,7 @@ impl Set {
             }
             // The sound sources it starts (0x8006fe04: sound, place, the
             // two distances, the volume).
-            let source = |sound: u8, near: i32, far: i32, volume: u8| SoundSource { sound, pos, near, far, volume };
+            let source = |sound: u8, near: i32, far: i32, volume: u8| SoundSource { sound, pos, near, far, volume, random: false };
             let started = match (level, template) {
                 (3, 91) => Some(source(4, 1024, 4000, 127)),
                 (3, 614) => Some(source(5, 993, 4000, 64)),
@@ -339,6 +356,7 @@ impl Set {
                 (28, 920) => Some(source(1, 1024, 2000, 127)),
                 (28, 535) => Some(source(2, 1024, 2000, 127)),
                 (31, 789) => Some(source(0, 1024, 4000, 127)),
+                (_, 1178) => Some(SoundSource { random: true, ..source(0, 1024, 4000, 127) }),
                 _ => None,
             };
             self.sound_sources.extend(started);

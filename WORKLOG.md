@@ -8,7 +8,7 @@ Running engineering log for reverse engineering Rugrats: Search for Reptar
 Code says what; the worklog says *how we found out* and *why it is that way*.
 The [reference](docs/README.md) says what is true now.
 
-235 entries: audio 20, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 30, format 9, input 5, play 117, render 33, save 4, test 28, tooling 18, ui 13, video 10.
+236 entries: audio 21, bug 5, build 3, content 1, decomp 13, design 2, disc 1, engine 30, format 9, input 5, play 117, render 33, save 4, test 28, tooling 18, ui 13, video 10.
 
 | # | Entry | Date | Area |
 | ---: | --- | --- | --- |
@@ -247,3 +247,4 @@ The [reference](docs/README.md) says what is true now.
 | 233 | [The class 10 emitters as the original's: their clocks, schedule and callbacks](worklog/0233-the-class-10-emitters-as-the-original-s-their-clocks.md) | 2026-10-18 | engine |
 | 234 | [The render's rooms, the spinners' and characters' hit callbacks, the flights' marks and splashes, the shared count](worklog/0234-the-render-s-rooms-the-spinners-and-characters-hit.md) | 2026-10-19 | engine |
 | 235 | [Doors scheduled by their triggers as the original's, level 26's roar synced; the sweep's sounds and flights all the original's in 24 levels](worklog/0235-doors-scheduled-by-their-triggers-as-the-original-s-level.md) | 2026-10-19 | engine |
+| 236 | [The looping sound sources as the original's, and placed sounds panned to the right side](worklog/0236-the-looping-sound-sources-as-the-original-s-and-placed.md) | 2026-10-22 | audio |

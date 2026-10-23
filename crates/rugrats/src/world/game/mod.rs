@@ -47,6 +47,7 @@ mod goodies;
 mod movers;
 mod pause;
 mod rooms;
+pub mod sources;
 pub mod shadow;
 mod story;
 mod things;
@@ -380,6 +381,11 @@ pub struct Game {
     /// frame began at (the oracle's emulated timing reads one later in
     /// some runs, which tools copy).
     pub vsync_lag: u32,
+    /// The looping sound sources (`sources`), their free voices
+    /// (0x800c4be8) and what they ask of the SPU this frame.
+    pub sources: Vec<sources::Source>,
+    free_voices: u8,
+    pub voice_cmds: Vec<sources::VoiceCmd>,
     /// The camera's room (+0x80) and the rooms the render drew this frame
     /// (`visible`).
     pub camera_room: Option<usize>,
@@ -594,10 +600,26 @@ impl Game {
         }
     }
 
+    /// Where the sounds are heard from: the eye, and the heading it faces
+    /// (0x80021590 from the eye to the eye plus the camera matrix's third
+    /// column: 0x80010b54 copies the matrix transposed).
+    pub(super) fn listener(&self) -> ([i32; 3], i32) {
+        let (eye, rows) = self.view;
+        let at = [eye.x, eye.y, eye.z].map(|c| c as i32);
+        let col = match self.rows {
+            Some(m) => [m[0][2], m[1][2], m[2][2]],
+            None => {
+                let c = rows.col(2);
+                [c.x, c.y, c.z].map(|v| (v * 4096.0).round() as i32)
+            }
+        };
+        (at, self.trig.bearing(at, [at[0] + col[0], at[1] + col[1], at[2] + col[2]]))
+    }
+
     /// The volumes a sound at `pos` is heard at (0x8006f4c0), none when
     /// too far off.
     fn heard_at(&self, pos: [i32; 3]) -> Option<(i32, i32)> {
-        let (eye, rows) = self.view;
+        let (eye, _) = self.view;
         let d = [pos[0] - eye.x as i32, pos[1] - eye.y as i32, pos[2] - eye.z as i32];
         if d[0].abs() > 0xfffe || d[1].abs() >= 0x7fff || d[2].abs() > 0xfffe {
             return None;
@@ -609,10 +631,8 @@ impl Game {
         let at = if audio.mono {
             (v, v)
         } else {
-            // Bearings as headings: 0 faces +z, 1024 +x (0x80021590).
-            let bearing = |x: f32, z: f32| (x.atan2(z) * 4096.0 / std::f32::consts::TAU) as i32;
-            let ahead = rows.row(2);
-            let angle = bearing(d[0] as f32, d[2] as f32) - bearing(ahead.x, ahead.z);
+            let (at, facing) = self.listener();
+            let angle = self.trig.bearing(at, pos) - facing;
             pan(&self.trig, angle.rem_euclid(4096), v)
         };
         Some(at)
@@ -1060,6 +1080,7 @@ impl Game {
         let focal = trig.geom_screen(FOV).unwrap_or(256) as f32;
         let boxes = object_boxes(&set, &trig, |k| apart[k]);
         let posts = npc::posts(&set.placements);
+        let sources = Game::sources_of(disc, level, &set, &mut Rand::default());
         let mut g = Game {
             level,
             set,
@@ -1106,7 +1127,7 @@ impl Game {
             bars: progress.bars_available(),
             bar_shown: 0,
             found: Vec::new(),
-            state_block: [0; STATE_SIZE],
+            state_block: progress.block,
             loaded: None,
             carried: None,
             grip: [0; 3],
@@ -1147,6 +1168,9 @@ impl Game {
             vcount: 0,
             vsync_lag: 2,
             camera_room: None,
+            sources,
+            free_voices: Game::source_voices(),
+            voice_cmds: Vec::new(),
             drawn: Vec::new(),
             emitters: Vec::new(),
             last_note: None,
@@ -2378,6 +2402,7 @@ impl Game {
         self.view = (eye, rows);
         self.stage.camera = crate::stage::view(eye, rows, self.focal);
         self.draw_thinks();
+        self.source_thinks();
     }
 }
 

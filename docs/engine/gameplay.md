@@ -1132,7 +1132,7 @@ A suggested order, each step checkable against the oracle:
   their drawing (0x8008e508); the port lays them as the pies'.
 - Which VSync count the thinks read on the hardware (the oracle reads the
   frame's start in one harness, one later in another).
-- LP kinds 3 (0x8006fe04, sound?) and 7, record +0x46..+0x4a (template 835
-  chains), and template bytes +0x07..+0x0b's tables.
+- LP kind 7, record +0x46..+0x4a (template 835 chains), and template
+  bytes +0x07..+0x0b's tables. (LP kind 3 is a sound source: sound.md.)
 - Level-specific code in the player update (levels 4, 6, 7, 11, 20-31).
 - State +0x23 (0x800b2920) and the flags in state +0x30 / 0x800c56a8.

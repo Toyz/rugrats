@@ -221,6 +221,28 @@ impl Trig {
         }
     }
 
+    /// The heading from `from` to `to` across (x, z) (0x80021590): 0 along
+    /// +z, 1024 along +x; by the arc sine of x / length where |x| < |z|,
+    /// else the arc cosine of z / length (the length the floor square root,
+    /// 0x8001f4ec).
+    pub fn bearing(&self, from: [i32; 3], to: [i32; 3]) -> i32 {
+        let (dx, dz) = (to[0].wrapping_sub(from[0]), to[2].wrapping_sub(from[2]));
+        let len = (dx.wrapping_mul(dx).wrapping_add(dz.wrapping_mul(dz)) as u32).isqrt() as i16 as i32;
+        let over = |v: i32| if len == 0 { 0 } else { (v << 12) / len };
+        let v = if dx.abs() < dz.abs() {
+            let a = self.asin(over(dx) as i16 as i32);
+            match (dx < 0, dz < 0) {
+                (true, false) => a + 4096,
+                (_, true) => 2048 - a,
+                (false, false) => a,
+            }
+        } else {
+            let a = self.acos(over(dz) as i16 as i32);
+            if dx < 0 { 4096 - a } else { a }
+        };
+        v as i16 as i32
+    }
+
     /// rsin (0x8009efd8): 4096 to a turn.
     pub fn sin(&self, a: i32) -> i32 {
         let t = |k: i32| self.sin[k as usize] as i32;

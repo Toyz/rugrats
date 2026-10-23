@@ -67,7 +67,7 @@ or level 7 with +0x30 bit 512. Seven Reptar bars lie at fixed spots.
 | progress +0x34 (0x800c56ac) | u32 | bit 14 closes a door to level 14 (0x8004689c; no DB01 door has 14) |
 | progress +0x38 (0x800c56b0) | u32 | completed levels: a completed door's name is cyan (0x80049eec) |
 | 0x800c4ce4 | s32 | Spike's bark countdown (dt), 0 at load |
-| 0x800c4ba0 | s32 | 100 at EpisodeStart; a countdown shared by object sounds (bar think 0x8004d570, sliding door 0x8004e458; guess: a sound cooldown) |
+| 0x800c4ba0 | s32 | 100 at EpisodeStart; the shared sound count (the emitters' bubbles 0x80053344, touch 1, the collectibles' kind 16, the sliding doors' think: gameplay.md, "Emitters and hit callbacks") |
 | 0x800c3f20 | s32 | the scheduler's step, 136 (0x88, seen) a frame: a think scheduled with period 136 (0x80049e18) runs every frame |
 | 0x800c3f1c | s32 | dt (10 a game frame; seen by the bark countdown) |
 
@@ -536,12 +536,12 @@ how much they matter to playing:
 - Whether carrying a pickable door toy (the door to 5, 6, 11, 13, 4, 2)
   away moves the door with it (its trigger follows the object; not
   tried).
-- What the class 5 objects (flags 0x400000) and the kind 3 sounds do.
+- What the class 5 objects (flags 0x400000) do. (The kind 3 sounds are
+  the looping sound sources, 0x8006fe04 and 0x8006f88c: gameplay.md.)
 - Who 13, 15 and 16 are and whether 600, 13, 15, 16 can ever be seen.
 - Object 518 (template 1149 made 1130, at (-920, 0, 118), room 3) and
   LP 71 (template 111, outside the house): why they exist (guess: left
   over).
-- What 0x800c4ba0 = 100 does in the hub (guess: a sound cooldown).
 - Where Spike goes when Tommy is far but Spike is near home (goal not
   updated).
 - Card arg for 712 (from 0x8004f78c: a1 is the player pointer).

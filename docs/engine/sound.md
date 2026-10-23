@@ -68,6 +68,44 @@ note. It keys that tone on in the effects bank (0x800a99a8, SsUtKeyOn)
 at the effects volume (s16 0x800c5688, 100 at boot) on both sides. The
 voice is taken in turn from 17 to 23 (0x800c434c).
 
+A sound at a place (0x8006f644) is heard from the camera: dx^2 / 16384
++ dy^2 / 4096 + dz^2 / 16384 through the falloff 0x800b8008 (full within
+128, none past 16384, 127 at most). It is panned by the heading from the
+eye to it (0x80021590: asin of x / length where |x| < |z|, else acos of
+z / length) less the heading the camera faces. That facing is the
+heading toward the eye plus the camera matrix's third column:
+0x80010b54 copies the matrix transposed. With the third row the pan
+comes out mirrored, as the port's did until now.
+
+## Sound sources (0x8006fe04, 0x8006f88c)
+
+A looping source is a 40-byte record at 0x800e3218, 0x800c434b of them:
++0x00 its sound, +0x04 its voice, +0x08 on, +0x0c its place, +0x1c and
++0x20 the distances it is full within and gone past, +0x24 its volume.
+They are started by:
+- the loader for an LP kind 3 record (0x800454dc at 0x80045b24: the
+  sound the template word's high half, near and far the rotation's first
+  two words, the volume the third's low half), in LP order;
+- the object set-up for some templates (91 and 614 in level 3, 227 in
+  16, 657 in 23, 1191, 920 and 535 in 28, 789 in 31, and 1178 with its
+  sound rand % 3);
+- level 4's start (one), and level 10's start, which empties the list
+  first and adds three.
+
+A source's sound is the level's table 0x800b847c[level] (s16 program,
+tone, note) at its sound. Each frame (0x8006f88c, after the draw) each
+source is heard as a placed sound is, but through its own falloff
+(0x8006fd68 with its record; mono uses 0x800b8008):
+- heard and on, it is keyed on a free voice (0x800c4be8: 7 at a level's
+  start, so 15, 16 and 17; 0x800a99a8 with the voice) or turned
+  (SsUtSetVVol, 0x800b0788);
+- not heard, it is keyed off (0x800a9cf0) and its voice freed.
+
+Leaving a level (0x80094bfc) silences them (0x8006f828). The port's
+`world::game::sources` does this, through retro_rt's `Spu::key_on_voice`,
+`set_voice_volume` and `key_off`. npc_check SRCDBG=1 compares the turns
+each frame: the same where the cameras are.
+
 ## SEP
 
 See `rrt::kit::libsnd::sep`:

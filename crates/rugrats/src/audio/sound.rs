@@ -162,6 +162,20 @@ impl Spu {
         }
     }
 
+    /// A looping source keyed on voice `voice` itself (0x800a99a8 with its
+    /// voice, `SsUtKeyOnV`), turned (`SsUtSetVVol`), keyed off.
+    pub fn key_on_voice(&mut self, voice: usize, [prog, tone, note]: [u8; 3], at: (i32, i32)) {
+        self.spu.key_on_voice(voice, prog, tone, note, at);
+    }
+
+    pub fn set_voice_volume(&mut self, voice: usize, at: (i32, i32)) {
+        self.spu.set_voice_volume(voice, at);
+    }
+
+    pub fn key_off(&mut self, voice: usize) {
+        self.spu.key_off(voice);
+    }
+
     /// Program, tone and note keyed on directly (0x800a99a8).
     pub fn key(&mut self, [prog, tone, note]: [u8; 3], at: (i32, i32)) {
         self.spu.key_on(prog, tone, note, at);

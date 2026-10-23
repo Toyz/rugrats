@@ -23,7 +23,8 @@ use crate::rand::Rand;
 use crate::save::card::Cards;
 use crate::save::progress::Progress;
 use crate::stage::Stage;
-use crate::world::game::Effect;
+use crate::world::game::sources::VoiceCmd;
+use crate::world::game::{Effect, Game};
 
 use flow::Boot;
 use golf_round::GolfRound;
@@ -192,6 +193,30 @@ impl Rugrats {
             match e.key {
                 Some(key) => spu.key(key, at),
                 None => spu.effect(&self.effect_table, e.sound as usize, at),
+            }
+        }
+    }
+
+    /// The sound sources' voices this frame (0x8006f88c).
+    fn play_voices(&self, cmds: &[VoiceCmd]) {
+        let Ok(mut spu) = self.spu.lock() else { return };
+        for &c in cmds {
+            match c {
+                VoiceCmd::On { voice, key, at } => spu.key_on_voice(voice, key, at),
+                VoiceCmd::Turn { voice, at } => spu.set_voice_volume(voice, at),
+                VoiceCmd::Off { voice } => spu.key_off(voice),
+            }
+        }
+    }
+
+    /// The sources' voices silenced as the level is left (0x80094bfc's
+    /// 0x8006f828).
+    fn silence_sources(&self, game: &Game) {
+        if let Ok(mut spu) = self.spu.lock() {
+            for s in &game.sources {
+                if let Some(voice) = s.voice {
+                    spu.key_off(voice);
+                }
             }
         }
     }

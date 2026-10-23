@@ -1723,7 +1723,8 @@ impl Game {
             let flag8 = self.set.templates.get(template).is_some_and(|t| t.flags & 8 != 0);
             let shape = if b.broken { b.shape + 1 } else { b.shape };
             if !flag8 && let Some(model) = self.set.models.get(shape) {
-                let at = boxes::exact(world_boxes(model, b.rot, b.pos), boxes::ipos(b.pos), boxes::angles_of(&self.trig, b.rot), shape);
+                let size = crate::world::boxhit::bound_size(&model.boxes);
+                let at = boxes::exact(world_boxes(model, b.rot, b.pos), boxes::ipos(b.pos), boxes::angles_of(&self.trig, b.rot), shape, size);
                 boxes.extend(at.into_iter().map(|mut x| {
                     x.template = template as u16;
                     x
@@ -1732,7 +1733,8 @@ impl Game {
         }
         for m in &self.movers {
             if let Some(model) = self.set.models.get(m.shape) {
-                let at = boxes::exact(world_boxes(model, m.rot, m.world()), m.pos, boxes::angles_of(&self.trig, m.rot), m.shape);
+                let size = crate::world::boxhit::bound_size(&model.boxes);
+                let at = boxes::exact(world_boxes(model, m.rot, m.world()), m.pos, boxes::angles_of(&self.trig, m.rot), m.shape, size);
                 boxes.extend(at.into_iter().map(|mut b| {
                     b.template = m.template;
                     b
@@ -1749,7 +1751,7 @@ impl Game {
             if let (false, Some(model)) = (skipped, self.set.models.get(s.shape)) {
                 let placed = self.trig.placed_angles(self.set.placements[s.placement].rotation);
                 let angles = [0, 1, 2].map(|i| (placed[i] as i32 + s.angle[i]) as i16);
-                let at = boxes::exact(world_boxes(model, s.rot(&self.trig), s.pos), boxes::ipos(s.pos), angles, s.shape);
+                let at = boxes::exact(world_boxes(model, s.rot(&self.trig), s.pos), boxes::ipos(s.pos), angles, s.shape, self.size_of(s.placement, s.shape));
                 boxes.extend(at.into_iter().map(|mut b| {
                     b.template = template as u16;
                     b
@@ -1758,7 +1760,7 @@ impl Game {
         }
         for w in &self.walkers {
             if let Some(model) = self.set.models.get(w.shape) {
-                boxes.extend(boxes::exact(world_boxes(model, w.rot(&self.trig), w.world()), w.pos, [w.heading as i16, 0, 0], w.shape));
+                boxes.extend(boxes::exact(world_boxes(model, w.rot(&self.trig), w.world()), w.pos, [w.heading as i16, 0, 0], w.shape, self.size_of(w.placement, w.shape)));
             }
         }
         // Doors are solid where they are drawn (0x80069c40).
@@ -1773,14 +1775,14 @@ impl Game {
                 if d.hinged {
                     angles[0] = (angles[0] as i32 + d.offset[0]) as i16;
                 }
-                boxes.extend(boxes::exact(world_boxes(model, rot, pos), boxes::ipos(pos), angles, d.shape));
+                boxes.extend(boxes::exact(world_boxes(model, rot, pos), boxes::ipos(pos), angles, d.shape, self.size_of(d.placement, d.shape)));
             }
         }
         self.solid = boxes.clone();
         for t in self.things.iter().filter(|t| t.state == ThingState::Rest && !t.hidden) {
             if let Some(m) = self.set.models.get(t.shape) {
                 let climb = self.set.templates.get(t.template as usize).is_some_and(|tp| tp.flags & 64 != 0);
-                let at = boxes::exact(world_boxes(m, t.rot, t.pos), boxes::ipos(t.pos), boxes::angles_of(&self.trig, t.rot), t.shape);
+                let at = boxes::exact(world_boxes(m, t.rot, t.pos), boxes::ipos(t.pos), boxes::angles_of(&self.trig, t.rot), t.shape, self.size_of(t.placement, t.shape));
                 boxes.extend(at.into_iter().map(|mut b| {
                     b.climb = climb;
                     b.template = t.template;
@@ -2042,7 +2044,7 @@ impl Game {
         // stopping Angelica's lunge).
         for t in self.things.iter().filter(|t| matches!(t.state, ThingState::Flying(_)) && !t.hidden) {
             let Some(m) = self.set.models.get(t.shape) else { continue };
-            let r = crate::world::boxhit::bound_size(&m.boxes);
+            let r = self.size_of(t.placement, t.shape);
             let shape = crate::world::boxhit::Shape::Model(m.boxes.iter().map(|(lo, hi)| (lo.map(|v| v as i32), hi.map(|v| v as i32))).collect());
             let solid = crate::world::boxhit::Solid { pos: boxes::ipos(t.pos), angles: boxes::angles_of(&self.trig, t.rot), bound: r, size: r, shape };
             let flags = self.set.templates.get(t.template as usize).map_or(0, |tp| tp.flags);

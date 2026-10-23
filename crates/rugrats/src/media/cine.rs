@@ -106,6 +106,11 @@ pub struct Set {
     pub room_lists: Vec<Vec<u8>>,
     /// The sound sources the object set-up starts (0x8006fe04).
     pub sound_sources: Vec<crate::world::fixups::SoundSource>,
+    /// Each placement's size (+0x86) as its set-up made it (0x80046570,
+    /// before the set-up's own changes to its model's boxes: an object
+    /// set up before such a change keeps the size the boxes had), 0 for
+    /// a placement no object.
+    pub sizes: Vec<i32>,
 }
 
 /// A room's portal (a 48-byte quad): its corners about the room's centre,
@@ -223,6 +228,7 @@ impl Set {
                 })
                 .collect(),
             sound_sources: Vec::new(),
+            sizes: Vec::new(),
         })
         .map(|mut set: Set| {
             // LP kind 6 (0x800454dc): room properties, the record's data

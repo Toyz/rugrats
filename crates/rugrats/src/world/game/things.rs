@@ -1197,7 +1197,7 @@ impl Game {
         let me = p.pos;
         let (mut best, mut nearest) = (None::<usize>, i32::MAX);
         for (k, t) in self.things.iter().enumerate().filter(|(_, t)| t.state == ThingState::Rest && !t.hidden) {
-            let radius = self.set.models.get(t.shape).map_or(0, |m| crate::world::boxhit::bound_size(&m.boxes));
+            let radius = self.size_of(t.placement, t.shape);
             let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
             if !self.nearby(at, radius) {
                 continue;
@@ -1309,7 +1309,7 @@ impl Game {
             keep(Touched::Npc(k), self.reaches(n.pos, CHARACTER_SIZE));
         }
         for (k, door) in self.doors.iter().enumerate() {
-            let radius = self.set.models.get(door.shape).map_or(0, |m| crate::world::boxhit::bound_size(&m.boxes));
+            let radius = self.size_of(door.placement, door.shape);
             let Some(q) = self.set.placements.get(door.placement) else { continue };
             if !self.load(Held::Object(q.template as u16, q.pos)).is_empty() {
                 continue;
@@ -1328,12 +1328,14 @@ impl Game {
             if t.hierarchy().is_some() {
                 continue;
             }
-            let Some(m) = self.set.models.get(t.shape as u32) else { continue };
+            if self.set.models.get(t.shape as u32).is_none() {
+                continue;
+            }
             // (Not one bearing a load, +0x74.)
             if !self.load(Held::Object(q.template as u16, q.pos)).is_empty() {
                 continue;
             }
-            keep(Touched::Placement(k), self.reaches(q.pos, crate::world::boxhit::bound_size(&m.boxes)));
+            keep(Touched::Placement(k), self.reaches(q.pos, self.size_of(k, t.shape as u32)));
         }
         best.map(|(t, _)| t)
     }
@@ -1617,6 +1619,12 @@ impl Game {
             (Some(a), Some(b)) => stacking(&self.trig, &a, &b),
             _ => 0,
         }
+    }
+
+    /// Placement `placement`'s size (+0x86) as its set-up made it, or
+    /// model `shape`'s boxes' ([`crate::world::boxhit::bound_size`]).
+    pub(super) fn size_of(&self, placement: usize, shape: u32) -> i32 {
+        self.set.sizes.get(placement).copied().filter(|&s| s > 0).unwrap_or_else(|| self.set.models.get(shape).map_or(0, |m| crate::world::boxhit::bound_size(&m.boxes)))
     }
 
     /// The objects resting on `h` (+0x74).

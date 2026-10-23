@@ -119,7 +119,25 @@ fn main() -> Result<(), String> {
         return Ok(());
     }
     let character = Some(g.character as u32).filter(|&c| c != 1);
-    let mut p = Play::boot(Rc::new(rrt::disc::Image::open(&cue).map_err(|e| e.to_string())?), Boot { level, character, cinematics: false })?;
+    // SETUP=template: each 0x80046570 on an object of that template during
+    // the boot, with its first box as it is then.
+    let setup = std::env::var("SETUP").ok().and_then(|v| v.parse::<u16>().ok());
+    let mut p = Play::boot_with(Rc::new(rrt::disc::Image::open(&cue).map_err(|e| e.to_string())?), Boot { level, character, cinematics: false }, move |hle| {
+        if let Some(want) = setup {
+            hle.m.hook(0x8004_6570, move |c| {
+                let o = c.arg32(0);
+                let t = c.bus.read_u16(o + 0x96).unwrap_or(0);
+                if t == want {
+                    let l = c.bus.read_u32(o + 0x88).unwrap_or(0);
+                    let bp = if l != 0 { c.bus.read_u32(l + 0xc).unwrap_or(0) } else { 0 };
+                    let b: Vec<i16> = (0..8).map(|i| c.bus.read_u16(bp + 2 * i).unwrap_or(0) as i16).collect();
+                    let at: Vec<i32> = (0..3).map(|i| c.bus.read_u32(o + 0x18 + 4 * i).unwrap_or(0) as i32).collect();
+                    println!("     SETUP {o:#x} template {t} at {at:?} +0x88 {l:#x} boxes at {bp:#x} box {b:?} ra {:#x}", c.cpu.reg(31));
+                }
+                rrt::emu::HookResult::Continue
+            });
+        }
+    })?;
     let ipos = |v: rrt::glam::Vec3| [v.x as i32, v.y as i32, v.z as i32];
     let (pa, pb) = (ipos(g.things[a].pos), ipos(g.things[b].pos));
     // OBJBOUNDS=1: every object's +0x78 box and +0x86 against its
@@ -130,7 +148,10 @@ fn main() -> Result<(), String> {
             let t = p.read_i16(o + 0x96) as u16 as usize;
             let b: Vec<i16> = (0..7).map(|i| p.read_i16(o + 0x78 + 2 * i)).collect();
             let size = p.read_i16(o + 0x86);
-            let r = g.set.templates.get(t).and_then(|tp| g.set.models.get(tp.shape as u32)).map(|m| rugrats::world::boxhit::bound_size(&m.boxes) as i16);
+            // (Its placement's set-up size, found by its place.)
+            let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
+            let placed = g.set.placements.iter().position(|q| q.pos == at && q.kind == 1 && q.template as usize == t).and_then(|k| g.set.sizes.get(k).copied()).filter(|&s| s > 0);
+            let r = placed.map(|s| s as i16).or_else(|| g.set.templates.get(t).and_then(|tp| g.set.models.get(tp.shape as u32)).map(|m| rugrats::world::boxhit::bound_size(&m.boxes) as i16));
             let cube = r.is_some_and(|r| b[0] == -r && b[1] == -r && b[2] == -r && b[4] == r && b[5] == r && b[6] == r && size == r);
             if std::env::var("OBJT").ok().and_then(|v| v.parse::<usize>().ok()) == Some(t) {
                 let m = g.set.templates.get(t).and_then(|tp| g.set.models.get(tp.shape as u32));
@@ -140,6 +161,11 @@ fn main() -> Result<(), String> {
                 println!("  {o:#x} +0x88 {l:#x} boxes {theirs:?}");
                 let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
                 let place = g.set.placements.iter().position(|q| q.pos == at);
+                if let Some(k) = place {
+                    let q = g.set.placements[k];
+                    let shape = g.set.templates.get(q.template as usize).map(|tp| tp.shape);
+                    println!("  {o:#x} port placement {k} template {} shape {shape:?} size {:?}", q.template, g.set.sizes.get(k));
+                }
                 println!("  {o:#x} flags {:#x} +0x44 {:#x} +0x48 {:#x} +0x50 {:#x} +0x3b {} | placement {place:?} {:?}", p.read_u32(o), p.read_u32(o + 0x44), p.read_u32(o + 0x48), p.read_u32(o + 0x50), p.read_u8(o + 0x3b), place.map(|k| (g.set.placements[k].kind, g.set.placements[k].id, g.set.placements[k].rotation)));
                 println!("  {o:#x} template {t} shape {:?} at {:?} angles {:?} +0x78 {b:?} +0x86 {size} | model radius {:?} boxes {:?}", g.set.templates.get(t).map(|tp| tp.shape), [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)), [0, 2, 4].map(|i| p.read_i16(o + 0x24 + i)), m.map(|m| m.radius), m.map(|m| m.boxes.clone()));
             }

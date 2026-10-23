@@ -70,8 +70,11 @@ impl Set {
     pub(crate) fn fix_up(&mut self, level: u8) {
         let mut robot_id = ROBOT_IDS;
         let mut copies: Vec<Placement> = Vec::new();
+        let mut sizes = vec![0; self.placements.len()];
+        let mut copy_sizes = Vec::new();
         for k in 0..self.placements.len() {
             let p = self.placements[k];
+            let copied = copies.len();
             // An LP kind 3 record is a sound source (the loader, 0x800454dc
             // at 0x80045b24): its sound the template word's high half,
             // near and far the rotation's first two words, its volume the
@@ -92,6 +95,22 @@ impl Set {
             }
             let Some(t) = self.templates.get(p.template as usize).copied() else { continue };
             let template = p.template;
+            // A collectible's set-up (0x80048a44) makes its model's first
+            // box the cube of 375 (kind 12's, model 0, which it takes) but
+            // for kinds 0 and 5, then sizes it again: the model shared.
+            let goodie_kind = word(&t, 0x26) as u16;
+            let mut shape = t.shape as u32;
+            if t.raw[4] == 12 && t.hierarchy().is_none() && !matches!(goodie_kind, 0 | 5) {
+                if goodie_kind == 12 {
+                    shape = 0;
+                }
+                if let Some(b) = self.models.get_mut(shape).and_then(|m| m.boxes.get_mut(0)) {
+                    *b = ([-375; 3], [375; 3]);
+                }
+            }
+            // Its size, before the changes below to its model's boxes
+            // (0x8004691c: 0x80046570 first).
+            sizes[k] = self.models.get(shape).map_or(0, |m| crate::world::boxhit::bound_size(&m.boxes));
             // The object's flags: the LP's, then the template's pickable
             // (+0x28), for one with a model (template flag 1 clear).
             let mut flags = p.flags;
@@ -377,7 +396,11 @@ impl Set {
             q.id = id;
             q.template = new_template;
             q.flags = flags;
+            // (A copy is the object copied whole, its size and all.)
+            copy_sizes.extend(std::iter::repeat_n(sizes[k], copies.len() - copied));
         }
         self.placements.extend(copies);
+        sizes.extend(copy_sizes);
+        self.sizes = sizes;
     }
 }

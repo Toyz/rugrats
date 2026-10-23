@@ -786,12 +786,13 @@ here (guess: dead, or left from an older menu).
   floor square root of the larger squared length of its boxes' least and
   greatest corners; none, 1024's cube, 1773), its bound +0x78 the cube of
   it; characters then get 8192 and collectibles' shared boxes are ±375
-  (649). A few objects hold a smaller one by room though only 0x80046570
-  writes the cube: level 3's 883 (5930 in rooms 0 and 35, 6172 in 9 and
-  18), level 6's spinner 1028 (1167 in room 14, 1432 in room 1), level
-  1's 248 and 1130, level 3's 623, level 12's 960 and 1070; the smaller
-  is the box's greatest corner's length alone. The port gives all the
-  set-up value.
+  (649). An object is sized when it is set up, in LP order, before its
+  set-up's own changes to its model's boxes (0x8004691c's template cases,
+  e.g. 1028's first box's top to -1000 at 0x80047890; a collectible's
+  ±375 at 0x80048a44): those set up before such a change keep the old
+  size (level 6's first 1028, 1167; level 3's 883 before the one at
+  0x1bd56, 5930). The port keeps each placement's (`Set::sizes`); checked
+  against every object of levels 1, 3, 6, 12 and 16 but the characters.
 - The nearby list's order. 0x80062ed4 rebuilds it (+0x100, count +0xff)
   each frame through 0x8006add8: the player's room's lists +0x48 and
   +0x4c, then each portal's room (room +0x30 portals of 48 bytes at

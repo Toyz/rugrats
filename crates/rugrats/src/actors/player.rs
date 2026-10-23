@@ -2052,6 +2052,8 @@ pub struct Obj {
     pub angles: [i16; 3],
     pub shape: u32,
     pub index: u8,
+    /// Its size (+0x86), its bound the cube of it.
+    pub size: i32,
 }
 
 /// A box's outline seen from above when it is turned other than about y

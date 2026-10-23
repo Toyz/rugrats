@@ -153,6 +153,24 @@ fn slab_into(a: [i32; 3], b: [i32; 3], size: [i32; 3], normal: &mut [i32; 3]) ->
     }
 }
 
+/// An object's size (+0x86, 0x80046570): the floor square root
+/// (0x8001f4ec) of the larger squared length of its model boxes' least
+/// corner and greatest (each axis over all the boxes); none, the cube of
+/// 1024's. Its bound (+0x78..+0x84) is the cube of that about its place.
+pub fn bound_size(boxes: &[([i16; 3], [i16; 3])]) -> i32 {
+    let (lo, hi) = if boxes.is_empty() {
+        ([-1024; 3], [1024; 3])
+    } else {
+        (
+            [0, 1, 2].map(|i| boxes.iter().map(|b| b.0[i] as i32).min().unwrap_or(0)),
+            [0, 1, 2].map(|i| boxes.iter().map(|b| b.1[i] as i32).max().unwrap_or(0)),
+        )
+    };
+    let sq = |v: [i32; 3]| v.iter().map(|&c| c.wrapping_mul(c)).fold(0i32, i32::wrapping_add);
+    let n = sq(lo).max(sq(hi));
+    if n < 2 { n } else { (n as u32).isqrt() as i32 }
+}
+
 /// The rows' matrix of angles `a` as 0x80020ee0 builds it, MatrixNormal'd
 /// (row r, column c).
 pub(crate) fn matrix(trig: &Trig, a: [i16; 3]) -> [[i32; 3]; 3] {

@@ -2042,7 +2042,7 @@ impl Game {
         // stopping Angelica's lunge).
         for t in self.things.iter().filter(|t| matches!(t.state, ThingState::Flying(_)) && !t.hidden) {
             let Some(m) = self.set.models.get(t.shape) else { continue };
-            let r = m.radius as i32;
+            let r = crate::world::boxhit::bound_size(&m.boxes);
             let shape = crate::world::boxhit::Shape::Model(m.boxes.iter().map(|(lo, hi)| (lo.map(|v| v as i32), hi.map(|v| v as i32))).collect());
             let solid = crate::world::boxhit::Solid { pos: boxes::ipos(t.pos), angles: boxes::angles_of(&self.trig, t.rot), bound: r, size: r, shape };
             let flags = self.set.templates.get(t.template as usize).map_or(0, |tp| tp.flags);

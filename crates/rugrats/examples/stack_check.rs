@@ -123,15 +123,26 @@ fn main() -> Result<(), String> {
     let ipos = |v: rrt::glam::Vec3| [v.x as i32, v.y as i32, v.z as i32];
     let (pa, pb) = (ipos(g.things[a].pos), ipos(g.things[b].pos));
     // OBJBOUNDS=1: every object's +0x78 box and +0x86 against its
-    // template's model radius on the port, those that differ.
+    // template's model's `bound_size` on the port, those that differ.
     if std::env::var_os("OBJBOUNDS").is_some() {
         let (mut same, mut off) = (0, 0);
         for o in objects(&mut p) {
             let t = p.read_i16(o + 0x96) as u16 as usize;
             let b: Vec<i16> = (0..7).map(|i| p.read_i16(o + 0x78 + 2 * i)).collect();
             let size = p.read_i16(o + 0x86);
-            let r = g.set.templates.get(t).and_then(|tp| g.set.models.get(tp.shape as u32)).map(|m| m.radius as i16);
+            let r = g.set.templates.get(t).and_then(|tp| g.set.models.get(tp.shape as u32)).map(|m| rugrats::world::boxhit::bound_size(&m.boxes) as i16);
             let cube = r.is_some_and(|r| b[0] == -r && b[1] == -r && b[2] == -r && b[4] == r && b[5] == r && b[6] == r && size == r);
+            if std::env::var("OBJT").ok().and_then(|v| v.parse::<usize>().ok()) == Some(t) {
+                let m = g.set.templates.get(t).and_then(|tp| g.set.models.get(tp.shape as u32));
+                let l = p.read_u32(o + 0x88);
+                let (n, bp) = if l != 0 { (p.read_i16(l + 0xa) as u16 as u32, p.read_u32(l + 0xc)) } else { (0, 0) };
+                let theirs: Vec<Vec<i16>> = (0..n.min(8)).map(|j| (0..8).map(|i| p.read_i16(bp + 16 * j + 2 * i)).collect()).collect();
+                println!("  {o:#x} +0x88 {l:#x} boxes {theirs:?}");
+                let at = [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i));
+                let place = g.set.placements.iter().position(|q| q.pos == at);
+                println!("  {o:#x} flags {:#x} +0x44 {:#x} +0x48 {:#x} +0x50 {:#x} +0x3b {} | placement {place:?} {:?}", p.read_u32(o), p.read_u32(o + 0x44), p.read_u32(o + 0x48), p.read_u32(o + 0x50), p.read_u8(o + 0x3b), place.map(|k| (g.set.placements[k].kind, g.set.placements[k].id, g.set.placements[k].rotation)));
+                println!("  {o:#x} template {t} shape {:?} at {:?} angles {:?} +0x78 {b:?} +0x86 {size} | model radius {:?} boxes {:?}", g.set.templates.get(t).map(|tp| tp.shape), [0, 4, 8].map(|i| p.read_i32(o + 0x18 + i)), [0, 2, 4].map(|i| p.read_i16(o + 0x24 + i)), m.map(|m| m.radius), m.map(|m| m.boxes.clone()));
+            }
             if cube {
                 same += 1;
             } else {
@@ -139,7 +150,7 @@ fn main() -> Result<(), String> {
                 println!("template {t} class {} +0x78 {b:?} +0x86 {size} | radius {r:?}", p.read_u8(o + 0xa6));
             }
         }
-        println!("{same} cubes of the model's radius, {off} not");
+        println!("{same} cubes of bound_size, {off} not");
         return Ok(());
     }
     // BOUNDS=1: each thing's +0x78 box and +0x86 on the original, its

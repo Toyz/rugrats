@@ -1197,7 +1197,7 @@ impl Game {
         let me = p.pos;
         let (mut best, mut nearest) = (None::<usize>, i32::MAX);
         for (k, t) in self.things.iter().enumerate().filter(|(_, t)| t.state == ThingState::Rest && !t.hidden) {
-            let radius = self.set.models.get(t.shape).map_or(0, |m| m.radius as i32);
+            let radius = self.set.models.get(t.shape).map_or(0, |m| crate::world::boxhit::bound_size(&m.boxes));
             let at = [t.pos.x as i32, t.pos.y as i32, t.pos.z as i32];
             if !self.nearby(at, radius) {
                 continue;
@@ -1232,8 +1232,9 @@ impl Game {
         best
     }
 
-    /// Whether an object at `at` of size `size` (+0x86: a model's radius,
-    /// its bound box +0x78 the cube of it about its place) is in the
+    /// Whether an object at `at` of size `size` (+0x86,
+    /// [`crate::world::boxhit::bound_size`], its bound box +0x78 the cube
+    /// of it about its place) is in the
     /// player's nearby list (0x80062ed4 / 0x8006abbc): his cylinder, 3 x
     /// his body box's larger half-extent across and 3 x its height's
     /// (0x80067ba4, with what he carries), meets the object's ball across
@@ -1308,7 +1309,7 @@ impl Game {
             keep(Touched::Npc(k), self.reaches(n.pos, CHARACTER_SIZE));
         }
         for (k, door) in self.doors.iter().enumerate() {
-            let radius = self.set.models.get(door.shape).map_or(0, |m| m.radius as i32);
+            let radius = self.set.models.get(door.shape).map_or(0, |m| crate::world::boxhit::bound_size(&m.boxes));
             let Some(q) = self.set.placements.get(door.placement) else { continue };
             if !self.load(Held::Object(q.template as u16, q.pos)).is_empty() {
                 continue;
@@ -1332,7 +1333,7 @@ impl Game {
             if !self.load(Held::Object(q.template as u16, q.pos)).is_empty() {
                 continue;
             }
-            keep(Touched::Placement(k), self.reaches(q.pos, m.radius as i32));
+            keep(Touched::Placement(k), self.reaches(q.pos, crate::world::boxhit::bound_size(&m.boxes)));
         }
         best.map(|(t, _)| t)
     }

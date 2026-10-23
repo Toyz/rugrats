@@ -782,11 +782,16 @@ here (guess: dead, or left from an older menu).
   ported but never seen on the original. Spike's put-down (1024 ahead,
   line 190) is ported unchecked; his part slot 0x24 back to model 79 is
   not.
-- Objects whose +0x78 bound is not the cube of their model's radius:
-  characters (1773, +0x86 8192), collectibles (class 11, 649) and a few
-  big ones (level 1's 140, 185, 231, 573; level 3's 494, 623, 883; level
-  6's 1028). The port's nearby test takes the model's radius for all but
-  the characters.
+- An object's size (+0x86) is 0x80046570's (`boxhit::bound_size`: the
+  floor square root of the larger squared length of its boxes' least and
+  greatest corners; none, 1024's cube, 1773), its bound +0x78 the cube of
+  it; characters then get 8192 and collectibles' shared boxes are ±375
+  (649). A few objects hold a smaller one by room though only 0x80046570
+  writes the cube: level 3's 883 (5930 in rooms 0 and 35, 6172 in 9 and
+  18), level 6's spinner 1028 (1167 in room 14, 1432 in room 1), level
+  1's 248 and 1130, level 3's 623, level 12's 960 and 1070; the smaller
+  is the box's greatest corner's length alone. The port gives all the
+  set-up value.
 - The nearby list's order. 0x80062ed4 rebuilds it (+0x100, count +0xff)
   each frame through 0x8006add8: the player's room's lists +0x48 and
   +0x4c, then each portal's room (room +0x30 portals of 48 bytes at

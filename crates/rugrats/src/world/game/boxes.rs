@@ -96,7 +96,7 @@ pub(super) fn solids(boxes: &mut [Box3], set: &Set) -> Vec<Exact> {
         let same = at.is_some_and(|a| a.pos == o.pos && a.angles == o.angles && a.shape == o.shape && o.index > a.index);
         if !same {
             let Some(m) = set.models.get(o.shape) else { continue };
-            let r = m.radius as i32;
+            let r = crate::world::boxhit::bound_size(&m.boxes);
             let shape = Shape::Model(m.boxes.iter().map(|(lo, hi)| (lo.map(|v| v as i32), hi.map(|v| v as i32))).collect());
             out.push(Exact { solid: Solid { pos: o.pos, angles: o.angles, bound: r, size: r, shape }, climb: b.climb, template: b.template });
         }
@@ -120,7 +120,7 @@ pub(super) fn focus_at(set: &Set, trig: &Trig, pos: [i32; 3], radius: i32, half:
             return None;
         }
         let m = set.models.get(t.shape as u32)?;
-        let size = m.radius as i32;
+        let size = crate::world::boxhit::bound_size(&m.boxes);
         let c = place.pos;
         let (dx, dz) = (c[0].wrapping_sub(pos[0]), c[2].wrapping_sub(pos[2]));
         let reach = (size + radius).wrapping_mul(size + radius) as u32;
